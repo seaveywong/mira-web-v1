@@ -125,7 +125,7 @@ def infer_ad_type(objective: str, optimization_goal: str, destination_type: str)
         return "messenger"
     if opt in ("OFFSITE_CONVERSIONS", "VALUE") and obj == "OUTCOME_SALES":
         return "purchase"
-    if opt == "OFFSITE_CONVERSIONS" and obj == "OUTCOME_LEADS":
+    if opt in ("OFFSITE_CONVERSIONS", "LEAD_GENERATION") and obj == "OUTCOME_LEADS":
         return "leads"
     if obj == "OUTCOME_TRAFFIC":
         return "traffic"
@@ -345,6 +345,9 @@ class KpiResolver:
         if objective == "PAGE_LIKES":
             return ("page_likes", "主页获赞")
         if objective == "OUTCOME_LEADS" and opt_goal in ("OFFSITE_CONVERSIONS", "LEAD_GENERATION", ""):
+            dst = (dest_type or "").upper()
+            if dst == "WEBSITE":
+                return ("offsite_conversion.fb_pixel_lead", "像素潜在客户")
             return ("onsite_conversion.lead_grouped", "线索收集")
         if objective == "OUTCOME_ENGAGEMENT" and opt_goal in (
             "PROFILE_AND_PAGE_ENGAGEMENT", "POST_ENGAGEMENT", ""

@@ -17,6 +17,7 @@ logger = logging.getLogger("mira.guard")
 FB_API_BASE = "https://graph.facebook.com/v25.0"
 FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
+    "campaign{objective},"
     "insights.date_preset(today){spend,impressions,clicks,actions,action_values,cpc,cpm}"
 )
 
@@ -591,18 +592,33 @@ class GuardEngine:
             # 将 spend 转换为 USD（如果已是 USD 则不变）
             spend = _to_usd_guard(spend_raw, account_currency)
 
+            # 从 ad 响应中提取 campaign objective
+            camp_obj = ""
+            camp_data = ad.get("campaign", {})
+            if isinstance(camp_data, dict):
+                camp_obj = camp_data.get("objective", "")
+
             # 获取 KPI 配置
             kpi_field, kpi_label, kpi_source = get_kpi_for_ad(
                 act_id, ad_id, campaign_id,
-                campaign_meta={"objective": "", "spend": spend},
+                campaign_meta={"objective": camp_obj, "spend": spend},
                 actions=actions_raw
             )
 
             # 计算转化数 & CPA（基于 USD 消耗）
+            # 同类转化 action_type 映射表：当精确匹配不到时，这些字段归为同一转化类型
+            _KPI_ALIAS_MAP = {
+                "offsite_conversion.fb_pixel_lead": ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"],
+                "onsite_conversion.lead_grouped": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
+                "lead": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
+                "offsite_conversion.fb_pixel_purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
+                "purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
+            }
             conversions = 0.0
+            _aliases = _KPI_ALIAS_MAP.get(kpi_field, [kpi_field])
             for a in actions_raw:
-                if a.get("action_type") == kpi_field:
-                    conversions = float(a.get("value", 0))
+                if a.get("action_type") in _aliases:
+                    conversions += float(a.get("value", 0))
                     break
 
             cpa = (spend / conversions) if conversions > 0 else None  # USD CPA
@@ -610,7 +626,7 @@ class GuardEngine:
             # 计算 ROAS（revenue 也需转换）
             revenue_raw = 0.0
             for av in action_values:
-                if av.get("action_type") == kpi_field:
+                if av.get("action_type") in _aliases:
                     revenue_raw = float(av.get("value", 0))
                     break
             revenue = _to_usd_guard(revenue_raw, account_currency)
