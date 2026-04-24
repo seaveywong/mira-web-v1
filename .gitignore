@@ -1,0 +1,49 @@
+# Secrets
+.env
+data/.enc_key
+*.db
+
+# Virtual environment
+venv/
+
+# Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Backups & bak files
+backups/
+*.bak*
+*.bak_*
+
+# Post/pre fix files (refactoring artifacts)
+*.post-*
+*.pre-*
+
+# Logs
+logs/
+/var/log/mira/
+
+# Empty/legacy dirs
+frontend/src/
+
+# Uploaded assets (dynamic data)
+assets/
+
+# SQLite WAL
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp test artifacts
+database.db
+mira.db
