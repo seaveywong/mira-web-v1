@@ -677,8 +677,8 @@ class GuardEngine:
             # 计算转化数 & CPA（基于 USD 消耗）
             # 同类转化 action_type 映射表：当精确匹配不到时，这些字段归为同一转化类型
             _KPI_ALIAS_MAP = {
-                "offsite_conversion.fb_pixel_lead": ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"],
-                "onsite_conversion.lead_grouped": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
+                "offsite_conversion.fb_pixel_lead": ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead", "offsite_content_view_add_meta_leads"],
+                "onsite_conversion.lead_grouped": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped", "offsite_content_view_add_meta_leads"],
                 "lead": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
                 "offsite_conversion.fb_pixel_purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
                 "purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
@@ -686,6 +686,8 @@ class GuardEngine:
                 "offsite_conversion.purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
                 "offsite_conversion.lead": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
                 "offsite_conversion.lead_grouped": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
+                "offsite_conversion.fb_pixel_contact": ["contact", "offsite_conversion.fb_pixel_contact", "offsite_conversion.fb_pixel_purchase", "purchase", "offsite_content_view_add_meta_leads"],
+                "contact": ["contact", "offsite_conversion.fb_pixel_contact", "offsite_conversion.fb_pixel_purchase", "purchase", "offsite_content_view_add_meta_leads"],
             }
             conversions = 0.0
             _aliases = _KPI_ALIAS_MAP.get(kpi_field, [kpi_field])

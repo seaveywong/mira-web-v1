@@ -60,6 +60,7 @@ _CUSTOM_EVENT_RULES = {
     "LEAD":                 ("onsite_conversion.lead_grouped",         "线索收集"),
     "COMPLETE_REGISTRATION":("offsite_conversion.fb_pixel_complete_registration", "注册完成"),
     "SUBSCRIBE":            ("offsite_conversion.fb_pixel_subscribe",  "订阅"),
+    "CONTACT":              ("offsite_conversion.fb_pixel_contact",    "像素联系"),
 }
 
 # 私信类 destination_type 集合（扩展）
@@ -76,6 +77,8 @@ KPI_FIELD_MAP = {
     "offsite_conversion.fb_pixel_lead":                     "像素潜在客户",
     "offsite_conversion.fb_pixel_complete_registration":    "像素注册完成",
     "offsite_conversion.fb_pixel_subscribe":                "像素订阅",
+    "offsite_conversion.fb_pixel_contact":                  "像素联系",
+    "offsite_content_view_add_meta_leads":                 "像素联系转化",
     "onsite_conversion.messaging_conversation_started_7d":  "私信对话(7日)",
     "onsite_conversion.messaging_first_reply":              "私信首次回复",
     "onsite_conversion.lead_grouped":                       "站内潜在客户",
