@@ -694,15 +694,7 @@ class GuardEngine:
                     conversions += float(a.get("value", 0))
                     break
 
-            # v3.3.7: broad conversion check
-            broader_conv = 0.0
-            _CONV_BROAD = {"purchase", "offsite_conversion.fb_pixel_purchase", "offsite_conversion.purchase",
-                          "lead", "offsite_conversion.fb_pixel_lead", "offsite_conversion.lead",
-                          "onsite_conversion.lead_grouped", "offsite_conversion.lead_grouped"}
-            for a in actions_raw:
-                if a.get("action_type") in _CONV_BROAD:
-                    broader_conv += float(a.get("value", 0))
-                    break
+            
 
             cpa = (spend / conversions) if conversions > 0 else None  # USD CPA
 
@@ -835,7 +827,6 @@ class GuardEngine:
                     spend, conversions, clicks, cpa, roas,
                     target_cpa, kpi_label, impressions,
                     account_currency=account_currency, spend_raw=spend_raw,
-                    broader_conv=broader_conv
                 )
 
     def _check_rule(self, rule: dict, account: dict, token: str,
@@ -843,8 +834,7 @@ class GuardEngine:
                     spend: float, conversions: float, clicks: int,
                     cpa: Optional[float], roas: Optional[float],
                     target_cpa: Optional[float], kpi_label: str, impressions: int,
-                    account_currency: str = "USD", spend_raw: float = None,
-                    broader_conv: float = 0.0):
+                    account_currency: str = "USD", spend_raw: float = None):
         """
         所有金额参数（spend/cpa/target_cpa）均为 USD。
         account_currency: 账户原始货币（仅用于日志展示）
@@ -863,15 +853,6 @@ class GuardEngine:
         if rule_type == "bleed_abs":
             threshold = rule.get("param_value") or self.default_bleed_abs
             if spend >= threshold and conversions == 0:
-                # v3.3.7: broad check — prevent false kill when KPI field mismatches FB events
-                if broader_conv > 0:
-                    logger.warning(
-                        f"BLEED_ABORT {ad_id}: kpi_field={kpi_label} produced 0 conversions, "
-                        f"but broad check found {broader_conv} (field mismatch suspected)"
-                    )
-                    _log_action(act_id, "ad", ad_id, ad_name, "bleed_abort", "bleed_abs",
-                                f"kpi_field mismatch: {kpi_label}=0, broad_check={broader_conv}")
-                    return
                 triggered = True
                 reason = f"消耗 ${spend:.2f}{cur_note} 超过空成效止血线 ${threshold:.2f}，且 {kpi_label} = 0"
 
