@@ -105,7 +105,7 @@ def _fb_get_ad_insights(fb_ad_id: str, token: str) -> Optional[dict]:
             f"{FB_API_BASE}/{fb_ad_id}",
             params={
                 "access_token": token,
-                "fields": "insights.date_preset(maximum){spend,actions,action_values,impressions,clicks}"
+                "fields": "insights.date_preset(maximum, timeout=30){spend,actions,action_values,impressions,clicks}"
             },
             timeout=20
         )

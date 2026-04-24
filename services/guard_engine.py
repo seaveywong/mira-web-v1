@@ -22,6 +22,14 @@ FB_AD_FIELDS = (
 
 # 操作冷却：同一广告同一规则60分钟内不重复触发
 _action_cooldown: dict = {}  # key: f"{ad_id}:{rule_type}" -> timestamp
+_COOLDOWN_TTL = 7200  # 2小时TTL，超过此时间的冷却记录可清理
+
+def _cleanup_cooldown():
+    """清理过期冷却记录，防止内存泄漏"""
+    now = time.time()
+    expired = [k for k, v in _action_cooldown.items() if now - v > _COOLDOWN_TTL]
+    for k in expired:
+        del _action_cooldown[k]
 
 
 def _get_setting(key: str, default=None):
@@ -160,6 +168,7 @@ def _is_silent(silent_start: str, silent_end: str) -> bool:
 def _check_cooldown(ad_id: str, rule_type: str, cooldown_min: int = 60) -> bool:
     """检查是否在冷却期内，True=冷却中不执行"""
     key = f"{ad_id}:{rule_type}"
+    _cleanup_cooldown()
     last = _action_cooldown.get(key, 0)
     if time.time() - last < cooldown_min * 60:
         return True

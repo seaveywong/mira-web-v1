@@ -1318,8 +1318,18 @@ class AutoPilotEngine:
         # 注意：此处 daily_budget 已经是账户货币金额（由 run_campaign 换算完毕）
         _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
         # 从账户查询货币类型（通过 act_id 推断）
-        _budget_currency = "USD"  # 默认，实际由调用方保证已换算
-        budget_cents = int(daily_budget * 100)  # FB 预算单位为分（标准货币）
+        _budget_currency = "USD"
+        try:
+            _act_id_with_prefix = f"act_{act_id_num}"
+            _acc_row = get_conn().execute("SELECT currency FROM accounts WHERE act_id=?", (_act_id_with_prefix,)).fetchone()
+            if _acc_row:
+                _budget_currency = _acc_row["currency"].upper()
+        except Exception:
+            pass  # 查询失败时默认为 USD
+        if _budget_currency in _NO_DECIMAL_CURRENCIES:
+            budget_cents = int(daily_budget)  # 零小数位货币：直接传整数
+        else:
+            budget_cents = int(daily_budget * 100)  # 标准货币：FB 单位为分
         # 规范化 objective：将旧版/前端传来的 MESSAGES 映射为 OUTCOME_ENGAGEMENT
         _OBJ_NORMALIZE = {
             "OUTCOME_MESSAGES":  "OUTCOME_ENGAGEMENT",

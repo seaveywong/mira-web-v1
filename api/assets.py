@@ -714,31 +714,41 @@ async def upload_asset(
             thumb_path = None
     elif file_type == "video":
         thumb_path = _extract_video_thumb(save_path)
-    now = datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
-    folder_name = (folder_name or "").strip() or None
-    batch_code = (batch_code or "").strip() or None
-    # display_name 用于展示(可重命名),file_name 保留原始文件名
-    # v4.0: 生成 asset_code
+    # —— 异常保护：后续操作失败时清理已保存的文件 ——
+    _saved_files = [save_path]
     try:
-        date_str = now[:10].replace("-", "")
-        count_today = conn.execute(
-            "SELECT COUNT(*) FROM ad_assets WHERE asset_code LIKE ?",
-            (f"AST-{date_str}-%",)
-        ).fetchone()[0]
-        asset_code_new = f"AST-{date_str}-{count_today+1:03d}"
+        now = datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+        folder_name = (folder_name or "").strip() or None
+        batch_code = (batch_code or "").strip() or None
+        # display_name 用于展示(可重命名),file_name 保留原始文件名
+        # v4.0: 生成 asset_code
+        try:
+            date_str = now[:10].replace("-", "")
+            count_today = conn.execute(
+                "SELECT COUNT(*) FROM ad_assets WHERE asset_code LIKE ?",
+                (f"AST-{date_str}-%",)
+            ).fetchone()[0]
+            asset_code_new = f"AST-{date_str}-{count_today+1:03d}"
+        except Exception:
+            asset_code_new = None
+        cur = conn.execute(
+            """INSERT INTO ad_assets
+               (act_id, file_name, display_name, file_type, file_path, thumb_path,
+                file_size, file_hash, upload_status, note, target_countries, folder_name, batch_code, asset_code, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,'local_saved',?,?,?,?,?,?,?)""",
+            (act_id, file.filename, file.filename, file_type, save_path, thumb_path,
+             len(content), file_hash, note, target_countries, folder_name, batch_code, asset_code_new, now, now)
+        )
+        asset_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        _saved_files.clear()  # 提交成功，不再清理
     except Exception:
-        asset_code_new = None
-    cur = conn.execute(
-        """INSERT INTO ad_assets
-           (act_id, file_name, display_name, file_type, file_path, thumb_path,
-            file_size, file_hash, upload_status, note, target_countries, folder_name, batch_code, asset_code, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,'local_saved',?,?,?,?,?,?,?)""",
-        (act_id, file.filename, file.filename, file_type, save_path, thumb_path,
-         len(content), file_hash, note, target_countries, folder_name, batch_code, asset_code_new, now, now)
-    )
-    asset_id = cur.lastrowid
-    conn.commit()
-    conn.close()
+        conn.close()
+        for _f in _saved_files:
+            if _f and os.path.exists(_f):
+                os.remove(_f)
+        raise
 
     # 检查是否配置了视觉 AI,自动触发分析
     client, _, _ = _get_vision_client()
@@ -1070,7 +1080,7 @@ def _ai_analyze_asset(asset_id: int, purpose: str = 'general', languages: list =
         orig_row = conn.execute("SELECT file_name, display_name FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
         should_rename = orig_row and (orig_row["display_name"] == orig_row["file_name"] or not orig_row["display_name"])
 
-        # v4.0: 生成 asset_code(如果还没有)
+            # v4.0: 生成 asset_code(如果还没有)
         existing_code_row = conn.execute("SELECT asset_code, created_at FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
         asset_code = existing_code_row["asset_code"] if existing_code_row and existing_code_row["asset_code"] else None
         if not asset_code:
@@ -1085,7 +1095,7 @@ def _ai_analyze_asset(asset_id: int, purpose: str = 'general', languages: list =
                 asset_code = f"AST-{now[:10].replace('-','')}-{asset_id:04d}"
         # v4.0: 语言字段
         lang_str = ",".join(lang_list) if lang_list else "en"
-        # v4.0: 生成 asset_code(如果还没有)
+            # v4.0: 生成 asset_code(如果还没有)
         existing_code_row = conn.execute("SELECT asset_code, created_at FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
         asset_code = existing_code_row["asset_code"] if existing_code_row and existing_code_row["asset_code"] else None
         if not asset_code:
