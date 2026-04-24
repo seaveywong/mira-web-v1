@@ -14,6 +14,40 @@ import logging
 import json
 from datetime import datetime, timezone, timedelta
 
+# ── 汇率表（1 单位外币 = X USD）──
+_DEFAULT_RATES = {
+    "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067,
+    "CNY": 0.138, "HKD": 0.128, "TWD": 0.031, "SGD": 0.74,
+    "AUD": 0.65, "CAD": 0.74, "BRL": 0.20, "MXN": 0.058,
+    "CLP": 0.0011, "COP": 0.00025, "PEN": 0.27, "ARS": 0.001,
+    "THB": 0.028, "VND": 0.000040, "IDR": 0.000063, "PHP": 0.017,
+    "MYR": 0.21, "INR": 0.012, "TRY": 0.031, "ZAR": 0.053,
+    "BDT": 0.0091, "PKR": 0.0036, "LKR": 0.0031, "NPR": 0.0075,
+    "KRW": 0.00072, "CHF": 1.12, "NZD": 0.60, "SEK": 0.096,
+    "NOK": 0.093, "DKK": 0.145, "PLN": 0.25, "CZK": 0.044,
+    "HUF": 0.0028, "RON": 0.22, "BGN": 0.55, "HRK": 0.14,
+    "AED": 0.272, "SAR": 0.267, "QAR": 0.275, "KWD": 3.26,
+    "BHD": 2.65, "OMR": 2.60, "JOD": 1.41, "EGP": 0.021,
+    "MAD": 0.099, "TND": 0.32, "GHS": 0.067, "NGN": 0.00065,
+    "KES": 0.0077, "TZS": 0.00038, "UGX": 0.00027, "ETB": 0.0088,
+    "UAH": 0.027, "KZT": 0.0022, "UZS": 0.000079, "GEL": 0.37,
+    "AMD": 0.0026, "AZN": 0.59, "BYN": 0.31, "MDL": 0.056,
+    "RSD": 0.0093, "MKD": 0.018, "ALL": 0.011, "BAM": 0.55,
+    "CRC": 0.0019, "GTQ": 0.13, "HNL": 0.040, "NIO": 0.027,
+    "PAB": 1.0, "DOP": 0.017, "JMD": 0.0064, "TTD": 0.15,
+    "BBD": 0.50, "BSD": 1.0, "BZD": 0.50, "GYD": 0.0048,
+    "SRD": 0.029, "UYU": 0.026, "PYG": 0.000135, "BOB": 0.145,
+    "VES": 0.000027, "CUP": 0.042,
+}
+
+def _to_usd(amount, currency):
+    if amount is None:
+        return 0.0
+    rate = _DEFAULT_RATES.get((currency or "USD").upper(), 1.0)
+    return float(amount) * rate
+
+
+
 logger = logging.getLogger("mira.global_dispatcher")
 
 # 撮合规则：哪个评级的素材分配给哪个生命周期阶段的账户
@@ -93,26 +127,33 @@ def _get_eligible_accounts(lifecycle_stages: list) -> list:
         from core.database import get_conn
         conn = get_conn()
         placeholders = ",".join("?" * len(lifecycle_stages))
-        accounts = conn.execute(
+        rows = conn.execute(
             f"""SELECT act_id, name as act_name,
                        COALESCE(lifecycle_stage, 'testing') as lifecycle_stage,
-                       COALESCE(balance, 0) as balance_usd
+                       currency,
+                       COALESCE(balance, 0) as balance
                 FROM accounts
                 WHERE enabled = 1
                 AND account_status = 1
                 AND COALESCE(lifecycle_stage, 'testing') IN ({placeholders})
-                AND COALESCE(balance, 0) >= 10
                 ORDER BY
                     CASE COALESCE(lifecycle_stage, 'testing')
                         WHEN 'scaling' THEN 1
                         WHEN 'testing' THEN 2
                         WHEN 'warmup' THEN 3
-                    END,
-                    COALESCE(balance, 0) DESC""",
+                    END""",
             lifecycle_stages
         ).fetchall()
         conn.close()
-        return [dict(a) for a in accounts]
+        result = []
+        for a in rows:
+            d = dict(a)
+            d['balance_usd'] = _to_usd(d['balance'], d.get('currency', 'USD'))
+            if d['balance_usd'] >= 10:
+                result.append(d)
+        _stage_order = {'scaling': 1, 'testing': 2, 'warmup': 3}
+        result.sort(key=lambda x: (_stage_order.get(x.get('lifecycle_stage', ''), 99), -x['balance_usd']))
+        return result
     except Exception as e:
         logger.error(f"[Dispatcher] 获取账户失败: {e}", exc_info=True)
         return []

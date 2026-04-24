@@ -47,6 +47,22 @@ _FX_RATES = {
     "CLP": 0.0011, "COP": 0.00025, "PEN": 0.27, "ARS": 0.001,
     "THB": 0.028, "VND": 0.000040, "IDR": 0.000063, "PHP": 0.017,
     "MYR": 0.21, "INR": 0.012, "TRY": 0.031, "ZAR": 0.053,
+    "BDT": 0.0091, "PKR": 0.0036, "LKR": 0.0031, "NPR": 0.0075,
+    "KRW": 0.00072, "CHF": 1.12, "NZD": 0.60, "SEK": 0.096,
+    "NOK": 0.093, "DKK": 0.145, "PLN": 0.25, "CZK": 0.044,
+    "HUF": 0.0028, "RON": 0.22, "BGN": 0.55, "HRK": 0.14,
+    "AED": 0.272, "SAR": 0.267, "QAR": 0.275, "KWD": 3.26,
+    "BHD": 2.65, "OMR": 2.60, "JOD": 1.41, "EGP": 0.021,
+    "MAD": 0.099, "TND": 0.32, "GHS": 0.067, "NGN": 0.00065,
+    "KES": 0.0077, "TZS": 0.00038, "UGX": 0.00027, "ETB": 0.0088,
+    "UAH": 0.027, "KZT": 0.0022, "UZS": 0.000079, "GEL": 0.37,
+    "AMD": 0.0026, "AZN": 0.59, "BYN": 0.31, "MDL": 0.056,
+    "RSD": 0.0093, "MKD": 0.018, "ALL": 0.011, "BAM": 0.55,
+    "CRC": 0.0019, "GTQ": 0.13, "HNL": 0.040, "NIO": 0.027,
+    "PAB": 1.0, "DOP": 0.017, "JMD": 0.0064, "TTD": 0.15,
+    "BBD": 0.50, "BSD": 1.0, "BZD": 0.50, "GYD": 0.0048,
+    "SRD": 0.029, "UYU": 0.026, "PYG": 0.000135, "BOB": 0.145,
+    "VES": 0.000027, "CUP": 0.042,
 }
 
 
@@ -125,15 +141,19 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
     delta_pct: 正数=增加，负数=减少（如 0.2 = +20%，-0.2 = -20%）
     返回: (成功, 错误信息, 原预算, 新预算)
     """
+    # 零小数位货币（JPY/KRW 等：FB API 直接传整数）
+    _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
     try:
         # 获取当前预算
         result = _fb_get(adset_id, token, {"fields": "daily_budget,bid_strategy,currency"})
         cur_budget = float(result.get("daily_budget", 0))
         if cur_budget <= 0:
             return False, "广告组无日预算（可能使用系列预算）", 0, 0
-        # 计算新预算（FB API 预算单位为分）
+        _budget_currency = (result.get("currency") or "USD").upper().strip()
+        _is_no_decimal = _budget_currency in _NO_DECIMAL_CURRENCIES
+        # 计算新预算（FB API 预算单位为分/整数）
         new_budget = cur_budget * (1 + delta_pct)
-        # 最低预算保护：不低于 100 分（$1.00）
+        # 最低预算保护
         new_budget = max(new_budget, 100)
         # 最高预算保护：增加时不超过原预算的 3 倍
         if delta_pct > 0:
@@ -141,7 +161,11 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
         new_budget_int = int(new_budget)
         ok, err = _fb_post(adset_id, token, {"daily_budget": new_budget_int})
         if ok:
+            if _is_no_decimal:
+                return True, "", cur_budget, new_budget_int
             return True, "", cur_budget / 100, new_budget_int / 100
+        if _is_no_decimal:
+            return False, err, cur_budget, 0
         return False, err, cur_budget / 100, 0
     except Exception as e:
         return False, str(e), 0, 0
