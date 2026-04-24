@@ -370,7 +370,11 @@ class KpiResolver:
             return ("onsite_conversion.messaging_conversation_started_7d", "私信对话")
 
         if custom_event and custom_event in _CUSTOM_EVENT_RULES:
-            return _CUSTOM_EVENT_RULES[custom_event]
+            # v3.3.11: objective-aware
+            if objective == "OUTCOME_SALES" and custom_event in ("PURCHASE", "ADD_TO_CART", "INITIATE_CHECKOUT", "COMPLETE_REGISTRATION", "SUBSCRIBE"):
+                return _CUSTOM_EVENT_RULES[custom_event]
+            if objective == "OUTCOME_LEADS" and custom_event in ("LEAD", "CONTACT"):
+                return _CUSTOM_EVENT_RULES[custom_event]
 
         # 组合规则（objective + opt_goal 联合判断，优先于单字段规则）
         # PAGE_LIKES 目标单独处理（主页获赞），优先级最高
@@ -555,16 +559,19 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
                 # v3.3.7: custom_event_type 覆盖——adset 的像素事件优先级高于历史存储
                 custom_event = (campaign_meta.get("custom_event_type") or "").upper()
                 if custom_event in _CUSTOM_EVENT_RULES:
-                    expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
-                    if row["kpi_field"] != expected_field:
-                        logger.warning(f"KPI自愈(字段重写): {level}({tid}) custom_event={custom_event}, 存储={row['kpi_field']}->{expected_field}")
-                        conn.execute(
-                            "UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source='auto', updated_at=datetime('now') WHERE act_id=? AND target_id=? AND enabled=1",
-                            (expected_field, get_kpi_label(expected_field), act_id, tid)
-                        )
-                        conn.commit()
-                        conn.close()
-                        return expected_field, get_kpi_label(expected_field), "auto"
+                    objective = campaign_meta.get("objective", "")
+                    if (objective == "OUTCOME_SALES" and custom_event in ("PURCHASE", "ADD_TO_CART", "INITIATE_CHECKOUT", "COMPLETE_REGISTRATION", "SUBSCRIBE")) or \
+                       (objective == "OUTCOME_LEADS" and custom_event in ("LEAD", "CONTACT")):
+                        expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
+                        if row["kpi_field"] != expected_field:
+                            logger.warning(f"KPI自愈(字段重写): {level}({tid}) custom_event={custom_event}, 存储={row['kpi_field']}->{expected_field}")
+                            conn.execute(
+                                "UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source='auto', updated_at=datetime('now') WHERE act_id=? AND target_id=? AND enabled=1",
+                                (expected_field, get_kpi_label(expected_field), act_id, tid)
+                            )
+                            conn.commit()
+                            conn.close()
+                            return expected_field, get_kpi_label(expected_field), "auto"
                 conn.close()
                 return row["kpi_field"], row["kpi_label"] or get_kpi_label(row["kpi_field"]), row["source"]
             else:
@@ -583,10 +590,13 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
     if not found_invalid:
         custom_event = (campaign_meta.get("custom_event_type") or "").upper()
         if custom_event in _CUSTOM_EVENT_RULES:
-            expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
-            if field != expected_field:
-                field, label = expected_field, get_kpi_label(expected_field)
-                source = "auto"
+            objective = campaign_meta.get("objective", "")
+            if (objective == "OUTCOME_SALES" and custom_event in ("PURCHASE", "ADD_TO_CART", "INITIATE_CHECKOUT", "COMPLETE_REGISTRATION", "SUBSCRIBE")) or \
+               (objective == "OUTCOME_LEADS" and custom_event in ("LEAD", "CONTACT")):
+                expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
+                if field != expected_field:
+                    field, label = expected_field, get_kpi_label(expected_field)
+                    source = "auto"
 
     # 自愈写回：如果删除了非法记录，把正确推断写回 ad 级别
     if found_invalid:
