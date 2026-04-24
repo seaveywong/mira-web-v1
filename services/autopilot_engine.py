@@ -768,7 +768,7 @@ class AutoPilotEngine:
                 _cst = _pytz.timezone("Asia/Shanghai")
                 _now_cst = _dt.now(_cst)
             except Exception:
-                _now_cst = _dt.utcnow()
+                _now_cst = _dt.now()
             _mmdd = _now_cst.strftime("%m%d")
             _dispatch_src = campaign.get("dispatch_source") or "manual"
             _src_prefix = "A" if _dispatch_src == "global_dispatcher" else "M"

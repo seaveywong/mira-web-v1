@@ -253,7 +253,7 @@ def score_asset(asset_id: int) -> bool:
                 score,
                 ",".join(countries) if isinstance(countries, list) else countries,
                 f"{reason} | 优点: {strengths}" + (f" | 不足: {weaknesses}" if weaknesses else ""),
-                datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 asset_id
             )
         )

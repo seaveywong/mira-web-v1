@@ -2813,7 +2813,7 @@ def launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(g
         _now_cst = _dt2.now(_pytz2.timezone("Asia/Shanghai"))
     except Exception:
         from datetime import datetime as _dt2
-        _now_cst = _dt2.utcnow()
+        _now_cst = _dt2.now()
     _mmdd = _now_cst.strftime("%m%d")
     campaign_name = f"{_obj_s}-{_ctry_s}-{_ast_c}-{_mmdd}"
 
@@ -2908,7 +2908,7 @@ def batch_launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Dep
         _now_cst_b = _dt3.now(_pytz3.timezone("Asia/Shanghai"))
     except Exception:
         from datetime import datetime as _dt3
-        _now_cst_b = _dt3.utcnow()
+        _now_cst_b = _dt3.now()
     _mmdd = _now_cst_b.strftime("%m%d")
     results = []
 

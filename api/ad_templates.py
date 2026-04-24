@@ -349,7 +349,7 @@ def create_custom_lead_form_for_page(
     locale: str = "en_US",
 ) -> str:
     resolved_privacy_url = _get_privacy_policy_url(privacy_url)
-    form_name = f"[AI] {(form_title or 'Lead Form')[:60]} {datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+    form_name = f"[AI] {(form_title or 'Lead Form')[:60]} {datetime.now().strftime('%Y%m%d-%H%M%S')}"
     return _post_lead_form(
         page_id,
         form_name=form_name,
@@ -424,7 +424,7 @@ def list_msg_templates(user=Depends(get_current_user)):
 
 @router.post("/message")
 def create_msg_template(body: MsgTemplateBody, user=Depends(get_current_user)):
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
     cur = conn.execute(
         """INSERT INTO msg_templates (name, greeting, buttons, destination, note, created_at, updated_at)
@@ -455,7 +455,7 @@ def get_msg_template(tid: int, user=Depends(get_current_user)):
 
 @router.put("/message/{tid}")
 def update_msg_template(tid: int, body: MsgTemplateBody, user=Depends(get_current_user)):
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
     conn.execute(
         """UPDATE msg_templates SET name=?, greeting=?, buttons=?, destination=?, note=?, updated_at=?
@@ -518,7 +518,7 @@ def list_lead_form_templates(user=Depends(get_current_user)):
 
 @router.post("/lead-form")
 def create_lead_form_template(body: LeadFormTemplateBody, user=Depends(get_current_user)):
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     normalized_questions = _normalize_lead_form_questions(body.questions)
     if not normalized_questions:
         raise HTTPException(400, "请至少保留一个有效的表单字段")
@@ -557,7 +557,7 @@ def get_lead_form_template(tid: int, user=Depends(get_current_user)):
 
 @router.put("/lead-form/{tid}")
 def update_lead_form_template(tid: int, body: LeadFormTemplateBody, user=Depends(get_current_user)):
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     normalized_questions = _normalize_lead_form_questions(body.questions)
     if not normalized_questions:
         raise HTTPException(400, "请至少保留一个有效的表单字段")
@@ -630,7 +630,7 @@ def create_lead_form_for_page(
         questions = json.loads(tpl["questions"])
     except Exception:
         questions = []
-    form_name = f"[AutoPilot] {tpl['name']} {datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+    form_name = f"[AutoPilot] {tpl['name']} {datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
     fb_form_id = _post_lead_form(
         page_id,
@@ -645,7 +645,7 @@ def create_lead_form_for_page(
     conn2 = get_conn()
     conn2.execute(
         "INSERT OR REPLACE INTO page_lead_forms (page_id, template_id, fb_form_id, created_at) VALUES (?,?,?,?)",
-        (page_id, template_id, fb_form_id, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+        (page_id, template_id, fb_form_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     )
     conn2.commit()
     conn2.close()

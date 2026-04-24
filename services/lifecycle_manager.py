@@ -91,7 +91,7 @@ def _get_best_real_asset(act_id: str) -> dict:
               AND (a.ai_grade IN ('S','A') OR a.ai_grade IS NULL)
               AND a.id NOT IN (
                   SELECT asset_id FROM auto_campaigns
-                  WHERE act_id=? AND created_at > datetime('now','-7 days')
+                  WHERE act_id=? AND created_at > datetime('now','+8 hours','-7 days')
               )
             ORDER BY 
               CASE a.ai_grade WHEN 'S' THEN 1 WHEN 'A' THEN 2 ELSE 3 END,
@@ -556,7 +556,7 @@ def check_scaling_eligibility(act_id: str) -> dict:
             SELECT COALESCE(SUM(CAST(value AS REAL)), 0)
             FROM ad_metrics
             WHERE act_id=? AND metric_name='conversions'
-              AND recorded_at > datetime('now', '-7 days')
+              AND recorded_at > datetime('now','+8 hours','-7 days')
         """, (act_id,)).fetchone()[0]
         
         # 检查近7天总消耗
@@ -564,7 +564,7 @@ def check_scaling_eligibility(act_id: str) -> dict:
             SELECT COALESCE(SUM(CAST(value AS REAL)), 0)
             FROM ad_metrics
             WHERE act_id=? AND metric_name='spend'
-              AND recorded_at > datetime('now', '-7 days')
+              AND recorded_at > datetime('now','+8 hours','-7 days')
         """, (act_id,)).fetchone()[0]
         
         # 检查近7天 ROAS
@@ -572,7 +572,7 @@ def check_scaling_eligibility(act_id: str) -> dict:
             SELECT COALESCE(AVG(CAST(value AS REAL)), 0)
             FROM ad_metrics
             WHERE act_id=? AND metric_name='roas'
-              AND recorded_at > datetime('now', '-7 days')
+              AND recorded_at > datetime('now','+8 hours','-7 days')
               AND CAST(value AS REAL) > 0
         """, (act_id,)).fetchone()[0]
         

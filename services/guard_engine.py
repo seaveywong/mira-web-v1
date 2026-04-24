@@ -931,7 +931,7 @@ class GuardEngine:
         conn = get_conn()
         rows = conn.execute(
             """SELECT cpa FROM perf_snapshots
-               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', ?)
+               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', '+8 hours', ?)
                ORDER BY snapshot_date DESC LIMIT ?""",
             (act_id, ad_id, f"-{days} days", days)
         ).fetchall()
@@ -1145,7 +1145,7 @@ class ScaleEngine:
         conn = get_conn()
         rows = conn.execute(
             """SELECT cpa, conversions FROM perf_snapshots
-               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', ?)
+               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', '+8 hours', ?)
                ORDER BY snapshot_date DESC LIMIT ?""",
             (act_id, ad_id, f"-{days} days", days)
         ).fetchall()

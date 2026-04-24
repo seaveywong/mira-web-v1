@@ -254,7 +254,7 @@ def _upsert_spend_log(asset_id: int, fb_ad_id: str, act_id: str,
     将单条广告的数据 UPSERT 到 asset_spend_log 持久化表。
     使用 INSERT OR REPLACE 确保同一 (asset_id, fb_ad_id) 只保留最新数据。
     """
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
     conn.execute(
         """INSERT INTO asset_spend_log
@@ -457,7 +457,7 @@ def score_asset(asset_id: int, force_refresh: bool = False):
            WHERE id=?""",
         (score, label, total_spend, total_conv,
          avg_cpa, avg_roas,
-         datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
          asset_id)
     )
     conn.commit()

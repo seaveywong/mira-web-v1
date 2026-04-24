@@ -583,7 +583,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
             conn.execute(
                 "UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source=?, "
                 "objective=?, optimization_goal=?, destination_type=?, ad_type=?, "
-                "updated_at=datetime('now','+8 hours') WHERE act_id=? AND target_id=?",
+                "updated_at=datetime('now') WHERE act_id=? AND target_id=?",
                 (kpi_field, kpi_label, source,
                  campaign_meta.get("objective",""),
                  campaign_meta.get("optimization_goal",""),
@@ -598,7 +598,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
                 "INSERT OR REPLACE INTO kpi_configs "
                 "(act_id, level, target_id, target_name, kpi_field, kpi_label, source, enabled, "
                 "objective, optimization_goal, destination_type, ad_type, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,1,?,?,?,?,datetime('now','+8 hours'))"
+                "VALUES (?,?,?,?,?,?,?,1,?,?,?,?,datetime('now'))"
                 ,
                 (act_id, "ad", ad_id, ad_name, kpi_field, kpi_label, source,
                  campaign_meta.get("objective",""),

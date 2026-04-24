@@ -65,8 +65,8 @@ def init_creative_gen_tables():
             approved_asset_id INTEGER,
             target_countries TEXT DEFAULT '[]',
             note            TEXT,
-            created_at      TEXT DEFAULT (datetime('now')),
-            updated_at      TEXT DEFAULT (datetime('now'))
+            created_at      TEXT DEFAULT (datetime('now','+8 hours')),
+            updated_at      TEXT DEFAULT (datetime('now','+8 hours'))
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cp_status ON creative_pending(status)")
@@ -87,8 +87,8 @@ def init_creative_gen_tables():
             total_cost_usd  REAL DEFAULT 0,
             error_msg       TEXT,
             created_by      TEXT DEFAULT 'user',
-            created_at      TEXT DEFAULT (datetime('now')),
-            updated_at      TEXT DEFAULT (datetime('now'))
+            created_at      TEXT DEFAULT (datetime('now','+8 hours')),
+            updated_at      TEXT DEFAULT (datetime('now','+8 hours'))
         )
     """)
 
@@ -439,7 +439,7 @@ def _run_generation_task(
                 (task_id, provider, model, prompt, source_asset_id, gen_mode,
                  local_path, remote_url, aspect_ratio, cost_usd, status,
                  target_countries, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?,datetime('now'),datetime('now'))
+                VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?,datetime('now','+8 hours'),datetime('now','+8 hours'))
             """, (
                 task_id, provider, result.get("model", provider), prompt,
                 source_asset_id, gen_mode, local_path, remote_url,
@@ -623,7 +623,7 @@ async def start_generate(
     conn.execute("""
         INSERT INTO creative_tasks
         (task_id, provider, gen_mode, source_asset_id, prompt, num_images, status, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,'pending',datetime('now'),datetime('now'))
+        VALUES (?,?,?,?,?,?,'pending',datetime('now','+8 hours'),datetime('now','+8 hours'))
     """, (task_id, req.provider, req.gen_mode, req.source_asset_id, prompt, num_images))
     conn.commit()
     conn.close()
@@ -789,7 +789,7 @@ def approve_pending(
         INSERT INTO ad_assets
         (file_name, file_path, file_size, file_hash, upload_status,
          note, target_countries, ai_purpose, ai_language, created_at, updated_at)
-        VALUES (?,?,?,?,'ai_pending',?,?,?,?,datetime('now'),datetime('now'))
+        VALUES (?,?,?,?,'ai_pending',?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))
     """, (
         new_filename, new_path, file_size, file_hash,
         note,
