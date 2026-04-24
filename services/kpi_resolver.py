@@ -92,6 +92,15 @@ KPI_FIELD_MAP = {
     "impressions":                                          "展示次数",
 }
 
+# 已知有效 KPI 字段集合（用于防 AI 幻觉 + 纠偏复审）
+# 包含 KPI_FIELD_MAP 全部字段 + 常见 FB 标准 action_type
+_KNOWN_KPI_FIELDS = set(KPI_FIELD_MAP.keys()) | {
+    "page_like", "post_reaction", "post_save", "rate",
+    "schedule", "start_trial", "apply_now", "contact",
+    "donate", "get_quote", "request_time", "submit_application",
+    "search", "view_content",
+}
+
 # 高优先级字段（防 AI 幻觉用）
 _HIGH_PRIORITY_FIELDS = [
     "onsite_conversion.messaging_conversation_started_7d",
@@ -230,6 +239,26 @@ def _is_ai_enabled() -> bool:
 
 def get_kpi_label(kpi_field: str) -> str:
     return KPI_FIELD_MAP.get(kpi_field, kpi_field)
+
+
+def _is_valid_kpi_field(field: str, actions: list = None) -> bool:
+    """验证 KPI 字段名是否合法。
+    1. 必须是已知有效字段（在 _KNOWN_KPI_FIELDS 中）
+    2. 或者是在 FB actions 数据中实际存在的字段
+    防止 AI 幻觉写入不存在的 action_type（如 offsite_conversion.purchase）
+    """
+    if not field or not FIELD_RE.match(field):
+        return False
+    if field in _KNOWN_KPI_FIELDS:
+        return True
+    if field in _AUXILIARY_FIELDS:
+        return True
+    # 不在已知列表中时，检查是否在 FB 返回的 actions 数据中
+    if actions:
+        action_types = {a.get("action_type", "") for a in actions}
+        if field in action_types:
+            return True
+    return False
 
 
 def _is_messaging_ad(campaign_meta: dict) -> bool:
@@ -428,7 +457,7 @@ class KpiResolver:
             data = json.loads(content)
             field = data.get("field", "").strip()
             label = data.get("label", field)
-            if field and FIELD_RE.match(field) and field not in _AUXILIARY_FIELDS:
+            if field and _is_valid_kpi_field(field, actions):
                 logger.info(f"AI同步纠偏: {self.campaign_id} -> {field} ({label}) - {data.get('reason', '')}")
                 return field, label
             return None
@@ -443,7 +472,7 @@ class KpiResolver:
         try:
             from services.ai_advisor import ask_kpi
             field, label = await ask_kpi(meta, actions)
-            if field and FIELD_RE.match(field) and field not in _AUXILIARY_FIELDS:
+            if field and _is_valid_kpi_field(field, actions):
                 field, label = self._anti_hallucination(field, label, actions)
                 conn = get_conn()
                 # 写入 ad 级别（而非 campaign 级别）
@@ -568,7 +597,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
             (act_id, ad_id)
         ).fetchone()
 
-        if existing and existing["source"] in ("manual", "ai"):
+        if existing and existing["source"] == "manual":
             skipped += 1
             details.append({
                 "ad_id": ad_id, "ad_name": ad_name,
@@ -686,20 +715,38 @@ def _ai_enhance_kpi(act_id: str, details: list) -> list:
             content = content.split("```")[1].replace("json", "").strip()
         suggestions = json.loads(content)
 
-        # 对AI建议的更正直接写入数据库
+        # AI 纠偏复审逻辑：
+        # 1. 字段必须是已知有效 FB action_type（防幻觉）
+        # 2. confidence 必须是 "high"（低置信度不覆盖）
+        # 3. 所有 AI 建议都记录日志，便于审计
         conn = get_conn()
         for s in suggestions:
             suggestion = s.get("suggestion")
             ad_id = s.get("ad_id")
-            if suggestion and ad_id and FIELD_RE.match(suggestion) and suggestion not in _AUXILIARY_FIELDS:
-                # 只更新非手动配置的记录
-                conn.execute(
-                    """UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source='ai',
-                       updated_at=datetime('now')
-                       WHERE act_id=? AND target_id=? AND source!='manual'""",
-                    (suggestion, get_kpi_label(suggestion), act_id, ad_id)
-                )
-                logger.info(f"AI增强纠偏: {ad_id} -> {suggestion} (reason: {s.get('reason', '')})")
+            confidence = s.get("confidence", "low")
+            reason = s.get("reason", "")
+
+            if not suggestion or not ad_id:
+                continue
+
+            # 复审检查 1：字段是否合法
+            if not _is_valid_kpi_field(suggestion):
+                logger.warning(f"AI纠偏复审拒绝(非法字段): {ad_id} -> {suggestion} (confidence={confidence}, reason={reason})")
+                continue
+
+            # 复审检查 2：置信度是否足够高
+            if confidence != "high":
+                logger.info(f"AI纠偏复审跳过(低置信度): {ad_id} -> {suggestion} (confidence={confidence}, reason={reason})")
+                continue
+
+            # 复审通过：只更新非手动配置的记录
+            conn.execute(
+                """UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source='ai',
+                   updated_at=datetime('now')
+                   WHERE act_id=? AND target_id=? AND source!='manual'""",
+                (suggestion, get_kpi_label(suggestion), act_id, ad_id)
+            )
+            logger.info(f"AI纠偏复审通过: {ad_id} -> {suggestion} (reason: {reason})")
         conn.commit()
         conn.close()
 
