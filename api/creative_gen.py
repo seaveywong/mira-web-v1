@@ -1038,6 +1038,7 @@ def init_creative_gen_tables():
             prompt          TEXT,
             source_asset_id INTEGER,
             gen_mode        TEXT DEFAULT 'txt2img',
+            task_type       TEXT DEFAULT '',
             recipe_id       TEXT,
             local_path      TEXT,
             remote_url      TEXT,
@@ -1062,6 +1063,7 @@ def init_creative_gen_tables():
             task_id         TEXT UNIQUE NOT NULL,
             provider        TEXT NOT NULL,
             gen_mode        TEXT DEFAULT 'txt2img',
+            task_type       TEXT DEFAULT '',
             recipe_id       TEXT,
             source_asset_id INTEGER,
             prompt          TEXT,
@@ -1104,7 +1106,7 @@ def init_creative_gen_tables():
     needed_cols = {
         'source_asset_id': 'INTEGER', 'prompt': 'TEXT', 'updated_at': 'TEXT',
         'total_cost_usd': 'REAL DEFAULT 0', 'created_by': 'TEXT',
-        'retry_count': 'INTEGER DEFAULT 0', 'recipe_id': 'TEXT',
+        'task_type': 'TEXT DEFAULT ""', 'retry_count': 'INTEGER DEFAULT 0', 'recipe_id': 'TEXT',
     }
     for col, col_type in needed_cols.items():
         if col not in existing_cols:

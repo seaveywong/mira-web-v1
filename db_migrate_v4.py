@@ -151,7 +151,28 @@ def run():
     else:
         print(f"[migrate v4] ✅ accounts 共添加 {added4} 个字段")
 
-    # ── 5. settings 新增 v4 配置项 ───────────────────────────────────────────
+    # ── 5. creative_tasks 补全缺失字段 ─────────────────────────────────────
+    # 修复: scheduler:360 查询 task_type 列但 DDL 未定义
+    cols_ct = [r[1] for r in conn.execute("PRAGMA table_info(creative_tasks)").fetchall()]
+    if "task_type" not in cols_ct:
+        try:
+            conn.execute("ALTER TABLE creative_tasks ADD COLUMN task_type TEXT DEFAULT ''")
+            print("[migrate v4] ✅ creative_tasks.task_type 字段已添加")
+        except Exception as e:
+            print(f"[migrate v4] ⚠️ creative_tasks.task_type 添加失败: {e}")
+    else:
+        print("[migrate v4] ℹ️  creative_tasks.task_type 字段已存在")
+    # 同时补全 creative_pending 可能缺失的列（幂等）
+    cols_cp = [r[1] for r in conn.execute("PRAGMA table_info(creative_pending)").fetchall()]
+    for _col, _def in [("model","TEXT"),("b64_preview","TEXT"),("cost_usd","REAL DEFAULT 0")]:
+        if _col not in cols_cp:
+            try:
+                conn.execute(f"ALTER TABLE creative_pending ADD COLUMN {_col} {_def}")
+                print(f"[migrate v4] ✅ creative_pending.{_col} 字段已添加")
+            except Exception:
+                pass
+
+    # ── 6. settings 新增 v4 配置项 ───────────────────────────────────────────
     v4_settings = [
         # 全局调度开关
         ('global_dispatch_enabled', '1', '全局调度总开关',

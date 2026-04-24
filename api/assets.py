@@ -474,6 +474,18 @@ class WarmupAssetIn(BaseModel):
     note: Optional[str] = None      # 备注
 
 
+class WarmupAssetUpdate(BaseModel):
+    """预热素材更新（所有字段可选）"""
+    name: Optional[str] = None
+    label: Optional[str] = None
+    active: Optional[bool] = None
+    is_active: Optional[int] = None
+    enabled: Optional[int] = None
+    asset_type: Optional[str] = None
+    file_url: Optional[str] = None
+    ad_text: Optional[str] = None
+
+
 # 模块加载时初始化一次（避免每次请求都执行DDL导致锁竞争）
 _warmup_table_initialized = False
 
@@ -571,7 +583,7 @@ def create_warmup_asset(body: WarmupAssetIn, user=Depends(get_current_user)):
 
 
 @router.patch("/warmup/{warmup_id}")
-def update_warmup_asset(warmup_id: int, body: dict, user=Depends(get_current_user)):
+def update_warmup_asset(warmup_id: int, body: WarmupAssetUpdate, user=Depends(get_current_user)):
     """更新预热素材（启用/停用/修改字段）"""
     _ensure_warmup_table()
     conn = get_conn()
@@ -584,7 +596,7 @@ def update_warmup_asset(warmup_id: int, body: dict, user=Depends(get_current_use
     field_map = {'name': 'label', 'active': 'is_active'}
     allowed_direct = {'label', 'asset_type', 'file_url', 'ad_text', 'is_active', 'enabled'}
     updates = {}
-    for k, v in body.items():
+    for k, v in body.model_dump(exclude_none=True).items():
         mapped = field_map.get(k, k)
         if mapped in allowed_direct:
             updates[mapped] = v
@@ -702,7 +714,6 @@ async def upload_asset(
             thumb_path = None
     elif file_type == "video":
         thumb_path = _extract_video_thumb(save_path)
-    _normalize_launch_body_fields(body)
     now = datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
     folder_name = (folder_name or "").strip() or None
     batch_code = (batch_code or "").strip() or None

@@ -79,6 +79,7 @@ def init_creative_gen_tables():
             task_id         TEXT UNIQUE NOT NULL,
             provider        TEXT NOT NULL,
             gen_mode        TEXT DEFAULT 'txt2img',
+            task_type       TEXT DEFAULT '',
             source_asset_id INTEGER,
             prompt          TEXT,
             num_images      INTEGER DEFAULT 1,
