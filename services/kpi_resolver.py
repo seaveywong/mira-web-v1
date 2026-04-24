@@ -310,7 +310,7 @@ class KpiResolver:
             return result[0], result[1], "manual"
 
         # L4: 规则引擎（优先于L3，因为L4有更精细的私信/optimization_goal判断）
-        result = self._l4_rule(campaign_meta)
+        result = self._l4_rule(campaign_meta, actions)
         if result:
             # 如果L4推断的是通用字段（如post_engagement），且AI可用，尝试AI纠偏
             if result[0] in _AUXILIARY_FIELDS and actions and _is_ai_enabled():
@@ -356,7 +356,7 @@ class KpiResolver:
             return _OBJECTIVE_RULES[objective]
         return None
 
-    def _l4_rule(self, meta: dict) -> Optional[Tuple[str, str]]:
+    def _l4_rule(self, meta: dict, actions: list = None) -> Optional[Tuple[str, str]]:
         objective = meta.get("objective", "")
         opt_goal = meta.get("optimization_goal", "")
         custom_event = meta.get("custom_event_type", "")
@@ -377,6 +377,17 @@ class KpiResolver:
             dst = (dest_type or "").upper()
             if dst == "WEBSITE":
                 return ("offsite_conversion.fb_pixel_lead", "像素潜在客户")
+            # OFFSITE_CONVERSIONS = 像素转化，无论 destination_type 是什么
+            if opt_goal == "OFFSITE_CONVERSIONS":
+                return ("offsite_conversion.fb_pixel_lead", "像素潜在客户")
+            # LEAD_GENERATION + 非 WEBSITE：用实际 actions 数据判断
+            if actions:
+                action_types = {a.get("action_type", "") for a in actions}
+                if "offsite_conversion.fb_pixel_lead" in action_types:
+                    return ("offsite_conversion.fb_pixel_lead", "像素潜在客户")
+                if "onsite_conversion.lead_grouped" in action_types:
+                    return ("onsite_conversion.lead_grouped", "线索收集")
+            # 无 actions 数据时，LEAD_GENERATION 默认用原生表单
             return ("onsite_conversion.lead_grouped", "线索收集")
         if objective == "OUTCOME_ENGAGEMENT" and opt_goal in (
             "PROFILE_AND_PAGE_ENGAGEMENT", "POST_ENGAGEMENT", ""
@@ -394,11 +405,30 @@ class KpiResolver:
     def _l5_fallback(self, actions: list) -> Optional[Tuple[str, str]]:
         if not actions:
             return None
-        sorted_actions = sorted(actions, key=lambda x: float(x.get("value", 0)), reverse=True)
-        for a in sorted_actions:
+        # 转化型动作优先于 engagement 类，确保 KPI 反映真实转化
+        conversion_actions = []
+        engagement_actions = []
+        for a in actions:
             field = a.get("action_type", "")
-            if field and field not in _AUXILIARY_FIELDS and FIELD_RE.match(field):
-                return field, get_kpi_label(field)
+            value = float(a.get("value", 0))
+            if not field or field in _AUXILIARY_FIELDS or not FIELD_RE.match(field):
+                continue
+            if (field.startswith("offsite_conversion.") or
+                field.startswith("onsite_conversion.") or
+                field in ("purchase", "lead", "omni_purchase", "app_install")):
+                conversion_actions.append((field, value))
+            else:
+                engagement_actions.append((field, value))
+        # 优先选最高数值的转化动作
+        if conversion_actions:
+            conversion_actions.sort(key=lambda x: x[1], reverse=True)
+            field = conversion_actions[0][0]
+            return field, get_kpi_label(field)
+        # 无转化数据时选 engagement 类中最高
+        if engagement_actions:
+            engagement_actions.sort(key=lambda x: x[1], reverse=True)
+            field = engagement_actions[0][0]
+            return field, get_kpi_label(field)
         return None
 
     def _l1_ai_sync(self, meta: dict, actions: list) -> Optional[Tuple[str, str]]:
@@ -504,9 +534,11 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
     """
     获取广告级别的 KPI 配置
     优先级：广告级 > 广告组级 > Campaign级 > 账户级 > 自动推断
+    v3.3.6: 自愈逻辑——DB 中字段不合法时删除并重新推断，写回正确结果
     返回 (kpi_field, kpi_label, source)
     """
     conn = get_conn()
+    found_invalid = False
     for level, tid in [("ad", ad_id), ("adset", adset_id), ("campaign", campaign_id), ("account", act_id)]:
         if not tid:
             continue
@@ -516,13 +548,60 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
             (act_id, tid)
         ).fetchone()
         if row and row["kpi_field"]:
-            conn.close()
-            return row["kpi_field"], row["kpi_label"] or get_kpi_label(row["kpi_field"]), row["source"]
+            if _is_valid_kpi_field(row["kpi_field"], actions):
+                # v3.3.7: custom_event_type 覆盖——adset 的像素事件优先级高于历史存储
+                custom_event = (campaign_meta.get("custom_event_type") or "").upper()
+                if custom_event in _CUSTOM_EVENT_RULES:
+                    expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
+                    if row["kpi_field"] != expected_field:
+                        logger.warning(f"KPI自愈(字段重写): {level}({tid}) custom_event={custom_event}, 存储={row['kpi_field']}->{expected_field}")
+                        conn.execute(
+                            "UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source='auto', updated_at=datetime('now') WHERE act_id=? AND target_id=? AND enabled=1",
+                            (expected_field, get_kpi_label(expected_field), act_id, tid)
+                        )
+                        conn.commit()
+                        conn.close()
+                        return expected_field, get_kpi_label(expected_field), "auto"
+                conn.close()
+                return row["kpi_field"], row["kpi_label"] or get_kpi_label(row["kpi_field"]), row["source"]
+            else:
+                logger.warning(f"KPI自愈: {level}({tid}) DB字段 '{row['kpi_field']}' (source={row['source']}) 不合法，删除并降级")
+                conn.execute("DELETE FROM kpi_configs WHERE act_id=? AND target_id=? AND enabled=1", (act_id, tid))
+                found_invalid = True
+                break  # 有一级不合法就不再向上查找
+    if found_invalid:
+        conn.commit()
     conn.close()
 
-    # 降级到 KpiResolver 自动推断
     resolver = KpiResolver(act_id, campaign_id)
-    return resolver.resolve(campaign_meta, actions)
+    field, label, source = resolver.resolve(campaign_meta, actions)
+
+    # v3.3.7: 自愈写回时也尊重 custom_event_type
+    if not found_invalid:
+        custom_event = (campaign_meta.get("custom_event_type") or "").upper()
+        if custom_event in _CUSTOM_EVENT_RULES:
+            expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
+            if field != expected_field:
+                field, label = expected_field, get_kpi_label(expected_field)
+                source = "auto"
+
+    # 自愈写回：如果删除了非法记录，把正确推断写回 ad 级别
+    if found_invalid:
+        try:
+            conn2 = get_conn()
+            conn2.execute(
+                "INSERT OR REPLACE INTO kpi_configs "
+                "(act_id, level, target_id, target_name, kpi_field, kpi_label, source, enabled, updated_at) "
+                "VALUES (?, 'ad', ?, '', ?, ?, 'auto', 1, datetime('now'))",
+                (act_id, ad_id, field, label)
+            )
+            conn2.commit()
+            conn2.close()
+            logger.info(f"KPI自愈写回: {ad_id} -> {field} ({label})")
+        except Exception as e:
+            logger.warning(f"KPI自愈写回失败（非致命）: {e}")
+
+    return field, label, source
 
 
 def scan_and_preset_kpi(act_id: str, token: str) -> dict:
@@ -548,7 +627,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         fields = (
             "id,name,adset_id,campaign_id,"
             "campaign{objective},"
-            "adset{optimization_goal,destination_type},"
+            "adset{optimization_goal,destination_type,promoted_object},"
             "insights.date_preset(last_7d){actions,spend}"
         )
         ads = _fb_get_all_pages(
@@ -561,6 +640,22 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         return {"created": 0, "updated": 0, "skipped": 0, "error": str(e)}
 
     conn = get_conn()
+
+    # 自愈清理：删除所有非法非手动的 KPI 记录，使其重新推断
+    invalid_rows = conn.execute(
+        "SELECT id, target_id, kpi_field FROM kpi_configs "
+        "WHERE act_id=? AND level='ad' AND enabled=1 AND source!='manual'",
+        (act_id,)
+    ).fetchall()
+    cleaned = 0
+    for ir in invalid_rows:
+        if not _is_valid_kpi_field(ir["kpi_field"]):
+            conn.execute("DELETE FROM kpi_configs WHERE id=?", (ir["id"],))
+            cleaned += 1
+            logger.warning(f"scan_and_preset_kpi清理: {act_id} {ir['target_id']} '{ir['kpi_field']}' 非法，删除")
+    if cleaned:
+        logger.info(f"scan_and_preset_kpi: {act_id} 清理了 {cleaned} 条非法 KPI 记录")
+    conn.commit()
 
     for ad in ads:
         ad_id = ad["id"]
@@ -579,6 +674,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         if isinstance(adset_data, dict):
             campaign_meta["optimization_goal"] = adset_data.get("optimization_goal", "")
             campaign_meta["destination_type"] = adset_data.get("destination_type", "")
+            campaign_meta["custom_event_type"] = (adset_data.get("promoted_object", {}) or {}).get("custom_event_type", "")
 
         # 从近7天actions推断
         insights = ad.get("insights", {}).get("data", [])

@@ -18,6 +18,7 @@ FB_API_BASE = "https://graph.facebook.com/v25.0"
 FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
     "campaign{objective},"
+    "adset{optimization_goal,destination_type,promoted_object},"
     "insights.date_preset(today){spend,impressions,clicks,actions,action_values,cpc,cpm}"
 )
 
@@ -244,6 +245,32 @@ def _send_tg(msg: str, parse_mode: str = "HTML"):
             logger.warning(f"TG 推送失败 (chat_id={chat_id}): {e}")
 
 
+
+
+# Token验证缓存：避免每次巡检都调FB API
+_token_verify_cache: dict = {}
+_TOKEN_VERIFY_TTL = 300  # 5分钟缓存
+
+def _verify_token_for_account(token: str, act_id: str) -> bool:
+    """轻量验证 token 对指定广告账户是否可访问（带缓存）"""
+    cache_key = f"{token[-16:]}:{act_id}"
+    cached = _token_verify_cache.get(cache_key)
+    if cached and time.time() - cached[1] < _TOKEN_VERIFY_TTL:
+        return cached[0]
+    try:
+        resp = requests.get(
+            f"{FB_API_BASE}/{act_id}",
+            params={"fields": "id", "access_token": token},
+            timeout=10
+        )
+        valid = resp.status_code == 200 and "id" in resp.json()
+    except Exception:
+        valid = False
+    _token_verify_cache[cache_key] = (valid, time.time())
+    return valid
+
+
+
 def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
     """
     v3.0 Token 调度入口（非侵入式升级）
@@ -273,9 +300,12 @@ def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
         if _has_op:
             token = get_exec_token(act_id, tm_action)
             if token:
-                return token
-            # TokenManager 返回 None（操作号耗尽且非 PAUSE 操作）
-            return ""
+                # 验证 operate token 对该账户可用，否则回退到管理号
+                if _verify_token_for_account(token, act_id):
+                    return token
+                logger.warning(f"TokenManager Token 对 {act_id} 不可用，降级到管理号")
+            else:
+                return ""
     except Exception as e:
         logger.warning(f"TokenManager 调用失败，回退到旧逻辑: {e}")
 
@@ -503,35 +533,59 @@ class GuardEngine:
         ads = data.get("data", [])
         logger.info(f"账户 {act_id} 活跃广告数: {len(ads)}")
 
-        # ── 自动 KPI 预配：发现无 KPI 记录的广告时自动触发扫描 ──────────────────
+        # ── 自动 KPI 预配：发现无 KPI 配置或配置非法的广告时触发扫描 ──────────────
         try:
             conn = get_conn()
-            # 查询当前账户已有 KPI 配置的广告ID集合
             existing_kpi_ids = set(
                 row[0] for row in conn.execute(
                     "SELECT target_id FROM kpi_configs WHERE act_id=? AND level='ad' AND enabled=1",
                     (act_id,)
                 ).fetchall()
             )
+            # 检查是否有非法/不匹配 KPI 字段需要重新推断（自愈触发）
+            invalid_kpi_ids = set()
+            mismatched_kpi_ids = set()
+            if existing_kpi_ids:
+                from services.kpi_resolver import _is_valid_kpi_field, _CUSTOM_EVENT_RULES
+                kpi_rows = conn.execute(
+                    "SELECT target_id, kpi_field FROM kpi_configs WHERE act_id=? AND level='ad' AND enabled=1 AND source!='manual'",
+                    (act_id,)
+                ).fetchall()
+                stored_map = {r["target_id"]: r["kpi_field"] for r in kpi_rows}
+                for row in kpi_rows:
+                    if not _is_valid_kpi_field(row["kpi_field"]):
+                        invalid_kpi_ids.add(row["target_id"])
+                # Check custom_event_type vs stored field mismatch
+                for ad in ads:
+                    ad_id = ad["id"]
+                    if ad_id in stored_map:
+                        adset_d = ad.get("adset", {})
+                        if isinstance(adset_d, dict):
+                            ce = (adset_d.get("promoted_object", {}).get("custom_event_type", "") or "").upper()
+                            if ce in _CUSTOM_EVENT_RULES:
+                                expected = _CUSTOM_EVENT_RULES[ce][0]
+                                if stored_map.get(ad_id) != expected:
+                                    mismatched_kpi_ids.add(ad_id)
             conn.close()
-            # 检查是否有广告没有 KPI 配置
+
             ad_ids_active = {ad["id"] for ad in ads}
-            unconfigured = ad_ids_active - existing_kpi_ids
-            if unconfigured:
-                logger.info(f"账户 {act_id} 发现 {len(unconfigured)} 条广告无 KPI 配置，自动触发预配")
-                try:
-                    from services.kpi_resolver import scan_and_preset_kpi
-                    result = scan_and_preset_kpi(act_id, token)
-                    logger.info(
-                        f"KPI 自动预配完成 {act_id}: "
-                        f"新建={result.get('created',0)}, "
-                        f"更新={result.get('updated',0)}, "
-                        f"跳过={result.get('skipped',0)}"
-                    )
-                except Exception as kpi_err:
-                    logger.warning(f"KPI 自动预配失败（非致命）{act_id}: {kpi_err}")
+            need_scan = (ad_ids_active - existing_kpi_ids) | (invalid_kpi_ids & ad_ids_active) | (mismatched_kpi_ids & ad_ids_active)
+            if mismatched_kpi_ids:
+                logger.info(f"KPI预配: {act_id} {len(mismatched_kpi_ids)} ads custom_event_type mismatch, triggering rescan")
+            if need_scan:
+                new_count = len(ad_ids_active - existing_kpi_ids)
+                invalid_count = len(invalid_kpi_ids & ad_ids_active)
+                logger.info(f"账户 {act_id} {len(need_scan)} 条广告需要 KPI 预配（{new_count} 无配置 + {invalid_count} 非法字段）")
+                from services.kpi_resolver import scan_and_preset_kpi
+                result = scan_and_preset_kpi(act_id, token)
+                logger.info(
+                    f"KPI 自动预配完成 {act_id}: "
+                    f"新建={result.get('created',0)}, "
+                    f"更新={result.get('updated',0)}, "
+                    f"跳过={result.get('skipped',0)}"
+                )
         except Exception as e:
-            logger.warning(f"KPI 预配检查异常（非致命）{act_id}: {e}")
+            logger.warning(f"KPI 预配异常（非致命）{act_id}: {e}")
         # ─────────────────────────────────────────────────────────────────────
 
         conn = get_conn()
@@ -592,17 +646,32 @@ class GuardEngine:
             # 将 spend 转换为 USD（如果已是 USD 则不变）
             spend = _to_usd_guard(spend_raw, account_currency)
 
-            # 从 ad 响应中提取 campaign objective
+            # 从 ad 响应中提取 campaign objective / adset 元数据
             camp_obj = ""
             camp_data = ad.get("campaign", {})
             if isinstance(camp_data, dict):
                 camp_obj = camp_data.get("objective", "")
+            adset_data = ad.get("adset", {})
+            adset_opt_goal = ""
+            adset_dest_type = ""
+            adset_custom_event = ""
+            if isinstance(adset_data, dict):
+                adset_opt_goal = adset_data.get("optimization_goal", "")
+                adset_dest_type = adset_data.get("destination_type", "")
+                adset_custom_event = (adset_data.get("promoted_object", {}) or {}).get("custom_event_type", "")
 
-            # 获取 KPI 配置
+            # 获取 KPI 配置（v3.3.6: 传入完整 adset 元数据供 KpiResolver 使用）
             kpi_field, kpi_label, kpi_source = get_kpi_for_ad(
                 act_id, ad_id, campaign_id,
-                campaign_meta={"objective": camp_obj, "spend": spend},
-                actions=actions_raw
+                campaign_meta={
+                    "objective": camp_obj,
+                    "optimization_goal": adset_opt_goal,
+                    "destination_type": adset_dest_type,
+                    "custom_event_type": adset_custom_event,
+                    "spend": spend,
+                },
+                actions=actions_raw,
+                adset_id=adset_id
             )
 
             # 计算转化数 & CPA（基于 USD 消耗）
@@ -613,12 +682,26 @@ class GuardEngine:
                 "lead": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
                 "offsite_conversion.fb_pixel_purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
                 "purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
+                # v3.3.7: add missing alias variants
+                "offsite_conversion.purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
+                "offsite_conversion.lead": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
+                "offsite_conversion.lead_grouped": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
             }
             conversions = 0.0
             _aliases = _KPI_ALIAS_MAP.get(kpi_field, [kpi_field])
             for a in actions_raw:
                 if a.get("action_type") in _aliases:
                     conversions += float(a.get("value", 0))
+                    break
+
+            # v3.3.7: broad conversion check
+            broader_conv = 0.0
+            _CONV_BROAD = {"purchase", "offsite_conversion.fb_pixel_purchase", "offsite_conversion.purchase",
+                          "lead", "offsite_conversion.fb_pixel_lead", "offsite_conversion.lead",
+                          "onsite_conversion.lead_grouped", "offsite_conversion.lead_grouped"}
+            for a in actions_raw:
+                if a.get("action_type") in _CONV_BROAD:
+                    broader_conv += float(a.get("value", 0))
                     break
 
             cpa = (spend / conversions) if conversions > 0 else None  # USD CPA
@@ -751,7 +834,8 @@ class GuardEngine:
                     ad_id, adset_id, campaign_id, ad_name,
                     spend, conversions, clicks, cpa, roas,
                     target_cpa, kpi_label, impressions,
-                    account_currency=account_currency, spend_raw=spend_raw
+                    account_currency=account_currency, spend_raw=spend_raw,
+                    broader_conv=broader_conv
                 )
 
     def _check_rule(self, rule: dict, account: dict, token: str,
@@ -759,7 +843,8 @@ class GuardEngine:
                     spend: float, conversions: float, clicks: int,
                     cpa: Optional[float], roas: Optional[float],
                     target_cpa: Optional[float], kpi_label: str, impressions: int,
-                    account_currency: str = "USD", spend_raw: float = None):
+                    account_currency: str = "USD", spend_raw: float = None,
+                    broader_conv: float = 0.0):
         """
         所有金额参数（spend/cpa/target_cpa）均为 USD。
         account_currency: 账户原始货币（仅用于日志展示）
@@ -778,6 +863,15 @@ class GuardEngine:
         if rule_type == "bleed_abs":
             threshold = rule.get("param_value") or self.default_bleed_abs
             if spend >= threshold and conversions == 0:
+                # v3.3.7: broad check — prevent false kill when KPI field mismatches FB events
+                if broader_conv > 0:
+                    logger.warning(
+                        f"BLEED_ABORT {ad_id}: kpi_field={kpi_label} produced 0 conversions, "
+                        f"but broad check found {broader_conv} (field mismatch suspected)"
+                    )
+                    _log_action(act_id, "ad", ad_id, ad_name, "bleed_abort", "bleed_abs",
+                                f"kpi_field mismatch: {kpi_label}=0, broad_check={broader_conv}")
+                    return
                 triggered = True
                 reason = f"消耗 ${spend:.2f}{cur_note} 超过空成效止血线 ${threshold:.2f}，且 {kpi_label} = 0"
 
