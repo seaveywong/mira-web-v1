@@ -115,7 +115,8 @@ AI_PURPOSE_PROMPTS = {
 AI_LANGUAGE_NAMES = {
     "en": "English", "es": "Spanish (Español)", "pt": "Portuguese (Português)",
     "fr": "French (Français)", "ar": "Arabic (العربية)", "zh": "Simplified Chinese (简体中文)",
-    "zh-tw": "Traditional Chinese (繁體中文)", "ja": "Japanese (日本語)", "ko": "Korean (한국어)",
+    "zh-tw": "Traditional Chinese (Taiwan) (繁體中文-臺灣)",
+    "zh-hk": "Traditional Chinese (Hong Kong) (繁體中文-香港)", "ja": "Japanese (日本語)", "ko": "Korean (한국어)",
     "de": "German (Deutsch)", "it": "Italian (Italiano)", "ru": "Russian (Русский)",
     "hi": "Hindi (हिन्दी)", "id": "Indonesian (Bahasa Indonesia)", "th": "Thai (ภาษาไทย)",
     "vi": "Vietnamese (Tiếng Việt)", "tr": "Turkish (Türkçe)", "ms": "Malay (Bahasa Melayu)",
@@ -131,7 +132,7 @@ COUNTRY_LANGUAGE_MAP = {
     "JP": "ja", "KR": "ko",
     "ID": "id", "MY": "id",
     "TH": "th", "VN": "vi", "TR": "tr",
-    "CN": "zh", "SG": "zh", "TW": "zh-tw", "HK": "zh-tw",
+    "CN": "zh", "SG": "zh", "TW": "zh-tw", "HK": "zh-hk",
 }
 
 router = APIRouter()
@@ -146,8 +147,10 @@ def _normalize_ai_language_code(raw: str = "") -> str:
     lang = str(raw or "").strip().lower().replace("_", "-")
     if lang in ("zh-cn", "cn", "zh-hans"):
         return "zh"
-    if lang in ("zh-tw", "zh-hk", "tw", "hk", "zh-hant"):
+    if lang in ("zh-tw", "tw", "zh-hant"):
         return "zh-tw"
+    if lang in ("zh-hk", "hk"):
+        return "zh-hk"
     if "-" in lang and lang not in AI_LANGUAGE_NAMES:
         lang = lang.split("-", 1)[0]
     return lang or "en"

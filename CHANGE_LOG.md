@@ -1,3 +1,23 @@
+## v3.4.7 - 2026-04-27 - feat: 香港繁体中文(zh-hk) AI 语种独立支持
+
+### Added
+1. api/assets.py: AI_LANGUAGE_NAMES 添加 zh-hk；COUNTRY_LANGUAGE_MAP 中 HK → zh-hk（原映射到 zh-tw）
+2. services/autopilot_engine.py: 全链路 zh-hk 支持
+   - LANGUAGE_LABELS 添加 zh-hk
+   - _normalize_language_code() 将 zh-hk 拆分为独立语种（原映射到 zh-tw）
+   - locale_map 添加 zh_HK
+   - text_map / _default_msg_template / _localized_lead_form_fallback 添加香港粤语用词
+   - AI prompt 语言守卫增加 zh-hk，避免繁体中文被误判为台湾用语
+3. services/smart_scorer.py: 评分推荐国家规则添加香港繁体中文识别
+4. frontend/index.html: 
+   - 语言选择器添加 繁體中文(香港) 选项
+   - Lead Form 区域设置添加 zh_HK
+   - 3 处国家-语言映射表 HK 从 zh-tw 改为 zh-hk
+
+### Impact
+- 目标国家包含 HK 时，AI 生成的文案/表单/消息模板将使用香港繁体中文（粤语用词）
+- 不再笼统归为「繁体中文/台湾」，解决语气风格偏台湾的问题
+
 ## v3.4.6 - 2026-04-27 - fix: 巡检400错误(custom_event_type在v25.0不存在)
 
 ### Fixed

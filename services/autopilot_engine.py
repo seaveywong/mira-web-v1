@@ -62,7 +62,8 @@ LANGUAGE_LABELS = {
     "vi": "Vietnamese",
     "tr": "Turkish",
     "zh": "Simplified Chinese",
-    "zh-tw": "Traditional Chinese",
+    "zh-tw": "Traditional Chinese (Taiwan)",
+    "zh-hk": "Traditional Chinese (Hong Kong)",
 }
 COUNTRY_LANGUAGE_MAP = {
     "US": "en", "GB": "en", "CA": "en", "AU": "en", "NZ": "en", "IE": "en", "IN": "en",
@@ -74,7 +75,7 @@ COUNTRY_LANGUAGE_MAP = {
     "JP": "ja", "KR": "ko",
     "ID": "id", "MY": "id",
     "TH": "th", "VN": "vi", "TR": "tr",
-    "CN": "zh", "SG": "zh", "TW": "zh-tw", "HK": "zh-tw",
+    "CN": "zh", "SG": "zh", "TW": "zh-tw", "HK": "zh-hk",
 }
 TRANSIENT_FB_ERROR_CODES = {1, 2, 4, 17, 32, 341, 613}
 RATE_LIMIT_FB_ERROR_CODES = {4, 17, 32, 341, 613}
@@ -145,8 +146,10 @@ class AutoPilotEngine:
         lang = str(value or "").strip().lower().replace("_", "-")
         if lang in ("zh-cn", "cn", "zh-hans"):
             return "zh"
-        if lang in ("zh-tw", "zh-hk", "tw", "hk", "zh-hant"):
+        if lang in ("zh-tw", "tw", "zh-hant"):
             return "zh-tw"
+        if lang in ("zh-hk", "hk"):
+            return "zh-hk"
         if "-" in lang:
             lang = lang.split("-", 1)[0]
         return lang or "en"
@@ -203,6 +206,7 @@ class AutoPilotEngine:
             "tr": "tr_TR",
             "zh": "zh_CN",
             "zh-tw": "zh_TW",
+            "zh-hk": "zh_HK",
         }
         return {
             "language": lang,
@@ -233,12 +237,13 @@ class AutoPilotEngine:
             "tr": ("Daha Fazla Bilgi Al", "Önce hangi konuda destek almak istersiniz?", "Gizlilik Politikası"),
             "zh": ("获取更多信息", "你最想先了解什么？", "隐私政策"),
             "zh-tw": ("取得更多資訊", "你最想先了解什麼？", "隱私權政策"),
+            "zh-hk": ("了解更多資訊", "你最想先了解啲咩？", "私隱政策"),
         }
         form_title, qualifying_question, privacy_text = text_map.get(lang, text_map["en"])
         # Build thank_you and cta fallbacks based on language
-        _ty_title_map = {"en":"Thank You!","es":"Gracias!","pt":"Obrigado!","fr":"Merci!","de":"Danke!","ar":"شكرا لك!","ja":"ありがとうございます！","ko":"감사합니다!","id":"Terima kasih!","th":"ขอบคุณ!","vi":"Cảm ơn bạn!","tr":"Teşekkürler!","zh":"感谢您的提交！","zh-tw":"感謝您的提交！"}
-        _ty_body_map = {"en":"We will contact you shortly.","es":"Nos pondremos en contacto contigo pronto.","pt":"Entraremos em contato em breve.","fr":"Nous vous contacterons sous peu.","de":"Wir werden uns in Kürze bei Ihnen melden.","ar":"سنقوم بالاتصال بك قريبا.","ja":"すぐにご連絡いたします。","ko":"곧 연락드리겠습니다.","id":"Kami akan menghubungi Anda segera.","th":"เราจะติดต่อคุณเร็วๆ นี้","vi":"Chúng tôi sẽ liên hệ với bạn sớm.","tr":"Sizinle kısa süre içinde iletişime geçeceğiz.","zh":"我们会尽快与您联系。","zh-tw":"我們會盡快與您聯繫。"}
-        _cta_map = {"en":"Contact Us","es":"Contáctenos","pt":"Fale Conosco","fr":"Contactez-nous","de":"Kontaktieren Sie uns","ar":"اتصل بنا","ja":"お問い合わせ","ko":"문의하기","id":"Hubungi Kami","th":"ติดต่อเรา","vi":"Liên hệ với chúng tôi","tr":"Bize Ulaşın","zh":"联系我们","zh-tw":"聯繫我們"}
+        _ty_title_map = {"en":"Thank You!","es":"Gracias!","pt":"Obrigado!","fr":"Merci!","de":"Danke!","ar":"شكرا لك!","ja":"ありがとうございます！","ko":"감사합니다!","id":"Terima kasih!","th":"ขอบคุณ!","vi":"Cảm ơn bạn!","tr":"Teşekkürler!","zh":"感谢您的提交！","zh-tw":"感謝您的提交！","zh-hk":"多謝你嘅提交！"}
+        _ty_body_map = {"en":"We will contact you shortly.","es":"Nos pondremos en contacto contigo pronto.","pt":"Entraremos em contato em breve.","fr":"Nous vous contacterons sous peu.","de":"Wir werden uns in Kürze bei Ihnen melden.","ar":"سنقوم بالاتصال بك قريبا.","ja":"すぐにご連絡いたします。","ko":"곧 연락드리겠습니다.","id":"Kami akan menghubungi Anda segera.","th":"เราจะติดต่อคุณเร็วๆ นี้","vi":"Chúng tôi sẽ liên hệ với bạn sớm.","tr":"Sizinle kısa süre içinde iletişime geçeceğiz.","zh":"我们会尽快与您联系。","zh-tw":"我們會盡快與您聯繫。","zh-hk":"我哋會盡快同你聯絡。"}
+        _cta_map = {"en":"Contact Us","es":"Contáctenos","pt":"Fale Conosco","fr":"Contactez-nous","de":"Kontaktieren Sie uns","ar":"اتصل بنا","ja":"お問い合わせ","ko":"문의하기","id":"Hubungi Kami","th":"ติดต่อเรา","vi":"Liên hệ với chúng tôi","tr":"Bize Ulaşın","zh":"联系我们","zh-tw":"聯繫我們","zh-hk":"聯絡我哋"}
         return {
             "form_title": form_title,
             "qualifying_question": qualifying_question,
@@ -257,6 +262,7 @@ class AutoPilotEngine:
             "pt": ("Obrigado pelo contato. O que você gostaria de saber primeiro?", [("Mais detalhes", "Quero mais detalhes"), ("Preço", "Fale sobre o preço"), ("Como funciona", "Como funciona?")]),
             "zh": ("感谢留言，你最想先了解什么？", [("了解详情", "我想先了解详情"), ("价格信息", "我想了解价格信息"), ("如何开始", "我想知道如何开始")]),
             "zh-tw": ("感謝留言，你最想先了解什麼？", [("了解詳情", "我想先了解詳情"), ("價格資訊", "我想了解價格資訊"), ("如何開始", "我想知道如何開始")]),
+            "zh-hk": ("多謝你嘅留言，你最想先了解啲咩？", [("了解詳情", "我想先了解詳情"), ("價格資訊", "我想了解價格資訊"), ("如何開始", "我想知道如何開始")]),
         }
         welcome_text, pairs = fallback_map.get(lang, fallback_map["en"])
         if headline:
@@ -1735,7 +1741,7 @@ class AutoPilotEngine:
         ctx = self._resolve_language_context(ad_language, target_countries, asset_info)
         lang_code = ctx["language"]
         lang_hint = ctx["label"]
-        avoid_chinese_hint = "除非目标语言本身是中文，否则绝不要输出中文。" if lang_code not in ("zh", "zh-tw") else ""
+        avoid_chinese_hint = "除非目标语言本身是中文，否则绝不要输出中文。" if lang_code not in ("zh", "zh-tw", "zh-hk") else ""
 
         prompt = (
             "你是一位Facebook广告专家，请根据以下广告内容，生成一个高度相关的Messenger欢迎消息模板。\n\n"
@@ -1774,7 +1780,7 @@ class AutoPilotEngine:
 
         fallback_template = self._default_msg_template(ctx, headline)
         welcome_text = str(ai_result.get("welcome_text") or "").strip() or fallback_template["welcome_text"]
-        if lang_code not in ("zh", "zh-tw") and self._contains_cjk(welcome_text):
+        if lang_code not in ("zh", "zh-tw", "zh-hk") and self._contains_cjk(welcome_text):
             welcome_text = fallback_template["welcome_text"]
 
         ice_breakers_raw = ai_result.get("ice_breakers") or []
@@ -1792,7 +1798,7 @@ class AutoPilotEngine:
                 title = str(item).strip()[:80]
             if not title:
                 continue
-            if lang_code not in ("zh", "zh-tw") and self._contains_cjk(title):
+            if lang_code not in ("zh", "zh-tw", "zh-hk") and self._contains_cjk(title):
                 continue
             ice_breakers.append({"title": title, "response": ""})
 
@@ -1873,7 +1879,7 @@ class AutoPilotEngine:
         form_title = str(ai_result.get("form_title") or "").strip() or fallback_spec["form_title"]
         qualifying_question = str(ai_result.get("qualifying_question") or "").strip() or fallback_spec["qualifying_question"]
 
-        if lang_code not in ("zh", "zh-tw"):
+        if lang_code not in ("zh", "zh-tw", "zh-hk"):
             if self._contains_cjk(form_title):
                 form_title = fallback_spec["form_title"]
             if self._contains_cjk(qualifying_question):
@@ -1893,7 +1899,7 @@ class AutoPilotEngine:
         _thank_you_body = _ai_thank_you_body or fallback_spec["thank_you_body"]
         _cta_button_text = _ai_cta_button_text or fallback_spec["cta_button_text"]
 
-        if lang_code not in ("zh", "zh-tw"):
+        if lang_code not in ("zh", "zh-tw", "zh-hk"):
             if self._contains_cjk(_thank_you_title):
                 _thank_you_title = fallback_spec["thank_you_title"]
             if self._contains_cjk(_thank_you_body):

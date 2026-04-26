@@ -2216,7 +2216,8 @@ textarea.fc{resize:vertical;min-height:80px}
             <option value="fr">Français（法语）</option>
             <option value="ar">العربية（阿拉伯语）</option>
             <option value="zh">简体中文</option>
-            <option value="zh-tw">繁體中文</option>
+            <option value="zh-tw">繁體中文(臺灣)</option>
+<option value="zh-hk">繁體中文(香港)</option>
             <option value="ja">日本語（日语）</option>
             <option value="ko">한국어（韩语）</option>
             <option value="de">Deutsch（德语）</option>
@@ -2787,7 +2788,8 @@ textarea.fc{resize:vertical;min-height:80px}
         <label class="fl">语言</label>
         <select class="fc" id="lfTplLocale">
           <option value="zh_CN">简体中文</option>
-          <option value="zh_TW">繁体中文</option>
+          <option value="zh_TW">繁体中文(台湾)</option>
+          <option value="zh_HK">繁体中文(香港)</option>
           <option value="en_US">英语</option>
           <option value="ms_MY">马来语</option>
           <option value="id_ID">印尼语</option>
@@ -5916,7 +5918,8 @@ var _AI_LANGUAGES=[
   {value:'fr',label:'Français（法语）'},
   {value:'ar',label:'العربية（阿拉伯语）'},
   {value:'zh',label:'简体中文'},
-  {value:'zh-tw',label:'繁體中文'},
+  {value:'zh-tw',label:'繁體中文(臺灣)'},
+  {value:'zh-hk',label:'繁體中文(香港)'},
   {value:'ja',label:'日本語（日语）'},
   {value:'ko',label:'한국어（韩语）'},
   {value:'de',label:'Deutsch（德语）'},
@@ -5945,7 +5948,7 @@ function openAiAnalyzeModal(assetId){
     'JP':'ja','KR':'ko',
     'ID':'id','MY':'id',
     'TH':'th','VN':'vi','TR':'tr',
-    'CN':'zh','TW':'zh-tw','HK':'zh-tw','SG':'zh',
+    'CN':'zh','TW':'zh-tw','HK':'zh-hk','SG':'zh',
     'IN':'en',
   };
   // 根据国家推荐语言
@@ -6272,7 +6275,7 @@ function autoSuggestLaunchLanguage(){
     'JP':'ja','KR':'ko',
     'ID':'id','MY':'id',
     'TH':'th','VN':'vi','TR':'tr',
-    'CN':'zh','TW':'zh-tw','HK':'zh-tw','SG':'zh',
+    'CN':'zh','TW':'zh-tw','HK':'zh-hk','SG':'zh',
   };
   var inp=document.getElementById('launchCountries');
   var langSel=document.getElementById('launchAdLanguage');
@@ -6511,7 +6514,7 @@ async function openLaunchModal(assetId){
     if(asset&&asset.target_countries){
       var raw=asset.target_countries;
       var ctrs=Array.isArray(raw)?raw:(typeof raw==='string'?raw.split(',').map(function(s){return s.trim().toUpperCase();}):[]);
-      var _cLangMap={'US':'en','GB':'en','CA':'en','AU':'en','NZ':'en','IE':'en','IN':'en','ES':'es','MX':'es','AR':'es','CO':'es','PE':'es','CL':'es','VE':'es','BR':'pt','PT':'pt','FR':'fr','BE':'fr','DE':'de','AT':'de','AE':'ar','SA':'ar','EG':'ar','KW':'ar','QA':'ar','JP':'ja','KR':'ko','ID':'id','MY':'id','TH':'th','VN':'vi','TR':'tr','CN':'zh','TW':'zh-tw','HK':'zh-tw','SG':'zh'};
+      var _cLangMap={'US':'en','GB':'en','CA':'en','AU':'en','NZ':'en','IE':'en','IN':'en','ES':'es','MX':'es','AR':'es','CO':'es','PE':'es','CL':'es','VE':'es','BR':'pt','PT':'pt','FR':'fr','BE':'fr','DE':'de','AT':'de','AE':'ar','SA':'ar','EG':'ar','KW':'ar','QA':'ar','JP':'ja','KR':'ko','ID':'id','MY':'id','TH':'th','VN':'vi','TR':'tr','CN':'zh','TW':'zh-tw','HK':'zh-hk','SG':'zh'};
       for(var i=0;i<ctrs.length;i++){
         var lang=_cLangMap[ctrs[i]];
         if(lang){
