@@ -184,7 +184,7 @@ def _infer_ai_languages_from_countries(raw_value) -> list[str]:
 
 def _localized_ai_error_message(lang_list, category: str, fallback: str = "") -> str:
     primary_lang = _normalize_ai_language_code((lang_list or ["en"])[0] if (lang_list or ["en"]) else "en")
-    zh_mode = primary_lang in ("zh", "zh-tw")
+    zh_mode = primary_lang in ("zh", "zh-tw", "zh-hk")
     messages = {
         "quota": "API 配额已耗尽，请升级计划或更换 Key"
         if zh_mode else
@@ -922,7 +922,26 @@ def _ai_analyze_asset(asset_id: int, purpose: str = 'general', languages: list =
         if is_video and len(image_contents) > 1:
             video_hint = f"\n【注意】以下 {len(image_contents)} 张图片是同一段视频按时间顺序均匀截取的帧,请综合理解视频的完整内容、故事线和广告意图后生成文案,不要只描述单帧画面."
 
-        # ── 文案风格强度 ──
+        # 香港粤语特别指引
+        zh_hk_cantonese_hint = ""
+        for l in lang_list:
+            if _normalize_ai_language_code(l) == "zh-hk":
+                zh_hk_cantonese_hint = (
+                    "【香港粤语特别要求】\n"
+                    "当使用香港繁体中文(zh-hk)时，必须使用粤语白话文（香港口语），而非书面语：\n"
+                    "- 用「係」代替「是」\n"
+                    "- 用「喺」代替「在」\n"
+                    "- 用「嘅」代替「的」\n"
+                    "- 用「唔」代替「不」\n"
+                    "- 用「咗」代替「了」（过去式）\n"
+                    "- 用「啲」代替「些/点」\n"
+                    "- 用「哂」代替「全部」\n"
+                    "- 用「仲有」代替「还有」\n"
+                    "- 语气：亲切、口语化、地道香港口语\n"
+                )
+                break
+
+                # ── 文案风格强度 ──
         style_guide = {
             "conservative": (
                 "【文案风格:保守】"
@@ -966,7 +985,7 @@ def _ai_analyze_asset(asset_id: int, purpose: str = 'general', languages: list =
 - 医疗声称(cure / treat)→ 改用「感觉」「体验」「我的变化」
 - 直接指向用户问题(你的财务/体重/疾病)→ 改用第一人称分享视角"""
 
-        prompt = f"""{purpose_prompt}{video_hint}
+        prompt = f"""{purpose_prompt}{video_hint}{zh_hk_cantonese_hint}
 
 {style_guide}
 
@@ -1142,7 +1161,7 @@ def _ai_analyze_asset(asset_id: int, purpose: str = 'general', languages: list =
         # ── Phase 2: 智能评分 hook(全自动系统)──────────────────────────
         try:
             import threading as _t2
-            from services.smart_scorer import score_and_infer as _score_infer
+            from services.smart_scorer import score_asset as _score_infer
             _t2.Thread(target=_score_infer, args=(asset_id,), daemon=True).start()
         except Exception as _se:
             pass  # 评分失败不影响主流程

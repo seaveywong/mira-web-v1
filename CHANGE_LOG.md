@@ -1,3 +1,21 @@
+## v3.5.0 (2026-04-27)
+
+### Features
+- **smart_scorer.py 升级**: 多维评分体系，6 维度（Visual/Copy/Emotion/Offer/Compliance/Audience-fit）加权评分
+- **数据反馈环**: 新增 `_correlate_with_performance()`，每日对比 AI 评分 vs 实际 FB 性能分，标记偏差大的素材重新评分
+- **疲劳度预测**: 新增 `_predict_fatigue()`，基于投放次数、时间衰减、同受众密度预测素材疲劳度
+- **Fallback 引擎升级**: 语义级关键词聚类 + 正则数值提取，替代机械关键词匹配
+- **zh-hk 粤语内容生成**: 在 AI prompt 中加入粤语白话文示例词汇（係、喺、嘅、唔、咗、啲等），确保香港素材生成地道粤语
+
+### Bug Fixes
+- `api/assets.py`: 修复 `zh_mode` 缺少 zh-hk（第 187 行），zh-hk 资产现在正确显示中文错误消息
+- `api/assets.py`: 修复 `score_and_infer` 不存在的导入（应为 `score_asset`），AI 分析后评分现在正常触发
+- `api/assets.py`: 修复素材评分跳过逻辑，支持 `needs_rescore` 标记和 7 天自动重新评分
+
+### Technical
+- `smart_scorer.py`: GRADE_CRITERIA 支持 6 维评分 JSON 输出（含 dimensions 字段）
+- `smart_scorer.py`: max_tokens 从 500 提升到 800（应对更长的 prompt）
+- `scheduler.py`: 新增每日 2:30 评分反馈环任务
 ## v3.4.7 - 2026-04-27 - feat: 香港繁体中文(zh-hk) AI 语种独立支持
 
 ### Added

@@ -1742,6 +1742,7 @@ class AutoPilotEngine:
         lang_code = ctx["language"]
         lang_hint = ctx["label"]
         avoid_chinese_hint = "除非目标语言本身是中文，否则绝不要输出中文。" if lang_code not in ("zh", "zh-tw", "zh-hk") else ""
+        zh_hk_cantonese_hint = "【香港粤语特别要求】当使用zh-hk时，必须使用粤语白话文：用「係」代替「是」，用「嘅」代替「的」，用「唔」代替「不」，用「咗」代替「了」，用「喺」代替「在」，用「啲」代替「些/点」，语气亲切口语化。" if lang_code == "zh-hk" else ""
 
         prompt = (
             "你是一位Facebook广告专家，请根据以下广告内容，生成一个高度相关的Messenger欢迎消息模板。\n\n"
@@ -1758,7 +1759,8 @@ class AutoPilotEngine:
             "   - 必须是用户针对该广告的具体产品/服务会真实提问的问题\n"
             "   - 禁止使用通用问题\n"
             f"   - 必须使用 {lang_hint}，问题标题不超过80字符，回复不超过300字符\n"
-            f"3. {avoid_chinese_hint}\n\n"
+            f"3. {avoid_chinese_hint}\n"
+            f"4. {zh_hk_cantonese_hint}\n\n"
             "请用JSON格式返回（3个ice_breaker）：\n"
             '{"welcome_text": "欢迎语", "ice_breakers": [{"title": "具体问题1", "response": "针对性回复1"}, {"title": "具体问题2", "response": "针对性回复2"}, {"title": "具体问题3", "response": "针对性回复3"}]}\n'
             "只返回JSON，不要其他内容。"

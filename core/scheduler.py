@@ -430,6 +430,15 @@ def run_currency_rate_refresh():
         logger.error(f"汇率更新任务异常: {e}", exc_info=True)
 
 
+def run_score_correlation():
+    """v3.5: 每日凌晨2:30执行 AI评分 vs 性能数据 反馈环"""
+    try:
+        from services.smart_scorer import _correlate_with_performance
+        _correlate_with_performance()
+    except Exception as e:
+        logger.error(f"评分反馈环任务异常: {e}", exc_info=True)
+
+
 def start_scheduler():
     global _scheduler
     try:
@@ -477,6 +486,8 @@ def start_scheduler():
     _scheduler.add_job(run_creative_task_retry, IntervalTrigger(hours=1), id="creative_retry", replace_existing=True)
     # 修复: 汇率自动更新（每天凌晨 2 点）
     _scheduler.add_job(run_currency_rate_refresh, CronTrigger(hour=2, minute=0), id="currency_refresh", replace_existing=True)
+    # v3.5: AI评分 vs 性能数据反馈环（每日凌晨2:30）
+    _scheduler.add_job(run_score_correlation, CronTrigger(hour=2, minute=30), id="score_correlation", replace_existing=True)
     # v3.4: FB 广告数据回流（每小时拉取一次）
     def _run_metrics_sync():
         try:
@@ -486,7 +497,7 @@ def start_scheduler():
             logger.error(f"metrics_sync 异常: {e}")
     _scheduler.add_job(_run_metrics_sync, IntervalTrigger(hours=1), id="metrics_sync", replace_existing=True)
     _scheduler.start()
-    logger.info(f"调度器启动 v3.1.0: 安检间隔={interval_min}分钟 | AutoPilot=10分钟 | 操作号心跳={heartbeat_min}分钟 | 素材打分=每日1点 | 账户状态同步=30分钟 | Token自动发现=6小时 | creative重试=1小时 | 汇率更新=每日2点 | 数据回流=每小时")
+    logger.info(f"调度器启动 v3.1.0: 安检间隔={interval_min}分钟 | AutoPilot=10分钟 | 操作号心跳={heartbeat_min}分钟 | 素材打分=每日1点 | 账户状态同步=30分钟 | Token自动发现=6小时 | creative重试=1小时 | 汇率更新=每日2点 | 数据回流=每小时 | 评分反馈环=每日2:30")
 
 def trigger_guard_now():
     """手动触发一次巡检（异步）"""
