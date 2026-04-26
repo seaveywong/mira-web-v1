@@ -34,7 +34,7 @@ def audit_account(act_id, token):
     fields = (
         "id,name,status,effective_status,adset_id,campaign_id,"
         "campaign{objective},"
-        "adset{optimization_goal,destination_type,custom_event_type},"
+        "adset{optimization_goal,destination_type},"
         "insights.date_preset(last_7d){actions,spend}"
     )
     try:

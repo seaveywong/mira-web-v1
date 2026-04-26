@@ -888,7 +888,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         fields = (
             "id,name,adset_id,campaign_id,"
             "campaign{objective},"
-            "adset{optimization_goal,destination_type,custom_event_type},"
+            "adset{optimization_goal,destination_type},"
             "insights.date_preset(last_7d){actions,spend}"
         )
         ads = _fb_get_all_pages(

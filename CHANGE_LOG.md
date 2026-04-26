@@ -1,3 +1,17 @@
+## v3.4.6 - 2026-04-27 - fix: 巡检400错误(custom_event_type在v25.0不存在)
+
+### Fixed
+1. guard_engine.py: Remove  from FB_AD_FIELDS field list
+   - FB API v25.0 dropped custom_event_type on adset, causing (#100) error on ALL patrols
+   - Result: ALL accounts failed to fetch ads, guard engine was completely broken
+2. kpi_resolver.py: Same fix in scan_and_preset_kpi() FB API field selection
+3. scripts/audit_kpi.py: Same fix in audit script field selection
+
+### Changed
+1. guard_engine.py: adset{optimization_goal,destination_type,custom_event_type} → adset{optimization_goal,destination_type}
+2. kpi_resolver.py: Same field fix in scan_and_preset_kpi() at line 891
+
+
 ## v3.3.12 - 2026-04-26 - KPI规则前后端一致性修复
 
 ### Fixed
