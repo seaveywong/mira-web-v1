@@ -100,7 +100,7 @@ app.include_router(creative_gen_router, prefix="/api/creative-gen", tags=["creat
 app.include_router(storage_router,       prefix="/api/storage",       tags=["storage"])
 app.include_router(autopilot_router,    prefix="/api/autopilot",    tags=["autopilot"])
 app.include_router(users_router,        prefix="/api/users",        tags=["users"])
-app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
+
 
 
 # ── 健康检查（独立路由，不被 catch_all 拦截）──────────────────────────────
@@ -135,6 +135,10 @@ async def catch_all(path: str):
         from fastapi.responses import JSONResponse
         return JSONResponse({"detail": "Not Found"}, status_code=404)
     fp = os.path.join(FRONTEND, path)
+    fp = os.path.realpath(fp)
+    if not fp.startswith(os.path.realpath(FRONTEND) + os.sep):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Forbidden"}, status_code=403)
     if os.path.exists(fp) and os.path.isfile(fp):
         return FileResponse(fp)
     return FileResponse(os.path.join(FRONTEND, "index.html"))

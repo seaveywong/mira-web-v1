@@ -37,16 +37,19 @@ _KPI_FIELD_TO_ACTION = {
     "app_install":                                         ["app_install"],
     "reach":                                               ["reach"],
     # lead 可能有多个来源，但只取最精准的一个
-    "lead":                                                ["lead"],
+    "lead":                                                ["lead", "offsite_conversion.fb_pixel_lead"],
     # purchase 字段：只用 purchase，不叠加
     "purchase":                                            ["purchase"],
     # page_likes
     "page_likes":                                          ["like"],
+    # contact
+    "contact":                                             ["contact", "offsite_conversion.fb_pixel_contact"],
 }
 
 # 默认转化字段（未配置 KPI 时的展示用）：只用像素购买一个字段作为默认
 _DEFAULT_CONVERSION_ACTIONS = [
     "offsite_conversion.fb_pixel_purchase",
+    "purchase",
 ]
 
 
@@ -562,7 +565,8 @@ def get_trend(
                 for a in item.get('actions', []):
                     if a.get('action_type') in ('offsite_conversion.fb_pixel_purchase',
                                                  'purchase', 'omni_purchase',
-                                                 'offsite_conversion.fb_pixel_lead', 'lead'):
+                                                 'offsite_conversion.fb_pixel_lead', 'lead',
+                                                 'offsite_conversion.fb_pixel_contact', 'contact'):
                         daily_conv[d] += int(float(a.get('value', 0)))
         except Exception:
             continue
@@ -780,7 +784,8 @@ def spend_query(
                 for a in actions:
                     if a.get('action_type') in ('offsite_conversion.fb_pixel_purchase',
                                                  'purchase', 'omni_purchase',
-                                                 'offsite_conversion.fb_pixel_lead', 'lead'):
+                                                 'offsite_conversion.fb_pixel_lead', 'lead',
+                                                 'offsite_conversion.fb_pixel_contact', 'contact'):
                         conversions += int(float(a.get('value', 0)))
                 cpa_orig = round(spend_orig / conversions, 2) if conversions > 0 else 0
                 cpa_usd = round(spend_usd / conversions, 2) if conversions > 0 else 0
@@ -1111,7 +1116,7 @@ def get_account_health(user=Depends(get_current_user)):
     burn_alerts = conn.execute(
         """SELECT act_id, MAX(created_at) as last_at
            FROM action_logs
-           WHERE action_type='alert' AND trigger_type='burn_rate'
+           WHERE action_type='alert' AND trigger_type='budget_burn_fast'
              AND date(created_at)=?
            GROUP BY act_id""",
         (today,)

@@ -572,6 +572,13 @@ def run_heartbeat_check(act_id: str) -> dict:
         if _is_token_alive(op["token_id"], op["token_plain"]):
             alive += 1
         else:
+            # 重试一次（3秒后），避免网络抖动导致 Token 被误杀
+            import time as _ht
+            _ht.sleep(3)
+            if _is_token_alive(op["token_id"], op["token_plain"]):
+                alive += 1
+                logger.warning(f"[TokenManager] token_id={op['token_id']} 首次心跳失败但重试成功，未标记失效")
+                continue
             dead += 1
             # 将 fb_tokens 状态标记为 invalid
             _mark_token_invalid(op["token_id"])

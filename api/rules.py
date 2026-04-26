@@ -863,3 +863,12 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
         'results': results,
         'message': f'已应用「{tpl.get("name")}」到 {acc_count} 个账户：共添加 {total_guard} 条止损规则、{total_scale} 条拉量策略'
     }
+
+
+# ---- cooling reset ------
+@router.post("/guard/reset-cooldown")
+def reset_cooldown(user=Depends(get_current_user)):
+    from services.guard_engine import _action_cooldown
+    _action_cooldown.clear()
+    logger.info("cooldown manually reset")
+    return {"success": True, "message": "冷却状态已重置, 规则可立即重新触发"}

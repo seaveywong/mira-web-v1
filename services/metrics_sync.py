@@ -120,7 +120,7 @@ def _fetch_account_insights(act_id: str, token: str) -> dict:
             if action_type in ("purchase", "offsite_conversion.fb_pixel_purchase",
                                "omni_purchase", "web_in_store_purchase"):
                 conversions += value
-            elif action_type == "lead":
+            elif action_type in ("lead", "contact", "offsite_conversion.fb_pixel_contact"):
                 # 表单广告的转化
                 if conversions == 0:
                     conversions += value

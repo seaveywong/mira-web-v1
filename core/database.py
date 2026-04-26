@@ -130,6 +130,12 @@ def init_db():
         updated_at TEXT,
         PRIMARY KEY(act_id, ad_id)
     );
+    CREATE TABLE IF NOT EXISTS login_fails (
+        ip TEXT PRIMARY KEY,
+        fail_count INTEGER DEFAULT 0,
+        locked_until INTEGER DEFAULT 0,
+        updated_at TEXT DEFAULT (datetime('now'))
+    );
     """)
     # Default settings
     defaults = [

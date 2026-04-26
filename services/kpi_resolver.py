@@ -15,6 +15,7 @@ import os
 import json
 import logging
 import asyncio
+import time
 import urllib.parse
 import http.client
 import ssl
@@ -27,30 +28,62 @@ logger = logging.getLogger("mira.kpi")
 
 # ── L4 静态规则字典 ────────────────────────────────────────────────
 _OBJECTIVE_RULES = {
-    "OUTCOME_SALES":        ("offsite_conversion.fb_pixel_purchase", "像素购买"),
-    "OUTCOME_LEADS":        ("onsite_conversion.lead_grouped",        "线索收集"),
-    "OUTCOME_ENGAGEMENT":   ("post_engagement",                       "帖子互动"),
-    "OUTCOME_AWARENESS":    ("reach",                                  "触达人数"),
-    "OUTCOME_TRAFFIC":      ("link_click",                             "链接点击"),
-    "OUTCOME_APP_PROMOTION":("app_install",                            "应用安装"),
-    "LEAD_GENERATION":      ("onsite_conversion.lead_grouped",         "线索收集"),
-    "CONVERSIONS":          ("offsite_conversion.fb_pixel_purchase",   "像素购买"),
-    "MESSAGES":             ("onsite_conversion.messaging_conversation_started_7d", "私信对话"),
-    "APP_INSTALLS":         ("app_install",                            "应用安装"),
-    "VIDEO_VIEWS":          ("video_view",                             "视频观看"),
-    "REACH":                ("reach",                                  "触达人数"),
-    "LINK_CLICKS":          ("link_click",                             "链接点击"),
+    # Sales / Purchase
+    "OUTCOME_SALES":                ("offsite_conversion.fb_pixel_purchase", "像素购买"),
+    "OUTCOME_CONVERSIONS":          ("offsite_conversion.fb_pixel_purchase", "像素购买"),
+    "CONVERSIONS":                  ("offsite_conversion.fb_pixel_purchase", "像素购买"),
+    "OUTCOME_PRODUCT_CATALOG_SALES":("offsite_conversion.fb_pixel_purchase", "像素购买"),
+    "OUTCOME_RETAIL":               ("offsite_conversion.fb_pixel_purchase", "像素购买"),
+    # Leads
+    "OUTCOME_LEADS":                ("onsite_conversion.lead_grouped",        "线索收集"),
+    "LEAD_GENERATION":              ("onsite_conversion.lead_grouped",        "线索收集"),
+    # Engagement
+    "OUTCOME_ENGAGEMENT":           ("post_engagement",                       "帖子互动"),
+    "OUTCOME_POST_ENGAGEMENT":      ("post_engagement",                       "帖子互动"),
+    "PAGE_LIKES":                   ("page_likes",                            "主页获赞"),
+    "OUTCOME_PAGE_LIKES":           ("page_likes",                            "主页获赞"),
+    # Traffic
+    "OUTCOME_TRAFFIC":              ("link_click",                             "链接点击"),
+    "LINK_CLICKS":                  ("link_click",                             "链接点击"),
+    # Awareness / Reach
+    "OUTCOME_AWARENESS":            ("reach",                                  "触达人数"),
+    "OUTCOME_BRAND_AWARENESS":      ("reach",                                  "触达人数"),
+    "OUTCOME_REACH":                ("reach",                                  "触达人数"),
+    "REACH":                        ("reach",                                  "触达人数"),
+    # Video
+    "OUTCOME_VIDEO_VIEWS":          ("video_view",                             "视频观看"),
+    "VIDEO_VIEWS":                  ("video_view",                             "视频观看"),
+    # App
+    "OUTCOME_APP_PROMOTION":        ("app_install",                            "应用安装"),
+    "APP_INSTALLS":                 ("app_install",                            "应用安装"),
+    # Messages
+    "MESSAGES":                     ("onsite_conversion.messaging_conversation_started_7d", "私信对话"),
+    "OUTCOME_MESSAGES":             ("onsite_conversion.messaging_conversation_started_7d", "私信对话"),
 }
 
 _OPTGOAL_RULES = {
-    "OFFSITE_CONVERSIONS":  ("offsite_conversion.fb_pixel_purchase", "像素购买"),
-    "LEAD_GENERATION":      ("onsite_conversion.lead_grouped",       "线索收集"),
-    "CONVERSATIONS":        ("onsite_conversion.messaging_conversation_started_7d", "私信对话"),
-    "APP_INSTALLS":         ("app_install",                          "应用安装"),
-    "LINK_CLICKS":          ("link_click",                           "链接点击"),
-    "LANDING_PAGE_VIEWS":   ("landing_page_view",                    "落地页浏览"),
-    "REACH":                ("reach",                                "触达人数"),
-    "IMPRESSIONS":          ("impressions",                          "展示次数"),
+    # Purchase / Conversions
+    "OFFSITE_CONVERSIONS":          ("offsite_conversion.fb_pixel_purchase", "像素购买"),
+    "VALUE":                        ("offsite_conversion.fb_pixel_purchase", "像素购买"),
+    # Leads
+    "LEAD_GENERATION":              ("onsite_conversion.lead_grouped",       "线索收集"),
+    # Messages
+    "CONVERSATIONS":                ("onsite_conversion.messaging_conversation_started_7d", "私信对话"),
+    # App
+    "APP_INSTALLS":                 ("app_install",                          "应用安装"),
+    # Traffic
+    "LINK_CLICKS":                  ("link_click",                           "链接点击"),
+    "LANDING_PAGE_VIEWS":           ("landing_page_view",                    "落地页浏览"),
+    # Engagement
+    "POST_ENGAGEMENT":              ("post_engagement",                      "帖子互动"),
+    "PROFILE_AND_PAGE_ENGAGEMENT":  ("post_engagement",                      "帖子互动"),
+    "PAGE_LIKES":                   ("page_likes",                           "主页获赞"),
+    # Video
+    "VIDEO_VIEWS":                  ("video_view",                           "视频观看"),
+    # Awareness
+    "REACH":                        ("reach",                                "触达人数"),
+    "IMPRESSIONS":                  ("impressions",                          "展示次数"),
+    "AD_RECALL_LIFT":              ("reach",                                "触达人数"),
 }
 
 _CUSTOM_EVENT_RULES = {
@@ -61,6 +94,8 @@ _CUSTOM_EVENT_RULES = {
     "COMPLETE_REGISTRATION":("offsite_conversion.fb_pixel_complete_registration", "注册完成"),
     "SUBSCRIBE":            ("offsite_conversion.fb_pixel_subscribe",  "订阅"),
     "CONTACT":              ("offsite_conversion.fb_pixel_contact",    "像素联系"),
+    "VIEW_CONTENT":         ("view_content",                           "浏览内容"),
+    "SEARCH":               ("search",                                 "搜索"),
 }
 
 # 私信类 destination_type 集合（扩展）
@@ -71,6 +106,7 @@ _MESSAGING_DEST_TYPES = {
 
 # KPI字段完整映射表（用于前端展示）
 KPI_FIELD_MAP = {
+    # Purchase / Sales
     "offsite_conversion.fb_pixel_purchase":                 "像素购买",
     "offsite_conversion.fb_pixel_add_to_cart":              "像素加购",
     "offsite_conversion.fb_pixel_initiate_checkout":        "像素发起结账",
@@ -78,30 +114,54 @@ KPI_FIELD_MAP = {
     "offsite_conversion.fb_pixel_complete_registration":    "像素注册完成",
     "offsite_conversion.fb_pixel_subscribe":                "像素订阅",
     "offsite_conversion.fb_pixel_contact":                  "像素联系",
-    "offsite_content_view_add_meta_leads":                 "像素联系转化",
-    "onsite_conversion.messaging_conversation_started_7d":  "私信对话(7日)",
-    "onsite_conversion.messaging_first_reply":              "私信首次回复",
+    "offsite_conversion.fb_pixel_custom":                   "像素自定义事件",
+    "purchase":                                             "购买",
+    "omni_purchase":                                        "全渠道购买",
+    "web_in_store_purchase":                                "线上到店购买",
+    "onsite_web_purchase":                                  "网站内购买",
+    "onsite_web_app_purchase":                              "网站应用购买",
+    "web_app_in_store_purchase":                            "网站应用到店购买",
+    # Lead / Contact
     "onsite_conversion.lead_grouped":                       "站内潜在客户",
     "lead":                                                 "潜在客户",
-    "link_click":                                           "链接点击",
-    "landing_page_view":                                    "落地页浏览",
+    "contact":                                              "联系",
+    # Engagement
     "post_engagement":                                      "帖子互动",
     "page_engagement":                                      "主页互动",
+    "page_likes":                                           "主页获赞",
+    # Traffic
+    "link_click":                                           "链接点击",
+    "landing_page_view":                                    "落地页浏览",
+    # Video
     "video_view":                                           "视频观看",
-    "omni_purchase":                                        "全渠道购买",
-    "purchase":                                             "购买",
+    # App
     "app_install":                                          "应用安装",
+    # Awareness
     "reach":                                                "触达人数",
     "impressions":                                          "展示次数",
+    # Messaging
+    "onsite_conversion.messaging_conversation_started_7d":  "私信对话(7日)",
+    "onsite_conversion.messaging_first_reply":              "私信首次回复",
+    # Other
+    "search":                                               "搜索",
+    "view_content":                                         "浏览内容",
 }
 
 # 已知有效 KPI 字段集合（用于防 AI 幻觉 + 纠偏复审）
 # 包含 KPI_FIELD_MAP 全部字段 + 常见 FB 标准 action_type
 _KNOWN_KPI_FIELDS = set(KPI_FIELD_MAP.keys()) | {
     "page_like", "post_reaction", "post_save", "rate",
-    "schedule", "start_trial", "apply_now", "contact",
+    "schedule", "start_trial", "apply_now",
     "donate", "get_quote", "request_time", "submit_application",
-    "search", "view_content",
+    # 归因变体: View Content 系列
+    "omni_view_content", "onsite_web_view_content", "onsite_web_app_view_content",
+    "offsite_conversion.fb_pixel_view_content", "offsite_content_view_add_meta_leads",
+    # 归因变体: Add to Cart 系列
+    "omni_add_to_cart", "onsite_web_add_to_cart", "onsite_web_app_add_to_cart",
+    # 归因变体: Landing Page View 系列
+    "omni_landing_page_view",
+    # 其他常见标准事件
+    "messaging_welcome_message_view",
 }
 
 # 高优先级字段（防 AI 幻觉用）
@@ -135,17 +195,167 @@ def infer_ad_type(objective: str, optimization_goal: str, destination_type: str)
     dst = (destination_type or "").upper()
     if dst == "MESSENGER" or opt == "CONVERSATIONS":
         return "messenger"
-    if opt in ("OFFSITE_CONVERSIONS", "VALUE") and obj == "OUTCOME_SALES":
+    if obj in ("OUTCOME_MESSAGES", "MESSAGES"):
+        return "messenger"
+    if opt in ("OFFSITE_CONVERSIONS", "VALUE") and obj in ("OUTCOME_SALES", "OUTCOME_CONVERSIONS", "OUTCOME_PRODUCT_CATALOG_SALES", "OUTCOME_RETAIL", "CONVERSIONS"):
         return "purchase"
-    if opt in ("OFFSITE_CONVERSIONS", "LEAD_GENERATION") and obj == "OUTCOME_LEADS":
+    if opt in ("OFFSITE_CONVERSIONS", "LEAD_GENERATION") and obj in ("OUTCOME_LEADS", "LEAD_GENERATION"):
         return "leads"
-    if obj == "OUTCOME_TRAFFIC":
+    if obj in ("OUTCOME_TRAFFIC", "TRAFFIC", "LINK_CLICKS"):
         return "traffic"
-    if opt in ("PROFILE_AND_PAGE_ENGAGEMENT", "PAGE_LIKES") or obj in ("PAGE_LIKES", "OUTCOME_ENGAGEMENT"):
+    if opt in ("PAGE_LIKES", "POST_ENGAGEMENT", "PROFILE_AND_PAGE_ENGAGEMENT") or obj in ("PAGE_LIKES", "OUTCOME_ENGAGEMENT", "OUTCOME_POST_ENGAGEMENT", "OUTCOME_PAGE_LIKES"):
         return "engagement"
+    if obj in ("OUTCOME_VIDEO_VIEWS", "VIDEO_VIEWS", "OUTCOME_AWARENESS", "OUTCOME_BRAND_AWARENESS", "OUTCOME_REACH", "REACH"):
+        return "other"
     if obj or opt:
         return "other"
     return "other"
+
+
+# ── DB 驱动规则缓存（300s TTL）────────────────────────────────────────
+_KPI_RULES_CACHE = {}
+_KPI_RULES_CACHE_TIME = 0
+_KPI_RULES_CACHE_TTL = 300  # 5分钟
+
+def _load_kpi_rules_cache():
+    """从DB加载全量KPI规则到内存缓存，300s TTL"""
+    global _KPI_RULES_CACHE, _KPI_RULES_CACHE_TIME
+    now = time.time()
+    if now - _KPI_RULES_CACHE_TIME < _KPI_RULES_CACHE_TTL and _KPI_RULES_CACHE:
+        return
+    try:
+        conn = get_conn()
+        _KPI_RULES_CACHE['composite'] = conn.execute(
+            "SELECT objective, optimization_goal, custom_event_type, destination_type, kpi_field, kpi_label "
+            "FROM kpi_composite_rules WHERE is_active=1 ORDER BY priority"
+        ).fetchall()
+        _KPI_RULES_CACHE['custom_event'] = conn.execute(
+            "SELECT fb_custom_event_type AS custom_event, kpi_field, kpi_label FROM kpi_custom_event_rules WHERE is_active=1"
+        ).fetchall()
+        _KPI_RULES_CACHE['objective'] = conn.execute(
+            "SELECT fb_objective AS objective, kpi_field, kpi_label FROM kpi_objective_rules WHERE is_active=1"
+        ).fetchall()
+        _KPI_RULES_CACHE['optgoal'] = conn.execute(
+            "SELECT fb_optimization_goal AS optimization_goal, kpi_field, kpi_label FROM kpi_optgoal_rules WHERE is_active=1"
+        ).fetchall()
+        _KPI_RULES_CACHE['label_map'] = {
+            r['kpi_field']: r['kpi_label']
+            for r in conn.execute("SELECT kpi_field, kpi_label FROM kpi_label_map").fetchall()
+            if r['kpi_label']
+        }
+        # known_fields: union of all kpi_field + fb_action_type
+        known = set()
+        for r in conn.execute("SELECT DISTINCT kpi_field FROM kpi_label_map").fetchall():
+            known.add(r['kpi_field'])
+        for r in conn.execute("SELECT DISTINCT fb_action_type FROM kpi_alias_map").fetchall():
+            known.add(r['fb_action_type'])
+        _KPI_RULES_CACHE['known_fields'] = known
+        conn.close()
+        _KPI_RULES_CACHE_TIME = now
+        logger.info(f"KPI规则缓存已加载: composite={len(_KPI_RULES_CACHE.get('composite',[]))}, "
+                    f"custom_event={len(_KPI_RULES_CACHE.get('custom_event',[]))}, "
+                    f"objective={len(_KPI_RULES_CACHE.get('objective',[]))}, "
+                    f"optgoal={len(_KPI_RULES_CACHE.get('optgoal',[]))}, "
+                    f"known_fields={len(_KPI_RULES_CACHE.get('known_fields',set()))}")
+    except Exception as e:
+        logger.warning(f"KPI规则缓存加载失败（非致命）: {e}")
+
+
+def _get_composite_rule(objective: str, opt_goal: str, custom_event: str, dest_type: str) -> Optional[Tuple[str, str]]:
+    """组合矩阵：4字段渐进匹配（精确→3字段→2字段→1字段）"""
+    try:
+        _load_kpi_rules_cache()
+        rules = _KPI_RULES_CACHE.get('composite', [])
+    except Exception:
+        return None
+    obj, opt, ce, dst = objective or '', opt_goal or '', custom_event or '', dest_type or ''
+    # 4字段全匹配
+    for r in rules:
+        if r['objective'] == obj and r['optimization_goal'] == opt and r['custom_event_type'] == ce and r['destination_type'] == dst:
+            return r['kpi_field'], r['kpi_label']
+    # 3字段 (obj+opt+ce)
+    for r in rules:
+        if r['objective'] == obj and r['optimization_goal'] == opt and r['custom_event_type'] == ce and r['destination_type'] == '':
+            return r['kpi_field'], r['kpi_label']
+    # 3字段 (obj+opt+dst)
+    for r in rules:
+        if r['objective'] == obj and r['optimization_goal'] == opt and r['custom_event_type'] == '' and r['destination_type'] == dst:
+            return r['kpi_field'], r['kpi_label']
+    # 2字段 (obj+opt)
+    for r in rules:
+        if r['objective'] == obj and r['optimization_goal'] == opt and r['custom_event_type'] == '' and r['destination_type'] == '':
+            return r['kpi_field'], r['kpi_label']
+    # 2字段 (obj+ce)
+    for r in rules:
+        if r['objective'] == obj and r['optimization_goal'] == '' and r['custom_event_type'] == ce and r['destination_type'] == '':
+            return r['kpi_field'], r['kpi_label']
+    # 1字段 (obj only)
+    for r in rules:
+        if r['objective'] == obj and r['optimization_goal'] == '' and r['custom_event_type'] == '' and r['destination_type'] == '':
+            return r['kpi_field'], r['kpi_label']
+    return None
+
+
+def _get_custom_event_rule(custom_event: str) -> Optional[Tuple[str, str]]:
+    """DB查询custom_event_type映射"""
+    try:
+        _load_kpi_rules_cache()
+        for r in _KPI_RULES_CACHE.get('custom_event', []):
+            if r['custom_event'] == custom_event:
+                return r['kpi_field'], r['kpi_label']
+    except Exception:
+        pass
+    return None
+
+
+def _get_optgoal_rule(opt_goal: str) -> Optional[Tuple[str, str]]:
+    """DB查询optimization_goal映射"""
+    try:
+        _load_kpi_rules_cache()
+        for r in _KPI_RULES_CACHE.get('optgoal', []):
+            if r['optimization_goal'] == opt_goal:
+                return r['kpi_field'], r['kpi_label']
+    except Exception:
+        pass
+    return None
+
+
+def _get_objective_rule(objective: str) -> Optional[Tuple[str, str]]:
+    """DB查询objective映射"""
+    try:
+        _load_kpi_rules_cache()
+        for r in _KPI_RULES_CACHE.get('objective', []):
+            if r['objective'] == objective:
+                return r['kpi_field'], r['kpi_label']
+    except Exception:
+        pass
+    return None
+
+
+def _get_kpi_field_label(kpi_field: str) -> str:
+    """DB查询kpi label，兜底到硬编码映射表"""
+    if not kpi_field:
+        return kpi_field
+    try:
+        _load_kpi_rules_cache()
+        lbl = _KPI_RULES_CACHE.get('label_map', {}).get(kpi_field)
+        if lbl:
+            return lbl
+    except Exception:
+        pass
+    return KPI_FIELD_MAP.get(kpi_field, kpi_field)
+
+
+def _get_known_kpi_fields() -> set:
+    """从DB获取已知KPI字段集合，与硬编码集合合并返回"""
+    try:
+        _load_kpi_rules_cache()
+        db_fields = _KPI_RULES_CACHE.get('known_fields')
+        if db_fields:
+            return db_fields | _KNOWN_KPI_FIELDS
+    except Exception:
+        pass
+    return _KNOWN_KPI_FIELDS
 
 
 def _fb_get_with_status(path: str, token: str, fields: str,
@@ -241,22 +451,18 @@ def _is_ai_enabled() -> bool:
 
 
 def get_kpi_label(kpi_field: str) -> str:
-    return KPI_FIELD_MAP.get(kpi_field, kpi_field)
+    return _get_kpi_field_label(kpi_field)
 
 
 def _is_valid_kpi_field(field: str, actions: list = None) -> bool:
-    """验证 KPI 字段名是否合法。
-    1. 必须是已知有效字段（在 _KNOWN_KPI_FIELDS 中）
-    2. 或者是在 FB actions 数据中实际存在的字段
-    防止 AI 幻觉写入不存在的 action_type（如 offsite_conversion.purchase）
-    """
+    """验证 KPI 字段名是否合法（DB驱动 + 硬编码兜底）"""
     if not field or not FIELD_RE.match(field):
         return False
-    if field in _KNOWN_KPI_FIELDS:
+    known = _get_known_kpi_fields()
+    if field in known:
         return True
     if field in _AUXILIARY_FIELDS:
         return True
-    # 不在已知列表中时，检查是否在 FB 返回的 actions 数据中
     if actions:
         action_types = {a.get("action_type", "") for a in actions}
         if field in action_types:
@@ -355,6 +561,12 @@ class KpiResolver:
     def _l3_history(self, objective: str) -> Optional[Tuple[str, str]]:
         if not objective:
             return None
+        try:
+            from_cache = _get_objective_rule(objective)
+            if from_cache:
+                return from_cache
+        except Exception:
+            pass
         if objective in _OBJECTIVE_RULES:
             return _OBJECTIVE_RULES[objective]
         return None
@@ -369,32 +581,40 @@ class KpiResolver:
         if _is_messaging_ad(meta):
             return ("onsite_conversion.messaging_conversation_started_7d", "私信对话")
 
-        if custom_event and custom_event in _CUSTOM_EVENT_RULES:
-            # v3.3.11: objective-aware
-            if objective == "OUTCOME_SALES" and custom_event in ("PURCHASE", "ADD_TO_CART", "INITIATE_CHECKOUT", "COMPLETE_REGISTRATION", "SUBSCRIBE"):
-                return _CUSTOM_EVENT_RULES[custom_event]
-            if objective == "OUTCOME_LEADS" and custom_event in ("LEAD", "CONTACT"):
+        # L4: 组合矩阵（DB优先，4字段精确匹配→渐进降级）
+        try:
+            composite = _get_composite_rule(objective, opt_goal, custom_event, dest_type)
+            if composite:
+                return composite
+        except Exception:
+            pass
+
+        # L4': 自定义事件（DB优先）
+        if custom_event:
+            try:
+                ce_rule = _get_custom_event_rule(custom_event)
+                if ce_rule:
+                    return ce_rule
+            except Exception:
+                pass
+            if custom_event in _CUSTOM_EVENT_RULES:
                 return _CUSTOM_EVENT_RULES[custom_event]
 
-        # 组合规则（objective + opt_goal 联合判断，优先于单字段规则）
-        # PAGE_LIKES 目标单独处理（主页获赞），优先级最高
+        # 组合规则（硬编码兜底，覆盖DB缺失的边缘情况）
         if objective == "PAGE_LIKES":
             return ("page_likes", "主页获赞")
         if objective == "OUTCOME_LEADS" and opt_goal in ("OFFSITE_CONVERSIONS", "LEAD_GENERATION", ""):
             dst = (dest_type or "").upper()
             if dst == "WEBSITE":
                 return ("offsite_conversion.fb_pixel_lead", "像素潜在客户")
-            # OFFSITE_CONVERSIONS = 像素转化，无论 destination_type 是什么
             if opt_goal == "OFFSITE_CONVERSIONS":
                 return ("offsite_conversion.fb_pixel_lead", "像素潜在客户")
-            # LEAD_GENERATION + 非 WEBSITE：用实际 actions 数据判断
             if actions:
                 action_types = {a.get("action_type", "") for a in actions}
                 if "offsite_conversion.fb_pixel_lead" in action_types:
                     return ("offsite_conversion.fb_pixel_lead", "像素潜在客户")
                 if "onsite_conversion.lead_grouped" in action_types:
                     return ("onsite_conversion.lead_grouped", "线索收集")
-            # 无 actions 数据时，LEAD_GENERATION 默认用原生表单
             return ("onsite_conversion.lead_grouped", "线索收集")
         if objective == "OUTCOME_ENGAGEMENT" and opt_goal in (
             "PROFILE_AND_PAGE_ENGAGEMENT", "POST_ENGAGEMENT", ""
@@ -403,10 +623,27 @@ class KpiResolver:
         if objective == "OUTCOME_ENGAGEMENT" and opt_goal == "VIDEO_VIEWS":
             return ("video_view", "视频观看")
 
-        if opt_goal and opt_goal in _OPTGOAL_RULES:
-            return _OPTGOAL_RULES[opt_goal]
-        if objective and objective in _OBJECTIVE_RULES:
-            return _OBJECTIVE_RULES[objective]
+        # opt_goal规则（DB优先）
+        if opt_goal:
+            try:
+                og_rule = _get_optgoal_rule(opt_goal)
+                if og_rule:
+                    return og_rule
+            except Exception:
+                pass
+            if opt_goal in _OPTGOAL_RULES:
+                return _OPTGOAL_RULES[opt_goal]
+
+        # objective规则（DB优先）
+        if objective:
+            try:
+                obj_rule = _get_objective_rule(objective)
+                if obj_rule:
+                    return obj_rule
+            except Exception:
+                pass
+            if objective in _OBJECTIVE_RULES:
+                return _OBJECTIVE_RULES[objective]
         return None
 
     def _l5_fallback(self, actions: list) -> Optional[Tuple[str, str]]:
@@ -557,21 +794,27 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
         if row and row["kpi_field"]:
             if _is_valid_kpi_field(row["kpi_field"], actions):
                 # v3.3.7: custom_event_type 覆盖——adset 的像素事件优先级高于历史存储
+                # v3.3.12: DB驱动优先，硬编码兜底
                 custom_event = (campaign_meta.get("custom_event_type") or "").upper()
-                if custom_event in _CUSTOM_EVENT_RULES:
-                    objective = campaign_meta.get("objective", "")
-                    if (objective == "OUTCOME_SALES" and custom_event in ("PURCHASE", "ADD_TO_CART", "INITIATE_CHECKOUT", "COMPLETE_REGISTRATION", "SUBSCRIBE")) or \
-                       (objective == "OUTCOME_LEADS" and custom_event in ("LEAD", "CONTACT")):
+                expected_field = None
+                if custom_event:
+                    try:
+                        ce_rule = _get_custom_event_rule(custom_event)
+                        if ce_rule:
+                            expected_field = ce_rule[0]
+                    except Exception:
+                        pass
+                    if not expected_field and custom_event in _CUSTOM_EVENT_RULES:
                         expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
-                        if row["kpi_field"] != expected_field:
-                            logger.warning(f"KPI自愈(字段重写): {level}({tid}) custom_event={custom_event}, 存储={row['kpi_field']}->{expected_field}")
-                            conn.execute(
-                                "UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source='auto', updated_at=datetime('now') WHERE act_id=? AND target_id=? AND enabled=1",
-                                (expected_field, get_kpi_label(expected_field), act_id, tid)
-                            )
-                            conn.commit()
-                            conn.close()
-                            return expected_field, get_kpi_label(expected_field), "auto"
+                if expected_field and row["kpi_field"] != expected_field:
+                    logger.warning(f"KPI自愈(字段重写): {level}({tid}) custom_event={custom_event}, 存储={row['kpi_field']}->{expected_field}")
+                    conn.execute(
+                        "UPDATE kpi_configs SET kpi_field=?, kpi_label=?, source='auto', updated_at=datetime('now') WHERE act_id=? AND target_id=? AND enabled=1",
+                        (expected_field, get_kpi_label(expected_field), act_id, tid)
+                    )
+                    conn.commit()
+                    conn.close()
+                    return expected_field, get_kpi_label(expected_field), "auto"
                 conn.close()
                 return row["kpi_field"], row["kpi_label"] or get_kpi_label(row["kpi_field"]), row["source"]
             else:
@@ -586,17 +829,22 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
     resolver = KpiResolver(act_id, campaign_id)
     field, label, source = resolver.resolve(campaign_meta, actions)
 
-    # v3.3.7: 自愈写回时也尊重 custom_event_type
+    # v3.3.7: 自愈写回时也尊重 custom_event_type (DB驱动优先)
     if not found_invalid:
         custom_event = (campaign_meta.get("custom_event_type") or "").upper()
-        if custom_event in _CUSTOM_EVENT_RULES:
-            objective = campaign_meta.get("objective", "")
-            if (objective == "OUTCOME_SALES" and custom_event in ("PURCHASE", "ADD_TO_CART", "INITIATE_CHECKOUT", "COMPLETE_REGISTRATION", "SUBSCRIBE")) or \
-               (objective == "OUTCOME_LEADS" and custom_event in ("LEAD", "CONTACT")):
+        expected_field = None
+        if custom_event:
+            try:
+                ce_rule = _get_custom_event_rule(custom_event)
+                if ce_rule:
+                    expected_field = ce_rule[0]
+            except Exception:
+                pass
+            if not expected_field and custom_event in _CUSTOM_EVENT_RULES:
                 expected_field = _CUSTOM_EVENT_RULES[custom_event][0]
-                if field != expected_field:
-                    field, label = expected_field, get_kpi_label(expected_field)
-                    source = "auto"
+        if expected_field and field != expected_field:
+            field, label = expected_field, get_kpi_label(expected_field)
+            source = "auto"
 
     # 自愈写回：如果删除了非法记录，把正确推断写回 ad 级别
     if found_invalid:
@@ -640,7 +888,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         fields = (
             "id,name,adset_id,campaign_id,"
             "campaign{objective},"
-            "adset{optimization_goal,destination_type,promoted_object},"
+            "adset{optimization_goal,destination_type,custom_event_type},"
             "insights.date_preset(last_7d){actions,spend}"
         )
         ads = _fb_get_all_pages(
@@ -687,7 +935,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         if isinstance(adset_data, dict):
             campaign_meta["optimization_goal"] = adset_data.get("optimization_goal", "")
             campaign_meta["destination_type"] = adset_data.get("destination_type", "")
-            campaign_meta["custom_event_type"] = (adset_data.get("promoted_object", {}) or {}).get("custom_event_type", "")
+            campaign_meta["custom_event_type"] = adset_data.get("custom_event_type", "")
 
         # 从近7天actions推断
         insights = ad.get("insights", {}).get("data", [])

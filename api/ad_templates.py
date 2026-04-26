@@ -203,11 +203,16 @@ def _normalize_lead_form_questions(raw_questions: list) -> list:
             custom_key = raw_key
             if not custom_key or custom_key.upper() in LEAD_FORM_FIELD_TYPES or custom_key.upper() == "PREDEFINED":
                 custom_key = label
-            normalized.append({
+            _normalized_custom = {
                 "type": "CUSTOM",
                 "key": _normalize_custom_question_key(custom_key, idx),
                 "label": label or f"问题 {idx + 1}",
-            })
+            }
+            # Preserve options for multiple choice
+            _raw_options = item.get("options")
+            if _raw_options:
+                _normalized_custom["options"] = _raw_options
+            normalized.append(_normalized_custom)
 
     return normalized
 
@@ -220,7 +225,7 @@ def _get_follow_up_action_url(page_id: str, preferred_url: str = "") -> str:
     for candidate in candidates:
         if _is_safe_lead_form_url(candidate):
             return candidate
-    return f"https://www.facebook.com/{page_id}"
+    return "https://example.com/thanks"
 
 
 def _is_safe_lead_form_url(candidate: str, *, allow_facebook: bool = False) -> bool:
@@ -298,6 +303,7 @@ def _post_lead_form(
     follow_up_url: str,
     locale: str,
     preferred_token: str = "",
+    context_card: dict = None,
 ) -> str:
     normalized_questions = _normalize_lead_form_questions(questions)
     if not normalized_questions:
@@ -321,6 +327,21 @@ def _post_lead_form(
     resolved_follow_up_url = _get_follow_up_action_url(page_id, follow_up_url)
     if resolved_follow_up_url:
         payload["follow_up_action_url"] = resolved_follow_up_url
+    if context_card:
+        # FB v25 context_card format: requires style + content
+        _ctx = context_card.copy() if isinstance(context_card, dict) else {}
+        if "style" not in _ctx:
+            _ctx["style"] = "LIST_STYLE"
+        _content = {}
+        if _ctx.get("button_text"):
+            _content["button_text"] = _ctx.pop("button_text")
+        if _ctx.get("body"):
+            _content["body"] = _ctx.pop("body")
+        if _ctx.get("subtitle"):
+            _content.setdefault("body", _ctx.pop("subtitle"))
+        if _content:
+            _ctx["content"] = _content
+        payload["context_card"] = json.dumps(_ctx, ensure_ascii=False)
 
     resp = requests.post(
         f"{FB_API}/{page_id}/leadgen_forms",
@@ -334,6 +355,28 @@ def _post_lead_form(
 
     if resp.ok and "id" in result:
         return str(result["id"])
+
+    # If context_card was rejected (FB API version issue), retry without it
+    if context_card and "context_card" in payload:
+        logger.warning(f"[LeadForm] FB rejected context_card (ctx={context_card}), retrying without: {_format_fb_error(result)}")
+        if "context_card" in payload:
+            del payload["context_card"]
+        import time
+        time.sleep(1)
+        resp2 = requests.post(
+            f"{FB_API}/{page_id}/leadgen_forms",
+            data=payload,
+            timeout=15,
+        )
+        try:
+            result2 = resp2.json()
+        except Exception:
+            result2 = {"error": {"message": resp2.text or f"HTTP {resp2.status_code}"}}
+        if resp2.ok and "id" in result2:
+            return str(result2["id"])
+        logger.error(f"[LeadForm] Retry still failed: full_response={json.dumps(result2, ensure_ascii=False)[:500]}")
+        raise LeadFormCreateError(_format_fb_error(result2))
+
     raise LeadFormCreateError(_format_fb_error(result))
 
 
@@ -347,6 +390,7 @@ def create_custom_lead_form_for_page(
     privacy_text: str = "Privacy Policy",
     follow_up_url: str = "",
     locale: str = "en_US",
+    context_card: dict = None,
 ) -> str:
     resolved_privacy_url = _get_privacy_policy_url(privacy_url)
     form_name = f"[AI] {(form_title or 'Lead Form')[:60]} {datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -359,6 +403,7 @@ def create_custom_lead_form_for_page(
         follow_up_url=follow_up_url,
         locale=locale or "en_US",
         preferred_token=token,
+        context_card=context_card,
     )
 
 
@@ -632,6 +677,13 @@ def create_lead_form_for_page(
         questions = []
     form_name = f"[AutoPilot] {tpl['name']} {datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
+    # Build context_card from template's thank_you fields
+    _context_card = {}
+    _ty_title = (tpl.get("thank_you_title") or "").strip()
+    _ty_body = (tpl.get("thank_you_body") or "").strip()
+    if _ty_title or _ty_body:
+        _context_card["title"] = _ty_title or "感谢您的提交！"
+
     fb_form_id = _post_lead_form(
         page_id,
         form_name=form_name,
@@ -641,6 +693,7 @@ def create_lead_form_for_page(
         follow_up_url=follow_up_url,
         locale=tpl["locale"] or "zh_CN",
         preferred_token=token,
+        context_card=_context_card or None,
     )
     conn2 = get_conn()
     conn2.execute(

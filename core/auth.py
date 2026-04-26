@@ -8,11 +8,15 @@ import hashlib
 import time
 from datetime import datetime, timedelta
 from collections import defaultdict
+from core.database import get_conn as _get_db_conn
 from fastapi import HTTPException, Security, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-SECRET_KEY = os.environ.get("JWT_SECRET", "mira-secret-change-me-in-production")
+SECRET_KEY = os.environ.get("JWT_SECRET")  # 必须设置 JWT_SECRET 环境变量，无默认值（安全加固）
 ALGORITHM = "HS256"
+
+if not SECRET_KEY:
+    raise RuntimeError("CRITICAL: JWT_SECRET environment variable must be set!")
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
 # ── 超级管理员（向后兼容，从ENV读取）──
@@ -43,6 +47,49 @@ _fail_time: dict = defaultdict(float)
 MAX_FAIL = 5
 LOCK_SECONDS = 900  # 15分钟
 
+def _persist_fail_db(ip: str, count: int):
+    try:
+        conn = _get_db_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO login_fails (ip, fail_count, locked_until) VALUES (?,?,?)",
+            (ip, count, int(time.time() + LOCK_SECONDS) if count >= MAX_FAIL else 0)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # DB persistence is best-effort
+
+def _clear_fail_db(ip: str):
+    try:
+        conn = _get_db_conn()
+        conn.execute("DELETE FROM login_fails WHERE ip=?", (ip,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+_FAIL_LOADED = False
+
+def _ensure_fails_loaded():
+    global _FAIL_LOADED
+    if _FAIL_LOADED:
+        return
+    _FAIL_LOADED = True
+    try:
+        conn = _get_db_conn()
+        rows = conn.execute("SELECT ip, fail_count, locked_until FROM login_fails").fetchall()
+        now = time.time()
+        for r in rows:
+            if r["locked_until"] and r["locked_until"] > now:
+                _fail_count[r["ip"]] = r["fail_count"]
+                _fail_time[r["ip"]] = r["locked_until"] - LOCK_SECONDS
+            else:
+                conn.execute("DELETE FROM login_fails WHERE ip=?", (r["ip"],))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
 security = HTTPBearer()
 
 
@@ -65,6 +112,7 @@ def _reload_env():
 
 
 def check_login_lock(ip: str):
+    _ensure_fails_loaded()
     now = time.time()
     if _fail_count[ip] >= MAX_FAIL:
         elapsed = now - _fail_time[ip]
@@ -76,15 +124,18 @@ def check_login_lock(ip: str):
             )
         else:
             _fail_count[ip] = 0
+            _clear_fail_db(ip)
 
 
 def record_fail(ip: str):
     _fail_count[ip] += 1
     _fail_time[ip] = time.time()
+    _persist_fail_db(ip, _fail_count[ip])
 
 
 def record_success(ip: str):
     _fail_count[ip] = 0
+    _clear_fail_db(ip)
 
 
 def get_remaining_attempts(ip: str) -> int:

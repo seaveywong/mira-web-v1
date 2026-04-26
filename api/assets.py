@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from core.auth import get_current_user
 from core.database import get_conn
+from services.guard_engine import _log_action
 
 
 # ── Facebook 广告合规要求(所有目的通用)──
@@ -1412,6 +1413,7 @@ def delete_asset(asset_id: int, user=Depends(get_current_user)):
 class LaunchCampaignBody(BaseModel):
     act_id: str  # 单账户(兼容旧版)
     act_ids: Optional[list] = None  # 多账户批量铺广告(优先级高于 act_id)
+    asset_ids: Optional[list[int]] = None  # multi-asset batch launch
     target_countries: list = ["US"]
     target_cpa: Optional[float] = None
     daily_budget: float = 20.0
@@ -1528,9 +1530,9 @@ def _normalize_launch_objective(value: Optional[str]) -> str:
 
 def _normalize_launch_goal_fields(objective: Optional[str], conversion_goal: Optional[str]) -> tuple[str, str]:
     objective_norm = _normalize_launch_objective(objective)
-    goal_norm = _clean_launch_value(conversion_goal).lower()
+    goal_norm = _clean_launch_value(conversion_goal)
     if objective_norm == "OUTCOME_MESSAGES" and not goal_norm:
-        goal_norm = "conversations"
+        goal_norm = "CONVERSATIONS"
     return objective_norm, goal_norm
 
 
@@ -1559,20 +1561,21 @@ def _normalize_launch_body_fields(body) -> tuple[str, str]:
 
 def _get_launch_goal_meta(objective: Optional[str], conversion_goal: Optional[str]) -> dict:
     objective_norm, goal_norm = _normalize_launch_goal_fields(objective, conversion_goal)
-    is_message = objective_norm in _MESSAGE_OBJECTIVES or goal_norm in _MSG_GOALS
-    is_lead = goal_norm == "lead_generation"
+    goal_lower = goal_norm.lower()
+    is_message = objective_norm in _MESSAGE_OBJECTIVES or goal_lower in _MSG_GOALS
+    is_lead = goal_lower == "lead_generation"
     landing_required = (
         objective_norm in _LANDING_REQUIRED_OBJECTIVES
         and not is_message
         and not is_lead
-        and goal_norm != "page_likes"
+        and goal_lower != "page_likes"
     )
     return {
         "objective": objective_norm,
         "goal": goal_norm,
         "is_message": is_message,
         "is_lead": is_lead,
-        "pixel_required": goal_norm in _PIXEL_REQUIRED_GOALS,
+        "pixel_required": goal_lower in _PIXEL_REQUIRED_GOALS,
         "landing_required": landing_required,
     }
 
@@ -1842,6 +1845,28 @@ def _build_lead_tos_manual_hint(page_id: str) -> str:
         "https://www.facebook.com/ads/leadgen/tos 完成确认；"
         "否则 Facebook 会在创建 AdSet 时直接拒绝发布。"
     )
+
+
+def _check_token_has_page_access(page_id: str, token: str) -> str:
+    """Check if a user token can access a specific page. Returns page token or empty string."""
+    if not page_id or not token:
+        return ""
+    try:
+        import requests as _req
+        resp = _req.get(
+            "https://graph.facebook.com/v25.0/me/accounts",
+            params={"access_token": token, "fields": "id,name", "limit": 200},
+            timeout=8,
+        )
+        data = resp.json()
+        if "error" in data:
+            return ""
+        for p in data.get("data", []) or []:
+            if str(p.get("id")) == str(page_id):
+                return str(page_id)
+        return ""
+    except Exception:
+        return ""
 
 
 def _run_launch_precheck(body) -> dict:
@@ -2861,6 +2886,129 @@ def launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(g
     }
 
 
+
+@router.post("/batch-launch")
+def batch_launch_multi_assets(body: LaunchCampaignBody, user=Depends(get_current_user)):
+    """多素材多账户批量投放：为多组素材+多账户创建 campaign"""
+    conn = get_conn()
+    asset_ids = body.asset_ids or []
+    if not asset_ids:
+        conn.close()
+        raise HTTPException(400, "请选择至少一个素材")
+    act_ids = body.act_ids or [body.act_id] if body.act_id else []
+    if not act_ids:
+        conn.close()
+        raise HTTPException(400, "请选择至少一个账户")
+
+    # 校验所有素材
+    assets = []
+    for aid in asset_ids:
+        row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (aid,)).fetchone()
+        if not row:
+            conn.close()
+            raise HTTPException(404, f"素材 {aid} 不存在")
+        if not row["ai_headlines"] or not row["ai_bodies"]:
+            conn.close()
+            raise HTTPException(400, f"素材 {aid} 缺少 AI 文案，请先完成 AI 分析")
+        if _get_setting("autopilot_enabled", "0") != "1":
+            conn.close()
+            raise HTTPException(400, "自动投放未开启，请先在系统设置中开启自动投放功能")
+        assets.append(dict(row))
+    conn.close()
+
+    # 预检（按账户，不逐素材——详细校验在执行阶段进行）
+    _normalize_launch_body_fields(body)
+    precheck_report = _run_launch_precheck(body)
+    precheck_block_msg = _build_launch_precheck_block_message(precheck_report)
+    if precheck_block_msg:
+        raise HTTPException(400, precheck_block_msg)
+
+    # 生成 campaign 名
+    try:
+        from datetime import datetime as _dt
+        import pytz as _pytz
+        _now_cst = _dt.now(_pytz.timezone("Asia/Shanghai"))
+    except Exception:
+        from datetime import datetime as _dt
+        _now_cst = _dt.now()
+    _mmdd = _now_cst.strftime("%m%d")
+    _obj_abbr = {
+        "OUTCOME_SALES": "CONV", "OUTCOME_LEADS": "LEAD",
+        "OUTCOME_TRAFFIC": "TRAF", "OUTCOME_AWARENESS": "AWR",
+        "OUTCOME_ENGAGEMENT": "ENG", "OUTCOME_MESSAGES": "MSG",
+    }
+    _obj_s = _obj_abbr.get(body.objective, "ADS")
+    _ctry_s = "-".join((body.target_countries or ["XX"])[:2])
+
+    errors = []
+    campaigns = []
+    total = len(asset_ids) * len(act_ids)
+    done = 0
+
+    for aid in asset_ids:
+        _ast = next((a for a in assets if a["id"] == aid), {})
+        _ast_c = _ast.get("asset_code") or f"AST-{aid:04d}"
+        for act_id in act_ids:
+            try:
+                campaign_name = f"{_obj_s}-{_ctry_s}-{_ast_c}-{_mmdd}"
+                now = _dt.now(_pytz.timezone("Asia/Shanghai")).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S") if 'pytz' in dir() else _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+                conn2 = get_conn()
+                cur = conn2.execute(
+                    """INSERT INTO auto_campaigns
+                       (act_id, asset_id, name, objective, target_countries,
+                        target_cpa, daily_budget, age_min, age_max, gender,
+                        placements, bid_strategy, max_adsets,
+                        page_id_override, pixel_id_override, landing_url,
+                        device_platforms, ad_language, conversion_event,
+                        tw_page_id, conversion_goal, message_template, lead_form_id,
+                        cta_type, status, created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
+                    (act_id, aid, campaign_name, body.objective,
+                     json.dumps(body.target_countries), body.target_cpa, body.daily_budget,
+                     body.age_min, body.age_max, body.gender,
+                     json.dumps(body.placements) if body.placements else None,
+                     body.bid_strategy, body.max_adsets,
+                     body.page_id, body.pixel_id, body.landing_url,
+                     getattr(body, 'device_platforms', 'all'),
+                     getattr(body, 'ad_language', 'en'),
+                     getattr(body, 'conversion_event', None) or 'PURCHASE',
+                     getattr(body, 'tw_page_id', None),
+                     getattr(body, 'conversion_goal', None),
+                     getattr(body, 'message_template', None),
+                     getattr(body, 'lead_form_id', None),
+                     getattr(body, 'cta_type', None) or '',
+                     now, now)
+                )
+                campaign_id = cur.lastrowid
+                conn2.commit()
+                conn2.close()
+                threading.Thread(target=_staggered_launch, args=(campaign_id, act_id), daemon=True).start()
+                campaigns.append({"act_id": act_id, "asset_id": aid, "campaign_id": campaign_id, "campaign_name": campaign_name, "status": "pending"})
+                done += 1
+                try:
+                    _log_action(act_id, "campaign", str(campaign_id), campaign_name,
+                                "batch_launch", "manual", "multi_asset_launch",
+                                new_value={"asset_id": aid, "objective": body.objective},
+                                status="success", operator=user.get("username", "unknown"))
+                except Exception as _le:
+                    logger.warning(f"[ActionLog] batch_launch log error: {_le}")
+            except Exception as e:
+                err_msg = str(e)[:200]
+                errors.append({"act_id": act_id, "asset_id": aid, "error": err_msg})
+                try:
+                    _log_action(act_id, "campaign", "", campaign_name or "",
+                                "batch_launch", "manual", "multi_asset_launch",
+                                status="error", error_msg=err_msg,
+                                operator=user.get("username", "unknown"))
+                except Exception as _le:
+                    logger.warning(f"[ActionLog] batch_launch log error: {_le}")
+
+    return {
+        "total": total, "success": done, "failed": len(errors),
+        "campaigns": campaigns, "errors": errors,
+        "message": f"已为 {done}/{total} 个组合创建 campaign"
+    }
+
 @router.post("/{asset_id}/batch-launch")
 def batch_launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_current_user)):
     """批量多账户铺广告:为多个广告账户同时创建铺广告任务"""
@@ -2951,6 +3099,13 @@ def batch_launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Dep
                 "status": "pending",
                 "message": "任务已创建"
             })
+            try:
+                _log_action(act_id, "campaign", str(campaign_id), campaign_name,
+                            "batch_launch", "manual", "single_asset_launch",
+                            new_value={"asset_id": asset_id, "objective": body.objective},
+                            status="success", operator=user.get("username", "unknown"))
+            except Exception as _le:
+                logger.warning(f"[ActionLog] batch_launch log error: {_le}")
         except Exception as e:
             results.append({
                 "act_id": act_id,
@@ -2958,6 +3113,13 @@ def batch_launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Dep
                 "status": "error",
                 "message": str(e)
             })
+            try:
+                _log_action(act_id, "campaign", "", "",
+                            "batch_launch", "manual", "single_asset_launch",
+                            status="error", error_msg=str(e)[:200],
+                            operator=user.get("username", "unknown"))
+            except Exception as _le:
+                logger.warning(f"[ActionLog] batch_launch log error: {_le}")
 
     conn.close()
     success_count = sum(1 for r in results if r["status"] == "pending")
@@ -2968,6 +3130,27 @@ def batch_launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Dep
         "results": results,
         "message": f"已为 {success_count}/{len(act_ids)} 个账户创建铺广告任务"
     }
+
+
+# ── 多素材错峰调度：同一账户串行，不同账户并行 ──
+_launch_sequencers: dict = {}
+_launch_seq_lock = threading.Lock()
+
+def _staggered_launch(campaign_id: int, act_id: str):
+    """带错峰的 campaign 启动，同一账户串行执行"""
+    with _launch_seq_lock:
+        if act_id not in _launch_sequencers:
+            _launch_sequencers[act_id] = {"lock": threading.Lock(), "last_launch": 0.0}
+        seq = _launch_sequencers[act_id]
+    with seq["lock"]:
+        now_t = time.time()
+        gap = 3.0 - (now_t - seq["last_launch"])
+        if gap > 0:
+            time.sleep(gap)
+            seq["last_launch"] = now_t + gap
+        else:
+            seq["last_launch"] = now_t
+    _trigger_autopilot(campaign_id)
 
 def _trigger_autopilot(campaign_id: int):
     import traceback as _tb

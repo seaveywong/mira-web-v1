@@ -18,7 +18,7 @@ FB_API_BASE = "https://graph.facebook.com/v25.0"
 FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
     "campaign{objective},"
-    "adset{optimization_goal,destination_type,promoted_object},"
+    "adset{optimization_goal,destination_type,custom_event_type},"
     "insights.date_preset(today){spend,impressions,clicks,actions,action_values,cpc,cpm}"
 )
 
@@ -245,32 +245,6 @@ def _send_tg(msg: str, parse_mode: str = "HTML"):
             logger.warning(f"TG 推送失败 (chat_id={chat_id}): {e}")
 
 
-
-
-# Token验证缓存：避免每次巡检都调FB API
-_token_verify_cache: dict = {}
-_TOKEN_VERIFY_TTL = 300  # 5分钟缓存
-
-def _verify_token_for_account(token: str, act_id: str) -> bool:
-    """轻量验证 token 对指定广告账户是否可访问（带缓存）"""
-    cache_key = f"{token[-16:]}:{act_id}"
-    cached = _token_verify_cache.get(cache_key)
-    if cached and time.time() - cached[1] < _TOKEN_VERIFY_TTL:
-        return cached[0]
-    try:
-        resp = requests.get(
-            f"{FB_API_BASE}/{act_id}",
-            params={"fields": "id", "access_token": token},
-            timeout=10
-        )
-        valid = resp.status_code == 200 and "id" in resp.json()
-    except Exception:
-        valid = False
-    _token_verify_cache[cache_key] = (valid, time.time())
-    return valid
-
-
-
 def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
     """
     v3.0 Token 调度入口（非侵入式升级）
@@ -300,12 +274,9 @@ def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
         if _has_op:
             token = get_exec_token(act_id, tm_action)
             if token:
-                # 验证 operate token 对该账户可用，否则回退到管理号
-                if _verify_token_for_account(token, act_id):
-                    return token
-                logger.warning(f"TokenManager Token 对 {act_id} 不可用，降级到管理号")
-            else:
-                return ""
+                return token
+            # TokenManager 返回 None（操作号耗尽且非 PAUSE 操作）
+            return ""
     except Exception as e:
         logger.warning(f"TokenManager 调用失败，回退到旧逻辑: {e}")
 
@@ -491,6 +462,193 @@ def _match_kpi_filter(kpi_filter: str, ad_kpi_meta: dict) -> bool:
         return True
     return ad_type in filters
 
+
+# ── DB 驱动别名缓存 + 转化计算审计 v3.4.0 ──────────────────────────────
+_KPI_ALIAS_MAP_DB = {}
+_KPI_ALIAS_MAP_DB_TIME = 0
+_KPI_ALIAS_MAP_DB_TTL = 300
+
+_CONVERSION_KEYWORDS = [
+    'purchase', 'lead', 'contact', 'conversion',
+    'add_to_cart', 'checkout', 'subscribe', 'registration',
+    'omni_', 'onsite_', 'offsite_', 'web_', 'fb_pixel'
+]
+
+
+_POOR_FALLBACK_TYPES = {
+    'omni_view_content', 'omni_landing_page_view',
+    'onsite_web_view_content', 'onsite_web_app_view_content',
+    'view_content', 'landing_page_view',
+    'link_click', 'page_engagement', 'post_engagement',
+    'offsite_content_view_add_meta_leads',
+    'onsite_conversion.post_net_like', 'onsite_conversion.post_net_comment',
+    'onsite_conversion.post_net_save', 'onsite_conversion.post_save',
+    'post_reaction', 'post_interaction_gross', 'post_interaction_net',
+}
+
+def _load_alias_cache():
+    """从DB kpi_alias_map 加载别名缓存，300s TTL"""
+    global _KPI_ALIAS_MAP_DB, _KPI_ALIAS_MAP_DB_TIME
+    now = time.time()
+    if now - _KPI_ALIAS_MAP_DB_TIME < _KPI_ALIAS_MAP_DB_TTL and _KPI_ALIAS_MAP_DB:
+        return
+    try:
+        conn = get_conn()
+        _KPI_ALIAS_MAP_DB['standard'] = {}
+        _KPI_ALIAS_MAP_DB['fallback'] = {}
+        _KPI_ALIAS_MAP_DB['all_types'] = set()
+        rows = conn.execute(
+            "SELECT kpi_type, fb_action_type, is_standard FROM kpi_alias_map"
+        ).fetchall()
+        for r in rows:
+            kt, fat, is_std = r['kpi_type'], r['fb_action_type'], r['is_standard']
+            _KPI_ALIAS_MAP_DB['all_types'].add(fat)
+            if is_std == 1:
+                _KPI_ALIAS_MAP_DB['standard'].setdefault(kt, []).append(fat)
+            else:
+                _KPI_ALIAS_MAP_DB['fallback'].setdefault(kt, []).append(fat)
+        # 补充kpi_label_map中的字段到已知类型集合
+        for r in conn.execute("SELECT DISTINCT kpi_field FROM kpi_label_map").fetchall():
+            _KPI_ALIAS_MAP_DB['all_types'].add(r['kpi_field'])
+        conn.close()
+        _KPI_ALIAS_MAP_DB_TIME = now
+    except Exception as e:
+        logger.warning(f"KPI别名缓存加载失败（非致命）: {e}")
+
+
+def _get_kpi_aliases(kpi_field: str) -> list:
+    """获取标准别名列表（含自身），DB优先"""
+    _load_alias_cache()
+    std = _KPI_ALIAS_MAP_DB.get('standard', {})
+    if kpi_field in std:
+        return std[kpi_field]
+    for kt, aliases in std.items():
+        if kpi_field in aliases:
+            return aliases
+    return [kpi_field]
+
+
+def _get_kpi_fallback_aliases(kpi_field: str) -> list:
+    """获取兜底别名列表（is_standard=0）"""
+    _load_alias_cache()
+    fb = _KPI_ALIAS_MAP_DB.get('fallback', {})
+    if kpi_field in fb:
+        return fb[kpi_field]
+    for kt, aliases in _KPI_ALIAS_MAP_DB.get('standard', {}).items():
+        if kpi_field in aliases:
+            return fb.get(kt, [])
+    return []
+
+
+def _is_conversion_related(action_type: str) -> bool:
+    """判断action_type是否与转化相关"""
+    al = action_type.lower()
+    return any(kw in al for kw in _CONVERSION_KEYWORDS)
+
+
+def _detect_unknown_action_types(actions_raw: list) -> list:
+    """返回actions中不在kpi_alias_map/kpi_label_map的转化相关action_type"""
+    _load_alias_cache()
+    known = _KPI_ALIAS_MAP_DB.get('all_types', set())
+    return [
+        a['action_type'] for a in (actions_raw or [])
+        if a.get('action_type') and a['action_type'] not in known
+        and _is_conversion_related(a['action_type'])
+    ]
+
+
+def _calc_conversions_with_audit(actions_raw: list, kpi_field: str, spend: float, ad_id: str) -> dict:
+    """
+    计算转化数 + 审计信息（DB驱动别名匹配）
+    返回: {conversions, matched_action, is_fallback, unknown_types, reason}
+    """
+    result = {'conversions': 0.0, 'matched_action': None, 'is_fallback': False, 'unknown_types': [], 'reason': None}
+    if not actions_raw:
+        result['reason'] = 'no_actions'
+        return result
+
+    result['unknown_types'] = _detect_unknown_action_types(actions_raw)
+
+    # 标准别名匹配
+    for a in actions_raw:
+        if a.get('action_type') in _get_kpi_aliases(kpi_field):
+            result['conversions'] = float(a.get('value', 0))
+            result['matched_action'] = a['action_type']
+            break
+
+    # 无标准匹配时尝试兜底
+    if result['conversions'] == 0:
+        has_purchase = any('purchase' in (a.get('action_type', '')).lower() for a in actions_raw)
+        fallback_aliases = _get_kpi_fallback_aliases(kpi_field)
+        if fallback_aliases:
+            for a in actions_raw:
+                if a.get('action_type') in fallback_aliases:
+                    result['conversions'] = float(a.get('value', 0))
+                    result['matched_action'] = a['action_type']
+                    result['is_fallback'] = True
+                    logger.info(f"转化兜底: {ad_id} kpi={kpi_field} fallback={a['action_type']}={result['conversions']}")
+                    # 劣质回退检测：浏览/互动类事件不能算转化
+                    if result['matched_action'] in _POOR_FALLBACK_TYPES:
+                        logger.warning(f"低质量 fallback: {ad_id} kpi={kpi_field} matched={result['matched_action']}={result['conversions']} 归零")
+                        result['conversions'] = 0.0
+                        result['matched_action'] = None
+                        result['is_fallback'] = False
+                        result['reason'] = 'poor_fallback'
+                    break
+
+        if result['conversions'] == 0:
+            if has_purchase and kpi_field not in ('purchase', 'offsite_conversion.fb_pixel_purchase'):
+                result['reason'] = f'kpi_mismatch: kpi={kpi_field} but ad has purchase events'
+            elif result['unknown_types']:
+                result['reason'] = f'unmapped_types: {result["unknown_types"]}'
+            else:
+                result['reason'] = 'no_matching_events'
+
+    return result
+
+
+def _record_unknown_action_type(action_type: str, ad_id: str):
+    """将未知action_type记录到kpi_unknown_types表"""
+    try:
+        conn = get_conn()
+        existing = conn.execute(
+            "SELECT id, seen_count, sample_ads FROM kpi_unknown_types WHERE action_type=?"
+        ).fetchone()
+        if existing:
+            sample = json.loads(existing['sample_ads'] or '[]')
+            if ad_id not in sample:
+                sample.append(ad_id)
+                if len(sample) > 10:
+                    sample = sample[-10:]
+            conn.execute(
+                "UPDATE kpi_unknown_types SET last_seen=datetime('now'), seen_count=?, sample_ads=? WHERE id=?",
+                (existing['seen_count'] + 1, json.dumps(sample), existing['id'])
+            )
+        else:
+            conn.execute(
+                "INSERT INTO kpi_unknown_types (action_type, first_seen, last_seen, seen_count, sample_ads) "
+                "VALUES (?, datetime('now'), datetime('now'), 1, ?)",
+                (action_type, json.dumps([ad_id]))
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.debug(f"记录未知action_type失败（非致命）: {e}")
+
+
+def _cross_validate_kpi(ad_id: str, kpi_field: str, actions_raw: list, spend: float):
+    """交叉验证: 检查kpi_field是否真实存在于FB actions[]中"""
+    if not actions_raw:
+        return
+    action_types = {a.get('action_type', '') for a in actions_raw}
+    if kpi_field in action_types:
+        return
+    if any(a in action_types for a in _get_kpi_aliases(kpi_field)):
+        return
+    logger.warning(f"KPI不对齐: ad={ad_id} kpi={kpi_field} spend={spend:.2f} "
+                   f"但actions中无匹配事件. types={list(action_types)[:10]}")
+
+
 class GuardEngine:
     """广告巡检引擎主类 v1.1.0"""
 
@@ -546,7 +704,7 @@ class GuardEngine:
             invalid_kpi_ids = set()
             mismatched_kpi_ids = set()
             if existing_kpi_ids:
-                from services.kpi_resolver import _is_valid_kpi_field, _CUSTOM_EVENT_RULES
+                from services.kpi_resolver import _is_valid_kpi_field, _get_custom_event_rule, _CUSTOM_EVENT_RULES
                 kpi_rows = conn.execute(
                     "SELECT target_id, kpi_field FROM kpi_configs WHERE act_id=? AND level='ad' AND enabled=1 AND source!='manual'",
                     (act_id,)
@@ -561,10 +719,17 @@ class GuardEngine:
                     if ad_id in stored_map:
                         adset_d = ad.get("adset", {})
                         if isinstance(adset_d, dict):
-                            ce = (adset_d.get("promoted_object", {}).get("custom_event_type", "") or "").upper()
-                            if ce in _CUSTOM_EVENT_RULES:
+                            ce = (adset_d.get("custom_event_type") or "").upper()
+                            expected = None
+                            try:
+                                ce_r = _get_custom_event_rule(ce)
+                                if ce_r:
+                                    expected = ce_r[0]
+                            except Exception:
+                                pass
+                            if not expected and ce in _CUSTOM_EVENT_RULES:
                                 expected = _CUSTOM_EVENT_RULES[ce][0]
-                                if stored_map.get(ad_id) != expected:
+                            if expected and stored_map.get(ad_id) != expected:
                                     mismatched_kpi_ids.add(ad_id)
             conn.close()
 
@@ -658,7 +823,7 @@ class GuardEngine:
             if isinstance(adset_data, dict):
                 adset_opt_goal = adset_data.get("optimization_goal", "")
                 adset_dest_type = adset_data.get("destination_type", "")
-                adset_custom_event = (adset_data.get("promoted_object", {}) or {}).get("custom_event_type", "")
+                adset_custom_event = adset_data.get("custom_event_type", "")
 
             # 获取 KPI 配置（v3.3.6: 传入完整 adset 元数据供 KpiResolver 使用）
             kpi_field, kpi_label, kpi_source = get_kpi_for_ad(
@@ -674,36 +839,45 @@ class GuardEngine:
                 adset_id=adset_id
             )
 
-            # 计算转化数 & CPA（基于 USD 消耗）
-            # 同类转化 action_type 映射表：当精确匹配不到时，这些字段归为同一转化类型
-            _KPI_ALIAS_MAP = {
-                "offsite_conversion.fb_pixel_lead": ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead", "offsite_content_view_add_meta_leads"],
-                "onsite_conversion.lead_grouped": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped", "offsite_content_view_add_meta_leads"],
-                "lead": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
-                "offsite_conversion.fb_pixel_purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
-                "purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
-                # v3.3.7: add missing alias variants
-                "offsite_conversion.purchase": ["purchase", "offsite_conversion.fb_pixel_purchase"],
-                "offsite_conversion.lead": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
-                "offsite_conversion.lead_grouped": ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
-                "offsite_conversion.fb_pixel_contact": ["contact", "offsite_conversion.fb_pixel_contact", "offsite_conversion.fb_pixel_purchase", "purchase", "offsite_content_view_add_meta_leads"],
-                "contact": ["contact", "offsite_conversion.fb_pixel_contact", "offsite_conversion.fb_pixel_purchase", "purchase", "offsite_content_view_add_meta_leads"],
-            }
-            conversions = 0.0
-            _aliases = _KPI_ALIAS_MAP.get(kpi_field, [kpi_field])
+            # ── 转化数计算（DB驱动别名 + 审计日志）v3.4.0 ─────────────────────
+            conv_audit = _calc_conversions_with_audit(actions_raw, kpi_field, spend, ad_id)
+            conversions = conv_audit['conversions']
+            matched_action_type = conv_audit['matched_action']
+
+            # 记录未知action_type到DB
+            if conv_audit['unknown_types']:
+                logger.warning(f"未知action_type: {act_id}/{ad_id} unknown={conv_audit['unknown_types']}")
+                for at in conv_audit['unknown_types']:
+                    _record_unknown_action_type(at, ad_id)
+
+            # spend>0 但 conversion=0 时记录原因
+            if spend > 0 and conversions == 0 and conv_audit['reason']:
+                logger.info(f"转化审计: {act_id}/{ad_id} kpi={kpi_field} spend={spend:.2f} reason={conv_audit['reason']}")
+
+            # v3.3.7: broad conversion check (宽泛匹配，与KPI字段无关)
+            broader_conv = 0.0
+            _CONV_BROAD = {"purchase", "offsite_conversion.fb_pixel_purchase", "offsite_conversion.purchase",
+                          "lead", "offsite_conversion.fb_pixel_lead", "offsite_conversion.lead",
+                          "onsite_conversion.lead_grouped", "offsite_conversion.lead_grouped",
+                          "contact", "offsite_conversion.fb_pixel_contact",
+                          "offsite_conversion.fb_pixel_custom",
+                          "offsite_conversion.fb_pixel_add_to_cart", "add_to_cart",
+                          "omni_purchase", "web_in_store_purchase"}
             for a in actions_raw:
-                if a.get("action_type") in _aliases:
-                    conversions += float(a.get("value", 0))
+                if a.get("action_type") in _CONV_BROAD:
+                    broader_conv = float(a.get("value", 0))
                     break
 
-            
+            # v3.4.0: 交叉验证 — kpi_field是否真实存在于FB actions[]
+            if spend > 0:
+                _cross_validate_kpi(ad_id, kpi_field, actions_raw, spend)
 
             cpa = (spend / conversions) if conversions > 0 else None  # USD CPA
 
             # 计算 ROAS（revenue 也需转换）
             revenue_raw = 0.0
             for av in action_values:
-                if av.get("action_type") in _aliases:
+                if av.get("action_type") in _get_kpi_aliases(kpi_field):
                     revenue_raw = float(av.get("value", 0))
                     break
             revenue = _to_usd_guard(revenue_raw, account_currency)
@@ -829,6 +1003,7 @@ class GuardEngine:
                     spend, conversions, clicks, cpa, roas,
                     target_cpa, kpi_label, impressions,
                     account_currency=account_currency, spend_raw=spend_raw,
+                    broader_conv=broader_conv
                 )
 
     def _check_rule(self, rule: dict, account: dict, token: str,
@@ -836,7 +1011,8 @@ class GuardEngine:
                     spend: float, conversions: float, clicks: int,
                     cpa: Optional[float], roas: Optional[float],
                     target_cpa: Optional[float], kpi_label: str, impressions: int,
-                    account_currency: str = "USD", spend_raw: float = None):
+                    account_currency: str = "USD", spend_raw: float = None,
+                    broader_conv: float = 0.0):
         """
         所有金额参数（spend/cpa/target_cpa）均为 USD。
         account_currency: 账户原始货币（仅用于日志展示）
@@ -855,6 +1031,15 @@ class GuardEngine:
         if rule_type == "bleed_abs":
             threshold = rule.get("param_value") or self.default_bleed_abs
             if spend >= threshold and conversions == 0:
+                # v3.3.7: broad check — prevent false kill when KPI field mismatches FB events
+                if broader_conv > 0:
+                    logger.warning(
+                        f"BLEED_ABORT {ad_id}: kpi_field={kpi_label} produced 0 conversions, "
+                        f"but broad check found {broader_conv} (field mismatch suspected)"
+                    )
+                    _log_action(act_id, "ad", ad_id, ad_name, "bleed_abort", "bleed_abs",
+                                f"kpi_field mismatch: {kpi_label}=0, broad_check={broader_conv}")
+                    return
                 triggered = True
                 reason = f"消耗 ${spend:.2f}{cur_note} 超过空成效止血线 ${threshold:.2f}，且 {kpi_label} = 0"
 

@@ -70,7 +70,7 @@ function _captureLaunchSettings() {
     placements: placements,
     language: (document.getElementById('launchAdLanguage')||{}).value || '',
     objective: _normalizeLaunchObjectiveValue((document.getElementById('launchObjective')||{}).value || ''),
-    conversion_event: (document.getElementById('launchConversionEvent')||{}).value || '',
+    conversion_event: (document.getElementById('launchConvEvent')||{}).value || '',
     bid_strategy: (document.getElementById('launchBidStrategy')||{}).value || '',
     landing_url: (document.getElementById('launchLandingUrl')||{}).value || ''
   };
@@ -94,7 +94,7 @@ function _applyLaunchSettings(obj) {
   }
   if(obj.language){ var el=document.getElementById('launchAdLanguage'); if(el)el.value=obj.language; }
   if(obj.objective){ var el=document.getElementById('launchObjective'); if(el){el.value=_normalizeLaunchObjectiveValue(obj.objective);onLaunchObjectiveChange();} }
-  if(obj.conversion_event){ setTimeout(function(){ var el=document.getElementById('launchConversionEvent'); if(el)el.value=obj.conversion_event; },300); }
+  if(obj.conversion_event){ setTimeout(function(){ var el=document.getElementById('launchConvEvent'); if(el)el.value=obj.conversion_event; },300); }
   if(obj.bid_strategy){ var el=document.getElementById('launchBidStrategy'); if(el)el.value=obj.bid_strategy; }
   if(obj.landing_url){ var el=document.getElementById('launchLandingUrl'); if(el)el.value=obj.landing_url; }
 }
@@ -610,6 +610,7 @@ textarea.fc{resize:vertical;min-height:80px}
         <!-- 铺放中心暂时停用 v3.0.7 -->
         <div class="nav-sec-title">规则与策略</div>
         <div class="nav-item" onclick="showPage('kpi')"><span class="nav-icon">🎯</span>KPI 配置</div>
+        <div class="nav-item" onclick="showPage('kpi_mapping')"><span class="nav-icon">🔗</span>KPI 映射</div>
         <div class="nav-item" onclick="showPage('rules')"><span class="nav-icon">⚙️</span>规则引擎</div>
         <div class="nav-sec-title">系统</div>
         <div class="nav-item" onclick="showPage('twpages')"><span class="nav-icon">📄</span>主页库</div>
@@ -627,6 +628,7 @@ textarea.fc{resize:vertical;min-height:80px}
         <div class="tb-acts">
           <span id="aiBadge" class="ai-badge ai-off">🤖 AI 未启用</span>
           <button class="btn-inspect" id="btnInspect" onclick="triggerInspect()">▶ 立即巡检</button>
+          <button class="btn btn-sm" onclick="if(confirm('确定重置所有冷却状态？重置后已触发的规则可立即重新触发。')){fetch('/api/rules/guard/reset-cooldown',{method:'POST'}).then(r=>r.json()).then(d=>showInfo(d.message||'已重置'))}" style="padding:5px 10px;font-size:12px;margin-left:6px;background:var(--org);color:#fff;border:none;border-radius:4px;cursor:pointer">♻ 重置冷却</button>
           <div style="display:flex;align-items:center;gap:6px">
           <div class="tb-user" title="退出登录" id="tbUser" onclick="logout()">A</div>
           <span id="tbRoleLabel" style="font-size:11px;color:var(--t3);white-space:nowrap"></span>
@@ -655,7 +657,7 @@ textarea.fc{resize:vertical;min-height:80px}
                 <span style="color:var(--t3);font-size:12px">—</span>
                 <input type="date" class="fc" id="dashDt" style="width:120px;padding:5px 8px;font-size:12px" onchange="setDashCustom()">
               </div>
-              <button class="btn btn-g btn-sm" onclick="loadDash()">🔄 刷新</button>
+              <button class="btn btn-g btn-sm" onclick="loadDash()">🔄 刷新</button><button class="btn btn-sm" onclick="showPage('kpi_mapping')" style="padding:5px 10px;font-size:12px">🔗 KPI 映射</button>
               <span style="font-size:11px;color:var(--t3)" id="lastTime">加载中...</span>
             </div>
           </div>
@@ -1012,6 +1014,20 @@ textarea.fc{resize:vertical;min-height:80px}
             <button class="kpi-tab" onclick="switchKpiTab('account')">账户级</button>
           </div>
           <div id="kpiList"></div>
+        </div>
+        
+        <!-- KPI Mapping -->
+        <div class="page" id="page-kpi_mapping">
+          <div class="ph">
+            <div><h2>KPI 映射管理</h2><p>管理 KPI 类型 → FB action_type 映射，审核未知类型</p></div>
+            <div class="ph-acts">
+              <button class="btn btn-g" onclick="loadKpiMapping()">🔄 刷新</button>
+            </div>
+          </div>
+          <!-- Unknown types section -->
+          <div id="unknownTypesSection" style="margin-bottom:16px"></div>
+          <!-- Mapping tables by KPI type -->
+          <div id="kpiMappingTables"></div>
         </div>
         <!-- Rules -->
         <div class="page" id="page-rules">
@@ -1823,7 +1839,7 @@ textarea.fc{resize:vertical;min-height:80px}
   </div>
   <!-- Mobile Bottom Nav -->
   <nav class="mobile-nav" id="mobileNav">
-    <button class="mn-item active" id="mn-dashboard" onclick="showPage('dashboard');setMobileNav('dashboard')">
+    <button class="mn-item active" id="mn-dashboard" onclick="showPage('dashboard');setTimeout(checkUnknownTypes,2000);setMobileNav('dashboard')">
       <span class="mn-icon">📊</span><span>看板</span>
     </button>
     <button class="mn-item" id="mn-ads" onclick="showPage('ads');setMobileNav('ads')">
@@ -2111,7 +2127,7 @@ textarea.fc{resize:vertical;min-height:80px}
             <optgroup label="📣 曝光/流量类">
               <option value="OUTCOME_TRAFFIC">🌐 流量点击（Traffic）</option>
               <option value="OUTCOME_AWARENESS">📣 品牌曝光（Awareness）</option>
-              <option value="VIDEO_VIEWS">🎬 视频观看（Video Views）</option>
+              <option value="OUTCOME_VIDEO_VIEWS">🎬 视频观看（Video Views）</option>
             </optgroup>
             <optgroup label="💬 互动类">
               <option value="OUTCOME_ENGAGEMENT">❤️ 帖子互动（Engagement）</option>
@@ -2131,22 +2147,7 @@ textarea.fc{resize:vertical;min-height:80px}
           <div id="launchConvEventRow" style="display:none;margin-top:10px">
             <label class="fl">转化事件 <span style="color:#f90;font-size:11px">（Pixel 追踪的具体目标）</span></label>
             <select class="fc" id="launchConvEvent">
-              <optgroup label="购买/电商">
-                <option value="PURCHASE">购买（Purchase）</option>
-                <option value="ADD_TO_CART">加入购物车（Add to Cart）</option>
-                <option value="INITIATE_CHECKOUT">发起结账（Initiate Checkout）</option>
-                <option value="ADD_PAYMENT_INFO">添加支付信息（Add Payment Info）</option>
-              </optgroup>
-              <optgroup label="线索/注册">
-                <option value="LEAD">提交线索（Lead）</option>
-                <option value="COMPLETE_REGISTRATION">完成注册（Complete Registration）</option>
-                <option value="SUBSCRIBE">订阅（Subscribe）</option>
-              </optgroup>
-              <optgroup label="内容/浏览">
-                <option value="VIEW_CONTENT">查看内容（View Content）</option>
-                <option value="SEARCH">搜索（Search）</option>
-                <option value="ADD_TO_WISHLIST">加入心愿单（Add to Wishlist）</option>
-              </optgroup>
+              <option value="">加载中...</option>
             </select>
           </div>
         </div>
@@ -2160,6 +2161,7 @@ textarea.fc{resize:vertical;min-height:80px}
           <input class="fc" id="launchTargetCpa" type="number" placeholder="留空=最低成本">
         </div>
       </div>
+      <div id="launchKpiPreview" style="display:none;margin-bottom:12px;padding:8px 12px;background:var(--pug);border:1px solid rgba(139,92,246,.3);border-radius:6px;font-size:12px;color:var(--pu)"></div>
 
       <!-- 目标国家 -->
       <div style="font-size:11px;font-weight:700;color:var(--t3);letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--bd)">🌍 目标国家/地区</div>
@@ -2825,7 +2827,7 @@ function _fmtActionLogTime(s){
   if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)&&!(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)))return raw.replace('T',' ').slice(0,16);
   return _cst(raw);
 }
-var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[];
+var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null;
 
 // ── API ──
 async function api(m,p,b){
@@ -2836,6 +2838,99 @@ async function api(m,p,b){
   var d=await r.json().catch(function(){return{}});
   if(!r.ok)throw new Error(d.detail||JSON.stringify(d));
   return d;
+}
+
+async function loadKpiOptions(force){
+  if(_kpiOptionsCache&&!force)return _kpiOptionsCache;
+  try{
+    var d=await api('GET','/kpi/options');
+    _kpiOptionsCache=d;
+    return d;
+  }catch(e){
+    console.warn('loadKpiOptions failed',e);
+    return null;
+  }
+}
+
+async function populateLaunchConvEvents(){
+  var sel=document.getElementById('launchConvEvent');
+  if(!sel||sel.dataset.loaded)return;
+  var opts=await loadKpiOptions();
+  if(opts&&opts.custom_events&&opts.custom_events.length){
+    sel.innerHTML=opts.custom_events.map(function(o){
+      return '<option value="'+o.value+'">'+o.label+'</option>';
+    }).join('');
+    sel.dataset.loaded='1';
+  }
+}
+
+async function loadKpiObjectives(){
+  /* 从 DB 加载广告目标下拉选项（UPPERCASE = FB API 标准值） */
+  var sel=document.getElementById('launchObjective');
+  if(!sel||sel.dataset.loaded)return;
+  var opts=await loadKpiOptions();
+  if(!opts||!opts.objectives||!opts.objectives.length)return;
+  // 按顺序定义分组（保持与旧版一致的展示顺序）
+  var groups=[
+    {label:'🎯 转化类',vals:{
+      'OUTCOME_SALES':'🛒 转化购买（Conversions）',
+      'OUTCOME_LEADS':'📋 获取线索（Lead Gen）',
+    }},
+    {label:'📣 曝光/流量类',vals:{
+      'OUTCOME_TRAFFIC':'🌐 流量点击（Traffic）',
+      'OUTCOME_AWARENESS':'📣 品牌曝光（Awareness）',
+      // 'OUTCOME_VIDEO_VIEWS' 已合并到 OUTCOME_ENGAGEMENT
+    }},
+    {label:'💬 互动类',vals:{
+      'OUTCOME_ENGAGEMENT':'❤️ 帖子互动（Engagement）',
+      'OUTCOME_MESSAGES':'💬 消息互动（Messaging）',
+    }},
+    {label:'📱 应用类',vals:{
+      'OUTCOME_APP_PROMOTION':'📱 应用推广（App Promotion）',
+    }},
+  ];
+  var html='';
+  for(var gi=0;gi<groups.length;gi++){
+    var g=groups[gi];
+    var items=[];
+    for(var vi=0;vi<opts.objectives.length;vi++){
+      var o=opts.objectives[vi];
+      if(g.vals[o.value]){
+        items.push('<option value="'+o.value+'">'+(g.vals[o.value]||o.label||o.value)+'</option>');
+      }
+    }
+    if(items.length){
+      html+='<optgroup label="'+g.label+'">'+items.join('')+'</optgroup>';
+    }
+  }
+  sel.innerHTML=html;
+  sel.dataset.loaded='1';
+}
+
+async function loadKpiOptGoals(objective){
+  /* 从 API 加载指定 objective 的转化目的选项（UPPERCASE = FB API 标准值） */
+  if(!objective)return null;
+  try{
+    var url='/kpi/opt-goals?objective='+encodeURIComponent(objective);
+    var data=await api('GET',url);
+    return data||null;
+  }catch(e){
+    console.warn('loadKpiOptGoals failed',e);
+    return null;
+  }
+}
+
+async function populateRulesKpiFilter(){
+  var sel=document.getElementById('gp_kpi_filter');
+  if(!sel||sel.dataset.loaded)return;
+  var opts=await loadKpiOptions();
+  if(opts&&opts.ad_types&&opts.ad_types.length){
+    sel.innerHTML='<option value="">全部广告（不限类型）</option>'+
+      opts.ad_types.map(function(o){
+        return '<option value="'+o.value+'">'+o.label+'</option>';
+      }).join('');
+    sel.dataset.loaded='1';
+  }
 }
 
 function toast(msg,type){
@@ -3324,7 +3419,7 @@ async function initApp(){
   },60000);
   // 恢复上次所在页面，否则默认显示看板
   var lastPage=localStorage.getItem('mira_last_page')||'dashboard';
-  var validPages=['dashboard','ads','logs','tokens','accounts','kpi','rules','settings','assets','templates','tw-certified'];
+  var validPages=['dashboard','ads','logs','tokens','accounts','kpi','rules','settings','assets','templates','kpi_mapping','creative_gen','warmup'];
   if(validPages.indexOf(lastPage)>=0&&lastPage!=='dashboard'){
     showPage(lastPage);
   } else {
@@ -3475,6 +3570,7 @@ function showPage(name){
   else if(name==='assets')loadAssets();
   else if(name==='templates')loadTemplatesPage();
   else if(name==='landing_urls'){loadLandingUrls();loadLandingUrlOptions();}
+  else if(name==='kpi_mapping')loadKpiMapping();
   else if(name==='creative_gen')loadCreativeGenPage();
   else if(name==='twpages')loadTwPagesPage();
   else if(name==='warmup')loadWarmupPage();
@@ -3948,6 +4044,7 @@ function filterAds(){
     var kpiSt=a.kpi_field?(a.cpa&&a.target_cpa?(a.cpa<=a.target_cpa?'<span class="badge bg-ok">✅ 达标</span>':a.cpa<=a.target_cpa*1.3?'<span class="badge bg-wa">⚠️ 偏高</span>':'<span class="badge bg-er">🔴 超标</span>')+'<div style="font-size:10px;color:var(--t3);margin-top:1px">'+_kpiLabel+'</div>':'<span class="badge bg-ac" style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">'+_kpiLabel+'</span>'+_srcBadge+(a.target_cpa?'':'<div style="font-size:10px;color:var(--t3)">未设CPA</div>')):'<span class="badge bg-mu">未设目标</span>';
     // 快速配置KPI按钮
     var kpiBtn='<button class="btn btn-g btn-sm" style="font-size:11px;padding:3px 8px" onclick="quickKpi(\'' + a.ad_id + '\',\'' + a.act_id + '\',\'' + (a.ad_name||'').replace(/'/g,'') + '\')">⚙️ KPI</button>';
+    var diagBtn='<button class="btn btn-p btn-sm" style="font-size:11px;padding:3px 8px" onclick="showDiagnose(\''+a.ad_id+'\',\''+a.act_id+'\')">🔍 诊断</button>';
     var adSt=a.effective_status||a.status||'';
     var _adStMap={
       'ACTIVE':'<span class="badge bg-ok" title="广告正在投放">投放中</span>',
@@ -3964,10 +4061,102 @@ function filterAds(){
     var adStBadge=_adStMap[adSt]||'<span class="badge bg-mu" title="'+adSt+'">'+adSt+'</span>';
     var adDetailId='adrow_'+a.ad_id.replace(/[^a-z0-9]/gi,'_');
     var copyBtn='<button class="btn-ic" title="复制广告ID" onclick="event.stopPropagation();navigator.clipboard&&navigator.clipboard.writeText(\'' + a.ad_id + '\').then(function(){toast(\'已复制广告ID\',\'ok\')})" style="font-size:11px;padding:2px 5px">📋</button>';
-    return'<tr style="cursor:pointer" onclick="toggleAdDetail(\''+adDetailId+'\')">'+'<td><div class="td-name" title="'+a.ad_name+'">'+a.ad_name+'</div><div class="td-id" style="display:flex;align-items:center;gap:4px">'+a.ad_id+copyBtn+'</div></td><td><span class="td-id">'+(a.act_id||'').replace(/^act_/,'')+'</span><br><span style="font-size:11px;color:var(--t3)">'+(a.account_name||'')+'</span></td><td>'+adStBadge+'</td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td><td>'+kpiBtn+'</td></tr>'+'<tr id="'+adDetailId+'" style="display:none"><td colspan="10" style="padding:8px 14px;background:var(--bg3);border-bottom:1px solid var(--bd)"><div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--t2)"><span>广告ID: <code style="color:var(--t1)">'+a.ad_id+'</code></span>'+(a.adset_id?'<span>广告组ID: <code style="color:var(--t1)">'+a.adset_id+'</code></span>':'')+(a.campaign_id?'<span>系列ID: <code style="color:var(--t1)">'+a.campaign_id+'</code></span>':'')+'<span>账户: <code style="color:var(--t1)">'+(a.act_id||'')+'</code></span></div></td></tr>';
+    return'<tr style="cursor:pointer" onclick="toggleAdDetail(\''+adDetailId+'\')">'+'<td><div class="td-name" title="'+a.ad_name+'">'+a.ad_name+'</div><div class="td-id" style="display:flex;align-items:center;gap:4px">'+a.ad_id+copyBtn+'</div></td><td><span class="td-id">'+(a.act_id||'').replace(/^act_/,'')+'</span><br><span style="font-size:11px;color:var(--t3)">'+(a.account_name||'')+'</span></td><td>'+adStBadge+'</td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td><td>'+kpiBtn+diagBtn+'</td></tr>'+'<tr id="'+adDetailId+'" style="display:none"><td colspan="10" style="padding:8px 14px;background:var(--bg3);border-bottom:1px solid var(--bd)"><div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--t2)"><span>广告ID: <code style="color:var(--t1)">'+a.ad_id+'</code></span>'+(a.adset_id?'<span>广告组ID: <code style="color:var(--t1)">'+a.adset_id+'</code></span>':'')+(a.campaign_id?'<span>系列ID: <code style="color:var(--t1)">'+a.campaign_id+'</code></span>':'')+'<span>账户: <code style="color:var(--t1)">'+(a.act_id||'')+'</code></span></div></td></tr>';
   }).join('');
   document.getElementById('adsCount').textContent='共 '+f.length+' 条（总 '+allAds.length+' 条）';
 }
+// 诊断广告
+async function showDiagnose(adId, actId){
+  mo = document.getElementById('moDiagnose') || (function(){
+    var d=document.createElement('div');d.id='moDiagnose';d.className='modal-overlay';
+    d.innerHTML='<div class="modal modal-lg" style="max-width:720px"><div class="modal-header"><span>🔍 广告诊断</span><button class="btn-ic" onclick="closeDiagnose()">×</button></div><div class="modal-body" id="diagBody" style="max-height:70vh;overflow-y:auto;padding:16px;font-size:13px;line-height:1.6"><div style="text-align:center;padding:40px;color:var(--t3)">加载中...</div></div></div>';
+    d.addEventListener('click',function(e){if(e.target===d)closeDiagnose()});
+    document.body.appendChild(d);return d;
+  })();
+  mo.style.display='flex';
+  var el=document.getElementById('diagBody');
+  try{
+    var data=await api('GET','/kpi/diagnose/'+actId+'/'+adId);
+    if(!data){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--er)">请求失败</div>';return}
+    var h='';
+    // Header
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px">';
+    h+='<div><strong style="font-size:15px">'+(data.ad_name||data.ad_id)+'</strong>';
+    h+='<div style="font-size:11px;color:var(--t3)">'+data.ad_id+'</div></div>';
+    h+='<span class="badge '+(data.effective_status==='ACTIVE'?'bg-ok':'bg-mu')+'">'+data.effective_status+'</span>';
+    h+='</div>';
+    // Meta info
+    h+='<div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+    h+='<div style="background:var(--bg2);padding:8px 12px;border-radius:6px"><span style="color:var(--t3);font-size:11px">广告类型</span><br><strong>'+data.ad_type+'</strong></div>';
+    h+='<div style="background:var(--bg2);padding:8px 12px;border-radius:6px"><span style="color:var(--t3);font-size:11px">Campaign目标</span><br><strong>'+(data.campaign_meta.objective||'--')+'</strong></div>';
+    h+='<div style="background:var(--bg2);padding:8px 12px;border-radius:6px"><span style="color:var(--t3);font-size:11px">AdSet优化</span><br><strong>'+(data.campaign_meta.optimization_goal||'--')+'</strong></div>';
+    h+='<div style="background:var(--bg2);padding:8px 12px;border-radius:6px"><span style="color:var(--t3);font-size:11px">版位类型</span><br><strong>'+(data.campaign_meta.destination_type||'--')+'</strong></div>';
+    h+='</div>';
+    // KPI section
+    h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:16px">';
+    h+='<div style="font-weight:600;font-size:14px;margin-bottom:8px">🎯 KPI配置</div>';
+    h+='<div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+    h+='<div><span style="color:var(--t3);font-size:11px">KPI字段</span><br><strong>'+(data.kpi.field||'--')+'</strong> <span style="font-size:11px;color:var(--t3)">('+(data.kpi.label||'')+')</span></div>';
+    h+='<div><span style="color:var(--t3);font-size:11px">来源</span><br><strong>'+(data.kpi.source||'--')+'</strong></div>';
+    h+='</div></div>';
+    // Conversions
+    h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:16px">';
+    h+='<div style="font-weight:600;font-size:14px;margin-bottom:8px">📊 成效</div>';
+    h+='<div class="grid-3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">';
+    h+='<div style="text-align:center;padding:8px;background:var(--bg1);border-radius:6px"><span style="color:var(--t3);font-size:11px">转化数</span><br><strong style="font-size:20px">'+(data.conversions.count||0)+'</strong></div>';
+    h+='<div style="text-align:center;padding:8px;background:var(--bg1);border-radius:6px"><span style="color:var(--t3);font-size:11px">单次费用</span><br><strong style="font-size:20px">'+(data.cpa?'$'+data.cpa:'--')+'</strong></div>';
+    h+='<div style="text-align:center;padding:8px;background:var(--bg1);border-radius:6px"><span style="color:var(--t3);font-size:11px">花费</span><br><strong style="font-size:20px">$'+(data.spend.spend||'0')+'</strong></div>';
+    h+='</div>';
+    h+='<div style="margin-top:8px;font-size:12px">';
+    h+='<div><span style="color:var(--t3)">匹配事件: </span>'+(data.conversions.matched_action||'<span style="color:var(--er)">无匹配</span>')+'</div>';
+    h+='<div><span style="color:var(--t3)">是否回退: </span>'+(data.conversions.is_fallback?'<span style="color:var(--wa)">是</span>':'否')+'</div>';
+    h+='<div><span style="color:var(--t3)">未匹配原因: </span><span style="color:var(--er)">'+(data.conversions.reason||'--')+'</span></div>';
+    h+='</div></div>';
+    // Aliases
+    h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:16px">';
+    h+='<div style="font-weight:600;font-size:14px;margin-bottom:8px">🔗 别名映射</div>';
+    h+='<div><span style="color:var(--t3)">标准别名: </span><code style="font-size:11px">'+(data.aliases.standard||[]).join(', ')+'</code></div>';
+    h+='<div><span style="color:var(--t3)">回退别名: </span><code style="font-size:11px;color:var(--wa)">'+(data.aliases.fallback||[]).join(', ')+'</code></div>';
+    h+='</div>';
+    // All FB actions
+    h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:16px">';
+    h+='<div style="font-weight:600;font-size:14px;margin-bottom:8px">📋 FB原始action_types <span style="font-size:11px;color:var(--t3);font-weight:400">(共'+(data.all_actions.length)+'个)</span></div>';
+    h+='<div style="max-height:200px;overflow-y:auto;font-size:11px">';
+    h+='<table style="width:100%;border-collapse:collapse"><tr style="color:var(--t3)"><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--bd)">action_type</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--bd)">value</th></tr>';
+    for(var i=0;i<data.all_actions.length;i++){
+      var act=data.all_actions[i];
+      var hl=act.action_type===data.conversions.matched_action?' style="background:var(--ac);font-weight:600"':'';
+      h+='<tr'+hl+'><td style="padding:3px 8px;border-bottom:1px solid var(--bd)">'+act.action_type+'</td><td style="text-align:right;padding:3px 8px;border-bottom:1px solid var(--bd)">'+act.value+'</td></tr>';
+    }
+    h+='</table></div></div>';
+    // Rules
+    h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:16px">';
+    h+='<div style="font-weight:600;font-size:14px;margin-bottom:8px">🛡️ 匹配规则</div>';
+    if(data.rules.matching.length===0){
+      h+='<div style="color:var(--t3)">无匹配规则</div>';
+    } else {
+      for(var i=0;i<data.rules.matching.length;i++){
+        var r=data.rules.matching[i];
+        var wt=r.would_trigger;
+        var wtIcon=wt===true?'🔴':wt===false?'✅':'⚪';
+        var wtText=wt===true?'会触发':wt===false?'不会触发':'待定';
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg1);border-radius:4px;margin-bottom:4px">';
+        h+='<div><strong>['+r.rule_type+']</strong> <span style="color:var(--t3);font-size:12px">'+(r.kpi_filter||'全部')+'</span>';
+        if(r.param_value!==undefined)h+=' <span style="font-size:11px;color:var(--t3)">阈值:'+r.param_value+'</span>';
+        h+='</div><div>'+wtIcon+' '+wtText+'</div></div>';
+      }
+    }
+    h+='</div>';
+    el.innerHTML=h;
+  }catch(e){
+    el.innerHTML='<div style="text-align:center;padding:40px;color:var(--er)">请求失败: '+e.message+'</div>';
+  }
+}
+function closeDiagnose(){
+  var mo=document.getElementById('moDiagnose');
+  if(mo)mo.style.display='none';
+}
+
 // 广告行展开详情
 function toggleAdDetail(id){
   var el=document.getElementById(id);
@@ -4031,7 +4220,7 @@ async function loadLogs(){
       return'<tr><td style="white-space:nowrap;font-size:12px;color:var(--t3)">'+_fmtActionLogTime(l.created_at)+'</td>'
         +'<td><div style="font-size:13px">'+accName+'</div><div class="td-id">'+(l.act_id||'').replace(/^act_/,'')+'</div></td>'
         +'<td><div class="td-name" title="'+(l.target_name||l.ad_name||'')+'" style="max-width:180px">'+(l.target_name||l.ad_name||l.target_id||'--')+'</div></td>'
-        +'<td><span class="badge bg-ac">'+(al[l.action_type]||l.action_type||'--')+'</span></td>'
+        +'<td><span class="badge bg-ac" style="cursor:pointer" onclick="showPage(\'kpi_mapping\')" title="点击管理映射">'+(al[l.action_type]||l.action_type||'--')+'</span></td>'
         +'<td style="max-width:240px;font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+detail+'">'+detail+'</td>'
         +'<td><span class="badge '+(sb[l.status]||'bg-mu')+'">'+(sl[l.status]||l.status||'--')+'</span>'+(l.error_msg?'<div style="font-size:11px;color:var(--er);margin-top:2px">'+l.error_msg.slice(0,50)+'</div>':'')+'</td>'
         +'<td style="font-size:12px;color:var(--t3)">'+(l.level||'--')+'</td></tr>';
@@ -6216,76 +6405,6 @@ function _onLaunchActCbChange(actId, checked){
 }
 function onLaunchActChange(actId){
   if(!actId)return;
-  // 更新货币换算提示
-  api('GET','/accounts').then(function(accs){
-    var acc=(accs||[]).find(function(a){return a.act_id===actId;});
-    if(acc){
-      _launchActCurrency=(acc.currency||'USD').toUpperCase();
-      updateBudgetConvert();
-    }
-  }).catch(function(){});
-  // 拉取主页列表
-  var pageSel=document.getElementById('launchPageId');
-  var pageHint=document.getElementById('launchPageHint');
-  pageSel.innerHTML='<option value="">加载中...</option>';
-  if(pageHint)pageHint.textContent='正在从 Facebook 拉取主页列表...';
-  api('GET','/accounts/'+actId+'/fb-pages').then(function(r){
-    var pages=r.pages||[];
-    pageSel.innerHTML='<option value="">— 请选择主页 —</option>';
-    pages.forEach(function(p){
-      var opt=document.createElement('option');
-      opt.value=p.id;
-      opt.textContent=p.name+(p.can_use?'':' (不可用)');
-      if(!p.can_use){opt.disabled=true;opt.style.color='#888';}
-      pageSel.appendChild(opt);
-    });
-    // 自动选中账户已配置的主页
-    api('GET','/accounts').then(function(accs){
-      var acc=(accs||[]).find(function(a){return a.act_id===actId;});
-      if(acc&&acc.page_id)pageSel.value=acc.page_id;
-    }).catch(function(){});
-    if(pageHint)pageHint.textContent=pages.length+'个主页（灰色=不可用/无广告权限）';
-  }).catch(function(e){
-    pageSel.innerHTML='<option value="">— 拉取失败，请手动输入 —</option>';
-    // 降级为输入框
-    var input=document.createElement('input');
-    input.className='fc';input.id='launchPageId';input.placeholder='请输入主页 ID';
-    pageSel.parentNode.replaceChild(input,pageSel);
-    if(pageHint)pageHint.textContent='⚠️ 无法拉取主页列表（'+e.message+'），请手动输入';
-  });
-  // 拉取像素列表
-  var pixelSel=document.getElementById('launchPixelId');
-  var pixelHint=document.getElementById('launchPixelHint');
-  pixelSel.innerHTML='<option value="">加载中...</option>';
-  api('GET','/accounts/'+actId+'/fb-pixels').then(function(r){
-    var pixels=r.pixels||[];
-    pixelSel.innerHTML='<option value="">— 不使用像素 —</option>';
-    pixels.forEach(function(p){
-      var opt=document.createElement('option');
-      opt.value=p.id;
-      opt.textContent=p.name+(p.can_use?'':' (不可用)');
-      if(!p.can_use){opt.disabled=true;opt.style.color='#888';}
-      pixelSel.appendChild(opt);
-    });
-    // 自动选中账户已配置的像素
-    api('GET','/accounts').then(function(accs){
-      var acc=(accs||[]).find(function(a){return a.act_id===actId;});
-      if(acc&&acc.pixel_id)pixelSel.value=acc.pixel_id;
-    }).catch(function(){});
-    if(pixelHint)pixelHint.textContent=pixels.length+'个像素（灰色=不可用）';
-  }).catch(function(){
-    pixelSel.innerHTML='<option value="">— 不使用像素 —</option>';
-    if(pixelHint)pixelHint.textContent='⚠️ 无法拉取像素列表';
-  });
-  // 自动匹配台湾认证主页（选账户后触发）
-  var twRow=document.getElementById('launchTwAdvRow');
-  if(twRow&&twRow.style.display!=='none'){
-    refreshTwPages();
-  }
-}
-
-function onLaunchActChange(actId){
-  if(!actId)return;
   api('GET','/accounts').then(function(accs){
     var acc=(accs||[]).find(function(a){return a.act_id===actId;});
     if(acc){
@@ -6436,6 +6555,11 @@ async function openLaunchModal(assetId){
   document.getElementById('launchAdvancedPanel').style.display='none';
   // 计算预览
   updateLaunchPreview(assetId);
+  // 加载广告目标下拉（DB驱动，FB API标准值）
+  loadKpiObjectives();
+  // 加载转化事件下拉（DB驱动）
+  var _ceSel=document.getElementById('launchConvEvent');
+  if(_ceSel)_ceSel.dataset.loaded='';  // 每次弹窗重置，重新加载
   // 初始化转化目的选项（根据默认广告目标）
   onLaunchObjectiveChange();
   _bindLaunchChecklistInputs();
@@ -6481,65 +6605,68 @@ async function onLaunchObjectiveChange() {
     }
     var convEventRow = document.getElementById('launchConvEventRow');
     if (convEventRow) {
-      convEventRow.style.display = ['OUTCOME_SALES','OUTCOME_LEADS'].includes(obj) ? '' : 'none';
+      var showConvEvent = ['OUTCOME_SALES','OUTCOME_LEADS'].includes(obj);
+      convEventRow.style.display = showConvEvent ? '' : 'none';
+      if(showConvEvent) populateLaunchConvEvents();
     }
-    // 动态更新转化目的选项（根据 2026-04 实测验证结果）
-    var CONV_GOAL_OPTIONS = {
+    // 动态更新转化目的选项（DB驱动，UPPERCASE=FB API标准值）
+    var CONV_GOAL_OPTIONS_FALLBACK = {
       'OUTCOME_ENGAGEMENT': [
-        {v:'reach',       l:'📊 触达人数（Reach）'},
-        {v:'link_clicks', l:'🔗 链接点击（Link Clicks）'},
-        {v:'impressions', l:'👁 展示次数（Impressions）'},
-        {v:'conversations',l:'💬 聊天对话（Conversations）'},
-        {v:'landing_page_views',l:'🌐 落地页浏览（Landing Page Views）'},
-        {v:'video_views', l:'🎥 视频观看（需视频素材）'},
-        {v:'thruplay',    l:'⏵ ThruPlay（需视频素材）'},
-        {v:'page_likes',  l:'👍 主页赞（Page Likes）'}
+        {v:'REACH', l:'📊 触达人数（Reach）'},
+        {v:'LINK_CLICKS', l:'🔗 链接点击（Link Clicks）'},
+        {v:'IMPRESSIONS', l:'👁 展示次数（Impressions）'},
+        {v:'CONVERSATIONS',l:'💬 聊天对话（Conversations）'},
+        {v:'LANDING_PAGE_VIEWS',l:'🌐 落地页浏览（Landing Page Views）'},
+        {v:'VIDEO_VIEWS', l:'🎥 视频观看（需视频素材）'},
+        {v:'THRUPLAY',    l:'⏵ ThruPlay（需视频素材）'},
+        {v:'PAGE_LIKES',  l:'👍 主页赞（Page Likes）'}
       ],
       'OUTCOME_TRAFFIC': [
-        {v:'link_clicks',        l:'🔗 链接点击（Link Clicks）'},
-        {v:'landing_page_views', l:'🌐 落地页浏览（Landing Page Views）'},
-        {v:'reach',              l:'📊 触达人数（Reach）'},
-        {v:'impressions',        l:'👁 展示次数（Impressions）'},
-        {v:'conversations',      l:'💬 聊天对话（Conversations）'}
+        {v:'LINK_CLICKS',        l:'🔗 链接点击（Link Clicks）'},
+        {v:'LANDING_PAGE_VIEWS', l:'🌐 落地页浏览（Landing Page Views）'},
+        {v:'REACH',              l:'📊 触达人数（Reach）'},
+        {v:'IMPRESSIONS',        l:'👁 展示次数（Impressions）'},
+        {v:'CONVERSATIONS',      l:'💬 聊天对话（Conversations）'}
       ],
       'OUTCOME_AWARENESS': [
-        {v:'reach',       l:'📊 触达人数（Reach）'},
-        {v:'impressions', l:'👁 展示次数（Impressions）'}
+        {v:'REACH',       l:'📊 触达人数（Reach）'},
+        {v:'IMPRESSIONS', l:'👁 展示次数（Impressions）'}
       ],
       'OUTCOME_MESSAGES': [
-        {v:'conversations', l:'💬 聊天对话（Conversations）'}
+        {v:'CONVERSATIONS', l:'💬 聊天对话（Conversations）'}
       ],
       'OUTCOME_LEADS': [
-        {v:'lead_generation',              l:'📋 即时表单（Instant Form）'},
-        {v:'link_clicks',                  l:'🔗 网站链接点击（Link Clicks）'},
-        {v:'landing_page_views',           l:'🌐 落地页浏览（Landing Page Views）'},
-        {v:'conversations',                l:'💬 消息对话（Conversations）'},
-        {v:'messaging_purchase_conversion',l:'📲 消息线索（Messenger/WhatsApp）'},
-        {v:'offsite_conversions',          l:'🎯 网站转化线索（需 Pixel）'}
+        {v:'LEAD_GENERATION',              l:'📋 即时表单（Instant Form）'},
+        {v:'LINK_CLICKS',                  l:'🔗 网站链接点击（Link Clicks）'},
+        {v:'LANDING_PAGE_VIEWS',           l:'🌐 落地页浏览（Landing Page Views）'},
+        {v:'CONVERSATIONS',                l:'💬 消息对话（Conversations）'},
+        {v:'MESSAGING_PURCHASE_CONVERSION',l:'📲 消息线索（Messenger/WhatsApp）'},
+        {v:'OFFSITE_CONVERSIONS',          l:'🎯 网站转化线索（需 Pixel）'}
       ],
       'OUTCOME_SALES': [
-        {v:'link_clicks',                  l:'🔗 链接点击（Link Clicks）'},
-        {v:'landing_page_views',           l:'🌐 落地页浏览（Landing Page Views）'},
-        {v:'reach',                        l:'📊 触达人数（Reach）'},
-        {v:'impressions',                  l:'👁 展示次数（Impressions）'},
-        {v:'conversations',                l:'💬 消息对话（Conversations）'},
-        {v:'messaging_purchase_conversion',l:'📲 消息购买（Messenger/WhatsApp）'},
-        {v:'offsite_conversions',          l:'🎯 网站转化（需 Pixel）'},
-        {v:'value',                        l:'💰 转化价値优化（Value 需 Pixel）'}
+        {v:'LINK_CLICKS',                  l:'🔗 链接点击（Link Clicks）'},
+        {v:'LANDING_PAGE_VIEWS',           l:'🌐 落地页浏览（Landing Page Views）'},
+        {v:'REACH',                        l:'📊 触达人数（Reach）'},
+        {v:'IMPRESSIONS',                  l:'👁 展示次数（Impressions）'},
+        {v:'CONVERSATIONS',                l:'💬 消息对话（Conversations）'},
+        {v:'MESSAGING_PURCHASE_CONVERSION',l:'📲 消息购买（Messenger/WhatsApp）'},
+        {v:'OFFSITE_CONVERSIONS',          l:'🎯 网站转化（需 Pixel）'},
+        {v:'VALUE',                        l:'💰 转化价值优化（需 Pixel）'}
       ],
       'VIDEO_VIEWS': [
-        {v:'video_views', l:'🎥 视频观看（Video Views）'},
-        {v:'thruplay',    l:'⏵ ThruPlay（完整播放）'}
+        {v:'VIDEO_VIEWS', l:'🎥 视频观看（Video Views）'},
+        {v:'THRUPLAY',    l:'⏵ ThruPlay（完整播放）'}
       ],
       'OUTCOME_APP_PROMOTION': [
-        {v:'',            l:'📱 应用安装（App Installs）'}
+        {v:'APP_INSTALLS', l:'📱 应用安装（App Installs）'}
       ]
     };
     var convGoalSel = document.getElementById('launchConvGoal');
     var convGoalRow = document.getElementById('launchConvGoalRow');
     if (convGoalSel) {
-      var prevGoal = (convGoalSel.value || '').toLowerCase();
-      var opts = CONV_GOAL_OPTIONS[obj] || [{v:'', l:'默认'}];
+      var prevGoal = (convGoalSel.value || '');
+      var apiOpts = await loadKpiOptGoals(obj);
+      var opts = (apiOpts && apiOpts.length) ? apiOpts.map(function(o){ return {v: o.value||o.v||'', l: o.label||o.l||''}; }) : (CONV_GOAL_OPTIONS_FALLBACK[obj] || [{v:'', l:'默认'}]);
       convGoalSel.innerHTML = opts.map(function(o){
         return '<option value="'+o.v+'">'+o.l+'</option>';
       }).join('');
@@ -6547,14 +6674,14 @@ async function onLaunchObjectiveChange() {
       if (hasPrevGoal) {
         convGoalSel.value = prevGoal;
       } else if (obj === 'OUTCOME_MESSAGES') {
-        convGoalSel.value = 'conversations';
+        convGoalSel.value = 'CONVERSATIONS';
       } else if (obj === 'OUTCOME_LEADS') {
-        convGoalSel.value = 'lead_generation';
+        convGoalSel.value = 'LEAD_GENERATION';
       } else if (opts.length) {
         convGoalSel.value = opts[0].v || '';
       }
-      // OUTCOME_LEADS 默认选 lead_generation（即时表单）
-      if(obj==='OUTCOME_LEADS'&&!convGoalSel.value){convGoalSel.value='lead_generation';}
+      // OUTCOME_LEADS 默认选 LEAD_GENERATION（即时表单）
+      if(obj==='OUTCOME_LEADS'&&!convGoalSel.value){convGoalSel.value='LEAD_GENERATION';}
       // 消息互动目标不支持，隐藏转化目的行
       if (convGoalRow) {
         convGoalRow.style.display = '';
@@ -6688,7 +6815,7 @@ async function onLaunchObjectiveChange() {
       isLead: isLead,
       pageRequired: true,
       pixelRequired: ['offsite_conversions','value'].includes(convGoal),
-      showEvent: ['offsite_conversions','value'].includes(convGoal) || ['OUTCOME_SALES','OUTCOME_LEADS'].includes(objective),
+      showEvent: ['offsite_conversions','value'].includes(convGoal) || (['OUTCOME_SALES','OUTCOME_LEADS'].includes(objective) && !isLead),
       landingRequired: ['OUTCOME_TRAFFIC','OUTCOME_SALES','OUTCOME_ENGAGEMENT'].includes(objective) && !isMessage && !isLead && convGoal !== 'page_likes'
     };
   }
@@ -6966,6 +7093,21 @@ async function onLaunchObjectiveChange() {
     return '<div style="text-align:left">' + summary + cards + '</div>';
   }
 
+  function _updateKpiPreview() {
+    var el = document.getElementById('launchKpiPreview');
+    if(!el)return;
+    var obj = (document.getElementById('launchObjective')||{}).value||'';
+    var goal = (document.getElementById('launchConvGoal')||{}).value||'';
+    var cev = (document.getElementById('launchConvEvent')||{}).value||'';
+    if(!obj&&!goal){el.style.display='none';return;}
+    var label = '';
+    if(goal) label = goal.replace(/_/g,' ').replace(/\b\w/g,function(l){return l.toUpperCase();});
+    else if(obj) label = obj.replace('OUTCOME_','').toLowerCase();
+    if(cev) label += ' > '+cev;
+    el.innerHTML = '🎯 KPI 跟踪: <strong>'+label+'</strong><span style="opacity:.6;margin-left:8px">铺放后将自动预设</span>';
+    el.style.display = '';
+  }
+
   function onLaunchGoalChange() {
     var obj  = (document.getElementById('launchObjective') || {}).value || '';
     var goal = (document.getElementById('launchConvGoal')  || {}).value || '';
@@ -7071,6 +7213,7 @@ async function onLaunchObjectiveChange() {
 
     _updateLaunchCtaOptions(meta);
     _renderLaunchChecklist(meta);
+    _updateKpiPreview();
   }
 
   async function confirmLaunchCampaign(){
@@ -7113,8 +7256,8 @@ async function onLaunchObjectiveChange() {
   // 检查 Pixel（需要 Pixel 的转化目的必填）
   var _convGoalVal=(document.getElementById('launchConvGoal')||{}).value||'';
   var _launchMeta=_getLaunchGoalMeta(objective,_convGoalVal);
-  if(_launchMeta.isMessage&&!_convGoalVal){_convGoalVal='conversations';}
-  var PIXEL_REQUIRED_GOALS=['offsite_conversions','value'];
+  if(_launchMeta.isMessage&&!_convGoalVal){_convGoalVal='CONVERSATIONS';}
+  var PIXEL_REQUIRED_GOALS=['OFFSITE_CONVERSIONS','VALUE'];
   if(PIXEL_REQUIRED_GOALS.includes(_convGoalVal)){
     var _pxCheck=document.getElementById('launchPixelId');
     var _pxVal=_pxCheck?(_pxCheck.tagName==='SELECT'?_pxCheck.value:_pxCheck.value.trim()):'';
@@ -7193,7 +7336,7 @@ async function onLaunchObjectiveChange() {
     var twAdvEl=document.getElementById('launchTwAdvId');
     if(twAdvEl&&twAdvEl.value)payload.tw_page_id=twAdvEl.value.trim();
     var convEvEl=document.getElementById("launchConvEvent");var convEvRow=document.getElementById("launchConvEventRow");if(convEvEl&&convEvRow&&convEvRow.style.display!=="none")payload.conversion_event=convEvEl.value;
-    var convGoalEl=document.getElementById("launchConvGoal");var convGoalRow=document.getElementById("launchConvGoalRow");var convGoalVal=(convGoalEl&&convGoalEl.value)?convGoalEl.value:_convGoalVal;if(convGoalEl&&convGoalRow&&convGoalRow.style.display!=="none"&&convGoalVal)payload.conversion_goal=convGoalVal;else if(_launchMeta.isMessage)payload.conversion_goal='conversations';
+    var convGoalEl=document.getElementById("launchConvGoal");var convGoalRow=document.getElementById("launchConvGoalRow");var convGoalVal=(convGoalEl&&convGoalEl.value)?convGoalEl.value:_convGoalVal;if(convGoalEl&&convGoalRow&&convGoalRow.style.display!=="none"&&convGoalVal)payload.conversion_goal=convGoalVal;else if(_launchMeta.isMessage)payload.conversion_goal='CONVERSATIONS';
     // 消息模版（消息类广告）
     var msgTplEl=document.getElementById('launchMsgTemplate');var msgTplRow=document.getElementById('launchMsgTemplateRow');
     if(msgTplEl&&msgTplRow&&msgTplRow.style.display!=='none'&&msgTplEl.value.trim())payload.message_template=msgTplEl.value.trim();
@@ -7203,13 +7346,19 @@ async function onLaunchObjectiveChange() {
     // 行动号召按钮
     var ctaEl=document.getElementById('launchCtaType');
     if(ctaEl&&ctaEl.value)payload.cta_type=ctaEl.value;
-    var isBatch = selectedActIds && selectedActIds.length > 1;
+    var isBatch = (selectedActIds && selectedActIds.length > 1) || (window._batchAssetIds && window._batchAssetIds.length > 1);
     var r;
     if(isBatch){
       // 多账户批量铺广告
       payload.act_ids = selectedActIds;
       payload.act_id = selectedActIds[0]; // 兼容字段
-      r = await api('POST','/assets/'+assetId+'/batch-launch',payload);
+          if(window._batchAssetIds&&window._batchAssetIds.length>0){
+      payload.asset_ids=window._batchAssetIds;
+      r=await api('POST','/assets/batch-launch',payload);
+      window._batchAssetIds=null;
+    }else{
+      r=await api('POST','/assets/'+assetId+'/batch-launch',payload);
+    }
       var pb=document.getElementById('launchProgressBox');
       if(pb) pb.style.display='block';
       var cancelBtn=document.getElementById('btnLaunchCancel');
@@ -7219,15 +7368,28 @@ async function onLaunchObjectiveChange() {
       var failCount = r.failed||0;
       toast('🚀 已为 '+successCount+' 个账户创建铺广告任务' + (failCount?'，'+failCount+' 个失败':'')+'，后台执行中...','ok');
       // 批量任务：轮询第一个成功的任务进度
-      var firstSuccess = (r.results||[]).find(function(x){return x.campaign_id;});
-      if(firstSuccess) _pollLaunchProgress(assetId, firstSuccess.campaign_id);
+      var firstSuccess = (r.campaigns||[]).find(function(x){return x.campaign_id;});
+      if(firstSuccess){
+        _batchCampaignsInfo = (r.campaigns||[]).map(function(c){return {act_id:c.act_id,asset_id:c.asset_id,campaign_id:c.campaign_id};});
+        _pollLaunchProgress(assetId, firstSuccess.campaign_id);
+      }
+      // 批量铺放成功后自动预设 KPI（每个账户静默执行）
+      (r.campaigns||[]).forEach(function(res){
+        if(res.status==='pending'){
+          setTimeout(function(){
+            api('POST','/kpi/auto-scan/'+res.act_id).catch(function(e){
+              console.warn('KPI auto-preset failed for '+res.act_id, e);
+            });
+          }, 5000);
+        }
+      });
       // 显示批量结果摘要
       var progressMsg = document.getElementById('launchProgressMsg');
       if(progressMsg){
         var summary = '<div style="font-size:12px;margin-top:8px">';
-        (r.results||[]).forEach(function(res){
+        (r.campaigns||[]).forEach(function(res){
           var icon = res.status==='pending'?'✅':'❌';
-          summary += '<div>'+icon+' '+res.act_id+': '+res.message+'</div>';
+          summary += '<div>'+icon+' '+res.act_id+': '+(res.message||'pending')+'</div>';
         });
         summary += '</div>';
         progressMsg.innerHTML = (progressMsg.innerHTML||'')+summary;
@@ -7242,6 +7404,12 @@ async function onLaunchObjectiveChange() {
       btn.style.display='none';
       toast('🚀 广告任务已提交，正在执行...','ok');
       _pollLaunchProgress(assetId, r.campaign_id);
+      // 铺放成功后自动预设 KPI（后台静默执行）
+      setTimeout(function(){
+        api('POST','/kpi/auto-scan/'+actId).catch(function(e){
+          console.warn('KPI auto-preset failed:', e);
+        });
+      }, 5000);
     }
   }catch(e){
     toast('启动失败：'+e.message,'er');
@@ -7250,6 +7418,7 @@ async function onLaunchObjectiveChange() {
 }
 
 function _resetLaunchProgressState(){
+  _batchCampaignsInfo = null;
   if(_launchPollTimer){
     clearInterval(_launchPollTimer);
     _launchPollTimer = null;
@@ -7314,7 +7483,8 @@ confirmLaunchCampaign = async function(){
 var _launchPollTimer = null;
 function _pollLaunchProgress(assetId, campaignId){
   if(_launchPollTimer) clearInterval(_launchPollTimer);
-  var maxTries = 360; // 最多轮询12分钟，避免长任务被前端过早判超时
+  var _isBatch = _batchCampaignsInfo && _batchCampaignsInfo.length > 1;
+  var maxTries = _isBatch ? 600 : 360;
   var tries = 0;
   var requestErrorCount = 0;
   var lastPct = 0;
@@ -7322,34 +7492,57 @@ function _pollLaunchProgress(assetId, campaignId){
     tries++;
     if(tries > maxTries){
       clearInterval(_launchPollTimer);
-      _setLaunchProgress(lastPct || 95, '前端轮询超时，但任务可能仍在后台执行。请到投放记录查看最新结果。', 'timeout');
+      _setLaunchProgress(lastPct || 95, "等待超时,请检查后台任务状态", "timeout");
       return;
     }
-    api('GET','/assets/'+assetId+'/campaigns/'+campaignId+'/status').then(function(r){
-      requestErrorCount = 0;
-      var pct = r.progress_pct || 0;
-      var step = r.progress_step || '';
-      var msg = r.progress_msg || '';
-      var status = r.status || 'running';
-      lastPct = pct || lastPct || 0;
-      _setLaunchProgress(pct, msg, status, r);
-      if(status === 'done' || status === 'error'){
-        clearInterval(_launchPollTimer);
-        _launchPollTimer = null;
-        loadAssets(); // 刷新素材列表
-        loadAds();    // 刷新广告列表，确保新广告状态实时更新
-      }
-    }).catch(function(e){
-      requestErrorCount++;
-      if(requestErrorCount >= 3){
-        _setLaunchProgress(lastPct || 5, '状态同步暂时失败，后台仍在继续执行，正在自动重试...', 'running');
-      }
-    });
+    if(_batchCampaignsInfo && _batchCampaignsInfo.length > 1){
+      var _batchLen = _batchCampaignsInfo.length;
+      Promise.all(_batchCampaignsInfo.map(function(c){
+        return api("GET","/assets/"+c.asset_id+"/campaigns/"+c.campaign_id+"/status").catch(function(){return null;});
+      })).then(function(results){
+        requestErrorCount = 0;
+        var valid = results.filter(function(r){return r&&r.status;});
+        var done = valid.filter(function(r){return r.status==="done";}).length;
+        var errors = valid.filter(function(r){return r.status==="error";}).length;
+        var pct = Math.round((done+errors)/_batchLen*100)||1;
+        lastPct = pct;
+        var allDone = (done+errors) >= _batchLen;
+        _setLaunchProgress(pct, done+"/"+_batchLen+" campaigns完成("+pct+"%)", allDone?"done":"running", {batch_done:done,batch_total:_batchLen});
+        if(allDone){
+          clearInterval(_launchPollTimer);
+          _launchPollTimer = null;
+          if(errors>0) loadAssets();
+          loadAds();
+        }
+      }).catch(function(e){
+        requestErrorCount++;
+        if(requestErrorCount>=3) _setLaunchProgress(lastPct||5,"请求异常,继续等待...","running");
+      });
+    } else {
+      api("GET","/assets/"+assetId+"/campaigns/"+campaignId+"/status").then(function(r){
+        requestErrorCount = 0;
+        var pct = r.progress_pct || 0;
+        var msg = r.progress_msg || "";
+        var status = r.status || "running";
+        lastPct = pct || lastPct || 0;
+        _setLaunchProgress(pct, msg, status, r);
+        if(status === "done" || status === "error"){
+          clearInterval(_launchPollTimer);
+          _launchPollTimer = null;
+          loadAssets();
+          loadAds();
+        }
+      }).catch(function(e){
+        requestErrorCount++;
+        if(requestErrorCount >= 3){
+          _setLaunchProgress(lastPct || 5, "请求异常,继续等待...", "running");
+        }
+      });
+    }
   }
-  _poll(); // 立即执行一次
+  _poll();
   _launchPollTimer = setInterval(_poll, 2000);
 }
-
 function _setLaunchProgress(pct, msg, status, data){
   var bar = document.getElementById('launchProgressBar');
   var pctEl = document.getElementById('launchProgressPct');
@@ -7365,10 +7558,15 @@ function _setLaunchProgress(pct, msg, status, data){
     if(bar) bar.style.background = '#16a34a';
     if(resultEl){
       resultEl.style.display = 'block';
+      if(data&&data.batch_total){
+        resultEl.innerHTML = '✅ 完成 <b>'+data.batch_done+'/'+data.batch_total+'</b> 个campaign';
+      } else {
+      resultEl.style.display = 'block';
       var adsets = (data && data.total_adsets) || 0;
       var ads = (data && data.total_ads) || 0;
       var fbId = (data && data.fb_campaign_id) || '';
       resultEl.innerHTML = '✅ 成功创建 <b>'+adsets+'</b> 个广告组，<b>'+ads+'</b> 条广告'+(fbId?'<br>Campaign ID: <code>'+fbId+'</code>':'');
+      }
     }
   } else if(status === 'error'){
     if(titleEl) titleEl.textContent = '❌ 铺广告失败';
@@ -7743,6 +7941,7 @@ async function loadRules(){
     if(meta){rulesMeta=meta;populateGuardTypes();}
     var results=await Promise.all([api('GET','/rules/guard'+q),api('GET','/rules/scale'+q)]);
     renderGuard(results[0]||[]);renderScale(results[1]||[]);
+    populateRulesKpiFilter();
   }catch(e){}
 }
 function populateGuardTypes(){
@@ -7763,9 +7962,9 @@ function renderGuard(rules){
   var al={pause:'暂停广告',reduce_budget:'降低预算',alert_only:'仅预警',pause_adset:'暂停广告组',pause_campaign:'暂停系列'};
   function ruleCard(r){
     var isGlobal=r.act_id==='__global__';
-    var descStr=r.rule_type==='bleed_abs'?'止血线: $'+(r.param_value||20):r.rule_type==='cpa_exceed'?'超标比例: '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='trend_drop'?'跌幅阈值: '+(r.param_value||40)+'%':r.rule_type==='consecutive_bad'?'连续 '+(r.param_days||2)+' 天超标 '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='click_no_conv'?'点击阈值: '+(r.param_value||100):r.rule_type==='budget_burn_fast'?'消耗比例: '+(r.param_value||80)+'%':'';
+    var descStr=r.rule_type==='bleed_abs'?'止血线: $'+(r.param_value||20):r.rule_type==='cpa_exceed'?'目标CPA > $'+(r.param_value??'')+(r.param_ratio&&r.param_ratio!=1.0?' · 倍率×'+((r.param_ratio*100).toFixed(0)+'%'):''):r.rule_type==='trend_drop'?'跌幅阈值: '+(r.param_value||40)+'%':r.rule_type==='consecutive_bad'?'连续 '+(r.param_days||2)+' 天超标 '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='click_no_conv'?'点击阈值: '+(r.param_value||100):r.rule_type==='budget_burn_fast'?'消耗比例: '+(r.param_value||80)+'%':'';
     var silStr=r.silent_start?' · 静默 '+r.silent_start+'-'+r.silent_end:'';
-    var kpiFilterLabel={'dt:MESSENGER':'💬对话类','dt:WEBSITE':'🌐网站转化','dt:FACEBOOK_PAGE':'📄主页互动','dt:INSTAGRAM_PROFILE':'📸IG主页','dt:UNDEFINED':'❓未定义','obj:OUTCOME_SALES':'🛒销售','obj:OUTCOME_LEADS':'📋线索','obj:OUTCOME_ENGAGEMENT':'💬互动','obj:OUTCOME_TRAFFIC':'🚦流量','obj:PAGE_LIKES':'👍主页赞'};
+    var kpiFilterLabel={'dt:MESSENGER':'💬对话类','dt:WEBSITE':'🌐网站转化','dt:FACEBOOK_PAGE':'📄主页互动','dt:INSTAGRAM_PROFILE':'📸IG主页','dt:UNDEFINED':'❓未定义','obj:OUTCOME_SALES':'🛒销售','obj:OUTCOME_LEADS':'📋线索','obj:OUTCOME_ENGAGEMENT':'💬互动','obj:OUTCOME_TRAFFIC':'🚦流量','obj:PAGE_LIKES':'👍主页赞','purchase':'🛒购买转化','leads':'📋线索收集','messenger':'💬私信对话','engagement':'❤️帖子互动','traffic':'🌐流量点击','contact':'📞联系转化','other':'📣其他'};
     var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">🎯 '+(kpiFilterLabel[r.kpi_filter]||r.kpi_filter)+'</span>':'';
     var actBadge=isGlobal?'<span class="badge" style="background:rgba(139,92,246,.2);color:#a78bfa;border:1px solid rgba(139,92,246,.3)">🌐 全局</span>'+kfiBadge:'<span class="badge bg-mu">'+r.act_id+'</span>';
     var cardStyle=isGlobal?'border-left:3px solid rgba(139,92,246,.6);':'';
@@ -7814,7 +8013,7 @@ function showAddRule(mode, opts){
   document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent=mode==='guard'?'添加止损规则':'添加拉量策略');
   document.getElementById('guardFields').style.display=mode==='guard'?'block':'none';
   // 重置KPI筛选
-  var kf=document.getElementById('gp_kpi_filter');if(kf)kf.value='';
+  var kf=document.getElementById('gp_kpi_filter');if(kf){kf.value='';populateRulesKpiFilter();}
   document.getElementById('scaleFields').style.display=mode==='scale'?'block':'none';
   ['ruleName','ruleNote','silStart','silEnd'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
   // 重置账户选择框（避免编辑后再添加时保留旧值）
@@ -9299,7 +9498,7 @@ async function checkAi(){
     }else{
       b.className='ai-badge ai-err';b.textContent='⚠️ AI 异常';
       b.title='错误：'+(r.error||'未知错误')+'\n点击前往系统设置修复';
-      b.onclick=function(){showPage('page-settings');};
+      b.onclick=function(){showPage('settings');};
     }
   }catch(e){
     b.className='ai-badge ai-off';b.textContent='🤖 AI 未知';
@@ -10500,7 +10699,7 @@ function _refreshLandingUrlOptions() {
     if (selectedIds.length === 1) {
       var actId = selectedIds[0];
       var goal = (document.getElementById('launchConvGoal') || {}).value || '';
-      var isLead = (goal === 'lead_generation');
+      var isLead = goal.toUpperCase() === 'LEAD_GENERATION';
       if (isLead) {
         var fOpt = allForm.find(function(o) { return o.act_id === actId; });
         _prefillLaunchLandingUrl(actId, 'form', fOpt ? fOpt.url : '');
@@ -10520,7 +10719,7 @@ function filterLandingUrlSuggestions(q) {
   if (!dd) return;
   // 根据当前转化目的决定候选列表
   var goal = (document.getElementById('launchConvGoal') || {}).value || '';
-  var isLeadGoal = (goal === 'lead_generation');
+  var isLeadGoal = goal.toUpperCase() === 'LEAD_GENERATION';
   var opts = isLeadGoal ? (_launchFormLinkOptions || []) : (_launchLandingUrlOptions || []);
   if (q && q.trim()) {
     var lq = q.toLowerCase();
@@ -11495,6 +11694,261 @@ function deleteCgRecipe(id) {
 }
 
 
-</script></body>
+
+
+// ── KPI Mapping Management (v2 - aligned labels) ──
+const _KPI_TYPE_LABELS = {
+  'purchase': '🛒 网站购物',
+  'lead': '📋 线索',
+  'contact': '📞 网站联系',
+  'onsite_conversion.messaging_conversation_started_7d': '💬 私信对话(7天)',
+  'messaging_conversation_started_7d': '💬 私信对话(7天)',
+  'engagement': '👍 贴文互动',
+  'post_engagement': '👍 贴文互动',
+  'page_engagement': '📄 主页互动',
+  'page_likes': '👍 主页赞',
+  'traffic': '🔗 流量',
+  'link_click': '🔗 链接点击',
+  'landing_page_view': '🌐 落地页浏览',
+  'other': '📢 曝光/覆盖',
+  'reach': '👁️ 覆盖人数',
+  'impressions': '👁️ 展示次数',
+  'video_view': '🎬 视频观看',
+  'app_install': '📱 应用安装',
+  'initiate_checkout': '🛒 发起结账',
+  'add_to_cart': '🛒 加入购物车',
+  'purchase': '💰 购买',
+  'view_content': '📄 查看内容',
+  'complete_registration': '📝 完成注册',
+  'subscribe': '📧 订阅',
+  'search': '🔍 搜索',
+  'lead': '📋 线索',
+  'contact': '📞 联系',
+};
+
+async function loadKpiMapping(){
+  var container=document.getElementById('kpiMappingTables');
+  if(!container)return;
+  container.innerHTML='<div style="text-align:center;padding:40px;color:var(--t3)"><div class="spin" style="margin:0 auto 12px"></div>加载中...</div>';
+  try{
+    var [mapping,unknown]=await Promise.all([api('GET','/kpi/mapping'),api('GET','/kpi/unknown-types')]);
+    renderKpiMapping(mapping||{});
+    renderUnknownTypes(unknown&&unknown.unknown_types.filter(function(t){return !t.reviewed})||[]);
+    aiAutoMapUnknownTypes();
+  }catch(e){
+    container.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><p>加载失败：'+e.message+'</p></div>';
+  }
+}
+
+function renderKpiMapping(mapping){
+  var html='';
+  Object.keys(mapping).forEach(function(kt){
+    var label=_KPI_TYPE_LABELS[kt]||kt;
+    var groups=mapping[kt];
+    html+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);margin-bottom:12px;overflow:hidden">'+
+      '<div style="padding:12px 16px;font-size:14px;font-weight:600;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">'+
+      '<span>'+label+'</span><span class="badge bg-ac" style="font-size:10px">'+kt+'</span>'+
+      '<span style="margin-left:auto;font-size:12px;font-weight:400;color:var(--t3)">'+
+      (groups.standard?groups.standard.length:0)+' 标准 / '+(groups.fallback?groups.fallback.length:0)+' 兜底</span></div>';
+
+    // Standard aliases
+    if(groups.standard&&groups.standard.length){
+      html+='<div style="padding:8px 16px 4px;font-size:12px;color:var(--t3);font-weight:600">标准匹配（优先匹配）</div>';
+      html+=groups.standard.map(function(a){
+        return'<div data-map-id="'+a.id+'" style="display:flex;align-items:center;padding:4px 16px;gap:8px;font-size:13px">'+
+          '<span style="color:var(--t1);font-family:monospace">'+a.action_type+'</span>'+
+          (a.label?'<span style="color:var(--t3);font-size:11px">('+a.label+')</span>':'')+
+          '<button class="btn btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px;background:var(--erg);color:var(--er);border:none;border-radius:4px;cursor:pointer" onclick="removeKpiMapping(\''+kt+'\',\''+_escq(a.action_type)+'\')">移除</button><button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--bg3);color:var(--t2);border:none;border-radius:4px;cursor:pointer;margin-left:4px" data-mid="'+a.id+'" data-kt="'+kt+'" data-act="'+_escq(a.action_type)+'" data-std="'+a.is_standard+'" onclick="editKpiMapping(this.dataset.mid,this.dataset.kt,this.dataset.act,parseInt(this.dataset.std))">编辑</button>'+
+          '</div>';
+      }).join('');
+    }
+
+    // Fallback aliases
+    if(groups.fallback&&groups.fallback.length){
+      html+='<div style="padding:8px 16px 4px;font-size:12px;color:var(--t3);font-weight:600">兜底匹配 <span style="font-weight:400;color:var(--t3)">(仅当标准未匹配时)</span></div>';
+      html+=groups.fallback.map(function(a){
+        return'<div data-map-id="'+a.id+'" style="display:flex;align-items:center;padding:4px 16px;gap:8px;font-size:13px">'+
+          '<span style="color:var(--t1);font-family:monospace">'+a.action_type+'</span>'+
+          (a.label?'<span style="color:var(--t3);font-size:11px">('+a.label+')</span>':'')+
+          '<button class="btn btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px;background:var(--erg);color:var(--er);border:none;border-radius:4px;cursor:pointer" onclick="removeKpiMapping(\''+kt+'\',\''+_escq(a.action_type)+'\')">移除</button><button class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:var(--bg3);color:var(--t2);border:none;border-radius:4px;cursor:pointer;margin-left:4px" data-mid="'+a.id+'" data-kt="'+kt+'" data-act="'+_escq(a.action_type)+'" data-std="'+a.is_standard+'" onclick="editKpiMapping(this.dataset.mid,this.dataset.kt,this.dataset.act,parseInt(this.dataset.std))">编辑</button>'+
+          '</div>';
+      }).join('');
+    }
+
+    // Add mapping form
+    html+='<div style="padding:8px 16px 12px;border-top:1px solid var(--bd);display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+
+      '<input id="newMap_'+kt+'" placeholder="输入 FB action_type 名称" style="flex:1;min-width:200px;padding:6px 10px;font-size:12px;font-family:monospace;border:1px solid var(--bd);border-radius:4px;background:var(--bg3);color:var(--t1)">'+
+      '<select id="newMapStd_'+kt+'" style="padding:6px;font-size:12px;border:1px solid var(--bd);border-radius:4px;background:var(--bg3);color:var(--t1)">'+
+      '<option value="1">标准匹配</option><option value="0">兜底匹配</option></select>'+
+      '<button class="btn btn-sm btn-p" style="padding:6px 12px;font-size:12px;white-space:nowrap" onclick="addKpiMapping(\''+kt+'\')">+ 添加映射</button>'+
+      '<span style="font-size:11px;color:var(--t3)">新 action_type 出现时在此添加</span>'+
+      '</div>';
+
+    html+='</div>';
+  });
+  document.getElementById('kpiMappingTables').innerHTML=html;
+}
+
+function renderUnknownTypes(types){
+  var el=document.getElementById('unknownTypesSection');
+  if(!types||!types.length){
+    if(el)el.style.display='none';
+    return;
+  }
+  el.style.display='block';
+  var html='<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:var(--rs);padding:16px">'+
+    '<div style="font-size:14px;font-weight:600;color:#856404;margin-bottom:12px">⚠️ 发现 '+types.length+' 个未识别的转化事件</div>';
+  html+=types.map(function(t){
+    var samples='';
+    try{samples=t.sample_ads?JSON.parse(t.sample_ads).slice(0,3).join(', '):'';}catch(e){samples='';}
+    return'<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fff;border-radius:6px;margin-bottom:6px;flex-wrap:wrap">'+
+      '<span style="font-family:monospace;font-size:13px;font-weight:600;color:#333">'+t.action_type+'</span>'+
+      '<span style="font-size:11px;color:#666">出现 '+t.seen_count+' 次</span>'+
+      (samples?'<span style="font-size:10px;color:#999;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">示例:'+samples+'</span>':'')+
+      '<select id="mapType_'+t.action_type+'" style="padding:4px 8px;font-size:12px;border:1px solid var(--bd);border-radius:4px;background:var(--bg3);color:var(--t1)">'+
+      '<option value="">分配到...</option>'+
+      '<option value="purchase">🛒 网站购物 (purchase)</option>'+
+      '<option value="lead">📋 线索 (lead)</option>'+
+      '<option value="contact">📞 网站联系 (contact)</option><option value="onsite_conversion.messaging_conversation_started_7d">💬 私信对话 (messaging)</option></select>'+
+      '<button class="btn btn-sm btn-ok" style="padding:4px 10px;font-size:11px" onclick="mapUnknownType(\''+_escq(t.action_type)+'\')">确认归属</button>'+
+      '</div>';
+  }).join('');
+  html+='<div style="font-size:12px;color:#856404;margin-top:8px">💡 分配后将加入 kpi_alias_map，下次巡检自动生效</div>'+
+    '<div style="margin-top:8px"><button class="btn btn-sm" onclick="aiAutoMapUnknownTypes()" style="background:var(--ac);color:#fff;border:none;border-radius:4px;padding:5px 12px;font-size:12px;cursor:pointer">🤖 AI 全部分析</button></div>';
+  html+='</div>';
+  el.innerHTML=html;
+}
+
+async function addKpiMapping(kpiType){
+  var input=document.getElementById('newMap_'+kpiType);
+  var stdSel=document.getElementById('newMapStd_'+kpiType);
+  var val=input.value.trim();
+  if(!val){toast('请输入 action_type','er');return;}
+  var isStd=parseInt(stdSel.value);
+  try{
+    var r=await api('POST','/kpi/mapping/add',{kpi_type:kpiType,fb_action_type:val,is_standard:isStd});
+    if(r.success){toast('已添加: '+val,'ok');loadKpiMapping();}
+    else toast('添加失败: '+(r.message||''),'er');
+  }catch(e){toast('添加失败: '+e.message,'er')}
+}
+
+async 
+
+function editKpiMapping(mapId, kpiType, actionType, isStandard){
+  var rowId="mapRow_"+mapId;
+  var row=document.getElementById(rowId);
+  if(row){
+    saveEditMapping(mapId);
+    return;
+  }
+  var container=document.getElementById("kpiMappingTables");
+  var div=document.createElement("div");
+  div.id=rowId;
+  div.style.cssText="padding:6px 16px;display:flex;align-items:center;gap:8px;font-size:12px;background:var(--bgh)";
+  div.innerHTML="<span style='font-family:monospace;color:var(--t1)'>"+actionType+"</span>"+
+    " <span style='color:var(--t3)'>->归属:</span>"+
+    " <select id='editKt_"+mapId+"' style='padding:4px 6px;font-size:12px;border:1px solid var(--bd);border-radius:4px'>"+
+    '  <option value="purchase" '+(kpiType==="purchase"?"selected":"")+'>purchase</option>'+
+    '  <option value="lead" '+(kpiType==="lead"?"selected":"")+'>lead</option>'+
+    '  <option value="contact" '+(kpiType==="contact"?"selected":"")+'>contact</option>'+
+    '  <option value="onsite_conversion.messaging_conversation_started_7d" '+(kpiType==="onsite_conversion.messaging_conversation_started_7d"?"selected":"")+'>messaging</option>'+
+    " </select>"+
+    " <span style='color:var(--t3)'>匹配:</span>"+
+    " <select id='editStd_"+mapId+"' style='padding:4px 6px;font-size:12px;border:1px solid var(--bd);border-radius:4px'>"+
+    '  <option value="1" '+(isStandard===1?"selected":"")+'>标准</option>'+
+    '  <option value="0" '+(isStandard===0?"selected":"")+'>兜底</option>'+
+    " </select>"+
+    " <button class='btn btn-sm btn-p' onclick='saveEditMapping("+mapId+")' style='padding:4px 10px;font-size:11px'>保存</button>"+
+    " <button class='btn btn-sm' onclick='cancelEditMapping("+mapId+")' style='padding:4px 10px;font-size:11px;background:var(--bg3);color:var(--t3);border:none;border-radius:4px;cursor:pointer'>取消</button>";
+  var pr=document.querySelector("[data-map-id=\""+mapId+"\"]");
+  if(pr)pr.style.display="none";
+  pr.parentNode.insertBefore(div, pr.nextSibling);
+}
+
+function saveEditMapping(mapId){
+  var newKt=document.getElementById("editKt_"+mapId).value;
+  var newStd=parseInt(document.getElementById("editStd_"+mapId).value);
+  api("POST","/kpi/mapping/update",{mapping_id:parseInt(mapId),kpi_type:newKt,is_standard:newStd}).then(function(r){
+    if(r.success){toast("updated","ok");loadKpiMapping();}
+    else toast("update fail: "+(r.message||""),"er");
+  }).catch(function(e){toast("update fail: "+e.message,"er");});
+}
+
+function cancelEditMapping(mapId){
+  var editRow=document.getElementById("mapRow_"+mapId);
+  if(editRow)editRow.remove();
+  var pr=document.querySelector("[data-map-id=\""+mapId+"\"]");
+  if(pr)pr.style.display="";
+}
+function removeKpiMapping(kpiType, actionType){
+  showConfirm('确认移除 '+actionType+' 的 '+kpiType+' 映射？', async function(){
+    try{
+      var r=await api('POST','/kpi/mapping/remove',{kpi_type:kpiType,fb_action_type:actionType});
+      if(r.success){toast('已移除','ok');loadKpiMapping();}
+      else toast('移除失败','er');
+    }catch(e){toast('移除失败: '+e.message,'er')}
+  });
+}
+
+async function mapUnknownType(actionType){
+  var sel=document.getElementById('mapType_'+actionType);
+  var kpiType=sel.value;
+  if(!kpiType){toast('请选择 KPI 类型','er');return;}
+  try{
+    var r=await api('POST','/kpi/unknown-types/map',{action_type:actionType,kpi_type:kpiType});
+    if(r.success){toast(actionType+' 已映射到 '+kpiType,'ok');loadKpiMapping();}
+    else toast('映射失败','er');
+  }catch(e){toast('映射失败: '+e.message,'er')}
+}
+
+
+// ── KPI AI Auto-Map + Notifications ──
+async function checkUnknownTypes(){
+  // Check if there are unknown types -> show badge on nav
+  try{
+    var r=await api('GET','/kpi/unknown-types');
+    var unviewed=0;
+    if(r&&r.unknown_types) unviewed=r.unknown_types.filter(function(t){return !t.reviewed}).length;
+    var badge=document.querySelector('[onclick*="kpi_mapping"] .nav-badge');
+    if(!badge){
+      var navItem=document.querySelector('[onclick*="kpi_mapping"]');
+      if(navItem){
+        badge=document.createElement('span');
+        badge.className='nav-badge';
+        badge.style.cssText='position:absolute;top:4px;right:4px;background:var(--er);color:#fff;font-size:10px;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px;font-weight:600';
+        navItem.style.position='relative';
+        navItem.appendChild(badge);
+      }
+    }
+    if(badge)badge.style.display=unviewed>0?'flex':'none';
+    if(badge)badge.textContent=unviewed>9?'9+':unviewed;
+  }catch(e){}
+}
+
+function _escq(s){return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+
+async function aiAutoMapUnknownTypes(){
+  // Auto-trigger AI analysis for unknown types
+  try{
+    var btn=document.querySelector('[onclick*="aiAutoMapUnknownTypes"]');
+    if(btn){btn.disabled=true;btn.textContent='🤖 分析中...';}
+    var r=await api('POST','/kpi/unknown-types/ai-auto-map');
+    if(r&&r.auto_mapped>0){
+      toast('🤖 AI 自动映射了 '+r.auto_mapped+' 个新转化事件','ok');
+      loadKpiMapping();
+    }else if(r&&r.total>0){
+      toast('AI分析完成: 0 个自动映射, '+r.total+' 个待人工审核','wa');
+    }else if(r&&r.total===0){
+      toast('AI分析完成: 没有待处理的未知类型','ok');
+    }
+    checkUnknownTypes();
+  }catch(e){}
+  finally{
+    var btn2=document.querySelector('[onclick*="aiAutoMapUnknownTypes"]');
+    if(btn2){btn2.disabled=false;btn2.textContent='🤖 AI 全部分析';}
+  }
+}
+
+</script><script src="/batch-launch.js?v=2"></script></body>
 </html>
 
