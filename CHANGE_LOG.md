@@ -1,4 +1,14 @@
 
+## v3.7.2 (2026-04-27)
+
+### Hotfix
+- **Fix 服务器资源面板不可用**: 修复前端调用  但后端路径为  导致的 404 错误
+- **哨兵/心跳 UI 美化**: 侧边栏安全守护区块重新设计，改用 iOS 风格 toggle 开关，增加状态指示灯（绿色脉冲=运行中）和运行参数提示（扫描间隔/超时时间）
+- 新增 toggle switch CSS (.tgl-sw / .tgl-tr)，统一样式
+
+### Files Changed
+1. frontend/index.html: 添加 toggle CSS，修复 resource API 路径，重设计侧边栏安全守护区块，优化 JS 逻辑
+
 ## v3.7.1 (2026-04-27)
 
 ### Hotfix

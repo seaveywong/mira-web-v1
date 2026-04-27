@@ -563,6 +563,13 @@ textarea.fc{resize:vertical;min-height:80px}
 .ss-opt.selected{color:var(--ac);font-weight:600}
 .ss-empty{padding:10px 12px;font-size:12px;color:var(--t3);text-align:center}
 
+.tgl-sw{position:relative;display:inline-flex;align-items:center;width:38px;height:22px;flex-shrink:0;cursor:pointer}
+.tgl-sw input{position:absolute;opacity:0;width:0;height:0}
+.tgl-sw .tgl-tr{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--t3);border-radius:11px;transition:all .25s}
+.tgl-sw .tgl-tr::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;background:#fff;border-radius:50%;transition:all .25s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.tgl-sw input:checked+.tgl-tr{background:var(--ok)}
+.tgl-sw input:checked+.tgl-tr::after{transform:translateX(16px)}
+.sb-sec-row:hover{background:var(--bgh)}
 </style>
 </head>
 <body>
@@ -617,22 +624,36 @@ textarea.fc{resize:vertical;min-height:80px}
         <div class="nav-item role-hide-viewer" onclick="showPage('settings')"><span class="nav-icon">🔧</span>系统设置</div>
       </nav>
       <div class="sb-foot">
-        <div style="margin-bottom:10px;padding:8px 8px;background:var(--bg2);border-radius:8px;border:1px solid var(--bd)">
-          <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:600">🛡 安全守护</div>
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-bottom:4px;cursor:pointer">
-            <span style="white-space:nowrap">🛡 哨兵</span>
-            <span style="display:flex;align-items:center">
-              <input type="checkbox" id="toggleSentinel" onchange="toggleSentinelMode()">
-              <span style="font-size:10px;color:var(--t3);margin-left:2px;white-space:nowrap" id="sentinelStatus">-</span>
+        <div style="margin-bottom:10px;background:var(--bg2);border-radius:10px;border:1px solid var(--bd);overflow:hidden">
+          <div style="padding:7px 10px;background:rgba(59,130,246,.06);border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;font-weight:600;color:var(--t1)">🛡 安全守护</span>
+            <span style="margin-left:auto;display:flex;gap:5px">
+              <span id="sbSentinelDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="哨兵"></span>
+              <span id="sbHeartbeatDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="心跳"></span>
             </span>
-          </label>
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;cursor:pointer">
-            <span style="white-space:nowrap">💓 心跳</span>
-            <span style="display:flex;align-items:center">
-              <input type="checkbox" id="toggleHeartbeat" onchange="toggleHeartbeatMode()">
-              <span style="font-size:10px;color:var(--t3);margin-left:2px;white-space:nowrap" id="heartbeatStatus">-</span>
-            </span>
-          </label>
+          </div>
+          <div style="padding:2px 6px 4px">
+            <label class="sb-sec-row" style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;cursor:pointer;border-radius:6px;transition:background .15s">
+              <div style="display:flex;align-items:center;gap:5px;min-width:0">
+                <span style="font-size:12px">🛡</span>
+                <div style="line-height:1.3">
+                  <div style="font-size:11px;color:var(--t1)">哨兵模式</div>
+                  <div style="font-size:9px;color:var(--t3);transition:color .3s" id="sentinelHint">-</div>
+                </div>
+              </div>
+              <span class="tgl-sw"><input type="checkbox" id="toggleSentinel" onchange="toggleSentinelMode()"><span class="tgl-tr"></span></span>
+            </label>
+            <label class="sb-sec-row" style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;cursor:pointer;border-radius:6px;transition:background .15s">
+              <div style="display:flex;align-items:center;gap:5px;min-width:0">
+                <span style="font-size:12px">💓</span>
+                <div style="line-height:1.3">
+                  <div style="font-size:11px;color:var(--t1)">心跳模式</div>
+                  <div style="font-size:9px;color:var(--t3);transition:color .3s" id="heartbeatHint">-</div>
+                </div>
+              </div>
+              <span class="tgl-sw"><input type="checkbox" id="toggleHeartbeat" onchange="toggleHeartbeatMode()"><span class="tgl-tr"></span></span>
+            </label>
+          </div>
         </div>
         <button class="btn-emg" onclick="showEmgModal()">🚨 一键紧急暂停</button>
       </div>
@@ -8920,7 +8941,7 @@ function loadServerResource() {
   var el = document.getElementById('serverResourceContent');
   if (!el) return;
   el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--t3)"><span class="spin"></span> 加载中...</div>';
-  api('GET', '/system/resource').then(function(d) {
+  api('GET', '/settings/resource').then(function(d) {
     if (!d) { el.innerHTML = '<div style="color:var(--t3);padding:16px">暂无数据</div>'; return; }
     var cpu = d.cpu_percent || d.cpu_pct || 0;
     var mem = d.memory_percent || d.mem_pct || 0;
@@ -8977,7 +8998,7 @@ function loadServerResource() {
       // 最后更新时间
       '<div style="font-size:11px;color:var(--t3);text-align:right">更新时间：' + _cst(new Date().toISOString()).slice(0,19) + '</div>';
   }).catch(function(e) {
-    el.innerHTML = '<div style="color:var(--er);padding:16px">加载失败：' + (e.message || e) + '<br><span style="font-size:12px;color:var(--t3)">请确认后端已实现 /system/resource 接口</span></div>';
+    el.innerHTML = '<div style="color:var(--er);padding:16px">加载失败：' + (e.message || e) + '<br><span style="font-size:12px;color:var(--t3)">请确认后端已实现 /api/settings/resource 接口</span></div>';
   });
 }
 
@@ -9818,41 +9839,56 @@ function onKpiTgtSel(){
 // ── Emergency ──
 function toggleSentinelMode(){
   var el=document.getElementById('toggleSentinel');
-  var st=document.getElementById('sentinelStatus');
   var v=el.checked?'1':'0';
   api('PUT','/settings',{settings:[{key:'sentinel_enabled',value:v}]}).then(function(){
-    st.textContent=v==='1'?'已开启':'已关闭';
-    st.style.color=v==='1'?'var(--ok)':'var(--t3)';
+    _updateSentinelUI(v);
   }).catch(function(e){el.checked=!el.checked;showErr(e);});
 }
 function toggleHeartbeatMode(){
   var el=document.getElementById('toggleHeartbeat');
-  var st=document.getElementById('heartbeatStatus');
   var v=el.checked?'1':'0';
   api('PUT','/settings',{settings:[{key:'heartbeat_enabled',value:v}]}).then(function(){
-    st.textContent=v==='1'?'已开启':'已关闭';
-    st.style.color=v==='1'?'var(--ok)':'var(--t3)';
+    _updateHeartbeatUI(v);
   }).catch(function(e){el.checked=!el.checked;showErr(e);});
 }
+function _updateSentinelUI(v){
+  var on=v==='1';
+  var dot=document.getElementById('sbSentinelDot');
+  if(dot){
+    dot.style.background=on?'var(--ok)':'var(--t3)';
+    dot.style.boxShadow=on?'0 0 5px var(--ok)':'none';
+  }
+  var hint=document.getElementById('sentinelHint');
+  if(hint){
+    hint.textContent=on?'每'+(_sentinelInterval||'3')+'分钟扫描一次':'已关闭';
+    hint.style.color=on?'var(--ok)':'var(--t3)';
+  }
+}
+function _updateHeartbeatUI(v){
+  var on=v==='1';
+  var dot=document.getElementById('sbHeartbeatDot');
+  if(dot){
+    dot.style.background=on?'var(--ok)':'var(--t3)';
+    dot.style.boxShadow=on?'0 0 5px var(--ok)':'none';
+  }
+  var hint=document.getElementById('heartbeatHint');
+  if(hint){
+    hint.textContent=on?(_heartbeatTimeout||'30')+'分钟无操作全停':'已关闭';
+    hint.style.color=on?'var(--ok)':'var(--t3)';
+  }
+}
 function initSentinelHeartbeat(){
-  api('GET','/settings?keys=sentinel_enabled,heartbeat_enabled').then(function(d){
+  api('GET','/settings?keys=sentinel_enabled,sentinel_interval,heartbeat_enabled,heartbeat_timeout').then(function(d){
     var s=d.settings||{};
-    if(s.sentinel_enabled===undefined){api('GET','/settings').then(function(x){
-      s=x.settings||{};
-      setTH(s);
-    });return;}
-    setTH(s);
-  }).catch(function(){});
-  function setTH(s){
+    _sentinelInterval=s.sentinel_interval||'3';
+    _heartbeatTimeout=s.heartbeat_timeout||'30';
     var sv=s.sentinel_enabled||'0';
     var hv=s.heartbeat_enabled||'0';
     document.getElementById('toggleSentinel').checked=sv==='1';
-    document.getElementById('sentinelStatus').textContent=sv==='1'?'已开启':'已关闭';
-    document.getElementById('sentinelStatus').style.color=sv==='1'?'var(--ok)':'var(--t3)';
     document.getElementById('toggleHeartbeat').checked=hv==='1';
-    document.getElementById('heartbeatStatus').textContent=hv==='1'?'已开启':'已关闭';
-    document.getElementById('heartbeatStatus').style.color=hv==='1'?'var(--ok)':'var(--t3)';
-  }
+    _updateSentinelUI(sv);
+    _updateHeartbeatUI(hv);
+  }).catch(function(){});
 }
 function showEmgModal(){
   openModal('moEmg');
