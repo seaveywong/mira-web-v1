@@ -617,6 +617,23 @@ textarea.fc{resize:vertical;min-height:80px}
         <div class="nav-item role-hide-viewer" onclick="showPage('settings')"><span class="nav-icon">🔧</span>系统设置</div>
       </nav>
       <div class="sb-foot">
+        <div style="margin-bottom:10px;padding:8px 8px;background:var(--bg2);border-radius:8px;border:1px solid var(--bd)">
+          <div style="font-size:11px;color:var(--t2);margin-bottom:5px;font-weight:600">🛡 安全守护</div>
+          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-bottom:4px;cursor:pointer">
+            <span style="white-space:nowrap">🛡 哨兵</span>
+            <span style="display:flex;align-items:center">
+              <input type="checkbox" id="toggleSentinel" onchange="toggleSentinelMode()">
+              <span style="font-size:10px;color:var(--t3);margin-left:2px;white-space:nowrap" id="sentinelStatus">-</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;justify-content:space-between;font-size:11px;cursor:pointer">
+            <span style="white-space:nowrap">💓 心跳</span>
+            <span style="display:flex;align-items:center">
+              <input type="checkbox" id="toggleHeartbeat" onchange="toggleHeartbeatMode()">
+              <span style="font-size:10px;color:var(--t3);margin-left:2px;white-space:nowrap" id="heartbeatStatus">-</span>
+            </span>
+          </label>
+        </div>
         <button class="btn-emg" onclick="showEmgModal()">🚨 一键紧急暂停</button>
       </div>
     </aside>
@@ -8717,10 +8734,6 @@ var SETTINGS_META = {
   storage_disk_alert_pct:{ label: '磁盘紧急阈值（%）', hint: '磁盘使用率超过此百分比时发送紧急告警，建议 85-90', icon: '🚨' },
   storage_auto_clean_days:{ label: '待审核图片自动清理天数', hint: '超过此天数未审核的图片自动删除，释放磁盘空间', icon: '🗑' },
   storage_thumb_keep_days:{ label: '缩略图保留天数', hint: '缩略图超过此天数未被访问则自动清理', icon: '🖼' },
-  sentinel_enabled:  { label: '哨兵模式', hint: '开启后自动扫描并关闭所有活跃广告系列，防止非授权操作或盗刷', icon: '🛡' },
-  sentinel_interval: { label: '哨兵扫描间隔(分钟)', hint: '每隔多少分钟扫描一次，建议 2-5 分钟', icon: '⏱' },
-  heartbeat_enabled: { label: '心跳模式', hint: '开启后管理员无操作超时将自动关闭所有系列，防止监控睡着导致失控', icon: '💓' },
-  heartbeat_timeout: { label: '心跳超时(分钟)', hint: '超过此时间未操作则触发紧急全停，建议 30-60 分钟', icon: '⏰' },
   storage_backup_keep:  { label: '备份文件保留数量', hint: '每类备份文件最多保留的份数，超出后自动删除最旧的', icon: '📦' },
 };
 
@@ -8738,7 +8751,6 @@ var SETTINGS_CAT_LABELS = {
   general:    { label: '⚙️ 通用设置', desc: '模拟模式、冷却时间、铺放参数' },
   lifecycle:  { label: '🔥 账户生命周期', desc: '预热流程、自动启动配置' },
   storage:    { label: '💾 存储与清理', desc: '磁盘告警、自动清理、备份管理' },
-  security:   { label: '🛡 安全守护', desc: '哨兵模式、心跳模式、防非授权操作' },
 };
 
 // ── 重构 renderSI 函数（带中文释义） ──
@@ -9804,6 +9816,44 @@ function onKpiTgtSel(){
 }
 
 // ── Emergency ──
+function toggleSentinelMode(){
+  var el=document.getElementById('toggleSentinel');
+  var st=document.getElementById('sentinelStatus');
+  var v=el.checked?'1':'0';
+  api('PUT','/settings',{settings:[{key:'sentinel_enabled',value:v}]}).then(function(){
+    st.textContent=v==='1'?'已开启':'已关闭';
+    st.style.color=v==='1'?'var(--ok)':'var(--t3)';
+  }).catch(function(e){el.checked=!el.checked;showErr(e);});
+}
+function toggleHeartbeatMode(){
+  var el=document.getElementById('toggleHeartbeat');
+  var st=document.getElementById('heartbeatStatus');
+  var v=el.checked?'1':'0';
+  api('PUT','/settings',{settings:[{key:'heartbeat_enabled',value:v}]}).then(function(){
+    st.textContent=v==='1'?'已开启':'已关闭';
+    st.style.color=v==='1'?'var(--ok)':'var(--t3)';
+  }).catch(function(e){el.checked=!el.checked;showErr(e);});
+}
+function initSentinelHeartbeat(){
+  api('GET','/settings?keys=sentinel_enabled,heartbeat_enabled').then(function(d){
+    var s=d.settings||{};
+    if(s.sentinel_enabled===undefined){api('GET','/settings').then(function(x){
+      s=x.settings||{};
+      setTH(s);
+    });return;}
+    setTH(s);
+  }).catch(function(){});
+  function setTH(s){
+    var sv=s.sentinel_enabled||'0';
+    var hv=s.heartbeat_enabled||'0';
+    document.getElementById('toggleSentinel').checked=sv==='1';
+    document.getElementById('sentinelStatus').textContent=sv==='1'?'已开启':'已关闭';
+    document.getElementById('sentinelStatus').style.color=sv==='1'?'var(--ok)':'var(--t3)';
+    document.getElementById('toggleHeartbeat').checked=hv==='1';
+    document.getElementById('heartbeatStatus').textContent=hv==='1'?'已开启':'已关闭';
+    document.getElementById('heartbeatStatus').style.color=hv==='1'?'var(--ok)':'var(--t3)';
+  }
+}
 function showEmgModal(){
   openModal('moEmg');
   document.getElementById('emgConfirm').value='';
@@ -11981,6 +12031,6 @@ async function aiAutoMapUnknownTypes(){
   }
 }
 
-</script><script src="/batch-launch.js?v=2"></script></body>
+</script><script src="/batch-launch.js?v=2"></script><script>initSentinelHeartbeat();</script></body>
 </html>
 
