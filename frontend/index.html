@@ -9837,43 +9837,41 @@ function onKpiTgtSel(){
 // ── Emergency ──
 function toggleSentinelMode(){
   var el=document.getElementById('toggleSentinel');
+  if(!el)return;
   var v=el.checked?'1':'0';
+  el.disabled=true;
   api('PUT','/settings',{settings:[{key:'sentinel_enabled',value:v}]}).then(function(){
     _updateSentinelUI(v);
-  }).catch(function(e){el.checked=!el.checked;showErr(e);});
+    el.disabled=false;
+  }).catch(function(e){el.checked=!el.checked;el.disabled=false;_updateSentinelUI(el.checked?'1':'0');showErr(e);});
 }
 function toggleHeartbeatMode(){
   var el=document.getElementById('toggleHeartbeat');
+  if(!el)return;
   var v=el.checked?'1':'0';
+  el.disabled=true;
   api('PUT','/settings',{settings:[{key:'heartbeat_enabled',value:v}]}).then(function(){
     _updateHeartbeatUI(v);
-  }).catch(function(e){el.checked=!el.checked;showErr(e);});
+    el.disabled=false;
+  }).catch(function(e){el.checked=!el.checked;el.disabled=false;_updateHeartbeatUI(el.checked?'1':'0');showErr(e);});
 }
 function _updateSentinelUI(v){
   var on=v==='1';
   var dot=document.getElementById('sbSentinelDot');
-  if(dot){
-    dot.style.background=on?'var(--ok)':'var(--t3)';
-    dot.style.boxShadow=on?'0 0 5px var(--ok)':'none';
-  }
+  if(dot){dot.style.background=on?'var(--ok)':'var(--t3)';dot.style.boxShadow=on?'0 0 5px var(--ok)':'none';}
   var hint=document.getElementById('sentinelHint');
-  if(hint){
-    hint.textContent=on?'每'+(_sentinelInterval||'3')+'分钟扫描一次':'已关闭';
-    hint.style.color=on?'var(--ok)':'var(--t3)';
-  }
+  if(hint){hint.textContent=on?'每'+(_sentinelInterval||'3')+'分钟扫描':'已关闭';hint.style.color=on?'var(--ok)':'var(--t3)';}
+  var st=document.getElementById('sentinelStatus');
+  if(st){st.textContent=on?'已开启':'已关闭';st.style.color=on?'var(--ok)':'var(--t3)';}
 }
 function _updateHeartbeatUI(v){
   var on=v==='1';
   var dot=document.getElementById('sbHeartbeatDot');
-  if(dot){
-    dot.style.background=on?'var(--ok)':'var(--t3)';
-    dot.style.boxShadow=on?'0 0 5px var(--ok)':'none';
-  }
+  if(dot){dot.style.background=on?'var(--ok)':'var(--t3)';dot.style.boxShadow=on?'0 0 5px var(--ok)':'none';}
   var hint=document.getElementById('heartbeatHint');
-  if(hint){
-    hint.textContent=on?(_heartbeatTimeout||'30')+'分钟无操作全停':'已关闭';
-    hint.style.color=on?'var(--ok)':'var(--t3)';
-  }
+  if(hint){hint.textContent=on?(_heartbeatTimeout||'30')+'分钟超时':'已关闭';hint.style.color=on?'var(--ok)':'var(--t3)';}
+  var st=document.getElementById('heartbeatStatus');
+  if(st){st.textContent=on?'已开启':'已关闭';st.style.color=on?'var(--ok)':'var(--t3)';}
 }
 function initSentinelHeartbeat(){
   api('GET','/settings?keys=sentinel_enabled,sentinel_interval,heartbeat_enabled,heartbeat_timeout').then(function(d){
@@ -9882,8 +9880,8 @@ function initSentinelHeartbeat(){
     _heartbeatTimeout=s.heartbeat_timeout||'30';
     var sv=s.sentinel_enabled||'0';
     var hv=s.heartbeat_enabled||'0';
-    document.getElementById('toggleSentinel').checked=sv==='1';
-    document.getElementById('toggleHeartbeat').checked=hv==='1';
+    var tel=document.getElementById('toggleSentinel');if(tel)tel.checked=sv==='1';
+    var hel=document.getElementById('toggleHeartbeat');if(hel)hel.checked=hv==='1';
     _updateSentinelUI(sv);
     _updateHeartbeatUI(hv);
   }).catch(function(){});
@@ -12065,6 +12063,6 @@ async function aiAutoMapUnknownTypes(){
   }
 }
 
-</script><script src="/batch-launch.js?v=2"></script><script>initSentinelHeartbeat();</script></body>
+</script><script src="/batch-launch.js?v=3"></script><script>initSentinelHeartbeat();</script></body>
 </html>
 
