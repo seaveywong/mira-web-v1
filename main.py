@@ -56,6 +56,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+class ActivityMiddleware(BaseHTTPMiddleware):
+    """记录管理员活动时间戳，用于心跳检测"""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # 只记录带认证头的请求（有 Authorization: Bearer 即为管理员操作）
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            try:
+                from core.database import get_conn
+                conn = get_conn()
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings(key,value,label,category,sort_order) VALUES('last_admin_activity',datetime('now','+8 hours'),'（隐藏）','security',5)"
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+        return response
+
+app.add_middleware(ActivityMiddleware)
 app.add_middleware(TimingMiddleware)
 
 

@@ -1661,3 +1661,136 @@ def emergency_pause_all(operator: str = "user", level: str = "campaign") -> dict
         "level_label": level_label
     }
 
+
+def sentinel_patrol() -> dict:
+    """
+    哨兵扫描：遍历所有账户，检查是否有ACTIVE状态的系列。
+    发现后立即关闭系列并发送 TG 通知。
+    """
+    enabled = _get_setting("sentinel_enabled", "0")
+    if enabled != "1":
+        return {"status": "disabled", "accounts_checked": 0, "series_closed": 0}
+    conn = get_conn()
+    accounts = conn.execute("SELECT * FROM accounts").fetchall()
+    conn.close()
+    accounts_checked = 0
+    series_closed = 0
+    details = []
+    for acc in accounts:
+        acc = dict(acc)
+        act_id = acc["act_id"]
+        token = _get_token_for_account(acc, "PAUSE")
+        if not token:
+            continue
+        accounts_checked += 1
+        try:
+            data = _fb_get(
+                f"{act_id}/campaigns", token,
+                {"fields": "id,name,status,effective_status",
+                 "effective_status": '["ACTIVE"]', "limit": 200}
+            )
+            campaigns = data.get("data", [])
+        except Exception as e:
+            logger.warning(f"[Sentinel] 获取系列失败 {act_id}: {e}")
+            continue
+        for camp in campaigns:
+            camp_id = camp["id"]
+            camp_name = camp.get("name", camp_id)
+            ok, err = _fb_post(camp_id, token, {"status": "PAUSED"})
+            if ok:
+                time.sleep(0.5)
+                verified = _verify_status(camp_id, token, "PAUSED")
+                if verified:
+                    series_closed += 1
+                    details.append({"act_id": act_id, "campaign_id": camp_id, "name": camp_name, "status": "closed"})
+                    _log_action(act_id, "campaign", camp_id, camp_name,
+                                "pause", "sentinel", f"哨兵发现活跃系列，已自动关闭",
+                                old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                status="success", operator="sentinel")
+                    _send_tg(
+                        f"🛡 <b>Mira 哨兵</b>\n"
+                        f"账户：<code>{act_id}</code>\n"
+                        f"系列：{camp_name} (<code>{camp_id}</code>)\n"
+                        f"状态：发现活跃系列，已自动关闭"
+                    )
+                else:
+                    _log_action(act_id, "campaign", camp_id, camp_name,
+                                "pause", "sentinel", "哨兵关闭失败：核验状态未变更",
+                                status="failed", error_msg="核验失败", operator="sentinel")
+                    _send_tg(
+                        f"⚠️ <b>Mira 哨兵关闭失败</b>\n"
+                        f"账户：<code>{act_id}</code>\n"
+                        f"系列：{camp_name} (<code>{camp_id}</code>)\n"
+                        f"原因：API调用成功但核验状态未变更，请手动关闭"
+                    )
+            else:
+                _log_action(act_id, "campaign", camp_id, camp_name,
+                            "pause", "sentinel", f"哨兵关闭失败: {err}",
+                            status="failed", error_msg=err, operator="sentinel")
+                _send_tg(
+                    f"⚠️ <b>Mira 哨兵关闭失败</b>\n"
+                    f"账户：<code>{act_id}</code>\n"
+                    f"系列：{camp_name} (<code>{camp_id}</code>)\n"
+                    f"原因：API调用失败: {err}，请手动关闭"
+                )
+    if series_closed > 0:
+        _send_tg(
+            f"🛡 <b>Mira 哨兵扫描完成</b>\n"
+            f"检查账户：{accounts_checked} 个\n"
+            f"关闭系列：{series_closed} 个\n"
+            f"哨兵模式保护中，所有非授权操作已被阻止"
+        )
+    return {"status": "ok", "accounts_checked": accounts_checked, "series_closed": series_closed, "details": details}
+
+
+def heartbeat_check() -> dict:
+    """
+    心跳检查：判断距上次管理员活动是否超过超时时间。
+    若超时则触发 campaign 级别的紧急全停。
+    """
+    enabled = _get_setting("heartbeat_enabled", "0")
+    if enabled != "1":
+        return {"status": "disabled", "timeout": False, "action": "none"}
+    try:
+        timeout_min = int(_get_setting("heartbeat_timeout", "30"))
+    except (ValueError, TypeError):
+        timeout_min = 30
+    last_activity = _get_setting("last_admin_activity", "")
+    # Both datetime.now() and SQLite datetime('now','+8 hours') are UTC+8
+    # Server timezone is Asia/Shanghai, so they align directly
+    now_bj = datetime.now()
+    timed_out = False
+    minutes_since = 0
+    if last_activity:
+        try:
+            last_dt = datetime.strptime(last_activity, "%Y-%m-%d %H:%M:%S")
+            delta = now_bj - last_dt
+            minutes_since = int(delta.total_seconds() / 60)
+            timed_out = minutes_since >= timeout_min
+        except (ValueError, TypeError):
+            # If last_activity is malformed, treat as no activity ever — do not trigger
+            pass
+    else:
+        # First run after reboot: no activity recorded yet, don't trigger
+        pass
+    if timed_out:
+        logger.warning(f"[Heartbeat] 管理员活动超时 {minutes_since} 分钟 (阈值={timeout_min}分钟)，触发紧急全停")
+        _send_tg(
+            f"💓 <b>Mira 心跳超时</b>\n"
+            f"距上次管理员活动已超过 <b>{minutes_since}</b> 分钟（阈值：{timeout_min}分钟）\n"
+            f"正在执行紧急全停...\n"
+            f"请在控制台操作任意功能以恢复心跳"
+        )
+        result = emergency_pause_all(operator="heartbeat", level="campaign")
+        # Log the heartbeat action
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO action_logs (act_id, action_type, trigger_detail, status, error_msg) VALUES (?,?,?,?,?)",
+            ('*', 'heartbeat', f'心跳超时 {minutes_since} 分钟，紧急全停',
+             'success', f'共计 {result.get("total",0)} 个系列，成功关闭 {result.get("success",0)}')
+        )
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "timeout": True, "minutes_since": minutes_since, "action": "emergency_pause", "result": result}
+    return {"status": "ok", "timeout": False, "minutes_since": minutes_since, "action": "none"}
+

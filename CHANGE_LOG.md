@@ -1,3 +1,22 @@
+## v3.7.0 (2026-04-27)
+
+### Features
+- **哨兵模式 (Sentinel Mode)**：开启后定时扫描所有账户，发现活跃系列自动关闭并 TG 告警，防止管理员不在线时广告被盗刷
+- **心跳模式 (Heartbeat Mode)**：周期内未检测到管理员 API 操作，自动紧急全停所有系列，防止监控中睡着导致广告失控
+- **管理员活动跟踪**：FastAPI 中间件自动记录最近一次用户活动时间戳
+
+### Files Changed
+1. ：新增 5 个 settings（sentinel_enabled/interval, heartbeat_enabled/timeout, last_admin_activity）
+2. ：新增  和  函数
+3. ：注册哨兵扫描和心跳检查两个定时任务
+4. ：新增 ActivityMiddleware 中间件记录用户活动时间
+5. ：新增安全守护设置区（SETTINGS_META + 分类标签）
+
+### Technical
+- sentinel_patrol: 每 N 分钟扫描所有账户，FB API GET /campaigns?effective_status=["ACTIVE"]，发现后 POST pause
+- heartbeat_check: 每 (timeout/3) 分钟检查 last_admin_activity，超时调用 emergency_pause_all(level="campaign")
+- ActivityMiddleware: 检测 Authorization: Bearer header，写入 last_admin_activity 时间戳
+
 ## v3.6.0 (2026-04-27)
 
 ### Features

@@ -8,6 +8,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from core.database import get_conn
 from services.token_manager import TOKEN_SOURCE_SYSTEM_USER, ensure_token_source_columns
+from services.guard_engine import sentinel_patrol, heartbeat_check
 
 logger = logging.getLogger("mira.scheduler")
 _scheduler = None
@@ -496,8 +497,20 @@ def start_scheduler():
         except Exception as e:
             logger.error(f"metrics_sync 异常: {e}")
     _scheduler.add_job(_run_metrics_sync, IntervalTrigger(hours=1), id="metrics_sync", replace_existing=True)
+    # 哨兵扫描 — 间隔由 sentinel_interval 控制（默认 3 分钟）
+    try:
+        sentinel_min = int(_get_setting("sentinel_interval", "3"))
+    except (ValueError, TypeError):
+        sentinel_min = 3
+    try:
+        hb_timeout = int(_get_setting("heartbeat_timeout", "30"))
+    except (ValueError, TypeError):
+        hb_timeout = 30
+    hb_interval = max(1, hb_timeout // 3)
+    _scheduler.add_job(sentinel_patrol, IntervalTrigger(minutes=sentinel_min), id="sentinel_patrol", replace_existing=True)
+    _scheduler.add_job(heartbeat_check, IntervalTrigger(minutes=hb_interval), id="heartbeat_check", replace_existing=True)
     _scheduler.start()
-    logger.info(f"调度器启动 v3.1.0: 安检间隔={interval_min}分钟 | AutoPilot=10分钟 | 操作号心跳={heartbeat_min}分钟 | 素材打分=每日1点 | 账户状态同步=30分钟 | Token自动发现=6小时 | creative重试=1小时 | 汇率更新=每日2点 | 数据回流=每小时 | 评分反馈环=每日2:30")
+    logger.info(f"调度器启动 v3.1.0: 安检间隔={interval_min}分钟 | AutoPilot=10分钟 | 操作号心跳={heartbeat_min}分钟 | 素材打分=每日1点 | 账户状态同步=30分钟 | Token自动发现=6小时 | creative重试=1小时 | 汇率更新=每日2点 | 数据回流=每小时 | 评分反馈环=每日2:30 | 哨兵={sentinel_min}分钟 | 心跳={hb_interval}分钟")
 
 def trigger_guard_now():
     """手动触发一次巡检（异步）"""

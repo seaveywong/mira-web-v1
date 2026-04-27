@@ -8717,6 +8717,10 @@ var SETTINGS_META = {
   storage_disk_alert_pct:{ label: '磁盘紧急阈值（%）', hint: '磁盘使用率超过此百分比时发送紧急告警，建议 85-90', icon: '🚨' },
   storage_auto_clean_days:{ label: '待审核图片自动清理天数', hint: '超过此天数未审核的图片自动删除，释放磁盘空间', icon: '🗑' },
   storage_thumb_keep_days:{ label: '缩略图保留天数', hint: '缩略图超过此天数未被访问则自动清理', icon: '🖼' },
+  sentinel_enabled:  { label: '哨兵模式', hint: '开启后自动扫描并关闭所有活跃广告系列，防止非授权操作或盗刷', icon: '🛡' },
+  sentinel_interval: { label: '哨兵扫描间隔(分钟)', hint: '每隔多少分钟扫描一次，建议 2-5 分钟', icon: '⏱' },
+  heartbeat_enabled: { label: '心跳模式', hint: '开启后管理员无操作超时将自动关闭所有系列，防止监控睡着导致失控', icon: '💓' },
+  heartbeat_timeout: { label: '心跳超时(分钟)', hint: '超过此时间未操作则触发紧急全停，建议 30-60 分钟', icon: '⏰' },
   storage_backup_keep:  { label: '备份文件保留数量', hint: '每类备份文件最多保留的份数，超出后自动删除最旧的', icon: '📦' },
 };
 
@@ -8734,6 +8738,7 @@ var SETTINGS_CAT_LABELS = {
   general:    { label: '⚙️ 通用设置', desc: '模拟模式、冷却时间、铺放参数' },
   lifecycle:  { label: '🔥 账户生命周期', desc: '预热流程、自动启动配置' },
   storage:    { label: '💾 存储与清理', desc: '磁盘告警、自动清理、备份管理' },
+  security:   { label: '🛡 安全守护', desc: '哨兵模式、心跳模式、防非授权操作' },
 };
 
 // ── 重构 renderSI 函数（带中文释义） ──

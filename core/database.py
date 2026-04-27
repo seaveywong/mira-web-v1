@@ -155,6 +155,11 @@ def init_db():
         ('escalate_on_fail','1','关闭失败自动向上升级','广告关闭失败时自动尝试关闭广告组/系列','','guard',4),
         ('dry_run','0','模拟模式（Dry Run）','开启后不真实执行操作，仅记录日志','','general',1),
         ('op_cooldown_min','60','操作冷却时间（分钟）','同一广告触发同一规则的最小间隔','60','general',2),
+        ('sentinel_enabled','0','启用哨兵模式','开启后定时扫描，发现活跃系列自动关闭并TG告警','','security',1),
+        ('sentinel_interval','3','哨兵扫描间隔(分钟)','每隔多少分钟扫描一次活跃系列，建议2-5分钟','3','security',2),
+        ('heartbeat_enabled','0','启用心跳模式','开启后管理员无操作超时将自动关闭所有系列','','security',3),
+        ('heartbeat_timeout','30','心跳超时(分钟)','超过此时间未操作则触发紧急全停，建议30-60分钟','30','security',4),
+        ('last_admin_activity','','（隐藏）最后管理员活动时间','由系统中间件自动更新','','security',5),
     ]
     for row in defaults:
         c.execute("INSERT OR IGNORE INTO settings(key,value,label,description,placeholder,category,sort_order) VALUES(?,?,?,?,?,?,?)", row)
