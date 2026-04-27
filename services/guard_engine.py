@@ -1583,7 +1583,7 @@ def emergency_pause_all(operator: str = "user", level: str = "campaign") -> dict
         token = _get_token_for_account(acc)
         if not token:
             manual_required.append({
-                "act_id": act_id, "name": acc.get("name", act_id),
+                "act_id": act_id, "name": acc.get('name', act_id),
                 "level": level, "level_label": level_label,
                 "reason": "无可用Token，无法自动关闭，请手动处理"
             })
@@ -1597,7 +1597,7 @@ def emergency_pause_all(operator: str = "user", level: str = "campaign") -> dict
         except Exception as e:
             logger.error(f"紧急暂停：获取{level_label}失败 {act_id}: {e}")
             manual_required.append({
-                "act_id": act_id, "name": acc.get("name", act_id),
+                "act_id": act_id, "name": acc.get('name', act_id),
                 "level": level, "level_label": level_label,
                 "reason": f"获取{level_label}列表失败: {str(e)}，请手动处理"
             })
@@ -1709,7 +1709,7 @@ def sentinel_patrol() -> dict:
                                 status="success", operator="sentinel")
                     _send_tg(
                         f"🛡 <b>Mira 哨兵</b>\n"
-                        f"账户：<code>{act_id}</code>\n"
+                        f"账户：{acc.get('name', act_id)} (<code>{act_id}</code>)\n"
                         f"系列：{camp_name} (<code>{camp_id}</code>)\n"
                         f"状态：发现活跃系列，已自动关闭"
                     )
@@ -1719,7 +1719,7 @@ def sentinel_patrol() -> dict:
                                 status="failed", error_msg="核验失败", operator="sentinel")
                     _send_tg(
                         f"⚠️ <b>Mira 哨兵关闭失败</b>\n"
-                        f"账户：<code>{act_id}</code>\n"
+                        f"账户：{acc.get('name', act_id)} (<code>{act_id}</code>)\n"
                         f"系列：{camp_name} (<code>{camp_id}</code>)\n"
                         f"原因：API调用成功但核验状态未变更，请手动关闭"
                     )
@@ -1729,7 +1729,7 @@ def sentinel_patrol() -> dict:
                             status="failed", error_msg=err, operator="sentinel")
                 _send_tg(
                     f"⚠️ <b>Mira 哨兵关闭失败</b>\n"
-                    f"账户：<code>{act_id}</code>\n"
+                    f"账户：{acc.get('name', act_id)} (<code>{act_id}</code>)\n"
                     f"系列：{camp_name} (<code>{camp_id}</code>)\n"
                     f"原因：API调用失败: {err}，请手动关闭"
                 )
