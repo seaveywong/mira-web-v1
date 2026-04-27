@@ -4178,9 +4178,12 @@ async function showDiagnose(adId, actId){
         var wt=r.would_trigger;
         var wtIcon=wt===true?'🔴':wt===false?'✅':'⚪';
         var wtText=wt===true?'会触发':wt===false?'不会触发':'待定';
+        var cd=r.in_cooldown;
+        var cdText=cd?('冷却中('+Math.ceil(r.cooldown_remaining_sec/60)+'分钟)'):'';
         h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg1);border-radius:4px;margin-bottom:4px">';
         h+='<div><strong>['+r.rule_type+']</strong> <span style="color:var(--t3);font-size:12px">'+(r.kpi_filter||'全部')+'</span>';
         if(r.param_value!==undefined)h+=' <span style="font-size:11px;color:var(--t3)">阈值:'+r.param_value+'</span>';
+        if(cd)h+=' <span style="font-size:11px;color:var(--wa)" title="处于冷却期，该规则暂时不会触发">🕐 '+cdText+'</span>';
         h+='</div><div>'+wtIcon+' '+wtText+'</div></div>';
       }
     }

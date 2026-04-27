@@ -1275,7 +1275,7 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
     # ── 4) 别名匹配 ──
     from services.guard_engine import (_calc_conversions_with_audit,
         _get_kpi_aliases, _get_kpi_fallback_aliases,
-        _POOR_FALLBACK_TYPES,  _match_kpi_filter)
+        _POOR_FALLBACK_TYPES,  _match_kpi_filter, _action_cooldown)
     standard_aliases = _get_kpi_aliases(kpi_field)
     fallback_aliases = _get_kpi_fallback_aliases(kpi_field)
 
@@ -1326,6 +1326,21 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
             else:
                 rule_info["would_trigger"] = None
             matching_rules.append(rule_info)
+
+    # 冷却状态检查
+    import time as _ctime
+    _cooldown_min = 60
+    try:
+        from services.guard_engine import _get_setting
+        _cooldown_min = int(_get_setting("op_cooldown_min", "60"))
+    except Exception:
+        pass
+    _now = _ctime.time()
+    for _r in matching_rules:
+        _key = f"{ad_id}:{_r['rule_type']}"
+        _last = _action_cooldown.get(_key, 0)
+        _r["in_cooldown"] = (_now - _last) < (_cooldown_min * 60)
+        _r["cooldown_remaining_sec"] = int(_cooldown_min * 60 - (_now - _last)) if _r["in_cooldown"] else 0
 
     # ── 8) 额外诊断：CPA与目标对比 ──
     target_cpa = None

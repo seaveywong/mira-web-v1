@@ -1,3 +1,13 @@
+## v3.7.5 (2026-04-28)
+
+### Changed
+- **诊断增加冷却状态**: diagnose API 返回每个匹配规则的 in_cooldown / cooldown_remaining_sec 字段
+- **前端诊断弹窗**: 如果规则处于冷却期，显示 🕐 冷却中(X分钟) 提示，帮助判断为何广告未被关闭
+
+### Files Changed
+1. api/kpi.py: 导入 _action_cooldown，在 matching_rules 循环后追加冷却状态计算（读取 op_cooldown_min 设置，计算剩余冷却秒数）
+2. frontend/index.html: showDiagnose() 规则渲染增加冷却状态显示，冷却中显示警告色 🕐 图标和剩余分钟数
+
 
 ## v3.7.2 (2026-04-27)
 
