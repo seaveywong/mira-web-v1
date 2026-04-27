@@ -8375,7 +8375,7 @@ async function saveMsgTemplate(){
   var dest=document.getElementById('msgTplDestination').value;
   var note=document.getElementById('msgTplNote').value.trim();
   if(!name){toast('请填写模版名称','wa');return;}
-  if(!greeting){toast('请填写欢迎语内容','wa');return;}
+  // 问候语可选，留空时不发送 welcome_message
   var btns=[];
   document.getElementById('msgTplButtons').querySelectorAll('.btn-row input').forEach(function(inp){
     var v=inp.value.trim();
@@ -8476,7 +8476,9 @@ function normalizeLeadFormFieldType(q){
   var key=((q&&q.key)||'').toUpperCase();
   if(type==='PREDEFINED')type=key;
   if(type==='PHONE_NUMBER')type='PHONE';
-  if(['FULL_NAME','EMAIL','PHONE','CUSTOM'].indexOf(type)>=0)return type;
+  // Detect multiple choice from options field
+  if(type==='CUSTOM'&&q&&q.options&&q.options.length)return 'MULTIPLE_CHOICE';
+  if(['FULL_NAME','EMAIL','PHONE','CUSTOM','MULTIPLE_CHOICE'].indexOf(type)>=0)return type;
   if(['FULL_NAME','EMAIL','PHONE','CUSTOM'].indexOf(key)>=0)return key;
   return 'CUSTOM';
 }
@@ -8505,14 +8507,22 @@ async function editLeadFormTemplate(id){
         key==='PHONE'?'电话':
         q.key||''
       );
+      var optsHtml='';
+      if(key==='MULTIPLE_CHOICE'&&q.options){
+        optsHtml='<input class="fc" placeholder="选项(逗号分隔)" style="flex:1" value="'+escH(q.options.map(function(o){return o.value;}).join(','))+'\u0022>';
+      }else{
+        optsHtml='<input class="fc" placeholder="选项(逗号分隔)" style="flex:1;display:none">';
+      }
       return '<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">'+
         '<select class="fc" style="width:140px" onchange="updateLfFieldKey(this)">'+
         '<option value="FULL_NAME"'+(key==='FULL_NAME'?' selected':'')+'>\u59d3\u540d</option>'+
         '<option value="EMAIL"'+(key==='EMAIL'?' selected':'')+'>\u90ae\u7bb1</option>'+
         '<option value="PHONE"'+(key==='PHONE'?' selected':'')+'>\u7535\u8bdd</option>'+
         '<option value="CUSTOM"'+(key==='CUSTOM'?' selected':'')+'>\u81ea\u5b9a\u4e49\u95ee\u9898</option>'+
+        '<option value="MULTIPLE_CHOICE"'+(key==='MULTIPLE_CHOICE'?' selected':'')+'>\u81ea\u5b9a\u4e49\u95ee\u9898\uff08\u9009\u62e9\uff09</option>'+
         '</select>'+
         '<input class="fc" placeholder="字段标签" style="flex:1" value="'+escH(label)+'">'+
+        optsHtml+
         '<button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeLfField(this)">−</button></div>';
     }).join('');
     openModal('moLeadFormTemplate');
@@ -8520,16 +8530,20 @@ async function editLeadFormTemplate(id){
 }
 
 function updateLfFieldKey(sel){
-  var inp=sel.parentElement.querySelector('input');
-  var labels={FULL_NAME:'姓名',EMAIL:'邮箱',PHONE:'电话',CUSTOM:'自定义问题'};
-  if(inp&&sel.value!=='CUSTOM')inp.value=labels[sel.value]||'';
+  var row=sel.parentElement;
+  var inputs=row.querySelectorAll('input');
+  var inp=inputs[0];
+  var optInp=inputs[1];
+  var labels={FULL_NAME:'姓名',EMAIL:'邮箱',PHONE:'电话',CUSTOM:'自定义问题',MULTIPLE_CHOICE:''};
+  if(inp&&sel.value!=='CUSTOM'&&sel.value!=='MULTIPLE_CHOICE')inp.value=labels[sel.value]||'';
+  if(optInp)optInp.style.display=(sel.value==='MULTIPLE_CHOICE')?'':'none';
 }
 
 function addLfField(){
   var c=document.getElementById('lfTplQuestions');
   var d=document.createElement('div');
   d.style.cssText='display:flex;gap:6px;margin-bottom:6px;align-items:center';
-  d.innerHTML='<select class="fc" style="width:140px" onchange="updateLfFieldKey(this)"><option value="FULL_NAME">姓名</option><option value="EMAIL">邮箱</option><option value="PHONE">电话</option><option value="CUSTOM">自定义问题</option></select><input class="fc" placeholder="字段标签" style="flex:1"><button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeLfField(this)">−</button>';
+  d.innerHTML='<select class="fc" style="width:140px" onchange="updateLfFieldKey(this)"><option value="FULL_NAME">姓名</option><option value="EMAIL">邮箱</option><option value="PHONE">电话</option><option value="CUSTOM">自定义问题（简答）</option><option value="MULTIPLE_CHOICE">自定义问题（选择）</option></select><input class="fc" placeholder="字段标签" style="flex:1"><input class="fc" placeholder="选项(逗号分隔)" style="flex:1;display:none"><button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeLfField(this)">−</button>';
   c.appendChild(d);
 }
 
@@ -8549,15 +8563,25 @@ async function saveLeadFormTemplate(){
   var qs=[];
   document.getElementById('lfTplQuestions').querySelectorAll('div').forEach(function(row){
     var sel=row.querySelector('select');
-    var inp=row.querySelector('input');
+    var inputs=row.querySelectorAll('input');
+    var inp=inputs[0];
     if(sel&&inp&&inp.value.trim()){
       var fieldType=sel.value;
       var fieldLabel=inp.value.trim();
-      var item={type:fieldType,label:fieldLabel};
-      if(fieldType==='CUSTOM'){
+      var item={type:'CUSTOM',label:fieldLabel};
+      if(fieldType==='CUSTOM'||fieldType==='MULTIPLE_CHOICE'){
         item.key='custom_q_'+(qs.length+1);
       }else{
         item.key=fieldType;
+      }
+      // Serialize multiple choice options
+      if(fieldType==='MULTIPLE_CHOICE'&&inputs[1]){
+        var optVal=inputs[1].value.trim();
+        if(optVal){
+          item.options=optVal.split(',').map(function(o,i){
+            return {key:'opt_'+i,value:o.trim()};
+          }).filter(function(o){return o.value;});
+        }
       }
       qs.push(item);
     }

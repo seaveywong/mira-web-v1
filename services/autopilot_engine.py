@@ -1851,14 +1851,15 @@ class AutoPilotEngine:
             f"素材分析：{ai_analysis}\n"
             f"投放目的：{ai_purpose}\n\n"
             "请生成适合的表单内容，包含：\n"
-            f"1. 表单标题（简短有力，必须使用 {ctx['label']}）\n"
-            f"2. 1 个强相关的资格判断问题（必须使用 {ctx['label']}，不能泛泛而谈）\n"
-            "3. 上述资格问题请同时给出 3-4 个选择项，用户将从中单选\n"
-            "4. 生成表单提交后的感谢页标题和说明文字，50字以内，语气亲切\n"
-            "5. 根据素材的投放目的，推断结束页行动号召按钮文字（如：联系我们、发送消息、立即购买、了解详情等），按钮文字要与素材目的匹配\n"
-            "6. 标题和问题都要中性、合规，不能夸大收益，不能带短链或敏感词\n\n"
+            f"1. 表单标题（简短有力，必须使用 {ctx['label']}，需结合素材画面和广告文案）\n"
+            f"2. 1 个强相关的资格判断问题（必须使用 {ctx['label']}，从素材内容出发，让用户感觉问题是针对他看到的广告量身定制的）\n"
+            "3. 上述资格问题请同时给出 3-4 个选择项，选项文字简洁明了，适合快速点击\n"
+            "4. 为资格问题写一句简短的说明（qualifying_description），帮助用户理解为什么要回答这个问题，说明要贴合素材语境\n"
+            "5. 生成表单提交后的感谢页标题和说明文字（thank_you_title/thank_you_body），50字以内，语气亲切，要贴合素材的投放目的\n"
+            "6. 根据素材的投放目的，推断结束页行动号召按钮文字（cta_button_text，如：联系我们、发送消息、立即购买、了解详情等），按钮文字要与素材目的和感谢页内容自然衔接\n"
+            "7. 标题和问题都要中性、合规，不能夸大收益，不能带短链或敏感词\n\n"
             "请用JSON格式返回：\n"
-            '{\n  "form_title": "表单标题",\n  "qualifying_question": "资格问题",\n  "qualifying_options": ["选项A","选项B","选项C"],\n  "thank_you_title": "感谢页标题",\n  "thank_you_body": "感谢页说明",\n  "cta_button_text": "按钮文字"\n}\n'
+            '{\n  "form_title": "表单标题",\n  "qualifying_question": "资格问题",\n  "qualifying_description": "问题说明（一句话）",\n  "qualifying_options": ["选项A","选项B","选项C"],\n  "thank_you_title": "感谢页标题",\n  "thank_you_body": "感谢页说明",\n  "cta_button_text": "按钮文字"\n}\n'
             "只返回JSON，不要其他内容。"
         )
 
@@ -1914,6 +1915,7 @@ class AutoPilotEngine:
             "qualifying_question": qualifying_question[:120],
             "qualifying_options": _ai_qualifying_options,
             "thank_you_title": _thank_you_title[:80],
+            "qualifying_description": (str(ai_result.get("qualifying_description") or "")).strip()[:200],
             "thank_you_body": _thank_you_body[:200],
             "cta_button_text": _cta_button_text[:60],
             "privacy_text": fallback_spec["privacy_text"],
@@ -1999,12 +2001,25 @@ class AutoPilotEngine:
                             _q_item = {"type": "CUSTOM", "key": "qualifying", "label": _qualifying_question}
                             _q_options = _lead_form_spec.get("qualifying_options") or []
                             if _q_options:
-                                # FB v25 rejects options (code=1), skip
-                                pass
+                                _q_item["options"] = [{"key": f"opt_{i}", "value": o} for i, o in enumerate(_q_options)]
+                            _q_desc = _lead_form_spec.get("qualifying_description") or ""
+                            if _q_desc:
+                                _q_item["placeholder"] = _q_desc
                             _final_questions.append(_q_item)
                         _final_questions.append({"type": _contact_field})
                         _privacy_url = form_link or (asset_info or {}).get("landing_url") or landing_url or ""
                         _follow_up_url = form_link or landing_url or (asset_info or {}).get("landing_url") or ""
+                        # Map ad_type to FB context_card button_type
+                        _BUTTON_TYPE_MAP = {
+                            "leads": "SIGN_UP",
+                            "purchase": "SHOP_NOW",
+                            "messenger": "CONTACT_US",
+                            "traffic": "LEARN_MORE",
+                            "engagement": "LEARN_MORE",
+                            "other": "LEARN_MORE",
+                        }
+                        _ad_type = (asset_info or {}).get("ad_type", "") or (asset_info or {}).get("ai_purpose", "")
+                        _button_type = _BUTTON_TYPE_MAP.get(_ad_type, "SIGN_UP")
                         # Build context_card for the form end page
                         _context_card = {}
                         _cta_text = _lead_form_spec.get("cta_button_text") or ""
@@ -2013,11 +2028,11 @@ class AutoPilotEngine:
                         if _ty_title or _ty_body:
                             _context_card["style"] = "LIST_STYLE"
                             _context_card["title"] = _ty_title or "Thank You"
-                            _ctx_content = {}
+                            if _ty_body:
+                                _context_card["body"] = _ty_body
                             if _cta_text:
-                                _ctx_content["button_text"] = _cta_text
-                            if _ctx_content:
-                                _context_card["content"] = _ctx_content
+                                _context_card["button_text"] = _cta_text
+                                _context_card["button_type"] = _button_type
                         _lead_form_resolved = create_custom_lead_form_for_page(
                             page_id,
                             _form_title,

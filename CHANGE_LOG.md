@@ -1,3 +1,30 @@
+## v3.6.0 (2026-04-27)
+
+### Features
+- **Lead Form optimization**: 5 fixes for lead form creation flow
+  - flexible_delivery: Auto-enable ON_DELIVERY for CUSTOM questions with options (FB v25 requirement)
+  - Greeting: Make greeting field optional in message templates (can be empty)
+  - Multiple choice questions: Add MULTIPLE_CHOICE field type support with options input
+  - Question description: Add placeholder/description field for CUSTOM questions
+  - End page content: Fix context_card structure (body at top level, button_type derived from ad_type)
+
+### Files Changed
+1. api/ad_templates.py: Fix _post_lead_form() payload (flexible_delivery + context_card with button_type + body)
+   - _normalize_lead_form_questions(): Add flexible_delivery + placeholder support
+   - create_lead_form_for_page(): Add body to context_card
+2. services/autopilot_engine.py: Upgrade AI prompt to generate qualifying_description + options
+   - Questions construction: Build options array (opt_0, opt_1, ...) for multiple choice
+   - Context_card building: Derive button_type from ad_type via _BUTTON_TYPE_MAP
+3. frontend/index.html: Add MULTIPLE_CHOICE field type in add/save/edit lead form
+   - Remove greeting mandatory validation in message templates
+   - Add options input (comma-separated) for multiple choice questions
+   - Serialize/deserialize options in save/edit flow
+
+### Technical
+- flexible_delivery="ON_DELIVERY" set both in question level (normalize) and form level (payload)
+- button_type map: leads→SIGN_UP, purchase→SHOP_NOW, messenger→CONTACT_US, traffic→LEARN_MORE
+- Frontend edit render preserves existing data, adds options input for MULTIPLE_CHOICE
+
 ## v3.5.0 (2026-04-27)
 
 ### Features

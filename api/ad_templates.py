@@ -208,10 +208,15 @@ def _normalize_lead_form_questions(raw_questions: list) -> list:
                 "key": _normalize_custom_question_key(custom_key, idx),
                 "label": label or f"问题 {idx + 1}",
             }
-            # Preserve options for multiple choice
+            # Preserve options for multiple choice (requires flexible_delivery)
             _raw_options = item.get("options")
             if _raw_options:
                 _normalized_custom["options"] = _raw_options
+                _normalized_custom["flexible_delivery"] = "ON_DELIVERY"
+            # Preserve placeholder for question description
+            _placeholder = item.get("placeholder") or item.get("description")
+            if _placeholder:
+                _normalized_custom["placeholder"] = _placeholder
             normalized.append(_normalized_custom)
 
     return normalized
@@ -324,23 +329,28 @@ def _post_lead_form(
         "locale": locale or "zh_CN",
         "access_token": page_token,
     }
+    # Enable flexible delivery so custom questions with options work
+    payload["flexible_delivery"] = "ON_DELIVERY"
     resolved_follow_up_url = _get_follow_up_action_url(page_id, follow_up_url)
     if resolved_follow_up_url:
         payload["follow_up_action_url"] = resolved_follow_up_url
     if context_card:
-        # FB v25 context_card format: requires style + content
+        # FB v25 context_card format: style + title (required), body (optional), content.button_text + button_type
         _ctx = context_card.copy() if isinstance(context_card, dict) else {}
         if "style" not in _ctx:
             _ctx["style"] = "LIST_STYLE"
+        # body belongs at top level, not inside content
+        _body = _ctx.pop("body", None) or _ctx.pop("subtitle", None)
+        # content holds button_text (and optionally button_type for CTA)
         _content = {}
         if _ctx.get("button_text"):
             _content["button_text"] = _ctx.pop("button_text")
-        if _ctx.get("body"):
-            _content["body"] = _ctx.pop("body")
-        if _ctx.get("subtitle"):
-            _content.setdefault("body", _ctx.pop("subtitle"))
+        if _ctx.get("button_type"):
+            _content["button_type"] = _ctx.pop("button_type")
         if _content:
             _ctx["content"] = _content
+        if _body:
+            _ctx["body"] = _body
         payload["context_card"] = json.dumps(_ctx, ensure_ascii=False)
 
     resp = requests.post(
@@ -683,7 +693,8 @@ def create_lead_form_for_page(
     _ty_body = (tpl.get("thank_you_body") or "").strip()
     if _ty_title or _ty_body:
         _context_card["title"] = _ty_title or "感谢您的提交！"
-
+    if _ty_body:
+        _context_card["body"] = _ty_body
     fb_form_id = _post_lead_form(
         page_id,
         form_name=form_name,
