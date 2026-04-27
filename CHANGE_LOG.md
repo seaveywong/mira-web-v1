@@ -1,3 +1,14 @@
+## v3.7.6 (2026-04-28)
+
+### Fixed
+- **诊断冷却指示器始终显示**: 之前只在 in_cooldown=true 时显示冷却状态，现改为始终显示
+  - 冷却中: 🕐 冷却中(X分钟) 橙色
+  - 未冷却: ⏰ 无冷却 灰色
+- 修复后用户可明确判断功能是否正常工作
+
+### Files Changed
+1. frontend/index.html: cdText/cdIcon/cdColor 三元表达式覆盖两种情况，移除 if(cd) 条件
+
 ## v3.7.5 (2026-04-28)
 
 ### Changed
