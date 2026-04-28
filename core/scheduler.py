@@ -8,7 +8,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from core.database import get_conn
 from services.token_manager import TOKEN_SOURCE_SYSTEM_USER, ensure_token_source_columns
-from services.guard_engine import sentinel_patrol, heartbeat_check
 
 logger = logging.getLogger("mira.scheduler")
 _scheduler = None
@@ -507,6 +506,7 @@ def start_scheduler():
     except (ValueError, TypeError):
         hb_timeout = 30
     hb_interval = max(1, hb_timeout // 3)
+    from services.guard_engine import sentinel_patrol, heartbeat_check
     _scheduler.add_job(sentinel_patrol, IntervalTrigger(minutes=sentinel_min), id="sentinel_patrol", replace_existing=True)
     _scheduler.add_job(heartbeat_check, IntervalTrigger(minutes=hb_interval), id="heartbeat_check", replace_existing=True)
     _scheduler.start()

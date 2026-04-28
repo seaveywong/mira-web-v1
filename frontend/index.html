@@ -9880,7 +9880,9 @@ function _updateHeartbeatUI(v){
 }
 function initSentinelHeartbeat(){
   api('GET','/settings?keys=sentinel_enabled,sentinel_interval,heartbeat_enabled,heartbeat_timeout').then(function(d){
-    var s=d.settings||{};
+    // Convert array [{key,value}] to object {key:value}
+    var s={};
+    if(Array.isArray(d)){d.forEach(function(r){s[r.key]=r.value;});}
     _sentinelInterval=s.sentinel_interval||'3';
     _heartbeatTimeout=s.heartbeat_timeout||'30';
     var sv=s.sentinel_enabled||'0';

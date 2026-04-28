@@ -1,3 +1,15 @@
+## v3.7.7 (2026-04-28)
+
+### Fixed
+- **哨兵/心跳开关修复**: initSentinelHeartbeat() 响应解析错误 — 后端返回数组 [{key,value}]，前端误当对象读取，
+  导致开关状态始终显示为关闭。修复：Array.isArray 检测后转换为 {key:value} 对象
+- **调度器 NameError 修复**: sentinel_patrol/heartbeat_check 导入移到 start_scheduler() 内部，
+  避免模块级导入可能存在的循环依赖问题
+
+### Files Changed
+1. frontend/index.html: initSentinelHeartbeat() 增加数组→对象转换
+2. core/scheduler.py: sentinel_patrol/heartbeat_check 改为函数内延迟导入
+
 ## v3.7.6 (2026-04-28)
 
 ### Fixed
