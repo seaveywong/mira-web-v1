@@ -1,3 +1,13 @@
+## v3.7.8 (2026-04-28)
+
+### Fixed
+- **哨兵/心跳开关初始化时序修复**: initSentinelHeartbeat() 在页面底部内联脚本中调用时 token 尚未设置（全局 token 为空），
+  导致 GET /api/settings 返回 403，开关状态始终显示关闭。修复：在 initApp() 末尾添加 initSentinelHeartbeat() 调用，
+  此时 token 已经过 /auth/me 验证有效，确保开关状态正确加载
+
+### Files Changed
+1. frontend/index.html: initApp() 末尾增加 initSentinelHeartbeat() 调用
+
 ## v3.7.7 (2026-04-28)
 
 ### Fixed
