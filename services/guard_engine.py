@@ -173,10 +173,15 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
         return False, str(e), 0, 0
 
 def _verify_status(obj_id: str, token: str, expected: str = "PAUSED") -> bool:
-    """核验对象状态是否符合预期"""
+    """核验对象状态是否符合预期 — 必须同时检查 effective_status"""
     try:
         result = _fb_get(obj_id, token, {"fields": "status,effective_status"})
         actual = result.get("status", "")
+        effective = result.get("effective_status", "")
+        if expected == "PAUSED":
+            cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
+                           "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
+            return actual == "PAUSED" and effective in cannot_spend
         return actual == expected
     except Exception:
         return False
@@ -204,6 +209,51 @@ def _check_cooldown(ad_id: str, rule_type: str, cooldown_min: int = 60) -> bool:
 def _set_cooldown(ad_id: str, rule_type: str):
     key = f"{ad_id}:{rule_type}"
     _action_cooldown[key] = time.time()
+
+
+# ── 镜像模式辅助函数 ───────────────────────────────────────────────────────────
+
+def _load_mirror_snapshot(act_id: str) -> set:
+    """返回该账户镜像快照中的广告ID集合"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT ad_id FROM mirror_snapshots WHERE act_id=?", (act_id,)
+    ).fetchall()
+    conn.close()
+    return {r["ad_id"] for r in rows}
+
+
+def _capture_mirror_snapshot(act_id: str, ads: list) -> int:
+    """重建镜像快照：清除旧快照，写入当前可投放广告ID列表（排除审核中）"""
+    conn = get_conn()
+    conn.execute("DELETE FROM mirror_snapshots WHERE act_id=?", (act_id,))
+    count = 0
+    _cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
+                     "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
+    _review_status = {"PENDING_REVIEW", "IN_REVIEW", "PENDING_BILLING_INFO", "PREAPPROVED"}
+    for ad in ads:
+        eff = ad.get("effective_status", "")
+        if eff in _cannot_spend or eff in _review_status:
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO mirror_snapshots (act_id, ad_id, ad_name) VALUES (?,?,?)",
+            (act_id, ad["id"], ad.get("name", ad["id"]))
+        )
+        count += 1
+    conn.commit()
+    conn.close()
+    return count
+
+
+def _is_auto_campaign_ad(act_id: str, ad_id: str) -> bool:
+    """检查广告是否由 Mira 自动铺放系统创建"""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM auto_campaign_ads WHERE act_id=? AND fb_ad_id=? LIMIT 1",
+        (act_id, ad_id)
+    ).fetchone()
+    conn.close()
+    return row is not None
 
 
 def _log_action(act_id, level, target_id, target_name,
@@ -659,14 +709,33 @@ class GuardEngine:
         self.learning_protect = _get_setting("learning_phase_protect", "1") == "1"
 
     def run_all(self):
-        conn = get_conn()
-        accounts = conn.execute("SELECT * FROM accounts").fetchall()  # 紧急暂停不受巡检开关限制
-        conn.close()
-        for acc in accounts:
-            try:
-                self.inspect_account(dict(acc))
-            except Exception as e:
-                logger.error(f"账户 {acc['act_id']} 巡检异常: {e}")
+        if _get_setting("inspect_enabled", "1") != "1":
+            logger.info("自动巡检已关闭（inspect_enabled=0），跳过")
+        else:
+            conn = get_conn()
+            accounts = conn.execute(
+                "SELECT * FROM accounts WHERE enabled=1 AND account_status NOT IN (3, 7, 9)"
+            ).fetchall()
+            conn.close()
+            for acc in accounts:
+                try:
+                    self.inspect_account(dict(acc))
+                except Exception as e:
+                    logger.error(f"账户 {acc['act_id']} 巡检异常: {e}")
+
+        # ── 镜像巡逻：保护未开启巡检但存活(enabled=0)的账户 ──────────────────────
+        global_mirror = _get_setting("mirror_enabled", "0")
+        if global_mirror == "1":
+            conn = get_conn()
+            mirror_only = conn.execute(
+                "SELECT * FROM accounts WHERE enabled=0 AND account_status NOT IN (3, 7, 9)"
+            ).fetchall()
+            conn.close()
+            for acc in mirror_only:
+                try:
+                    self._mirror_patrol(dict(acc))
+                except Exception as e:
+                    logger.error(f"账户 {acc['act_id']} 镜像巡逻异常: {e}")
 
     def inspect_account(self, account: dict):
         act_id = account["act_id"]
@@ -679,7 +748,7 @@ class GuardEngine:
         try:
             data = _fb_get(
                 f"{act_id}/ads", token,
-                {"fields": FB_AD_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED"]', "limit": 200}
+                {"fields": FB_AD_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200}
             )
         except Exception as e:
             logger.error(f"拉取广告列表失败 {act_id}: {e}")
@@ -690,6 +759,169 @@ class GuardEngine:
 
         ads = data.get("data", [])
         logger.info(f"账户 {act_id} 活跃广告数: {len(ads)}")
+
+        # ── 镜像模式：暂停不在白名单中的未授权广告 ──────────────────────────────
+        global_mirror = _get_setting("mirror_enabled", "0")
+        account_mirror = account.get("mirror_enabled", 0)
+        if global_mirror == "1" or account_mirror == 1:
+            mirrored_ids = _load_mirror_snapshot(act_id)
+            if mirrored_ids:
+                _cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
+                                 "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
+                _review_status = {"PENDING_REVIEW", "IN_REVIEW", "PENDING_BILLING_INFO", "PREAPPROVED"}
+                unauthorized = []
+                review_pending = []
+                for ad in ads:
+                    ad_id = ad["id"]
+                    eff = ad.get("effective_status", "")
+                    if eff in _cannot_spend:
+                        continue
+                    if ad_id in mirrored_ids:
+                        continue
+                    if _is_auto_campaign_ad(act_id, ad_id):
+                        continue
+                    if eff in _review_status:
+                        review_pending.append(ad)
+                        continue
+                    unauthorized.append(ad)
+                # 审核中的未授权广告：无法暂停，但发送TG告警
+                if review_pending:
+                    rev_campaigns = {}
+                    for ad in review_pending:
+                        cid = ad.get("campaign_id", "")
+                        if not cid:
+                            cid = f"nocamp_{ad['id']}"
+                        if cid not in rev_campaigns:
+                            rev_campaigns[cid] = []
+                        rev_campaigns[cid].append(ad)
+                    for cid, rads in rev_campaigns.items():
+                        ad_names = [a.get("name", a["id"]) for a in rads]
+                        ad_ids = [a["id"] for a in rads]
+                        statuses = list({rads[0].get("effective_status", "REVIEW")})
+                        for a in rads:
+                            logger.warning(
+                                f"[Mirror] 未授权广告 {a.get('name', a['id'])} 处于审核状态({a.get('effective_status')})，"
+                                f"无法暂停，待审核通过后将自动关闭系列 {cid}"
+                            )
+                            _log_action(act_id, "ad", a["id"], f"[镜像] {a.get('name', a['id'])}",
+                                        "warn", "mirror_mode",
+                                        f"镜像模式：广告不在快照白名单且处于审核状态({a.get('effective_status')})，无法暂停",
+                                        old_value={"effective_status": a.get("effective_status")},
+                                        new_value={"action": "monitoring"},
+                                        status="warning", operator="system")
+                        _send_tg(
+                            f"⚠️ <b>Mira 镜像模式 - 审核中未授权广告</b>\n"
+                            f"账户：{account.get('name', act_id)}\n"
+                            f"系列：<code>{cid}</code>\n"
+                            f"广告：{', '.join(ad_names)}\n"
+                            f"状态：{', '.join(set(a.get('effective_status', '') for a in rads))}\n"
+                            f"原因：广告不在快照白名单中且正处于审核状态，无法暂停\n"
+                            f"提示：审核通过后巡检引擎将自动关闭该系列"
+                        )
+                # 按系列(campaign)去重，同一系列只关一次
+                campaigns_to_pause = {}
+                for ad in unauthorized:
+                    cid = ad.get("campaign_id", "")
+                    if not cid:
+                        cid = f"nocamp_{ad['id']}"
+                    if cid not in campaigns_to_pause:
+                        campaigns_to_pause[cid] = []
+                    campaigns_to_pause[cid].append(ad)
+
+                for cid, camp_ads in campaigns_to_pause.items():
+                    ad_names = [a.get("name", a["id"]) for a in camp_ads]
+                    is_nocamp = cid.startswith("nocamp_")
+                    if is_nocamp:
+                        # 无系列的广告：直接暂停广告本身
+                        ad = camp_ads[0]
+                        logger.warning(f"[Mirror] 未授权广告 {ad['id']} ({ad.get('name')})，无系列，直接暂停广告")
+                        if self.dry_run:
+                            _log_action(act_id, "ad", ad["id"], ad.get("name", ad["id"]),
+                                        "pause", "mirror_mode",
+                                        f"[模拟] 镜像模式：广告不在快照白名单，直接暂停",
+                                        old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                        status="success", operator="system")
+                        else:
+                            ok, err_msg = _fb_post(ad["id"], token, {"status": "PAUSED"})
+                            action_status = "success" if (ok and _verify_status(ad["id"], token, "PAUSED")) else "failed"
+                            _log_action(act_id, "ad", ad["id"], ad.get("name", ad["id"]),
+                                        "pause", "mirror_mode",
+                                        f"镜像模式：广告不在快照白名单，直接暂停",
+                                        old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                        status=action_status, error_msg=(err_msg if not ok else None),
+                                        operator="system")
+                            _send_tg(
+                                f"🔒 <b>Mira 镜像模式</b>\n"
+                                f"账户：{account.get('name', act_id)}\n"
+                                f"广告：<code>{ad.get('name', ad['id'])}</code>\n"
+                                f"原因：广告不在快照白名单中，已自动暂停"
+                                + (f"\n❌ 暂停失败：{err_msg}" if action_status == "failed" else "")
+                            )
+                    else:
+                        logger.warning(f"[Mirror] 未授权广告 ({', '.join(ad_names)})，直接关闭系列 {cid}")
+                        if self.dry_run:
+                            for ad in camp_ads:
+                                _log_action(act_id, "campaign", cid, f"[镜像] {ad.get('name', ad['id'])}的系列",
+                                            "pause", "mirror_mode",
+                                            f"[模拟] 镜像模式：广告不在快照白名单，直接关闭系列",
+                                            old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                            status="success", operator="system")
+                            _send_tg(
+                                f"🔒 <b>Mira 镜像模式</b>\n"
+                                f"账户：{account.get('name', act_id)}\n"
+                                f"系列：<code>{cid}</code>\n"
+                                f"包含广告：{', '.join(ad_names)}\n"
+                                f"原因：广告不在快照白名单中，[DRY RUN] 模拟关闭系列"
+                            )
+                        else:
+                            ok, err_msg = _fb_post(cid, token, {"status": "PAUSED"})
+                            if ok:
+                                time.sleep(2)
+                                verified = _verify_status(cid, token, "PAUSED")
+                                action_status = "success" if verified else "failed"
+                                if not verified:
+                                    err_msg = "核验失败：系列effective_status未变为不可投放状态"
+                            else:
+                                action_status = "failed"
+
+                            for ad in camp_ads:
+                                _log_action(act_id, "campaign", cid, f"[镜像] {ad.get('name', ad['id'])}的系列",
+                                            "pause", "mirror_mode",
+                                            f"镜像模式：广告不在快照白名单，直接关闭系列",
+                                            old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                            status=action_status,
+                                            error_msg=err_msg if action_status == "failed" else None,
+                                            operator="system")
+
+                            if action_status == "success":
+                                _send_tg(
+                                    f"🔒 <b>Mira 镜像模式</b>\n"
+                                    f"账户：{account.get('name', act_id)}\n"
+                                    f"系列：<code>{cid}</code>\n"
+                                    f"包含广告：{', '.join(ad_names)}\n"
+                                    f"原因：广告不在镜像快照白名单中，已直接关闭系列"
+                                )
+                            else:
+                                _send_tg(
+                                    f"🚨 <b>Mira 镜像模式 - 关闭系列失败!</b>\n"
+                                    f"账户：{account.get('name', act_id)}\n"
+                                    f"系列：<code>{cid}</code>\n"
+                                    f"包含广告：{', '.join(ad_names)}\n"
+                                    f"失败原因：{err_msg}\n"
+                                    f"请立即手动处理!"
+                                )
+
+                if unauthorized:
+                    paused_ids = {a["id"] for a in unauthorized}
+                    ads = [a for a in ads if a["id"] not in paused_ids]
+                    logger.info(f"[Mirror] {act_id} 本次拦截 {len(unauthorized)} 条未授权广告，涉及 {len(campaigns_to_pause)} 个系列")
+            else:
+                # 快照为空时自动捕获当前活跃广告作为初始快照
+                if ads:
+                    count = _capture_mirror_snapshot(act_id, ads)
+                    logger.info(f"[Mirror] {act_id} 快照为空，已自动捕获 {count} 条广告作为初始快照")
+                else:
+                    logger.info(f"[Mirror] {act_id} 当前无活跃广告，跳过快照捕获")
 
         # ── 自动 KPI 预配：发现无 KPI 配置或配置非法的广告时触发扫描 ──────────────
         try:
@@ -1005,6 +1237,184 @@ class GuardEngine:
                     account_currency=account_currency, spend_raw=spend_raw,
                     broader_conv=broader_conv
                 )
+
+    def _mirror_patrol(self, account: dict):
+        """仅执行镜像检查，不做KPI/规则巡检。用于enabled=0但需镜像保护的账户"""
+        act_id = account["act_id"]
+        token = _get_token_for_account(account)
+        if not token:
+            return
+
+        try:
+            data = _fb_get(
+                f"{act_id}/ads", token,
+                {"fields": FB_AD_FIELDS,
+                 "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]',
+                 "limit": 200}
+            )
+        except Exception as e:
+            logger.error(f"[Mirror] 拉取广告列表失败 {act_id}: {e}")
+            return
+
+        ads = data.get("data", [])
+        logger.info(f"[Mirror Patrol] 账户 {act_id} 活跃广告数: {len(ads)}")
+
+        mirrored_ids = _load_mirror_snapshot(act_id)
+        if not mirrored_ids:
+            if ads:
+                count = _capture_mirror_snapshot(act_id, ads)
+                logger.info(f"[Mirror Patrol] {act_id} 快照为空，已自动捕获 {count} 条广告作为初始快照")
+            else:
+                logger.info(f"[Mirror Patrol] {act_id} 当前无活跃广告，跳过快照捕获")
+            return
+
+        _cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
+                         "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
+        _review_status = {"PENDING_REVIEW", "IN_REVIEW", "PENDING_BILLING_INFO", "PREAPPROVED"}
+        unauthorized = []
+        review_pending = []
+        for ad in ads:
+            ad_id = ad["id"]
+            eff = ad.get("effective_status", "")
+            if eff in _cannot_spend:
+                continue
+            if ad_id in mirrored_ids:
+                continue
+            if _is_auto_campaign_ad(act_id, ad_id):
+                continue
+            if eff in _review_status:
+                review_pending.append(ad)
+                continue
+            unauthorized.append(ad)
+
+        # 审核中的未授权广告：无法暂停，但发送TG告警
+        if review_pending:
+            rev_campaigns = {}
+            for ad in review_pending:
+                cid = ad.get("campaign_id", "")
+                if not cid:
+                    cid = f"nocamp_{ad['id']}"
+                if cid not in rev_campaigns:
+                    rev_campaigns[cid] = []
+                rev_campaigns[cid].append(ad)
+            for cid, rads in rev_campaigns.items():
+                ad_names = [a.get("name", a["id"]) for a in rads]
+                statuses = list({a.get("effective_status", "REVIEW") for a in rads})
+                for a in rads:
+                    logger.warning(
+                        f"[Mirror Patrol] 未授权广告 {a.get('name', a['id'])} 处于审核状态({a.get('effective_status')})，"
+                        f"无法暂停，待审核通过后将自动关闭系列 {cid}"
+                    )
+                    _log_action(act_id, "ad", a["id"], f"[镜像] {a.get('name', a['id'])}",
+                                "warn", "mirror_mode",
+                                f"镜像巡逻：广告不在快照白名单且处于审核状态({a.get('effective_status')})，无法暂停",
+                                old_value={"effective_status": a.get("effective_status")},
+                                new_value={"action": "monitoring"},
+                                status="warning", operator="system")
+                _send_tg(
+                    f"⚠️ <b>Mira 镜像巡逻 - 审核中未授权广告</b>\n"
+                    f"账户：{account.get('name', act_id)}\n"
+                    f"系列：<code>{cid}</code>\n"
+                    f"广告：{', '.join(ad_names)}\n"
+                    f"状态：{', '.join(set(a.get('effective_status', '') for a in rads))}\n"
+                    f"原因：广告不在快照白名单中且正处于审核状态，无法暂停\n"
+                    f"提示：审核通过后巡检引擎将自动关闭该系列"
+                )
+
+        if not unauthorized:
+            return
+
+        # 按系列去重
+        campaigns_to_pause = {}
+        for ad in unauthorized:
+            cid = ad.get("campaign_id", "")
+            if not cid:
+                cid = f"nocamp_{ad['id']}"
+            if cid not in campaigns_to_pause:
+                campaigns_to_pause[cid] = []
+            campaigns_to_pause[cid].append(ad)
+
+        for cid, camp_ads in campaigns_to_pause.items():
+            ad_names = [a.get("name", a["id"]) for a in camp_ads]
+            is_nocamp = cid.startswith("nocamp_")
+            if is_nocamp:
+                ad = camp_ads[0]
+                logger.warning(f"[Mirror Patrol] 未授权广告 {ad['id']} ({ad.get('name')})，直接暂停广告")
+                if self.dry_run:
+                    _log_action(act_id, "ad", ad["id"], ad.get("name", ad["id"]),
+                                "pause", "mirror_mode",
+                                f"[模拟][Patrol] 广告不在快照白名单",
+                                old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                status="success", operator="system")
+                else:
+                    ok, err_msg = _fb_post(ad["id"], token, {"status": "PAUSED"})
+                    action_status = "success" if (ok and _verify_status(ad["id"], token, "PAUSED")) else "failed"
+                    _log_action(act_id, "ad", ad["id"], ad.get("name", ad["id"]),
+                                "pause", "mirror_mode",
+                                "镜像巡逻：广告不在快照白名单",
+                                old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                status=action_status, error_msg=(err_msg if not ok else None),
+                                operator="system")
+                    _send_tg(
+                        f"🔒 <b>Mira 镜像巡逻</b>\n"
+                        f"账户：{account.get('name', act_id)}\n"
+                        f"广告：<code>{ad.get('name', ad['id'])}</code>\n"
+                        f"原因：广告不在快照白名单中，已自动暂停"
+                        + (f"\n❌ 暂停失败：{err_msg}" if action_status == "failed" else "")
+                    )
+            else:
+                logger.warning(f"[Mirror Patrol] 未授权广告 ({', '.join(ad_names)})，直接关闭系列 {cid}")
+                if self.dry_run:
+                    for ad in camp_ads:
+                        _log_action(act_id, "campaign", cid, f"[镜像] {ad.get('name', ad['id'])}的系列",
+                                    "pause", "mirror_mode",
+                                    f"[模拟][Patrol] 广告不在快照白名单，直接关闭系列",
+                                    old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                    status="success", operator="system")
+                    _send_tg(
+                        f"🔒 <b>Mira 镜像巡逻</b>\n"
+                        f"账户：{account.get('name', act_id)}\n"
+                        f"系列：<code>{cid}</code>\n"
+                        f"包含广告：{', '.join(ad_names)}\n"
+                        f"原因：广告不在快照白名单中，[DRY RUN] 模拟关闭系列"
+                    )
+                else:
+                    ok, err_msg = _fb_post(cid, token, {"status": "PAUSED"})
+                    if ok:
+                        time.sleep(2)
+                        verified = _verify_status(cid, token, "PAUSED")
+                        action_status = "success" if verified else "failed"
+                        if not verified:
+                            err_msg = "核验失败：系列effective_status未变为不可投放状态"
+                    else:
+                        action_status = "failed"
+                    for ad in camp_ads:
+                        _log_action(act_id, "campaign", cid, f"[镜像] {ad.get('name', ad['id'])}的系列",
+                                    "pause", "mirror_mode",
+                                    "镜像巡逻：广告不在快照白名单，直接关闭系列",
+                                    old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                                    status=action_status,
+                                    error_msg=err_msg if action_status == "failed" else None,
+                                    operator="system")
+                    if action_status == "success":
+                        _send_tg(
+                            f"🔒 <b>Mira 镜像巡逻</b>\n"
+                            f"账户：{account.get('name', act_id)}\n"
+                            f"系列：<code>{cid}</code>\n"
+                            f"包含广告：{', '.join(ad_names)}\n"
+                            f"原因：广告不在快照白名单中，已直接关闭系列"
+                        )
+                    else:
+                        _send_tg(
+                            f"🚨 <b>Mira 镜像巡逻 - 关闭系列失败!</b>\n"
+                            f"账户：{account.get('name', act_id)}\n"
+                            f"系列：<code>{cid}</code>\n"
+                            f"包含广告：{', '.join(ad_names)}\n"
+                            f"失败原因：{err_msg}\n"
+                            f"请立即手动处理!"
+                        )
+
+        logger.info(f"[Mirror Patrol] {act_id} 本次拦截 {len(unauthorized)} 条未授权广告，涉及 {len(campaigns_to_pause)} 个系列")
 
     def _check_rule(self, rule: dict, account: dict, token: str,
                     ad_id: str, adset_id: str, campaign_id: str, ad_name: str,
@@ -1381,7 +1791,7 @@ class ScaleEngine:
         conn = get_conn()
         # 只对 testing/scaling 阶段的账户执行拉量，避免对预热期账户误操作
         accounts = conn.execute(
-            "SELECT * FROM accounts WHERE lifecycle_stage IN ('testing','scaling') OR lifecycle_stage IS NULL"
+            "SELECT * FROM accounts WHERE enabled=1 AND account_status NOT IN (3, 7, 9) AND (lifecycle_stage IN ('testing','scaling') OR lifecycle_stage IS NULL)"
         ).fetchall()
         all_scale_rules = conn.execute("SELECT * FROM scale_rules WHERE enabled=1").fetchall()
         # 全局规则（act_id='__global__'）：对所有账户生效，参考止损规则的全局规则逻辑

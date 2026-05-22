@@ -2,12 +2,12 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-import os, time
+import os, time, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from core.app_meta import APP_VERSION, get_allowed_origins
-from core.database import init_db
-from core.auth import get_current_user
+from core.database import init_db, get_conn
+from core.auth import get_current_user, SECRET_KEY, ALGORITHM
 from api.auth import router as auth_router
 from api.accounts import router as accounts_router
 from api.rules import router as rules_router
@@ -22,6 +22,7 @@ from api.creative_gen import router as creative_gen_router
 from api.storage import router as storage_router
 from api.autopilot import router as autopilot_router
 from api.users import router as users_router
+from api.admin import router as admin_router
 from core.scheduler import start_scheduler
 import logging
 import sys
@@ -49,6 +50,45 @@ class TimingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class ActivityAuditMiddleware(BaseHTTPMiddleware):
+    """记录每个 API 请求到 user_activity_log，更新 users.last_active_at"""
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return await call_next(request)
+
+        start = time.time()
+        response = await call_next(request)
+        duration_ms = int((time.time() - start) * 1000)
+
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                token = auth_header[7:]
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                uid = payload.get("uid")
+                username = payload.get("username", "unknown")
+                role = payload.get("role", "viewer")
+                ip = request.client.host if request.client else ""
+
+                conn = get_conn()
+                conn.execute(
+                    """INSERT INTO user_activity_log (user_id, username, role, method, path, status_code, ip_address, duration_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (uid, username, role, request.method, path, response.status_code, ip, duration_ms)
+                )
+                conn.execute(
+                    "UPDATE users SET last_active_at=datetime('now','+8 hours'), last_ip=? WHERE username=?",
+                    (ip, username)
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass  # 审计日志失败不影响正常请求
+
+        return response
+
+
 app = FastAPI(title="Mira Ads Guard", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
@@ -56,27 +96,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-class ActivityMiddleware(BaseHTTPMiddleware):
-    """记录管理员活动时间戳，用于心跳检测"""
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # 只记录带认证头的请求（有 Authorization: Bearer 即为管理员操作）
-        auth = request.headers.get("authorization", "")
-        if auth.startswith("Bearer "):
-            try:
-                from core.database import get_conn
-                conn = get_conn()
-                conn.execute(
-                    "INSERT OR REPLACE INTO settings(key,value,label,category,sort_order) VALUES('last_admin_activity',datetime('now','+8 hours'),'（隐藏）','security',5)"
-                )
-                conn.commit()
-                conn.close()
-            except Exception:
-                pass
-        return response
-
-app.add_middleware(ActivityMiddleware)
 app.add_middleware(TimingMiddleware)
+app.add_middleware(ActivityAuditMiddleware)
 
 
 @app.on_event("startup")
@@ -102,6 +123,13 @@ async def startup():
     except Exception as e:
         import logging
         logging.getLogger("mira").warning(f"v4 migrate warning: {e}")
+    # v5.0 数据库迁移（用户活动监控相关列，幂等可重复执行）
+    try:
+        import db_migrate_v5
+        db_migrate_v5.run()
+    except Exception as e:
+        import logging
+        logging.getLogger("mira").warning(f"v5 migrate warning: {e}")
     start_scheduler()
 
 
@@ -120,7 +148,8 @@ app.include_router(creative_gen_router, prefix="/api/creative-gen", tags=["creat
 app.include_router(storage_router,       prefix="/api/storage",       tags=["storage"])
 app.include_router(autopilot_router,    prefix="/api/autopilot",    tags=["autopilot"])
 app.include_router(users_router,        prefix="/api/users",        tags=["users"])
-
+app.include_router(admin_router,       prefix="/api/admin",       tags=["admin"])
+app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
 
 
 # ── 健康检查（独立路由，不被 catch_all 拦截）──────────────────────────────

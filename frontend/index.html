@@ -1,13 +1,11 @@
 ﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Mira · 广告投放管理系统 v3.3.0</title>
-<script src="/chart.min.js"></script>
+<link rel="preconnect" href="https://graph.facebook.com" crossorigin>
+<script src="/chart.min.js" defer></script>
 <script>
 // ── 版位快捷选择 ──
 function applyPlacementPreset(preset) {
@@ -164,7 +162,7 @@ function toggleTwGroup(gid){
 
 </script>
 <style>
-:root{--bg:#0a0e1a;--bg2:#111827;--bg3:#161e2e;--bgh:#1e2a3a;--bgi:#0d1525;--bd:#1e2d45;--bd2:#253650;--t1:#e8f0fe;--t2:#8ba3c7;--t3:#4a6080;--ac:#3b82f6;--ach:#2563eb;--acg:rgba(59,130,246,.15);--ok:#10b981;--okg:rgba(16,185,129,.1);--wa:#f59e0b;--wag:rgba(245,158,11,.1);--er:#ef4444;--erg:rgba(239,68,68,.1);--pu:#8b5cf6;--pug:rgba(139,92,246,.1);--cy:#06b6d4;--cyg:rgba(6,182,212,.1);--sw:230px;--r:10px;--rs:6px;--sh:0 4px 24px rgba(0,0,0,.4);--tr:all .2s ease}
+:root{--bg:#0a0e1a;--bg2:#111827;--bg3:#161e2e;--bgh:#1e2a3a;--bgi:#0d1525;--bd:#1e2d45;--bd2:#253650;--t1:#e8f0fe;--t2:#8ba3c7;--t3:#4a6080;--ac:#3b82f6;--ach:#2563eb;--acg:rgba(59,130,246,.15);--ok:#10b981;--okg:rgba(16,185,129,.1);--wa:#f59e0b;--wag:rgba(245,158,11,.1);--er:#ef4444;--erg:rgba(239,68,68,.1);--pu:#8b5cf6;--pug:rgba(139,92,246,.1);--cy:#06b6d4;--cyg:rgba(6,182,212,.1);--green:#10b981;--blue:#3b82f6;--red:#ef4444;--warn:#f59e0b;--sw:230px;--r:10px;--rs:6px;--sh:0 4px 24px rgba(0,0,0,.4);--tr:all .2s ease}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;width:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--t1);font-size:14px;line-height:1.5}
 ::-webkit-scrollbar{width:5px;height:5px}
@@ -221,6 +219,7 @@ html,body{height:100%;width:100%;font-family:-apple-system,BlinkMacSystemFont,'S
 .page{display:none}
 .page.active{display:block;animation:pgIn .18s ease}
 @keyframes pgIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.page.active{animation:none}.mo .modal,.mo .modal-overlay{animation:none}}
 /* Page header */
 .ph{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
 .ph h2{font-size:20px;font-weight:700}
@@ -478,78 +477,140 @@ textarea.fc{resize:vertical;min-height:80px}
   .main-area{width:100%;min-width:0}
 
   /* Topbar: compact */
-  .topbar{padding:0 12px;height:52px;gap:8px}
+  .topbar{padding:0 10px;height:48px;gap:6px}
   .tb-title{font-size:14px}
   .tb-status{display:none}
-  .btn-inspect{padding:6px 10px;font-size:12px}
+  .btn-inspect{padding:6px 10px;font-size:11px}
   .ai-badge{display:none}
+  /* Hide reset cooldown + role label on mobile topbar */
+  .topbar .btn-sm[onclick*="reset-cooldown"], #tbRoleLabel{display:none}
 
-  /* Content padding */
-  .content{padding:16px 12px 72px}
+  /* Content padding — space for bottom nav */
+  .content{padding:14px 10px 72px}
 
-  /* Page header */
-  .ph{margin-bottom:16px}
-  .ph h2{font-size:17px}
-  .ph-acts{gap:6px}
-  .ph-acts .fc{min-width:120px !important;width:auto !important}
+  /* Page header — stack vertically */
+  .ph{flex-direction:column;align-items:stretch !important;margin-bottom:12px;gap:8px}
+  .ph h2{font-size:16px}
+  .ph p{font-size:12px}
+  .ph-acts{width:100%;flex-wrap:wrap;gap:6px}
+  .ph-acts .fc{flex:1 1 100px;min-width:90px !important;font-size:12px !important}
+  .ph-acts .btn{font-size:12px;padding:6px 10px}
 
   /* Stats grid: 2 columns */
-  .stats-grid{grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
-  .sc{padding:14px}
-  .sc-val{font-size:22px}
-  .sc-icon{font-size:22px;right:10px;top:10px}
+  .stats-grid{grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .sc{padding:12px}
+  .sc-val{font-size:20px}
+  .sc-label{font-size:11px}
+  .sc-icon{font-size:20px;right:8px;top:8px}
 
-  /* Charts: single column */
-  .charts-grid{grid-template-columns:1fr;gap:12px;margin-bottom:16px}
+  /* Charts: single column, smaller */
+  .charts-grid{grid-template-columns:1fr;gap:10px;margin-bottom:12px}
+  .chart-card{padding:14px}
+  .chart-card canvas{max-height:160px}
 
-  /* Tables: horizontal scroll */
-  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  table{min-width:520px}
-  th,td{padding:9px 10px;font-size:12px}
+  /* Tables: horizontal scroll with sticky header */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -1px}
+  table{min-width:560px;font-size:12px}
+  th{position:sticky;top:0;z-index:1;padding:8px 8px;font-size:10px}
+  td{padding:8px 8px;font-size:11px}
+  /* Larger touch targets for row action buttons */
+  td .btn-sm{padding:6px 10px !important;font-size:12px !important;min-height:34px}
+  td .btn-ic{padding:6px 8px !important;font-size:13px !important;min-height:34px}
+  /* Make clickable rows have clear tap feedback */
+  tr[onclick] td{cursor:pointer}
+  tr[onclick]:active td{background:var(--bgh)}
 
   /* Cards */
-  .card{padding:14px}
+  .card{padding:12px;border-radius:8px}
 
   /* Date selectors: wrap */
-  .date-row{flex-wrap:wrap !important;gap:8px !important}
-  .date-row .fc{width:70px !important}
+  .date-row{flex-wrap:wrap !important;gap:6px !important}
+  .date-row .fc{width:64px !important;font-size:11px !important}
 
-  /* Modals */
-  .modal-box{width:calc(100vw - 24px) !important;max-width:100% !important;max-height:90vh;overflow-y:auto}
+  /* Modals — fullscreen on mobile */
+  .modal{max-width:100vw !important;width:100vw !important;margin:0 !important;border-radius:12px 12px 0 0;max-height:92vh;overflow-y:auto;position:fixed;bottom:0;left:0;right:0}
+  .modal-overlay{display:flex;align-items:flex-end}
+  .modal-lg{max-width:100vw !important;width:100vw !important}
 
   /* Settings grid */
-  .sg{grid-template-columns:1fr !important}
+  .sg{grid-template-columns:1fr !important;gap:12px}
 
-  /* Account cards */
-  .acc-detail-grid{grid-template-columns:1fr 1fr}
+  /* Account cards — full width, tap-friendly */
+  .acc-card{border-radius:8px;margin-bottom:8px}
+  .acc-header{padding:12px;gap:10px;cursor:pointer}
+  .acc-header:active{background:var(--bgh)}
+  .acc-name{font-size:14px;font-weight:600}
+  .acc-id{font-size:11px}
+  .acc-meta{flex-wrap:wrap;gap:3px}
+  .acc-meta .badge{font-size:10px;padding:2px 6px}
+  .acc-detail-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .acc-detail-item{padding:8px 10px}
+  .acc-detail-label{font-size:10px}
+  .acc-detail-val{font-size:13px}
 
   /* Rule cards */
   .rc{flex-wrap:wrap}
   .rc-acts{width:100%;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--bd);margin-top:8px}
+  .rc-acts .btn-sm{padding:6px 10px;min-height:34px}
 
-  /* Filters row */
+  /* Filters row — stack on mobile */
   .fb{flex-wrap:wrap !important;gap:6px !important}
-  .fb .fc{min-width:0 !important;flex:1 1 140px}
+  .fb .fc{min-width:0 !important;flex:1 1 120px;font-size:12px !important;padding:6px 8px !important}
+  .fb input.fc[placeholder]{flex:2 1 160px}
 
   /* Quick date buttons */
-  .qdate-btns{flex-wrap:wrap}
+  .qdate-btns{flex-wrap:wrap;gap:3px}
+  .qdate-btn{padding:4px 8px;font-size:11px}
 
   /* Bottom nav visible */
   .mobile-nav{display:flex}
 
   /* Hide sidebar nav section titles on mobile drawer */
-  .nav-sec-title{font-size:9px}
+  .nav-sec-title{font-size:11px;letter-spacing:.5px}
 
   /* Login page */
   .lc{width:calc(100vw - 32px);padding:28px 20px}
+
+  /* KPI tabs — horizontal scroll */
+  .kpi-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;gap:4px}
+  .kpi-tab{flex-shrink:0;font-size:11px;padding:6px 10px}
+  /* KPI batch bar */
+  #kpiBatchBar{flex-wrap:wrap;gap:6px;padding:8px 10px}
+  #kpiBatchBar .btn-sm{padding:5px 8px;font-size:11px}
+
+  /* Template page grid */
+  .tpl-grid{grid-template-columns:1fr !important}
+
+  /* Launch page form — stack fields */
+  .launch-form .fr{grid-template-columns:1fr !important}
 }
 
 @media(max-width:400px){
   .stats-grid{grid-template-columns:1fr}
-  .sc-val{font-size:20px}
-  .content{padding:12px 10px 72px}
+  .sc-val{font-size:18px}
+  .content{padding:10px 8px 72px}
   .acc-detail-grid{grid-template-columns:1fr}
+  .topbar{gap:4px}
+  .tb-title{font-size:13px}
+  .ph-acts .fc{flex:1 1 80px;min-width:70px !important}
+  /* Single-column for narrowest screens */
+  .fb .fc{flex:1 1 100% !important}
+  .fb input.fc[placeholder]{flex:1 1 100% !important}
+  .charts-grid canvas{max-height:140px}
+  th,td{padding:6px 6px;font-size:10px}
 }
+
+/* ═══ Mobile More Menu (Bottom Sheet) ═══ */
+.mobile-more-menu{display:none;position:fixed;inset:0;z-index:300}
+.mobile-more-menu.open{display:block}
+.mobile-more-overlay{position:absolute;inset:0;background:rgba(0,0,0,.5);animation:fadeIn .2s}
+.mobile-more-sheet{position:absolute;bottom:0;left:0;right:0;background:var(--bg3);border-radius:16px 16px 0 0;padding:8px 16px 20px;padding-bottom:calc(20px + env(safe-area-inset-bottom));animation:slideUp .25s ease}
+.mobile-more-handle{width:36px;height:4px;background:var(--bd2);border-radius:2px;margin:0 auto 12px}
+.mobile-more-item{display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;background:transparent;border:none;border-radius:10px;color:var(--t1);font-size:15px;cursor:pointer;transition:background .15s}
+.mobile-more-item:hover,.mobile-more-item:active{background:var(--bgh)}
+.mobile-more-item span{font-size:20px}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 
 /* ═══ Searchable Select ═══ */
 .ss-wrap{position:relative;display:block}
@@ -629,6 +690,7 @@ textarea.fc{resize:vertical;min-height:80px}
             <span style="font-size:11px;font-weight:600;color:var(--t1)">安全守护</span>
             <span style="margin-left:auto;display:flex;gap:5px">
               <span id="sbSentinelDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="哨兵"></span>
+              <span id="sbMirrorDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="镜像"></span>
               <span id="sbHeartbeatDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="心跳"></span>
             </span>
           </div>
@@ -637,7 +699,7 @@ textarea.fc{resize:vertical;min-height:80px}
               <div style="display:flex;align-items:center;gap:5px;min-width:0">
                 <div style="line-height:1.3">
                   <div style="font-size:11px;color:var(--t1)">哨兵模式</div>
-                  <div style="font-size:9px;color:var(--t3);transition:color .3s" id="sentinelHint">-</div>
+                  <div style="font-size:11px;color:var(--t3);transition:color .3s" id="sentinelHint">-</div>
                 </div>
               </div>
               <span class="tgl-sw"><input type="checkbox" id="toggleSentinel" onchange="toggleSentinelMode()"><span class="tgl-tr"></span></span>
@@ -645,8 +707,17 @@ textarea.fc{resize:vertical;min-height:80px}
             <label class="sb-sec-row" style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;cursor:pointer;border-radius:6px;transition:background .15s">
               <div style="display:flex;align-items:center;gap:5px;min-width:0">
                 <div style="line-height:1.3">
+                  <div style="font-size:11px;color:var(--t1)">镜像模式</div>
+                  <div style="font-size:11px;color:var(--t3);transition:color .3s" id="mirrorHint">-</div>
+                </div>
+              </div>
+              <span class="tgl-sw"><input type="checkbox" id="toggleMirror" onchange="toggleMirrorMode()"><span class="tgl-tr"></span></span>
+            </label>
+            <label class="sb-sec-row" style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;cursor:pointer;border-radius:6px;transition:background .15s">
+              <div style="display:flex;align-items:center;gap:5px;min-width:0">
+                <div style="line-height:1.3">
                   <div style="font-size:11px;color:var(--t1)">心跳模式</div>
-                  <div style="font-size:9px;color:var(--t3);transition:color .3s" id="heartbeatHint">-</div>
+                  <div style="font-size:11px;color:var(--t3);transition:color .3s" id="heartbeatHint">-</div>
                 </div>
               </div>
               <span class="tgl-sw"><input type="checkbox" id="toggleHeartbeat" onchange="toggleHeartbeatMode()"><span class="tgl-tr"></span></span>
@@ -654,6 +725,7 @@ textarea.fc{resize:vertical;min-height:80px}
           </div>
         </div>
         <button class="btn-emg" onclick="showEmgModal()">🚨 一键紧急暂停</button>
+        <div style="margin-top:8px;font-size:10px;color:var(--t3);text-align:center;opacity:0.6" id="buildVer">build 250511-2249</div>
       </div>
     </aside>
     <div class="main-area">
@@ -680,7 +752,18 @@ textarea.fc{resize:vertical;min-height:80px}
               <p style="color:var(--t2);font-size:13px;margin-top:3px">投放数据概览</p>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
-              <select class="fc" id="dashAct" style="min-width:130px;max-width:160px;font-size:12px;padding:5px 8px" onchange="loadDash()"><option value="">全部账户</option></select>
+              <select class="fc" id="dashAct" style="min-width:130px;max-width:160px;font-size:12px;padding:5px 8px" onchange="localStorage.setItem('mira_dash_act',this.value);loadDash()"><option value="">全部账户</option></select>
+              <select class="fc" id="dashKpi" style="min-width:120px;font-size:12px;padding:5px 8px" onchange="localStorage.setItem('mira_dash_kpi',this.value);loadDash()">
+                <option value="">全部类型</option>
+                <option value="purchase">🛒 购买</option>
+                <option value="lead">📋 线索</option>
+                <option value="add_to_cart">🛍️ 加购</option>
+                <option value="initiate_checkout">💳 结账</option>
+                <option value="complete_registration">📝 注册</option>
+                <option value="messaging">💬 私信</option>
+                <option value="view_content">👁️ 浏览</option>
+                <option value="other">❓ 其他</option>
+              </select>
               <select class="fc" id="dashPreset" style="min-width:100px;font-size:12px;padding:5px 8px" onchange="onDashPresetChange(this.value)">
                 <option value="today">今日</option>
                 <option value="yesterday">昨日</option>
@@ -815,7 +898,7 @@ textarea.fc{resize:vertical;min-height:80px}
             </div>
             <div id="spendQueryEmpty" style="text-align:center;color:var(--t3);padding:20px;font-size:13px">👆 选择日期范围后点击查询，或使用快捷按钮</div>
           </div>
-          <div class="card"><div class="card-title">🔥 今日消耗 TOP 广告</div>
+          <div class="card"><div class="card-title" id="topAdsTitle">🔥 今日消耗 TOP 广告</div>
             <div class="table-wrap"><table>
               <thead><tr><th>广告名称</th><th>账户</th><th>消耗</th><th>转化</th><th>CPA</th><th>目标CPA</th><th>ROAS</th><th>KPI状态</th></tr></thead>
               <tbody id="topAds"></tbody>
@@ -867,6 +950,7 @@ textarea.fc{resize:vertical;min-height:80px}
           <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--bd)">
             <button class="rtab active" data-logtab="ops" onclick="switchLogTab('ops')">📝 操作日志</button>
             <button class="rtab" data-logtab="sys" onclick="switchLogTab('sys')">🖥️ 系统日志</button>
+            <button class="rtab role-admin-only" data-logtab="users" onclick="switchLogTab('users')" style="display:none">👤 用户活动</button>
           </div>
           <!-- 操作日志面板 -->
           <div id="logPanelOps">
@@ -914,6 +998,27 @@ textarea.fc{resize:vertical;min-height:80px}
                 <div style="text-align:center;color:var(--t3);padding:30px">正在加载系统日志...</div>
               </div>
             </div>
+          </div>
+          <!-- 用户活动面板（仅 admin/superadmin 可见） -->
+          <div id="logPanelUsers" style="display:none">
+            <div id="onlineUsersBar" style="display:flex;align-items:center;gap:10px;padding:10px 0;flex-wrap:wrap;font-size:13px;color:var(--t2)"></div>
+            <div class="fb">
+              <select class="fc" id="uaUser" onchange="loadUserActivity()"><option value="">全部用户</option></select>
+              <select class="fc" id="uaMethod" onchange="loadUserActivity()">
+                <option value="">全部方法</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+              <span style="margin-left:auto;font-size:12px;color:var(--t3)" id="uaCount"></span>
+              <button class="btn btn-g btn-sm" onclick="loadUserActivity()">🔄 刷新</button>
+            </div>
+            <div class="card" style="padding:0"><div class="table-wrap"><table>
+              <thead><tr><th>时间</th><th>用户</th><th>角色</th><th>请求路径</th><th>方法</th><th>状态码</th><th>IP</th><th>耗时</th></tr></thead>
+              <tbody id="uaBody"></tbody>
+            </table></div></div>
+            <div class="pag" id="uaPag"></div>
           </div>
         </div>
         <!-- Tokens -->
@@ -1131,7 +1236,7 @@ textarea.fc{resize:vertical;min-height:80px}
         <!-- 主页库 -->
         <div class="page" id="page-twpages">
           <div class="ph">
-            <div><h2>📄 主页库</h2><p>管理已接入系统的 Facebook 主页；Verified ID 仅保留手动填写，不再自动识别</p></div>
+            <div><h2>📄 主页库</h2><p>管理已接入系统的 Facebook 主页；扫描时自动探测 Verified ID 候选，也可手动填写</p></div>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-p" id="btnScanTwPages" onclick="scanTwCertPages()">🔍 自动扫描所有 Token 主页</button>
             </div>
@@ -1139,9 +1244,9 @@ textarea.fc{resize:vertical;min-height:80px}
           <div class="ss" style="margin-bottom:14px">
             <div class="ss-title">说明</div>
             <div style="font-size:13px;color:var(--t2);line-height:1.7">
-              对需要认证的地区，广告往往要提供<b>受益方（Beneficiary）</b>的实名认证编号。系统现在只负责同步主页、矩阵和对应 Token，不再自动猜测 Verified ID。<br>
+              对需要认证的地区，广告往往要提供<b>受益方（Beneficiary）</b>的实名认证编号。系统现在只负责同步主页、矩阵和对应 Token，扫描仅探测候选 Verified ID。<br>
               录入后，铺广告时系统会优先匹配当前账户矩阵里有权限的主页；如该主页已在广告后台完成认证，请手动把真实可用的 Verified ID 填进来。<br>
-              <span style="color:var(--wa)">⚠️ 请以 Facebook 广告后台实际显示并可投放通过的 Verified ID 为准，系统不会再自动带入候选值。</span>
+              <span style="color:var(--wa)">⚠️ 请以 Facebook 广告后台实际显示并可投放通过的 Verified ID 为准，自动识别结果仅作为候选参考，请以 Facebook 广告后台实际显示为准确认。</span>
             </div>
           </div>
           <div class="ss">
@@ -1174,7 +1279,7 @@ textarea.fc{resize:vertical;min-height:80px}
                 <input class="fc" id="twNewPageName2" placeholder="如：AI股市">
               </div>
               <div class="fg" style="margin:0">
-                <label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint2">(请手动填写广告后台已验证通过的 ID)</span></label>
+                <label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint2">(扫描时自动探测，也可手动填写)</span></label>
                 <input class="fc" id="twNewVerifiedId2" placeholder="如：1483822239783037">
               </div>
               <div class="fg" style="margin:0">
@@ -1881,16 +1986,29 @@ textarea.fc{resize:vertical;min-height:80px}
     <button class="mn-item" id="mn-ads" onclick="showPage('ads');setMobileNav('ads')">
       <span class="mn-icon">📋</span><span>广告</span>
     </button>
-    <button class="mn-item" id="mn-rules" onclick="showPage('rules');setMobileNav('rules')">
-      <span class="mn-icon">⚙️</span><span>规则</span>
-    </button>
     <button class="mn-item" id="mn-accounts" onclick="showPage('accounts');setMobileNav('accounts')">
       <span class="mn-icon">🏦</span><span>账户</span>
     </button>
-    <button class="mn-item" id="mn-settings" onclick="showPage('settings');setMobileNav('settings')">
-      <span class="mn-icon">🔧</span><span>更多</span>
+    <button class="mn-item" id="mn-rules" onclick="showPage('rules');setMobileNav('rules')">
+      <span class="mn-icon">⚙️</span><span>规则</span>
+    </button>
+    <button class="mn-item" id="mn-more" onclick="toggleMobileMoreMenu()">
+      <span class="mn-icon">⋯</span><span>更多</span>
     </button>
   </nav>
+  <!-- Mobile "More" popup menu -->
+  <div class="mobile-more-menu" id="mobileMoreMenu" style="display:none">
+    <div class="mobile-more-overlay" onclick="toggleMobileMoreMenu()"></div>
+    <div class="mobile-more-sheet">
+      <div class="mobile-more-handle"></div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px;text-align:center;color:var(--t2)">更多功能</div>
+      <button class="mobile-more-item" onclick="showPage('assets');setMobileNav('');toggleMobileMoreMenu()"><span>🎦</span> 素材库</button>
+      <button class="mobile-more-item" onclick="showPage('logs');setMobileNav('');toggleMobileMoreMenu()"><span>📝</span> 操作日志</button>
+      <button class="mobile-more-item" onclick="showPage('tokens');setMobileNav('');toggleMobileMoreMenu()"><span>🔑</span> Token 管理</button>
+      <button class="mobile-more-item" onclick="showPage('settings');setMobileNav('settings');toggleMobileMoreMenu()"><span>🔧</span> 系统设置</button>
+      <button class="mobile-more-item" onclick="toggleMobileMoreMenu()" style="color:var(--t3)"><span>✕</span> 取消</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal: Add Token -->
@@ -2845,6 +2963,49 @@ textarea.fc{resize:vertical;min-height:80px}
   </div>
 </div>
 
+<!-- Mirror Snapshot Modal -->
+<div class="mo" id="moMirrorSnapshot">
+  <div class="modal" style="max-width:560px">
+    <div class="mh"><h3>🪞 镜像快照</h3><button class="mc" onclick="closeModal('moMirrorSnapshot')">✕</button></div>
+    <div class="mb" id="mirrorSnapshotBody" style="max-height:60vh;overflow-y:auto">
+      <div style="text-align:center;padding:20px;color:var(--t3)"><span class="spin"></span> 加载中...</div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-g" onclick="closeModal('moMirrorSnapshot')">关闭</button>
+      <button class="btn btn-p" onclick="mirrorRefreshSnapshot()">🔄 刷新快照</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Spend Cap -->
+<div class="mo" id="moSpendCap">
+  <div class="modal" style="max-width:440px">
+    <div class="mh"><h3>💰 设置消费上限</h3><button class="mc" onclick="closeModal('moSpendCap')">✕</button></div>
+    <div class="mb">
+      <div class="info-box" style="margin-bottom:14px;font-size:12px">
+        💡 通过 <b>Facebook API</b> 直接设置账户 <code>spend_cap</code>，FB 平台强制执行。达到上限后 FB 自动停止投放广告。
+      </div>
+      <div id="spendCapInfo" style="margin-bottom:12px;font-size:13px;color:var(--t2)"></div>
+      <div class="fg">
+        <label class="fl">消费上限 (USD)</label>
+        <input class="fc" id="spendCapInput" type="number" min="0" step="10" placeholder="输入金额，留空或 0 = 移除上限">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-g btn-sm" onclick="document.getElementById('spendCapInput').value='100'">$100</button>
+        <button class="btn btn-g btn-sm" onclick="document.getElementById('spendCapInput').value='300'">$300</button>
+        <button class="btn btn-g btn-sm" onclick="document.getElementById('spendCapInput').value='500'">$500</button>
+        <button class="btn btn-g btn-sm" onclick="document.getElementById('spendCapInput').value='1000'">$1,000</button>
+      </div>
+      <div id="spendCapError" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-r btn-sm" id="btnRemoveCap" style="margin-right:auto;display:none" onclick="submitSpendCap(0)">移除上限</button>
+      <button class="btn btn-g" onclick="closeModal('moSpendCap')">取消</button>
+      <button class="btn btn-p" id="btnSubmitCap" onclick="submitSpendCap()">确认设置</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ──
 var APP_VERSION='v3.2.1';
@@ -2978,7 +3139,8 @@ function toast(msg,type){
   var t=document.createElement('div');
   var icons={ok:'✅',er:'❌',ac:'ℹ️',wa:'⚠️'};
   t.className='toast t-'+type;
-  t.innerHTML='<span>'+(icons[type]||'ℹ️')+'</span><span>'+msg+'</span>';
+  t.innerHTML='<span>'+(icons[type]||'ℹ️')+'</span><span></span>';
+  t.lastChild.textContent=msg;
   c.appendChild(t);
   setTimeout(function(){
     t.style.transition='opacity .3s';
@@ -3126,6 +3288,9 @@ function applyRolePermissions(role){
   var level = ROLE_LEVELS[role]||10;
   document.querySelectorAll('.role-hide-viewer').forEach(function(el){
     el.style.display = level<=10 ? 'none' : '';
+  });
+  document.querySelectorAll('.role-admin-only').forEach(function(el){
+    el.style.display = level>=80 ? '' : 'none';
   });
   document.querySelectorAll('.role-superadmin-only').forEach(function(el){
     el.style.display = level>=100 ? '' : 'none';
@@ -3445,6 +3610,7 @@ async function initApp(){
       if(rl)rl.textContent=me.role_label||'';
       // 权限控制：viewer隐藏操作性导航
       applyRolePermissions(me.role);
+      if(hasRole('admin')) loadActivityUsernames();
     }
   }catch(e){}
   await loadAccounts();
@@ -3476,6 +3642,12 @@ async function loadAccounts(){
     ['dashAct','adsAct','logAct','spendActSel','rulesAct','kpiAct'].forEach(function(id){
       var el=document.getElementById(id);if(el)el.innerHTML=opts;
     });
+    // 恢复用户上次选择的看板账户（持久化到下次更改）
+    var savedAct=localStorage.getItem('mira_dash_act');
+    if(savedAct){var da=document.getElementById('dashAct');if(da)da.value=savedAct;}
+    // 恢复用户上次选择的 KPI 类型筛选
+    var savedKpi=localStorage.getItem('mira_dash_kpi');
+    if(savedKpi){var dk=document.getElementById('dashKpi');if(dk)dk.value=savedKpi;}
     // 规则模态框账户选择（不含全部）
     var optsNoAll=accounts.map(function(a){return'<option value="'+a.act_id+'">'+a.name+'</option>'}).join('');
     ['ruleAct','kpiActSel','scanAct'].forEach(function(id){
@@ -3644,7 +3816,7 @@ function toggleAccDetail(mode){
       var balUsd=bUsd!=null?bUsd:(bRaw!=null?bRaw:0);
       var balDisplay=bRaw!=null?(cur!=='USD'?(bRaw.toFixed(2)+' '+cur+' ≈ $'+balUsd.toFixed(2)):'$'+balUsd.toFixed(2)):'--';
       var s=(a.account_status||a.status||'').toString();
-      var statusBadge=s==='1'||s==='active'||s==='ACTIVE'||s==='ok'?'<span class="badge bg-ok">可用</span>':s==='7'||s==='debt'?'<span class="badge bg-er">欠费</span>':s==='no_token'?'<span class="badge bg-wa">无Token</span>':s==='error'?'<span class="badge bg-er">错误</span>':'<span class="badge bg-mu">已禁用</span>';
+      var statusBadge=s==='1'||s==='active'||s==='ACTIVE'||s==='ok'?'<span class="badge bg-ok">可用</span>':s==='7'?'<span class="badge bg-wa">政策限制</span>':s==='debt'?'<span class="badge bg-wa">欠费</span>':s==='no_token'?'<span class="badge bg-wa">无Token</span>':s==='error'?'<span class="badge bg-er">错误</span>':'<span class="badge bg-mu">已禁用</span>';
       var tz=a.timezone_name||a.timezone||'--';
       return '<tr><td><div style="font-size:13px">'+(a.name||a.act_id)+'</div><div class="td-id">'+a.act_id+'</div></td>'
         +'<td>'+cur+'</td>'
@@ -3774,12 +3946,15 @@ function setDashCustom(){
   if(df>dt){var tmp=df;df=dt;dt=tmp;if(dfEl)dfEl.value=df;if(dtEl)dtEl.value=dt;}
   dashDateFrom=df;dashDateTo=dt;
   var days=Math.round((new Date(dt)-new Date(df))/86400000)+1;
-  var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent=(days===1?df:df+' ~ '+dt)+' 消耗';
-  var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent=(days===1?df:df+' ~ '+dt)+' 转化';
+  var rangeLabel=days===1?df:df+' ~ '+dt;
+  var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent=rangeLabel+' 消耗';
+  var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent=rangeLabel+' 转化';
+  var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='自定义 ('+rangeLabel+')';
+  var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent='🔥 '+rangeLabel+' 消耗 TOP 广告';
   loadDash();
 }
 function setDashRange(v){
-  var today=new Date(new Date().getTime()+8*3600000),fmt=function(d){return new Date(d.getTime()+8*3600000).toISOString().slice(0,10)};
+  var today=new Date(),fmt=function(d){return new Date(d.getTime()+8*3600000).toISOString().slice(0,10)};
   // 同步下拉框选项
   var preset=document.getElementById('dashPreset');
   var customDiv=document.getElementById('dashCustomDates');
@@ -3787,16 +3962,18 @@ function setDashRange(v){
   if(v==='today'){
     dashDateFrom=dashDateTo=fmt(today);
     if(preset)preset.value='today';
-    var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='今日总消耗';
-    var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='今日总转化';
-    var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='今日';
+    var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='今日 ('+dashDateFrom+') 总消耗';
+    var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='今日 ('+dashDateFrom+') 总转化';
+    var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='今日 ('+dashDateFrom+')';
+    var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent='🔥 今日 ('+dashDateFrom+') 消耗 TOP 广告';
   }else if(v==='yesterday'){
     var y=new Date(today);y.setDate(y.getDate()-1);
     dashDateFrom=dashDateTo=fmt(y);
     if(preset)preset.value='yesterday';
-    var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='昨日总消耗';
-    var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='昨日总转化';
-    var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='昨日';
+    var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='昨日 ('+dashDateFrom+') 总消耗';
+    var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='昨日 ('+dashDateFrom+') 总转化';
+    var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='昨日 ('+dashDateFrom+')';
+    var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent='🔥 昨日 ('+dashDateFrom+') 消耗 TOP 广告';
   }else{
     var n=parseInt(v)||7;
     var s=new Date(today);s.setDate(s.getDate()-(n-1));
@@ -3804,7 +3981,8 @@ function setDashRange(v){
     if(preset)preset.value=String(n);
     var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='近'+n+'天消耗';
     var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='近'+n+'天转化';
-    var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='近'+n+'天';
+    var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='近'+n+'天 ('+dashDateFrom+' ~ '+dashDateTo+')';
+    var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent='🔥 近'+n+'天 ('+dashDateFrom+' ~ '+dashDateTo+') 消耗 TOP 广告';
   }
   // 同步日期输入框
   var dfEl=document.getElementById('dashDf'),dtEl=document.getElementById('dashDt');
@@ -3829,7 +4007,7 @@ async function loadDash(){
     var results=await Promise.all([
       api('GET','/dashboard/summary'+q),
       api('GET','/dashboard/trend'+trendQ),
-      api('GET','/dashboard/ads'+(a?'?act_id='+a:''))
+      api('GET','/dashboard/ads?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:''))
     ]);
     var sum=results[0],trend=results[1],top=results[2];
     if(sum){
@@ -3870,18 +4048,49 @@ async function loadDash(){
       var balTotal=0;
       if(window._accDetails&&window._accDetails.length){
         balTotal=_sumBalance(window._accDetails);
-        document.getElementById('s-balance').textContent='$'+balTotal.toFixed(0);
+        document.getElementById('s-balance').textContent='$'+balTotal.toFixed(2);
       }else{
         // 异步拉取账户余额
         api('GET','/accounts').then(function(accs){
           var t=_sumBalance(accs||[]);
-          document.getElementById('s-balance').textContent='$'+t.toFixed(0);
+          document.getElementById('s-balance').textContent='$'+t.toFixed(2);
           window._balanceDetails=accs||[];
         }).catch(function(){document.getElementById('s-balance').textContent='--';});
       }
     }
+    // KPI 类型筛选：前端过滤 ads + 重算汇总（覆盖后端 summary）
+    var kpiFilter=(document.getElementById('dashKpi')&&document.getElementById('dashKpi').value)||'';
+    // 清除筛选时还原标题
+    if(!kpiFilter){var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent=tt.textContent.replace(/^🔥 [^ ]+ · /,'🔥 ');}
+    if(kpiFilter&&top&&top.length){
+      top=top.filter(function(ad){
+        var kf=(ad.kpi_field||'').toLowerCase();
+        if(kpiFilter==='other'){
+          var mains=['purchase','lead','add_to_cart','initiate_checkout','complete_registration','messaging','view_content'];
+          for(var i=0;i<mains.length;i++){if(kf.indexOf(mains[i])>=0)return false;}
+          return true;
+        }
+        return kf.indexOf(kpiFilter)>=0;
+      });
+      // 重算汇总
+      var fSpend=0,fConv=0,fPurchVal=0;
+      top.forEach(function(ad){fSpend+=ad.spend||0;fConv+=ad.conversions||0;fPurchVal+=(ad.roas||0)*(ad.spend||0);});
+      var fCpa=fConv>0?fSpend/fConv:0;
+      var fRoas=fSpend>0?fPurchVal/fSpend:0;
+      document.getElementById('s-spend').textContent='$'+fSpend.toFixed(2);
+      document.getElementById('s-conv').textContent=fConv.toFixed(0);
+      document.getElementById('s-cpa').textContent=fCpa>0?'$'+fCpa.toFixed(2):'--';
+      document.getElementById('s-roas').textContent=fRoas>0?fRoas.toFixed(2)+'x':'--';
+      var _sAds=document.getElementById('s-ads');if(_sAds)_sAds.textContent=top.length;
+      // 标题加筛选标识（防重复追加）
+      var kpiLabel=document.getElementById('dashKpi').selectedOptions[0].textContent;
+      var tt=document.getElementById('topAdsTitle');if(tt){
+        var base=tt.textContent.replace(/^🔥 [^ ]+ · /,'🔥 ');
+        tt.textContent='🔥 '+kpiLabel+' ·'+base.slice(1);
+      }
+    }
     if(trend)renderCharts(trend);
-    if(top)renderTopAds(top.slice(0,10));
+    if(top)renderTopAds(top.slice(0,kpiFilter?20:10));
     document.getElementById('lastTime').textContent='已更新 '+_cst(new Date().toISOString().replace('T',' ').slice(0,16));
   }catch(e){
     console.error('loadDash error',e);
@@ -3919,7 +4128,7 @@ function renderTopAds(ads){
     var cc=a.target_cpa?(a.cpa<=a.target_cpa?'cpa-good':a.cpa<=a.target_cpa*1.3?'cpa-warn':'cpa-bad'):'';
     var _kpiLabel=a.kpi_label||(a.kpi_field?a.kpi_field:'');
     var _srcBadge=a.source==='manual'?'<span style="font-size:10px;color:var(--t3);margin-left:4px">人工</span>':a.source==='ai'?'<span style="font-size:10px;color:#7c6fcd;margin-left:4px">AI</span>':a.source?'<span style="font-size:10px;color:var(--t3);margin-left:4px">自动</span>':'';
-    var kpiSt=a.kpi_field?(a.cpa&&a.target_cpa?(a.cpa<=a.target_cpa?'<span class="badge bg-ok">达标</span>':a.cpa<=a.target_cpa*1.3?'<span class="badge bg-wa">偏高</span>':'<span class="badge bg-er">超标</span>')+'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+_kpiLabel+'</div>':'<span class="badge bg-ac" style="font-size:11px">'+_kpiLabel+'</span>'+_srcBadge+(a.target_cpa?'':'<div style="font-size:10px;color:var(--t3)">未设CPA</div>')):'<span class="badge bg-mu">未设目标</span>';    return'<tr><td><div class="td-name" title="'+_esc(a.ad_name)+'">'+ _esc(a.ad_name)+'</div><div class="td-id">'+a.ad_id+'</div></td><td><span class="td-id">'+a.act_id+'</span></td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0).toFixed(0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">未设</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td></tr>';
+    var kpiSt=a.kpi_field?(a.cpa&&a.target_cpa?(a.cpa<=a.target_cpa?'<span class="badge bg-ok">达标</span>':a.cpa<=a.target_cpa*1.3?'<span class="badge bg-wa">偏高</span>':'<span class="badge bg-er">超标</span>')+'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+_kpiLabel+'</div>':'<span class="badge bg-ac" style="font-size:11px">'+_kpiLabel+'</span>'+_srcBadge+(a.target_cpa?'':'<div style="font-size:10px;color:var(--t3)">未设CPA</div>')):'<span class="badge bg-mu">未设目标</span>';    return'<tr><td><div class="td-name" title="'+_esc(a.ad_name)+'">'+ _esc(a.ad_name)+'</div><div class="td-id">'+a.ad_id+'</div></td><td><span style="font-weight:500;font-size:13px">'+_esc(a.account_name||a.act_id)+'</span><br><span class="td-id">'+a.act_id+'</span></td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0).toFixed(0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">未设</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td></tr>';
   }).join('');
 }
 
@@ -3937,7 +4146,7 @@ function showPauseDetailsModal(){
     var badge=isEmg?'<span class="badge bg-er">紧急</span>':'<span class="badge bg-wa">规则</span>';
     return '<tr><td style="font-size:12px;white-space:nowrap;color:var(--t3)">'+(_cst(d.created_at||d.time||'')||'--')+'</td>'+
       '<td style="font-size:12px"><div class="td-name" style="max-width:160px" title="'+(d.ad_name||d.target_name||'')+'">'+((d.ad_name||d.target_name||'--').slice(0,30))+'</div></td>'+
-      '<td style="font-size:12px;color:var(--t3)">'+(d.act_id||'').replace(/^act_/,'')+'</td>'+
+      '<td style="font-size:12px">'+(d.account_name||(d.act_id||'').replace(/^act_/,''))+'<br><span class="td-id">'+(d.act_id||'').replace(/^act_/,'')+'</span></td>'+
       '<td>'+badge+'</td>'+
       '<td style="font-size:11px;color:var(--t2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(d.reason||d.trigger_reason||'')+'">'+((d.reason||d.trigger_reason||'--').slice(0,50))+'</td>'+
     '</tr>';
@@ -4012,7 +4221,7 @@ async function querySpend(){
     // 明细表格
     document.getElementById('spendQueryBody').innerHTML=r.rows.map(function(row){
       var spendStr=row.currency&&row.currency!=='USD'?'<span style="color:var(--t1)">'+(row.spend_orig||0).toFixed(2)+' '+row.currency+'</span>':'--';
-      return'<tr><td>'+row.date+'</td><td><span class="td-id">'+row.act_id+'</span><br><span style="font-size:12px;color:var(--t2)">'+(row.account_name||'')+'</span></td><td>'+spendStr+'</td><td><strong>$'+(row.spend_usd||row.spend_orig||0).toFixed(2)+'</strong></td><td>'+(row.conversions||0)+'</td><td>'+(row.cpa_usd?'$'+row.cpa_usd.toFixed(2):'--')+'</td><td>'+(row.roas?row.roas.toFixed(2)+'x':'--')+'</td></tr>';
+      return'<tr><td>'+row.date+'</td><td><span style="font-weight:500;font-size:13px">'+(row.account_name||row.act_id)+'</span><br><span class="td-id">'+row.act_id+'</span></td><td>'+spendStr+'</td><td><strong>$'+(row.spend_usd||row.spend_orig||0).toFixed(2)+'</strong></td><td>'+(row.conversions||0)+'</td><td>'+(row.cpa_usd?'$'+row.cpa_usd.toFixed(2):'--')+'</td><td>'+(row.roas?row.roas.toFixed(2)+'x':'--')+'</td></tr>';
     }).join('');
   }catch(e){
     document.getElementById('spendProgress').style.display='none';
@@ -4023,7 +4232,7 @@ async function querySpend(){
 
 // ── Ads ──
 function setAdsRange(days){
-  var today=new Date(new Date().getTime()+8*3600000),fmt=function(d){return new Date(d.getTime()+8*3600000).toISOString().slice(0,10)};
+  var today=new Date(),fmt=function(d){return new Date(d.getTime()+8*3600000).toISOString().slice(0,10)};
   var s=new Date(today);s.setDate(s.getDate()-(days-1));
   var df=fmt(s),dt=fmt(today);
   var dfEl=document.getElementById('adsDateFrom'),dtEl=document.getElementById('adsDateTo');
@@ -4043,7 +4252,7 @@ async function loadAds(){
     var dateTo=document.getElementById('adsDateTo')&&document.getElementById('adsDateTo').value||'';
     // 默认近7天
     if(!dateFrom||!dateTo){
-      var today=new Date(new Date().getTime()+8*3600000),fmt=function(d){return new Date(d.getTime()+8*3600000).toISOString().slice(0,10)};
+      var today=new Date(),fmt=function(d){return new Date(d.getTime()+8*3600000).toISOString().slice(0,10)};
       var s=new Date(today);s.setDate(s.getDate()-6);
       dateFrom=fmt(s);dateTo=fmt(today);
       var dfEl=document.getElementById('adsDateFrom'),dtEl=document.getElementById('adsDateTo');
@@ -4075,7 +4284,7 @@ function filterAds(){
     return true;
   });
   var tb=document.getElementById('adsBody');
-  if(!f.length){tb.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--t3);padding:40px">暂无匹配数据</td></tr>';document.getElementById('adsCount').textContent='';return}
+  if(!f.length){tb.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--t3);padding:40px">暂无匹配数据<br><button class=\"btn btn-g btn-sm\" style=\"margin-top:10px\" onclick=\"var q=document.getElementById(\x27adsQ\x27);if(q)q.value=\x27\x27;var s=document.getElementById(\x27adsSt\x27);if(s)s.value=\x27\x27;loadAds()\">🔄 清空筛选</button></td></tr>';document.getElementById('adsCount').textContent='';return}
   tb.innerHTML=f.map(function(a){
     var cc=a.target_cpa?(a.cpa<=a.target_cpa?'cpa-good':a.cpa<=a.target_cpa*1.3?'cpa-warn':'cpa-bad'):'';
     var _kpiLabel=a.kpi_label||(a.kpi_field?a.kpi_field.split('.').pop():'');
@@ -4100,7 +4309,7 @@ function filterAds(){
     var adStBadge=_adStMap[adSt]||'<span class="badge bg-mu" title="'+adSt+'">'+adSt+'</span>';
     var adDetailId='adrow_'+a.ad_id.replace(/[^a-z0-9]/gi,'_');
     var copyBtn='<button class="btn-ic" title="复制广告ID" onclick="event.stopPropagation();navigator.clipboard&&navigator.clipboard.writeText(\'' + a.ad_id + '\').then(function(){toast(\'已复制广告ID\',\'ok\')})" style="font-size:11px;padding:2px 5px">📋</button>';
-    return'<tr style="cursor:pointer" onclick="toggleAdDetail(\''+adDetailId+'\')">'+'<td><div class="td-name" title="'+a.ad_name+'">'+a.ad_name+'</div><div class="td-id" style="display:flex;align-items:center;gap:4px">'+a.ad_id+copyBtn+'</div></td><td><span class="td-id">'+(a.act_id||'').replace(/^act_/,'')+'</span><br><span style="font-size:11px;color:var(--t3)">'+(a.account_name||'')+'</span></td><td>'+adStBadge+'</td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td><td>'+kpiBtn+diagBtn+'</td></tr>'+'<tr id="'+adDetailId+'" style="display:none"><td colspan="10" style="padding:8px 14px;background:var(--bg3);border-bottom:1px solid var(--bd)"><div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--t2)"><span>广告ID: <code style="color:var(--t1)">'+a.ad_id+'</code></span>'+(a.adset_id?'<span>广告组ID: <code style="color:var(--t1)">'+a.adset_id+'</code></span>':'')+(a.campaign_id?'<span>系列ID: <code style="color:var(--t1)">'+a.campaign_id+'</code></span>':'')+'<span>账户: <code style="color:var(--t1)">'+(a.act_id||'')+'</code></span></div></td></tr>';
+    return'<tr style="cursor:pointer" onclick="toggleAdDetail(\''+adDetailId+'\')">'+'<td><div class="td-name" title="'+a.ad_name+'">'+a.ad_name+'</div><div class="td-id" style="display:flex;align-items:center;gap:4px">'+a.ad_id+copyBtn+'</div></td><td><span style="font-weight:500;font-size:13px">'+(a.account_name||(a.act_id||'').replace(/^act_/,''))+'</span><br><span class="td-id">'+(a.act_id||'').replace(/^act_/,'')+'</span></td><td>'+adStBadge+'</td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td><td>'+kpiBtn+diagBtn+'</td></tr>'+'<tr id="'+adDetailId+'" style="display:none"><td colspan="10" style="padding:8px 14px;background:var(--bg3);border-bottom:1px solid var(--bd)"><div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--t2)"><span>广告ID: <code style="color:var(--t1)">'+a.ad_id+'</code></span>'+(a.adset_id?'<span>广告组ID: <code style="color:var(--t1)">'+a.adset_id+'</code></span>':'')+(a.campaign_id?'<span>系列ID: <code style="color:var(--t1)">'+a.campaign_id+'</code></span>':'')+'<span>账户: <code style="color:var(--t1)">'+(a.act_id||'')+'</code></span></div></td></tr>';
   }).join('');
   document.getElementById('adsCount').textContent='共 '+f.length+' 条（总 '+allAds.length+' 条）';
 }
@@ -4921,7 +5130,7 @@ async function loadAccsPage(){
 
 function getAccStatusBadge(a){
   var s=(a.account_status||a.status||'').toString();
-  var statusMap={'1':'<span class="badge bg-ok">✅ 可用</span>','2':'<span class="badge bg-mu">⚪ 未审核</span>','3':'<span class="badge bg-er">🚫 封禁</span>','7':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">💸 欠费</span>','9':'<span class="badge bg-mu">⚪ 已关闭</span>','active':'<span class="badge bg-ok">✅ 可用</span>','ACTIVE':'<span class="badge bg-ok">✅ 可用</span>','debt':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">💸 欠费</span>','disabled':'<span class="badge bg-mu">⚪ 已停用</span>','api_error':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">⚠️ BM异常</span>','no_token':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">⚠️ 无Token</span>'};
+  var statusMap={'1':'<span class="badge bg-ok">✅ 可用</span>','2':'<span class="badge bg-wa">⚪ 已禁用</span>','3':'<span class="badge bg-er">🚫 支付失败</span>','7':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">⚠️ 政策限制</span>','9':'<span class="badge bg-mu">⚪ 已关闭</span>','active':'<span class="badge bg-ok">✅ 可用</span>','ACTIVE':'<span class="badge bg-ok">✅ 可用</span>','debt':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">💸 欠费</span>','disabled':'<span class="badge bg-mu">⚪ 已停用</span>','api_error':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">⚠️ BM异常</span>','no_token':'<span class="badge" style="background:rgba(245,158,11,.15);color:#b45309">⚠️ 无Token</span>'};
   return statusMap[s]||'<span class="badge bg-mu">'+s+'</span>';
 }
 
@@ -5029,7 +5238,8 @@ function renderAccCard(a,idx){
     '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showPage(\'rules\');document.getElementById(\'rulesAct\').value=\''+a.act_id+'\';loadRules()">⚙️ 规则引擎</button>'+
     '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openOpPoolModal(\''+a.act_id+'\')">🔐 操作号配置</button>'+
     '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openPagePixelModal(\''+a.act_id+'\')">🏠 主页/像素</button>'+
-    '<button class="btn btn-r btn-sm" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">🗑️ 移除</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">🔄 同步状态</button>'+'<label class="toggle" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
+    '<button class="btn btn-g btn-sm" style="'+(a.balance_type==='unlimited'?'color:var(--ac);font-weight:600':'')+'" onclick="event.stopPropagation();openSpendCapModal(\''+a.act_id+'\','+(a.spend_cap||0)+',\''+(a.name||a.act_id).replace(/'/g,'\\\x27')+'\',\''+(a.currency||'USD')+'\','+(a.balance_type==='unlimited'?'true':'false')+')">💰 消费上限'+(a.spend_cap>0?' <span style="font-size:10px">$'+(a.spend_cap/100).toFixed(0)+'</span>':'')+'</button>'+
+    '<button class="btn btn-r btn-sm" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">🗑️ 移除</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">🔄 同步状态</button>'+'<button class="btn btn-g btn-sm" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'🪞 关镜像':'🪞 开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">📋 查看快照</button>' : '')+'<label class="toggle" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
     '</div>'+
     '</div>'+
     '</div>';
@@ -5096,6 +5306,54 @@ async function syncAllAccStatus(){
     loadAccsPage();
   }catch(e){toast('批量同步失败：'+e.message,'er');}
   finally{if(btn){btn.disabled=false;btn.textContent='🔄 同步账户状态';}}
+}
+
+// ── 消费上限设置 ──
+var _spendCapActId = '';
+function openSpendCapModal(actId, currentCap, name, currency, isUnlimited) {
+  _spendCapActId = actId;
+  var capUsd = currentCap > 0 ? (currentCap / 100).toFixed(0) : null;
+  // FB spend_cap 是账户本币的分单位，需转 USD 显示。这里近似显示（默认本币=USD）
+  var infoEl = document.getElementById('spendCapInfo');
+  var capDisplay = capUsd ? '$' + capUsd + ' USD' : '无上限';
+  var typeLabel = isUnlimited ? '无限额账户（建议设置上限）' : '当前上限';
+  infoEl.innerHTML = '<b>' + name + '</b> | ' + typeLabel + ': <span style="color:var(--ac)">' + capDisplay + '</span>' +
+    (currency !== 'USD' ? ' <span style="font-size:11px;color:var(--t3)">(本币: ' + currency + ')</span>' : '');
+
+  document.getElementById('spendCapInput').value = capUsd || '';
+  document.getElementById('spendCapError').style.display = 'none';
+  document.getElementById('btnRemoveCap').style.display = capUsd ? '' : 'none';
+  document.getElementById('btnSubmitCap').textContent = capUsd ? '修改上限' : '确认设置';
+  openModal('moSpendCap');
+}
+
+async function submitSpendCap(forceZero) {
+  var btn = document.getElementById('btnSubmitCap');
+  var errEl = document.getElementById('spendCapError');
+  var val = forceZero ? 0 : parseFloat(document.getElementById('spendCapInput').value);
+
+  if (!forceZero && (isNaN(val) || val < 0)) {
+    errEl.textContent = '请输入有效的 USD 金额';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '设置中...';
+  errEl.style.display = 'none';
+
+  try {
+    var r = await api('POST', '/accounts/' + _spendCapActId + '/set-spend-cap', { spend_cap_usd: val || 0 });
+    toast(r.message, 'ok');
+    closeModal('moSpendCap');
+    loadAccsPage();
+  } catch(e) {
+    errEl.textContent = e.message || '设置失败';
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '确认设置';
+  }
 }
 
 // ── 操作号池管理 (v3.0) ──
@@ -7413,13 +7671,13 @@ async function onLaunchObjectiveChange() {
       var failCount = r.failed||0;
       toast('🚀 已为 '+successCount+' 个账户创建铺广告任务' + (failCount?'，'+failCount+' 个失败':'')+'，后台执行中...','ok');
       // 批量任务：轮询第一个成功的任务进度
-      var firstSuccess = (r.campaigns||[]).find(function(x){return x.campaign_id;});
+      var firstSuccess = (r.results||r.campaigns||[]).find(function(x){return x.campaign_id;});
       if(firstSuccess){
-        _batchCampaignsInfo = (r.campaigns||[]).map(function(c){return {act_id:c.act_id,asset_id:c.asset_id,campaign_id:c.campaign_id};});
+        _batchCampaignsInfo = (r.results||r.campaigns||[]).map(function(c){return {act_id:c.act_id,asset_id:c.asset_id,campaign_id:c.campaign_id};});
         _pollLaunchProgress(assetId, firstSuccess.campaign_id);
       }
       // 批量铺放成功后自动预设 KPI（每个账户静默执行）
-      (r.campaigns||[]).forEach(function(res){
+      (r.results||r.campaigns||[]).forEach(function(res){
         if(res.status==='pending'){
           setTimeout(function(){
             api('POST','/kpi/auto-scan/'+res.act_id).catch(function(e){
@@ -7432,7 +7690,7 @@ async function onLaunchObjectiveChange() {
       var progressMsg = document.getElementById('launchProgressMsg');
       if(progressMsg){
         var summary = '<div style="font-size:12px;margin-top:8px">';
-        (r.campaigns||[]).forEach(function(res){
+        (r.results||r.campaigns||[]).forEach(function(res){
           var icon = res.status==='pending'?'✅':'❌';
           summary += '<div>'+icon+' '+res.act_id+': '+(res.message||'pending')+'</div>';
         });
@@ -7546,17 +7804,36 @@ function _pollLaunchProgress(assetId, campaignId){
         return api("GET","/assets/"+c.asset_id+"/campaigns/"+c.campaign_id+"/status").catch(function(){return null;});
       })).then(function(results){
         requestErrorCount = 0;
-        var valid = results.filter(function(r){return r&&r.status;});
-        var done = valid.filter(function(r){return r.status==="done";}).length;
-        var errors = valid.filter(function(r){return r.status==="error";}).length;
+        var done = 0;
+        var errors = 0;
+        var errorMsgs = [];
+        for(var i=0;i<results.length;i++){
+          var r = results[i];
+          if(!r || !r.status) continue;
+          if(r.status === 'done') done++;
+          else if(r.status === 'error'){
+            errors++;
+            var info = _batchCampaignsInfo[i] || {};
+            var errText = (r.error_msg || r.progress_msg || '未知错误');
+            // 截断过长的 FB 错误信息，保留关键信息
+            if(errText.length > 200) errText = errText.substring(0,200) + '...';
+            // HTML 转义防止注入
+            errText = errText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            errorMsgs.push('<div style="margin-bottom:4px">❌ <b>'+(info.act_id||'未知账户')+'</b>: '+errText+'</div>');
+          }
+        }
         var pct = Math.round((done+errors)/_batchLen*100)||1;
         lastPct = pct;
         var allDone = (done+errors) >= _batchLen;
-        _setLaunchProgress(pct, done+"/"+_batchLen+" campaigns完成("+pct+"%)", allDone?"done":"running", {batch_done:done,batch_total:_batchLen});
+        var hasErrors = errors > 0;
+        _setLaunchProgress(pct,
+          done+"/"+_batchLen+" campaigns完成("+pct+"%)"+(hasErrors?"，"+errors+" 失败":""),
+          allDone?(hasErrors?"error":"done"):"running",
+          {batch_done:done,batch_total:_batchLen,error_detail:errorMsgs.join('')});
         if(allDone){
           clearInterval(_launchPollTimer);
           _launchPollTimer = null;
-          if(errors>0) loadAssets();
+          if(hasErrors) loadAssets();
           loadAds();
         }
       }).catch(function(e){
@@ -7618,8 +7895,14 @@ function _setLaunchProgress(pct, msg, status, data){
     if(bar) bar.style.background = '#dc2626';
     if(detailEl){
       detailEl.style.display = 'block';
-      var errMsg = (data && (data.error_msg || data.progress_msg)) || msg || '未知错误';
-      detailEl.innerHTML = '❌ 错误详情：' + errMsg;
+      detailEl.style.background = '#fee2e2';
+      detailEl.style.color = '#b91c1c';
+      if(data && data.error_detail){
+        detailEl.innerHTML = '<div style="font-weight:600;margin-bottom:6px">❌ 以下账户创建失败：</div>' + data.error_detail;
+      } else {
+        var errMsg = (data && (data.error_msg || data.progress_msg)) || msg || '未知错误';
+        detailEl.innerHTML = '❌ 错误详情：' + errMsg;
+      }
     }
   } else if(status === 'timeout'){
     if(titleEl) titleEl.textContent = '⏳ 任务仍可能在后台执行';
@@ -7632,6 +7915,13 @@ function _setLaunchProgress(pct, msg, status, data){
     }
   } else {
     if(titleEl) titleEl.textContent = '🚀 正在铺广告...';
+    // 有子任务失败时立即展示错误，不等全部结束
+    if(data && data.error_detail && detailEl){
+      detailEl.style.display = 'block';
+      detailEl.style.background = '#fee2e2';
+      detailEl.style.color = '#b91c1c';
+      detailEl.innerHTML = '<div style="font-weight:600;margin-bottom:6px">⚠️ 部分账户已失败（其他仍在执行）：</div>' + data.error_detail;
+    }
   }
 }
 
@@ -8136,10 +8426,10 @@ async function submitRule(){
     toast(_editingRuleId?'规则更新成功':'规则添加成功','ok');_editingRuleId=null;closeModal('moAddRule');loadRules();
   }catch(e){toast((_editingRuleId?'更新':'添加')+'失败：'+(e.message||JSON.stringify(e)),'er')}
 }
-async function toggleG(id){try{await api('PATCH','/rules/guard/'+id+'/toggle');loadRules()}catch(e){}}
-async function delG(id){showConfirm('确认删除？', async function(){try{await api('DELETE','/rules/guard/'+id);toast('已删除','ok');loadRules()}catch(e){}});}
-async function toggleS(id){try{await api('PATCH','/rules/scale/'+id+'/toggle');loadRules()}catch(e){}}
-async function delS(id){showConfirm('确认删除？', async function(){try{await api('DELETE','/rules/scale/'+id);toast('已删除','ok');loadRules()}catch(e){}});}
+async function toggleG(id){try{await api('PATCH','/rules/guard/'+id+'/toggle');loadRules()}catch(e){toast('切换失败：'+e.message,'er');loadRules()}}
+async function delG(id){showConfirm('确认删除？', async function(){try{await api('DELETE','/rules/guard/'+id);toast('已删除','ok');loadRules()}catch(e){toast('删除失败：'+e.message,'er');loadRules()}});}
+async function toggleS(id){try{await api('PATCH','/rules/scale/'+id+'/toggle');loadRules()}catch(e){toast('切换失败：'+e.message,'er');loadRules()}}
+async function delS(id){showConfirm('确认删除？', async function(){try{await api('DELETE','/rules/scale/'+id);toast('已删除','ok');loadRules()}catch(e){toast('删除失败：'+e.message,'er');loadRules()}});}
 async function editG(id){
   // 从已加载的规则列表中找到该规则
   var allRules=(window._guardRules||[]);
@@ -8930,12 +9220,12 @@ function renderServerResourceSection() {
 
 function renderTwPagesSection() {
   return '<div class="ss" id="twPagesSection"><div class="ss-title">📄 主页库</div>' +
-    '<div class="fh" style="margin-bottom:10px">录入已接入系统的主页。铺广告时系统会优先匹配 Token 有权限的主页；Verified ID 请手动填写广告后台已验证通过的值。</div>' +
+    '<div class="fh" style="margin-bottom:10px">录入已接入系统的主页。铺广告时系统会优先匹配 Token 有权限的主页；Verified ID 扫描时自动探测，也可手动填写。</div>' +
     '<div id="twPagesList" style="margin-bottom:12px"><span class="spin"></span> 加载中...</div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
     '<div class="fg" style="flex:1;min-width:140px;margin:0"><label class="fl">主页 ID</label><input class="fc" id="twNewPageId" placeholder="如：1020399831162841" onblur="autoFetchTwPageName(this.value)"></div>' +
     '<div class="fg" style="flex:1;min-width:120px;margin:0"><label class="fl">主页名称 <span style="font-size:11px;color:var(--t3)" id="twNameHint">（失焦后尝试自动获取）</span></label><input class="fc" id="twNewPageName" placeholder="如：AI股市"></div>' +
-    '<div class="fg" style="flex:1;min-width:160px;margin:0"><label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint">（请手动填写广告后台已验证通过的 ID）</span></label><input class="fc" id="twNewVerifiedId" placeholder="可选"></div>' +
+    '<div class="fg" style="flex:1;min-width:160px;margin:0"><label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint">（扫描时自动探测，也可手动填写）</span></label><input class="fc" id="twNewVerifiedId" placeholder="可选"></div>' +
     '<button class="btn btn-p" onclick="addTwPage()" style="white-space:nowrap;align-self:flex-end">+ 添加主页</button>' +
     '</div></div>';
 }
@@ -9114,7 +9404,7 @@ function onAiProv(prov){
 }
 function renderSI(s,providers,cp){
   var isHidden=['tg_chat_id','ai_base_url','inspect_interval_min','autopilot_fb_page_id','autopilot_fb_pixel_id'].includes(s.key);if(isHidden)return '';
-  var isToggle=['ai_enabled','ai_vision_enabled','tg_enabled','inspect_enabled','dry_run','learning_phase_protect','escalate_on_fail','autopilot_enabled'].includes(s.key);
+  var isToggle=['ai_enabled','ai_vision_enabled','tg_enabled','inspect_enabled','dry_run','learning_phase_protect','escalate_on_fail','autopilot_enabled','mirror_enabled'].includes(s.key);
   var isModel=s.key==='ai_model'&&providers&&cp&&providers[cp];
   if(isToggle)return'<div class="si"><div><div class="si-label">'+s.label+'</div>'+(s.description?'<div class="si-desc">'+s.description+'</div>':'')+'</div><label class="toggle"><input type="checkbox" id="setting_'+s.key+'" '+(s.value==='1'?'checked':'')+' onchange="saveSettingImmediate(this)" data-key="'+s.key+'"><span class="ts"></span></label></div>';
   if(isModel){var p=providers[cp];return'<div class="fg"><label class="fl">'+s.label+'</label><select class="fc" id="setting_'+s.key+'">'+p.models.map(function(m){return'<option value="'+m+'" '+(m===s.value?'selected':'')+'>'+m+'</option>'}).join('')+'</select></div>'}
@@ -9173,9 +9463,16 @@ async function loadTwCertPages() {
         '</tr></thead><tbody>' +
         pages.map(function(p) {
           var vid = p.verified_identity_id || '';
+          var source = p.verified_source || '';
+          var sourceBadge = '';
+          if (source && source.startsWith('auto_')) {
+            sourceBadge = ' <span style="background:#22c55e;color:#fff;border-radius:3px;padding:0 4px;font-size:10px;font-weight:600" title="系统自动识别">自动</span>';
+          } else if (vid) {
+            sourceBadge = ' <span style="background:#f59e0b;color:#fff;border-radius:3px;padding:0 4px;font-size:10px;font-weight:600" title="手动填写">手动</span>';
+          }
           var vidDisplay = vid
-            ? '<span style="font-family:monospace;color:var(--ok)">' + vid + '</span>'
-            : '<span style="color:var(--wa);font-size:11px">未设置</span>';
+            ? '<span style="font-family:monospace;color:var(--ok)">' + vid + '</span>' + sourceBadge
+            : '<span style="color:var(--wa);font-size:11px">未设置</span>' + sourceBadge;
           return '<tr style="border-bottom:1px solid var(--bd)">' +
             '<td style="padding:6px 8px;font-family:monospace">' + p.page_id + '</td>' +
             '<td style="padding:6px 8px;font-weight:600">' + p.page_name + '</td>' +
@@ -9224,7 +9521,7 @@ async function autoFetchTwPageName(pid) {
       if (hintEl) { hintEl.textContent = '获取失败，请手动填写'; hintEl.style.color = 'var(--wa)'; }
     }
     if (vidHintEl) {
-      vidHintEl.textContent = '请手动填写广告后台已验证通过的 Verified ID';
+      vidHintEl.textContent = '扫描时自动探测，也可手动填写';
       vidHintEl.style.color = 'var(--t3)';
     }
   } catch(e) {
@@ -9307,7 +9604,9 @@ async function scanTwCertPages() {
   try {
     var r = await api('POST', '/accounts/tw-certified-pages/scan');
     if (r && r.success) {
-      var msg = '✅ 扫描完成！扫描了 ' + r.scanned_tokens + ' 个 Token，共发现 ' + r.total_pages_found + ' 个主页，新增 ' + r.added + ' 个，跳过已存在 ' + r.skipped_existing + ' 个。Verified ID 请继续手动填写。';
+      var autoMsg = r.auto_identified ? '，自动识别 ' + r.auto_identified + ' 个候选 Verified ID' : '';
+      var failMsg = r.auto_probe_failed ? '（' + r.auto_probe_failed + ' 个探测失败）' : '';
+      var msg = '✅ 扫描完成！扫描了 ' + r.scanned_tokens + ' 个 Token，共发现 ' + r.total_pages_found + ' 个主页，新增 ' + r.added + ' 个，跳过已存在 ' + r.skipped_existing + ' 个' + autoMsg + failMsg + '。';
       toast(msg, 'ok');
       await loadTwCertPages2();
     } else {
@@ -9375,9 +9674,16 @@ async function loadTwCertPages2() {
         _twHtml+='</tr></thead><tbody>';
         _twHtml+=_twGroups[gk].map(function(p) {
           var vid = p.verified_identity_id || '';
+          var source = p.verified_source || '';
+          var sourceBadge = '';
+          if (source && source.startsWith('auto_')) {
+            sourceBadge = ' <span style="background:#22c55e;color:#fff;border-radius:3px;padding:0 4px;font-size:10px;font-weight:600" title="系统自动识别">自动</span>';
+          } else if (vid) {
+            sourceBadge = ' <span style="background:#f59e0b;color:#fff;border-radius:3px;padding:0 4px;font-size:10px;font-weight:600" title="手动填写">手动</span>';
+          }
           var vidDisplay = vid
-            ? '<span style="font-family:monospace;font-size:11px;color:var(--ok)">' + vid + '</span>'
-            : '<span style="color:var(--wa);font-size:11px">未设置</span>';
+            ? '<span style="font-family:monospace;font-size:11px;color:var(--ok)">' + vid + '</span>' + sourceBadge
+            : '<span style="color:var(--wa);font-size:11px">未设置</span>' + sourceBadge;
           var _twMatrixColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
           var _twMc=p.matrix_id?(_twMatrixColors[(p.matrix_id-1)%_twMatrixColors.length]):'#6b7280';
           var matrixBadge = p.matrix_id
@@ -9428,7 +9734,7 @@ async function autoFetchTwPageName2(pid) {
       if (hintEl) { hintEl.textContent = '获取失败，请手动填写'; hintEl.style.color = 'var(--wa)'; }
     }
     if (vidHintEl) {
-      vidHintEl.textContent = '请手动填写广告后台已验证通过的 Verified ID';
+      vidHintEl.textContent = '扫描时自动探测，也可手动填写';
       vidHintEl.style.color = 'var(--t3)';
     }
   } catch(e) {
@@ -9583,12 +9889,16 @@ async function triggerInspect(){
 
 // ── Log Tabs ──
 var sysLogsAll=[];
+var uaPage=1, uaTotal=0;
 function switchLogTab(tab){
   document.querySelectorAll('.rtab').forEach(function(t){t.classList.remove('active')});
   document.querySelectorAll('.rtab').forEach(function(t){if(t.getAttribute('data-logtab')===tab)t.classList.add('active')});
   document.getElementById('logPanelOps').style.display=tab==='ops'?'block':'none';
   document.getElementById('logPanelSys').style.display=tab==='sys'?'block':'none';
+  var up=document.getElementById('logPanelUsers');
+  if(up) up.style.display=tab==='users'?'block':'none';
   if(tab==='sys')loadSysLogs();
+  if(tab==='users'){loadOnlineUsers();loadUserActivity();}
 }
 async function loadSysLogs(){
   var el=document.getElementById('sysLogBody');
@@ -9619,6 +9929,72 @@ function filterSysLogs(){
     return'<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);color:'+c+'">'+(l.ts?'<span style="color:var(--t3);margin-right:8px">'+l.ts+'</span>':'')+l.msg+'</div>';
   }).join('');
   el.scrollTop=el.scrollHeight;
+}
+
+// ── User Activity (admin only) ──
+async function loadOnlineUsers(){
+  var bar=document.getElementById('onlineUsersBar');
+  if(!bar)return;
+  try{
+    var r=await api('GET','/admin/online-users');
+    var users=r.online||[];
+    if(!users.length){bar.innerHTML='<span style="color:var(--t3);font-size:12px">暂无在线用户</span>';return}
+    bar.innerHTML='<span style="font-size:12px;color:var(--t3)">🟢 在线 '+(r.count||users.length)+' 人：</span>'+
+      users.map(function(u){
+        return '<span style="background:rgba(16,185,129,.12);color:#059669;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:500">'+
+          escHtml(u.display_name||u.username)+' <span style="color:var(--t3);font-weight:400">('+escHtml(u.role)+')</span></span>';
+      }).join('');
+  }catch(e){}
+}
+async function loadUserActivity(page){
+  if(page)uaPage=page;else page=uaPage;
+  var tb=document.getElementById('uaBody');
+  if(!tb)return;
+  tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:30px"><div class="spin" style="margin:0 auto 8px"></div>加载中...</td></tr>';
+  try{
+    var u=document.getElementById('uaUser')&&document.getElementById('uaUser').value||'';
+    var m=document.getElementById('uaMethod')&&document.getElementById('uaMethod').value||'';
+    var limit=50;var offset=(page-1)*limit;
+    var url='/admin/user-activity?limit='+limit+'&offset='+offset;
+    if(u)url+='&username='+encodeURIComponent(u);
+    if(m)url+='&method='+encodeURIComponent(m);
+    var d=await api('GET',url)||{};
+    var items=d.items||[];uaTotal=d.total||0;
+    var cnt=document.getElementById('uaCount');if(cnt)cnt.textContent='共 '+uaTotal+' 条';
+    if(!items.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:30px">暂无活动记录</td></tr>';return}
+    var roleColors={superadmin:'var(--er)',admin:'var(--wa)',operator:'var(--ok)',viewer:'var(--t3)'};
+    tb.innerHTML=items.map(function(l){
+      var sc=l.status_code||0;
+      var scColor=sc>=400?'var(--er)':sc>=300?'var(--wa)':'var(--ok)';
+      return'<tr>'+
+        '<td style="white-space:nowrap;font-size:12px;color:var(--t3)">'+escHtml(l.created_at||'')+'</td>'+
+        '<td><span style="font-weight:500">'+escHtml(l.username)+'</span></td>'+
+        '<td><span style="font-size:12px;color:'+(roleColors[l.role]||'var(--t3)')+'">'+escHtml(l.role||'')+'</span></td>'+
+        '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;font-size:12px" title="'+escHtml(l.path)+'">'+escHtml(l.path)+'</td>'+
+        '<td><span class="badge bg-ac">'+escHtml(l.method)+'</span></td>'+
+        '<td><span style="color:'+scColor+';font-weight:600">'+sc+'</span></td>'+
+        '<td style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(l.ip_address||'')+'</td>'+
+        '<td style="font-size:12px;color:var(--t3)">'+(l.duration_ms||0)+'ms</td>'+
+        '</tr>';
+    }).join('');
+    var pg=document.getElementById('uaPag');pg.innerHTML='';
+    var totalPages=Math.ceil(uaTotal/limit);
+    if(totalPages>1){for(var i=1;i<=Math.min(totalPages,10);i++){
+      var b=document.createElement('button');b.className='pb'+(i===page?' active':'');b.textContent=i;
+      (function(pi){b.onclick=function(){loadUserActivity(pi)}})(i);
+      pg.appendChild(b);
+    }}
+  }catch(e){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--er);padding:30px">加载失败：'+e.message+'</td></tr>'}
+}
+// 预加载用户名列表
+async function loadActivityUsernames(){
+  var sel=document.getElementById('uaUser');
+  if(!sel)return;
+  try{
+    var r=await api('GET','/admin/activity-usernames');
+    var users=r.users||[];
+    sel.innerHTML='<option value="">全部用户</option>'+users.map(function(u){return'<option value="'+escHtml(u.username)+'">'+escHtml(u.username)+' ('+escHtml(u.role)+')</option>'}).join('');
+  }catch(e){}
 }
 
 // ── Account Search ──
@@ -9693,7 +10069,7 @@ function renderAccSummaryControls(totalCount,visibleCount){
   ];
   sumEl.innerHTML=
     '<div class="sc blue" style="min-width:140px;padding:14px"><div class="sc-label">总账户数</div><div class="sc-val blue" style="font-size:22px">'+accs.length+'</div></div>'+
-    '<div class="sc green" style="min-width:140px;padding:14px"><div class="sc-label">剩余可用合计 (USD)</div><div class="sc-val green" style="font-size:22px">$'+totalBal.toFixed(0)+'</div></div>'+
+    '<div class="sc green" style="min-width:140px;padding:14px"><div class="sc-label">剩余可用合计 (USD)</div><div class="sc-val green" style="font-size:22px">$'+totalBal.toFixed(2)+'</div></div>'+
     '<div class="sc orange" style="min-width:140px;padding:14px"><div class="sc-label">可用账户</div><div class="sc-val orange" style="font-size:22px">'+enabledCount+'</div></div>'+
     '<div class="sc red" style="min-width:140px;padding:14px"><div class="sc-label">Token异常</div><div class="sc-val red" style="font-size:22px">'+tokenInvalidCount+'</div></div>'+
     '<div class="sc" style="min-width:140px;padding:14px;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.2)"><div class="sc-label">巡检暂停 / 欠费</div><div class="sc-val" style="font-size:22px;color:#b45309">'+pausedCount+' / '+debtCount+'</div></div>'+
@@ -9840,6 +10216,41 @@ function onKpiTgtSel(){
   }
 }
 
+// ── Mirror Mode ──
+function toggleMirrorMode(){
+  var el=document.getElementById('toggleMirror');
+  if(!el)return;
+  var v=el.checked?'1':'0';
+  el.disabled=true;
+  api('PUT','/settings',{settings:[{key:'mirror_enabled',value:v}]}).then(function(){
+    _globalMirrorEnabled = v==='1';
+    _updateMirrorUI(v);
+    el.disabled=false;
+    if(v==='1'){
+      _updateMirrorUI(v,'正在批量捕获快照...');
+      toast('🪞 镜像模式已开启，正在为所有账户捕获快照...','ok');
+      // 立即批量捕获所有账户快照，消除5分钟延迟窗口
+      api('POST','/mirror/enable-all').then(function(r){
+        var total = r.total_captured || 0;
+        var accs = r.accounts || 0;
+        _updateMirrorUI(v,'已捕获 '+total+' 条广告 ('+accs+'个账户)');
+        toast('✅ 快照捕获完成：'+accs+'个账户共'+total+'条广告','ok');
+      }).catch(function(e){
+        _updateMirrorUI(v,'快照部分失败，巡检时自动补采');
+        toast('⚠️ 批量捕获部分失败，巡检时将自动补采','wa');
+      });
+    } else {
+      toast('镜像模式已关闭','ok');
+    }
+  }).catch(function(e){el.checked=!el.checked;el.disabled=false;_updateMirrorUI(el.checked?'1':'0');showErr(e);});
+}
+function _updateMirrorUI(v, hintOverride){
+  var on=v==='1';
+  var dot=document.getElementById('sbMirrorDot');
+  if(dot){dot.style.background=on?'var(--ok)':'var(--t3)';dot.style.boxShadow=on?'0 0 5px var(--ok)':'none';}
+  var hint=document.getElementById('mirrorHint');
+  if(hint){hint.textContent=hintOverride || (on?'拦截非授权广告':'已关闭');hint.style.color=on?'var(--ok)':'var(--t3)';}
+}
 // ── Emergency ──
 function toggleSentinelMode(){
   var el=document.getElementById('toggleSentinel');
@@ -9880,7 +10291,7 @@ function _updateHeartbeatUI(v){
   if(st){st.textContent=on?'已开启':'已关闭';st.style.color=on?'var(--ok)':'var(--t3)';}
 }
 function initSentinelHeartbeat(){
-  api('GET','/settings?keys=sentinel_enabled,sentinel_interval,heartbeat_enabled,heartbeat_timeout').then(function(d){
+  api('GET','/settings?keys=sentinel_enabled,sentinel_interval,heartbeat_enabled,heartbeat_timeout,mirror_enabled').then(function(d){
     // Convert array [{key,value}] to object {key:value}
     var s={};
     if(Array.isArray(d)){d.forEach(function(r){s[r.key]=r.value;});}
@@ -9888,10 +10299,14 @@ function initSentinelHeartbeat(){
     _heartbeatTimeout=s.heartbeat_timeout||'30';
     var sv=s.sentinel_enabled||'0';
     var hv=s.heartbeat_enabled||'0';
+    var mv=s.mirror_enabled||'0';
+    _globalMirrorEnabled = mv==='1';
     var tel=document.getElementById('toggleSentinel');if(tel)tel.checked=sv==='1';
     var hel=document.getElementById('toggleHeartbeat');if(hel)hel.checked=hv==='1';
+    var mel=document.getElementById('toggleMirror');if(mel)mel.checked=mv==='1';
     _updateSentinelUI(sv);
     _updateHeartbeatUI(hv);
+    _updateMirrorUI(mv);
   }).catch(function(){});
 }
 function showEmgModal(){
@@ -10049,6 +10464,12 @@ function setMobileNav(name){
   // Also close sidebar if open
   closeSidebar();
 }
+function toggleMobileMoreMenu(){
+  var menu=document.getElementById('mobileMoreMenu');
+  if(!menu)return;
+  menu.classList.toggle('open');
+}
+// Close mobile more menu on overlay click handled by onclick above
 // Close sidebar on nav item click (mobile)
 document.querySelectorAll('.nav-item').forEach(function(el){
   el.addEventListener('click',function(){
@@ -10344,6 +10765,7 @@ function renderLaunchAccountCard(a) {
   // 标签
   var aiTag = a.ai_managed ? '<span style="background:#7c3aed;color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">🤖 AI</span>' : '';
   var autoTag = a.auto_dispatch ? '<span style="background:var(--ac);color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">自动</span>' : '';
+  var mirrorTag = a.mirror_enabled ? '<span style="background:#059669;color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">镜像</span>' : '';
   var disabledTag = isDisabled ? '<span style="background:var(--erg);color:var(--er);font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px">已禁用</span>' : '';
 
   // 摘要行：缺少配置数量提示
@@ -10403,6 +10825,11 @@ function renderLaunchAccountCard(a) {
     } else {
       actionBtns += ' <button class="btn btn-g btn-sm" style="font-size:11px" onclick="toggleAiManaged(\'' + a.act_id + '\',1)">🤖 开AI</button>';
     }
+    if (a.mirror_enabled) {
+      actionBtns += ' <button class="btn btn-g btn-sm" style="color:#059669;font-size:11px" onclick="toggleMirrorForAccount(\'' + a.act_id + '\',0)">关闭镜像</button>';
+    } else {
+      actionBtns += ' <button class="btn btn-g btn-sm" style="font-size:11px" onclick="toggleMirrorForAccount(\'' + a.act_id + '\',1)">🪞 开镜像</button>';
+    }
   } else {
     actionBtns = '<button class="btn btn-g btn-sm" onclick="quickFixConfig(\'' + a.act_id + '\',\'\')" style="font-size:11px">🔧 补全配置</button>' +
       ' <button class="btn btn-g btn-sm" onclick="autoMatchAssets(\'' + a.act_id + '\')" style="font-size:11px;color:#7c3aed" title="自动从FB拉取可用像素和主页并填充">🔍 自动匹配</button>';
@@ -10419,7 +10846,7 @@ function renderLaunchAccountCard(a) {
       // 账户名
       '<div style="flex:1;min-width:0">' +
         '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-          (a.name||a.act_id) + aiTag + autoTag + disabledTag +
+          (a.name||a.act_id) + aiTag + autoTag + mirrorTag + disabledTag +
         '</div>' +
       '</div>' +
       // 摘要信息
@@ -10543,6 +10970,75 @@ async function toggleAiManaged(actId, enabled) {
     await loadLaunchOverview();
   } catch(e) {
     toast('设置失败：' + e.message, 'er');
+  }
+}
+
+async function toggleMirrorForAccount(actId, enabled) {
+  try {
+    await api('PATCH', '/accounts/by-act-id/' + actId, {mirror_enabled: enabled});
+    if (enabled) {
+      await api('POST', '/mirror/enable', {act_id: actId});
+      toast('✅ 镜像模式已开启，快照已捕获', 'ok');
+    } else {
+      toast('镜像模式已关闭', 'ok');
+    }
+    if (typeof loadLaunchOverview === 'function') loadLaunchOverview();
+    if (typeof loadAccsPage === 'function') loadAccsPage();
+  } catch(e) {
+    toast('设置失败：' + e.message, 'er');
+  }
+}
+
+var _mirrorSnapshotActId = '';
+var _mirrorSnapshotActName = '';
+
+async function openMirrorSnapshot(actId, actName) {
+  _mirrorSnapshotActId = actId;
+  _mirrorSnapshotActName = actName;
+  openModal('moMirrorSnapshot');
+  await loadMirrorSnapshot(actId);
+}
+
+async function loadMirrorSnapshot(actId) {
+  var body = document.getElementById('mirrorSnapshotBody');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--t3)"><span class="spin"></span> 加载中...</div>';
+  try {
+    var data = await api('GET', '/mirror/snapshot?act_id=' + encodeURIComponent(actId));
+    var ads = data.ads || [];
+    if (!ads.length) {
+      body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--t3)">📭 快照为空，请开启镜像模式以捕获快照</div>';
+    } else {
+      var rows = ads.map(function(ad, i) {
+        return '<tr><td style="padding:6px 10px;font-size:12px;color:var(--t3)">' + (i + 1) + '</td>' +
+          '<td style="padding:6px 10px;font-family:monospace;font-size:12px">' + ad.ad_id + '</td>' +
+          '<td style="padding:6px 10px;font-size:12px">' + (ad.ad_name || '-') + '</td>' +
+          '<td style="padding:6px 10px;font-size:11px;color:var(--t3)">' + (ad.captured_at || '') + '</td></tr>';
+      }).join('');
+      body.innerHTML = '<table style="width:100%;border-collapse:collapse">' +
+        '<thead><tr style="border-bottom:1px solid var(--bd)">' +
+        '<th style="padding:8px 10px;font-size:11px;color:var(--t3);text-align:left">#</th>' +
+        '<th style="padding:8px 10px;font-size:11px;color:var(--t3);text-align:left">广告ID</th>' +
+        '<th style="padding:8px 10px;font-size:11px;color:var(--t3);text-align:left">广告名称</th>' +
+        '<th style="padding:8px 10px;font-size:11px;color:var(--t3);text-align:left">捕获时间</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>' +
+        '<div style="padding:10px;font-size:11px;color:var(--t3);text-align:center">共 ' + ads.length + ' 条快照</div>';
+    }
+  } catch(e) {
+    body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--er)">加载失败：' + e.message + '</div>';
+  }
+}
+
+async function mirrorRefreshSnapshot() {
+  if (!_mirrorSnapshotActId) return;
+  // 重新捕获快照
+  try {
+    await api('POST', '/mirror/enable', {act_id: _mirrorSnapshotActId});
+    toast('快照已刷新', 'ok');
+    await loadMirrorSnapshot(_mirrorSnapshotActId);
+    if (typeof loadAccsPage === 'function') loadAccsPage();
+  } catch(e) {
+    toast('刷新失败：' + e.message, 'er');
   }
 }
 

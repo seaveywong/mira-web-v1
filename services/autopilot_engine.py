@@ -62,8 +62,7 @@ LANGUAGE_LABELS = {
     "vi": "Vietnamese",
     "tr": "Turkish",
     "zh": "Simplified Chinese",
-    "zh-tw": "Traditional Chinese (Taiwan)",
-    "zh-hk": "Traditional Chinese (Hong Kong)",
+    "zh-tw": "Traditional Chinese",
 }
 COUNTRY_LANGUAGE_MAP = {
     "US": "en", "GB": "en", "CA": "en", "AU": "en", "NZ": "en", "IE": "en", "IN": "en",
@@ -75,7 +74,7 @@ COUNTRY_LANGUAGE_MAP = {
     "JP": "ja", "KR": "ko",
     "ID": "id", "MY": "id",
     "TH": "th", "VN": "vi", "TR": "tr",
-    "CN": "zh", "SG": "zh", "TW": "zh-tw", "HK": "zh-hk",
+    "CN": "zh", "SG": "zh", "TW": "zh-tw", "HK": "zh-tw",
 }
 TRANSIENT_FB_ERROR_CODES = {1, 2, 4, 17, 32, 341, 613}
 RATE_LIMIT_FB_ERROR_CODES = {4, 17, 32, 341, 613}
@@ -103,14 +102,14 @@ def _normalize_verified_identity_value(value) -> str:
 def _normalize_campaign_objective(value: str = "") -> str:
     objective = str(value or "OUTCOME_SALES").strip().upper()
     if objective in MESSAGE_OBJECTIVES:
-        return "OUTCOME_TRAFFIC"  # FB API v25: CONVERSATIONS only works with TRAFFIC
+        return "OUTCOME_MESSAGES"
     return objective or "OUTCOME_SALES"
 
 
 def _normalize_campaign_goal_fields(objective: str = "", conversion_goal: str = "") -> tuple[str, str]:
     objective_norm = _normalize_campaign_objective(objective)
     goal_norm = str(conversion_goal or "").strip()
-    if (objective or "").strip().upper() in MESSAGE_OBJECTIVES and not goal_norm:
+    if objective_norm == "OUTCOME_MESSAGES" and not goal_norm:
         goal_norm = "CONVERSATIONS"
     return objective_norm, goal_norm
 
@@ -118,7 +117,7 @@ def _normalize_campaign_goal_fields(objective: str = "", conversion_goal: str = 
 def _get_campaign_goal_meta(objective: str = "", conversion_goal: str = "") -> dict:
     objective_norm, goal_norm = _normalize_campaign_goal_fields(objective, conversion_goal)
     goal_lower = goal_norm.lower()
-    is_message = (objective or "").strip().upper() in MESSAGE_OBJECTIVES or goal_lower in MESSAGE_GOALS
+    is_message = objective_norm in MESSAGE_OBJECTIVES or goal_lower in MESSAGE_GOALS
     is_lead = goal_lower == "lead_generation"
     landing_required = (
         objective_norm in LANDING_REQUIRED_OBJECTIVES
@@ -146,10 +145,8 @@ class AutoPilotEngine:
         lang = str(value or "").strip().lower().replace("_", "-")
         if lang in ("zh-cn", "cn", "zh-hans"):
             return "zh"
-        if lang in ("zh-tw", "tw", "zh-hant"):
+        if lang in ("zh-tw", "zh-hk", "tw", "hk", "zh-hant"):
             return "zh-tw"
-        if lang in ("zh-hk", "hk"):
-            return "zh-hk"
         if "-" in lang:
             lang = lang.split("-", 1)[0]
         return lang or "en"
@@ -206,7 +203,6 @@ class AutoPilotEngine:
             "tr": "tr_TR",
             "zh": "zh_CN",
             "zh-tw": "zh_TW",
-            "zh-hk": "zh_HK",
         }
         return {
             "language": lang,
@@ -237,21 +233,13 @@ class AutoPilotEngine:
             "tr": ("Daha Fazla Bilgi Al", "Önce hangi konuda destek almak istersiniz?", "Gizlilik Politikası"),
             "zh": ("获取更多信息", "你最想先了解什么？", "隐私政策"),
             "zh-tw": ("取得更多資訊", "你最想先了解什麼？", "隱私權政策"),
-            "zh-hk": ("了解更多資訊", "你最想先了解啲咩？", "私隱政策"),
         }
         form_title, qualifying_question, privacy_text = text_map.get(lang, text_map["en"])
-        # Build thank_you and cta fallbacks based on language
-        _ty_title_map = {"en":"Thank You!","es":"Gracias!","pt":"Obrigado!","fr":"Merci!","de":"Danke!","ar":"شكرا لك!","ja":"ありがとうございます！","ko":"감사합니다!","id":"Terima kasih!","th":"ขอบคุณ!","vi":"Cảm ơn bạn!","tr":"Teşekkürler!","zh":"感谢您的提交！","zh-tw":"感謝您的提交！","zh-hk":"多謝你嘅提交！"}
-        _ty_body_map = {"en":"We will contact you shortly.","es":"Nos pondremos en contacto contigo pronto.","pt":"Entraremos em contato em breve.","fr":"Nous vous contacterons sous peu.","de":"Wir werden uns in Kürze bei Ihnen melden.","ar":"سنقوم بالاتصال بك قريبا.","ja":"すぐにご連絡いたします。","ko":"곧 연락드리겠습니다.","id":"Kami akan menghubungi Anda segera.","th":"เราจะติดต่อคุณเร็วๆ นี้","vi":"Chúng tôi sẽ liên hệ với bạn sớm.","tr":"Sizinle kısa süre içinde iletişime geçeceğiz.","zh":"我们会尽快与您联系。","zh-tw":"我們會盡快與您聯繫。","zh-hk":"我哋會盡快同你聯絡。"}
-        _cta_map = {"en":"Contact Us","es":"Contáctenos","pt":"Fale Conosco","fr":"Contactez-nous","de":"Kontaktieren Sie uns","ar":"اتصل بنا","ja":"お問い合わせ","ko":"문의하기","id":"Hubungi Kami","th":"ติดต่อเรา","vi":"Liên hệ với chúng tôi","tr":"Bize Ulaşın","zh":"联系我们","zh-tw":"聯繫我們","zh-hk":"聯絡我哋"}
         return {
             "form_title": form_title,
             "qualifying_question": qualifying_question,
             "privacy_text": privacy_text,
             "contact_field": contact_field,
-            "thank_you_title": _ty_title_map.get(lang, "Thank You!"),
-            "thank_you_body": _ty_body_map.get(lang, "We will contact you shortly."),
-            "cta_button_text": _cta_map.get(lang, "Contact Us"),
         }
 
     def _default_msg_template(self, ctx: dict, headline: str) -> dict:
@@ -262,7 +250,6 @@ class AutoPilotEngine:
             "pt": ("Obrigado pelo contato. O que você gostaria de saber primeiro?", [("Mais detalhes", "Quero mais detalhes"), ("Preço", "Fale sobre o preço"), ("Como funciona", "Como funciona?")]),
             "zh": ("感谢留言，你最想先了解什么？", [("了解详情", "我想先了解详情"), ("价格信息", "我想了解价格信息"), ("如何开始", "我想知道如何开始")]),
             "zh-tw": ("感謝留言，你最想先了解什麼？", [("了解詳情", "我想先了解詳情"), ("價格資訊", "我想了解價格資訊"), ("如何開始", "我想知道如何開始")]),
-            "zh-hk": ("多謝你嘅留言，你最想先了解啲咩？", [("了解詳情", "我想先了解詳情"), ("價格資訊", "我想了解價格資訊"), ("如何開始", "我想知道如何開始")]),
         }
         welcome_text, pairs = fallback_map.get(lang, fallback_map["en"])
         if headline:
@@ -656,40 +643,6 @@ class AutoPilotEngine:
             page_id = (campaign.get("page_id_override") or
                        (_acc["page_id"] if _acc and _acc["page_id"] else None) or
                        self._get_setting("autopilot_fb_page_id", ""))
-            # ── 主页感知排序：优先选择能访问目标主页的 Token + 缓存结果 ──
-            if page_id and _token_candidates:
-                try:
-                    from api.ad_templates import _extract_page_token_from_user_token
-                    self._page_token_cache = {}
-                    _page_aware = []
-                    _page_unaware = []
-                    for _tc in _token_candidates:
-                        _pt = _extract_page_token_from_user_token(page_id, _tc["token_plain"])
-                        self._page_token_cache[_tc["token_plain"]] = _pt or ""
-                        if _pt:
-                            _page_aware.append(_tc)
-                        else:
-                            _page_unaware.append(_tc)
-                    if _page_aware and _page_unaware:
-                        original_first = _token_candidates[0]["token_id"]
-                        _token_candidates = _page_aware + _page_unaware
-                        new_first = _token_candidates[0]["token_id"]
-                        logger.info(
-                            f"[AutoPilot] 主页感知排序完毕: {len(_page_aware)} 颗 Token 可访问该主页 | "
-                            f"优先 Token 从 {original_first} → {new_first}"
-                        )
-                    elif _page_unaware and not _page_aware:
-                        _ids = [str(t["token_id"]) for t in _page_unaware]
-                        raise Exception(
-                            f"当前账户的 {len(_page_unaware)} 颗操作号 (ID: {', '.join(_ids)}) "
-                            f"均无法访问主页 {page_id}。请在 Business Manager 中为这些 System User "
-                            f"添加该主页的权限（pages_manage_ads），或将广告切换到有权限的账户。"
-                        )
-                except Exception as _e:
-                    if "均无法访问主页" in str(_e):
-                        raise
-                    logger.warning(f"[AutoPilot] 主页感知排序异常（不影响执行）: {_e}")
-
             pixel_id = (campaign.get("pixel_id_override") or
                         (_acc["pixel_id"] if _acc and _acc["pixel_id"] else None) or
                         self._get_setting("autopilot_fb_pixel_id", ""))
@@ -1522,11 +1475,12 @@ class AutoPilotEngine:
         else:
             payload["bid_strategy"] = bid_strategy
 
-        # 需要认证国家：矩阵内必须已配置 Verified ID；台湾/香港继续走 TAIWAN_UNIVERSAL，
-        # 新加坡等其他需要认证国家先复用 beneficiary/payer 字符串方式兜底。
+        # 需要认证国家：矩阵内必须已配置 Verified ID；台湾/香港走 TAIWAN_UNIVERSAL，
+        # 新加坡走 SINGAPORE_UNIVERSAL，其他需要认证国家走 legacy 字符串方式兜底。
         countries = targeting.get("geo_locations", {}).get("countries", [])
         regulated_countries = [c for c in countries if c in REGULATED_IDENTITY_COUNTRIES]
         is_taiwan = any(c in TAIWAN_UNIVERSAL_COUNTRIES for c in countries)
+        is_singapore = "SG" in countries
         needs_regulated_identity = bool(regulated_countries)
         if needs_regulated_identity and not (tw_verified_id or beneficiary):
             raise ValueError(
@@ -1543,6 +1497,17 @@ class AutoPilotEngine:
                 }
             elif beneficiary:
                 # 兼容旧版字符串方式（仅在无 verified_id 时使用）
+                payload["beneficiary"] = beneficiary
+                if payer:
+                    payload["payer"] = payer
+        elif is_singapore:
+            payload["regional_regulated_categories"] = ["SINGAPORE_UNIVERSAL"]
+            if tw_verified_id:
+                payload["regional_regulation_identities"] = {
+                    "singapore_universal_beneficiary": tw_verified_id,
+                    "singapore_universal_payer": tw_verified_id
+                }
+            elif beneficiary:
                 payload["beneficiary"] = beneficiary
                 if payer:
                     payload["payer"] = payer
@@ -1741,8 +1706,7 @@ class AutoPilotEngine:
         ctx = self._resolve_language_context(ad_language, target_countries, asset_info)
         lang_code = ctx["language"]
         lang_hint = ctx["label"]
-        avoid_chinese_hint = "除非目标语言本身是中文，否则绝不要输出中文。" if lang_code not in ("zh", "zh-tw", "zh-hk") else ""
-        zh_hk_cantonese_hint = "【香港粤语特别要求】当使用zh-hk时，必须使用粤语白话文：用「係」代替「是」，用「嘅」代替「的」，用「唔」代替「不」，用「咗」代替「了」，用「喺」代替「在」，用「啲」代替「些/点」，语气亲切口语化。" if lang_code == "zh-hk" else ""
+        avoid_chinese_hint = "除非目标语言本身是中文，否则绝不要输出中文。" if lang_code not in ("zh", "zh-tw") else ""
 
         prompt = (
             "你是一位Facebook广告专家，请根据以下广告内容，生成一个高度相关的Messenger欢迎消息模板。\n\n"
@@ -1759,8 +1723,7 @@ class AutoPilotEngine:
             "   - 必须是用户针对该广告的具体产品/服务会真实提问的问题\n"
             "   - 禁止使用通用问题\n"
             f"   - 必须使用 {lang_hint}，问题标题不超过80字符，回复不超过300字符\n"
-            f"3. {avoid_chinese_hint}\n"
-            f"4. {zh_hk_cantonese_hint}\n\n"
+            f"3. {avoid_chinese_hint}\n\n"
             "请用JSON格式返回（3个ice_breaker）：\n"
             '{"welcome_text": "欢迎语", "ice_breakers": [{"title": "具体问题1", "response": "针对性回复1"}, {"title": "具体问题2", "response": "针对性回复2"}, {"title": "具体问题3", "response": "针对性回复3"}]}\n'
             "只返回JSON，不要其他内容。"
@@ -1782,7 +1745,7 @@ class AutoPilotEngine:
 
         fallback_template = self._default_msg_template(ctx, headline)
         welcome_text = str(ai_result.get("welcome_text") or "").strip() or fallback_template["welcome_text"]
-        if lang_code not in ("zh", "zh-tw", "zh-hk") and self._contains_cjk(welcome_text):
+        if lang_code not in ("zh", "zh-tw") and self._contains_cjk(welcome_text):
             welcome_text = fallback_template["welcome_text"]
 
         ice_breakers_raw = ai_result.get("ice_breakers") or []
@@ -1800,7 +1763,7 @@ class AutoPilotEngine:
                 title = str(item).strip()[:80]
             if not title:
                 continue
-            if lang_code not in ("zh", "zh-tw", "zh-hk") and self._contains_cjk(title):
+            if lang_code not in ("zh", "zh-tw") and self._contains_cjk(title):
                 continue
             ice_breakers.append({"title": title, "response": ""})
 
@@ -1851,15 +1814,11 @@ class AutoPilotEngine:
             f"素材分析：{ai_analysis}\n"
             f"投放目的：{ai_purpose}\n\n"
             "请生成适合的表单内容，包含：\n"
-            f"1. 表单标题（简短有力，必须使用 {ctx['label']}，需结合素材画面和广告文案）\n"
-            f"2. 1 个强相关的资格判断问题（必须使用 {ctx['label']}，从素材内容出发，让用户感觉问题是针对他看到的广告量身定制的）\n"
-            "3. 上述资格问题请同时给出 3-4 个选择项，选项文字简洁明了，适合快速点击\n"
-            "4. 为资格问题写一句简短的说明（qualifying_description），帮助用户理解为什么要回答这个问题，说明要贴合素材语境\n"
-            "5. 生成表单提交后的感谢页标题和说明文字（thank_you_title/thank_you_body），50字以内，语气亲切，要贴合素材的投放目的\n"
-            "6. 根据素材的投放目的，推断结束页行动号召按钮文字（cta_button_text，如：联系我们、发送消息、立即购买、了解详情等），按钮文字要与素材目的和感谢页内容自然衔接\n"
-            "7. 标题和问题都要中性、合规，不能夸大收益，不能带短链或敏感词\n\n"
+            f"1. 表单标题（简短有力，必须使用 {ctx['label']}）\n"
+            f"2. 1 个强相关的资格判断问题（必须使用 {ctx['label']}，不能泛泛而谈）\n"
+            "3. 标题和问题都要中性、合规，不能夸大收益，不能带短链或敏感词\n\n"
             "请用JSON格式返回：\n"
-            '{\n  "form_title": "表单标题",\n  "qualifying_question": "资格问题",\n  "qualifying_description": "问题说明（一句话）",\n  "qualifying_options": ["选项A","选项B","选项C"],\n  "thank_you_title": "感谢页标题",\n  "thank_you_body": "感谢页说明",\n  "cta_button_text": "按钮文字"\n}\n'
+            '{\n  "form_title": "表单标题",\n  "qualifying_question": "资格问题"\n}\n'
             "只返回JSON，不要其他内容。"
         )
 
@@ -1882,42 +1841,15 @@ class AutoPilotEngine:
         form_title = str(ai_result.get("form_title") or "").strip() or fallback_spec["form_title"]
         qualifying_question = str(ai_result.get("qualifying_question") or "").strip() or fallback_spec["qualifying_question"]
 
-        if lang_code not in ("zh", "zh-tw", "zh-hk"):
+        if lang_code not in ("zh", "zh-tw"):
             if self._contains_cjk(form_title):
                 form_title = fallback_spec["form_title"]
             if self._contains_cjk(qualifying_question):
                 qualifying_question = fallback_spec["qualifying_question"]
 
-        # Parse AI-generated fields for multiple choice + end page
-        _ai_qualifying_options = ai_result.get("qualifying_options") or []
-        if not isinstance(_ai_qualifying_options, list):
-            _ai_qualifying_options = []
-        _ai_qualifying_options = [str(o).strip() for o in _ai_qualifying_options if str(o).strip()]
-        _ai_thank_you_title = str(ai_result.get("thank_you_title") or "").strip()
-        _ai_thank_you_body = str(ai_result.get("thank_you_body") or "").strip()
-        _ai_cta_button_text = str(ai_result.get("cta_button_text") or "").strip()
-
-        # Fallback for thank_you / cta fields
-        _thank_you_title = _ai_thank_you_title or fallback_spec["thank_you_title"]
-        _thank_you_body = _ai_thank_you_body or fallback_spec["thank_you_body"]
-        _cta_button_text = _ai_cta_button_text or fallback_spec["cta_button_text"]
-
-        if lang_code not in ("zh", "zh-tw", "zh-hk"):
-            if self._contains_cjk(_thank_you_title):
-                _thank_you_title = fallback_spec["thank_you_title"]
-            if self._contains_cjk(_thank_you_body):
-                _thank_you_body = fallback_spec["thank_you_body"]
-            if self._contains_cjk(_cta_button_text):
-                _cta_button_text = fallback_spec["cta_button_text"]
-
         return {
             "form_title": form_title[:80],
             "qualifying_question": qualifying_question[:120],
-            "qualifying_options": _ai_qualifying_options,
-            "thank_you_title": _thank_you_title[:80],
-            "qualifying_description": (str(ai_result.get("qualifying_description") or "")).strip()[:200],
-            "thank_you_body": _thank_you_body[:200],
-            "cta_button_text": _cta_button_text[:60],
             "privacy_text": fallback_spec["privacy_text"],
             "contact_field": fallback_spec["contact_field"],
             "locale": ctx["locale"],
@@ -1998,41 +1930,10 @@ class AutoPilotEngine:
                         _locale = _lead_form_spec.get("locale") or "en_US"
                         _final_questions = []
                         if _qualifying_question:
-                            _q_item = {"type": "CUSTOM", "key": "qualifying", "label": _qualifying_question}
-                            _q_options = _lead_form_spec.get("qualifying_options") or []
-                            if _q_options:
-                                _q_item["options"] = [{"key": f"opt_{i}", "value": o} for i, o in enumerate(_q_options)]
-                            _q_desc = _lead_form_spec.get("qualifying_description") or ""
-                            if _q_desc:
-                                _q_item["placeholder"] = _q_desc
-                            _final_questions.append(_q_item)
+                            _final_questions.append({"type": "CUSTOM", "label": _qualifying_question})
                         _final_questions.append({"type": _contact_field})
                         _privacy_url = form_link or (asset_info or {}).get("landing_url") or landing_url or ""
                         _follow_up_url = form_link or landing_url or (asset_info or {}).get("landing_url") or ""
-                        # Map ad_type to FB context_card button_type
-                        _BUTTON_TYPE_MAP = {
-                            "leads": "SIGN_UP",
-                            "purchase": "SHOP_NOW",
-                            "messenger": "CONTACT_US",
-                            "traffic": "LEARN_MORE",
-                            "engagement": "LEARN_MORE",
-                            "other": "LEARN_MORE",
-                        }
-                        _ad_type = (asset_info or {}).get("ad_type", "") or (asset_info or {}).get("ai_purpose", "")
-                        _button_type = _BUTTON_TYPE_MAP.get(_ad_type, "SIGN_UP")
-                        # Build context_card for the form end page
-                        _context_card = {}
-                        _cta_text = _lead_form_spec.get("cta_button_text") or ""
-                        _ty_title = _lead_form_spec.get("thank_you_title") or ""
-                        _ty_body = _lead_form_spec.get("thank_you_body") or ""
-                        if _ty_title or _ty_body:
-                            _context_card["style"] = "LIST_STYLE"
-                            _context_card["title"] = _ty_title or "Thank You"
-                            if _ty_body:
-                                _context_card["body"] = _ty_body
-                            if _cta_text:
-                                _context_card["button_text"] = _cta_text
-                                _context_card["button_type"] = _button_type
                         _lead_form_resolved = create_custom_lead_form_for_page(
                             page_id,
                             _form_title,
@@ -2042,7 +1943,6 @@ class AutoPilotEngine:
                             privacy_text=_privacy_text,
                             follow_up_url=_follow_up_url,
                             locale=_locale,
-                            context_card=_context_card or None,
                         )
                         self._runtime_lead_form_cache[_lead_cache_key] = _lead_form_resolved
                         logger.info(f"[AutoPilot] 默认 Lead Form 创建成功: form_id={_lead_form_resolved}")

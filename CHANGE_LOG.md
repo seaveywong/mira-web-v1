@@ -1,5 +1,36 @@
 ## v3.7.8 (2026-04-28)
 
+## v3.5.0 - 2026-05-09 - feat: 镜像模式 (Mirror Mode)
+
+### Added
+1. 镜像模式: 开启后自动拦截并暂停不在快照白名单中的活跃广告，防止非授权用户盗刷
+2. 全局开关: 左下角安全守护面板，与哨兵/心跳模式并列
+3. 账户级开关: accounts.mirror_enabled 列，支持按账户单独启停
+
+### How it works
+- 用户开启镜像 -> 立即抓取当前活跃广告ID列表作为快照(白名单)
+- 每次巡检(间隔5分钟)检查: 活跃广告在不在白名单中?
+- 不在白名单 + 非系统广告 -> 暂停 + TG告警
+- 用户B即使反复新建广告，5分钟内就会被拦截
+- 关闭镜像后恢复自由，快照保留不删
+
+### Files Changed
+1. services/guard_engine.py: +3 helper functions, +mirror check block in inspect_account()
+2. api/mirror.py: NEW - 4 endpoints (enable/disable/status/snapshot)
+3. main.py: register mirror_router at /api/mirror
+4. frontend/index.html: mirror toggle + dot + JS functions
+5. migrate_mirror.sql: DB migration (ALTER TABLE accounts + CREATE TABLE mirror_snapshots)
+
+## v3.4.7 - 2026-05-09 - fix: 巡检开关不生效
+
+### Fixed
+1. GuardEngine.run_all() 未检查 inspect_enabled 全局开关 — 即使设置页关闭巡检，引擎仍会巡检所有账户
+2. GuardEngine.run_all() 未过滤 enabled=0 的账户 — 账户页关闭巡检后（enabled=0），巡检仍继续
+
+### Changed
+1. guard_engine.py run_all(): 增加 inspect_enabled 全局开关检查，关闭时跳过巡检
+2. guard_engine.py run_all(): accounts 查询增加 WHERE enabled=1，禁用账户不巡检
+
 ### Fixed
 - **哨兵/心跳开关初始化时序修复**: initSentinelHeartbeat() 在页面底部内联脚本中调用时 token 尚未设置（全局 token 为空），
   导致 GET /api/settings 返回 403，开关状态始终显示关闭。修复：在 initApp() 末尾添加 initSentinelHeartbeat() 调用，

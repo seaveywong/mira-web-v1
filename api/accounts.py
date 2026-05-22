@@ -222,6 +222,7 @@ class AccountUpdate(BaseModel):
     form_link: Optional[str] = None             # 账户级表单链接（潜在客户广告用）
     target_objective_type: Optional[str] = None  # sales/website/leads/engagement
     ai_managed: Optional[int] = None             # AI 托管开关 0/1
+    mirror_enabled: Optional[int] = None       # 镜像模式开关 0/1
 
 
 # ── Token 管理 ─────────────────────────────────────────────────────────────
@@ -1306,6 +1307,7 @@ def list_accounts(user=Depends(get_current_user)):
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
                a.balance, a.account_status, a.spend_cap, a.amount_spent, a.spending_limit,
                COALESCE(a.ai_managed, 0) as ai_managed,
+               COALESCE(a.mirror_enabled, 0) as mirror_enabled,
                COALESCE(a.lifecycle_stage, 'new') as lifecycle_stage,
                a.target_countries, a.target_age_min, a.target_age_max,
                a.target_gender, a.target_placements, a.target_objective_type, a.landing_url, a.form_link,
@@ -1443,6 +1445,9 @@ def update_account(account_id: int, body: AccountUpdate, user=Depends(get_curren
     if getattr(body, 'ai_managed', None) is not None:
         updates.append("ai_managed=?")
         params.append(1 if body.ai_managed else 0)
+    if getattr(body, 'mirror_enabled', None) is not None:
+        updates.append("mirror_enabled=?")
+        params.append(1 if body.mirror_enabled else 0)
     if not updates:
         conn.close()
         raise HTTPException(400, "没有需要更新的字段")
@@ -1494,6 +1499,8 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
         updates.append("target_objective_type=?"); params.append(body.target_objective_type)
     if getattr(body, 'ai_managed', None) is not None:
         updates.append("ai_managed=?"); params.append(1 if body.ai_managed else 0)
+    if getattr(body, 'mirror_enabled', None) is not None:
+        updates.append("mirror_enabled=?"); params.append(1 if body.mirror_enabled else 0)
     if not updates:
         conn.close()
         raise HTTPException(400, "没有需要更新的字段")
@@ -2086,9 +2093,14 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
         conn.commit()
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE tw_certified_pages ADD COLUMN verified_source TEXT DEFAULT NULL")
+        conn.commit()
+    except Exception:
+        pass
     rows = conn.execute(
         """
-        SELECT p.id, p.page_id, p.page_name, p.verified_identity_id, p.note, p.created_at,
+        SELECT p.id, p.page_id, p.page_name, p.verified_identity_id, p.verified_source, p.note, p.created_at,
                p.matrix_id, p.token_id,
                ft.token_alias
         FROM tw_certified_pages p
@@ -2191,6 +2203,8 @@ def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_curre
     if "verified_identity_id" in body:
         updates.append("verified_identity_id=?")
         params.append(str(body["verified_identity_id"]).strip() or None)
+        updates.append("verified_source=?")
+        params.append("manual")
     if "matrix_id" in body:
         updates.append("matrix_id=?")
         params.append(body["matrix_id"] or None)
@@ -2231,6 +2245,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
     for col_sql in [
         "ALTER TABLE tw_certified_pages ADD COLUMN matrix_id INTEGER DEFAULT NULL",
         "ALTER TABLE tw_certified_pages ADD COLUMN token_id INTEGER DEFAULT NULL REFERENCES fb_tokens(id)",
+        "ALTER TABLE tw_certified_pages ADD COLUMN verified_source TEXT DEFAULT NULL",
     ]:
         try:
             conn.execute(col_sql); conn.commit()
@@ -2251,7 +2266,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
     existing_rows = {
         r["page_id"]: dict(r)
         for r in conn.execute(
-            "SELECT page_id, page_name, verified_identity_id, note, matrix_id, token_id FROM tw_certified_pages"
+            "SELECT page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id FROM tw_certified_pages"
         ).fetchall()
     }
     existing = set(existing_rows.keys())
@@ -2298,6 +2313,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                     results.append({
                         "page_id": str(pg["id"]),
                         "page_name": pg["name"],
+                        "page_token": pg.get("access_token"),
                         "token_id": t_info["id"],
                         "token_alias": t_info["alias"],
                         "matrix_id": t_info["matrix_id"],
@@ -2336,6 +2352,39 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
 
     all_page_list = list(seen_pages.values())
 
+    # ── 自动探测每个主页的 verified_identity_id 候选 ──
+    import requests as _probe_req
+    auto_identified = 0
+    auto_probe_failed = 0
+    for pg in all_page_list:
+        page_token = pg.get("page_token")
+        if not page_token:
+            pg["verified_candidate"] = None
+            pg["verified_source"] = None
+            continue
+        try:
+            r = _probe_req.get(
+                f"https://graph.facebook.com/v25.0/{pg['page_id']}",
+                params={"fields": "id,name,owner,verification_status", "access_token": page_token},
+                timeout=8
+            )
+            d = r.json()
+            if d.get("verification_status") == "blue_verified":
+                pg["verified_candidate"] = pg["page_id"]
+                pg["verified_source"] = "auto_badge"
+                auto_identified += 1
+            elif d.get("owner", {}).get("id"):
+                pg["verified_candidate"] = pg["page_id"]
+                pg["verified_source"] = "auto_bm"
+                auto_identified += 1
+            else:
+                pg["verified_candidate"] = None
+                pg["verified_source"] = None
+        except Exception:
+            auto_probe_failed += 1
+            pg["verified_candidate"] = None
+            pg["verified_source"] = None
+
     # 分为新增和已存在两组
     new_pages = [pg for pg in all_page_list if pg["page_id"] not in existing]
 
@@ -2350,12 +2399,13 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
             try:
                 conn2.execute(
                     "INSERT OR IGNORE INTO tw_certified_pages "
-                    "(page_id, page_name, verified_identity_id, note, matrix_id, token_id) "
-                    "VALUES (?,?,?,?,?,?)",
+                    "(page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id) "
+                    "VALUES (?,?,?,?,?,?,?)",
                     (
                         pg["page_id"],
                         pg["page_name"],
-                        None,
+                        pg.get("verified_candidate") or None,
+                        pg.get("verified_source") or None,
                         f"自动扫描（Token: {pg['token_alias']}）",
                         pg.get("matrix_id") or None,
                         pg.get("token_id") or None
@@ -2371,13 +2421,17 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                     UPDATE tw_certified_pages
                     SET page_name=?,
                         matrix_id=?,
-                        token_id=?
+                        token_id=?,
+                        verified_identity_id=CASE WHEN verified_source='manual' THEN verified_identity_id ELSE COALESCE(?, verified_identity_id) END,
+                        verified_source=CASE WHEN verified_source='manual' THEN verified_source ELSE COALESCE(?, verified_source) END
                     WHERE page_id=?
                     """,
                     (
                         pg["page_name"],
                         pg.get("matrix_id") or None,
                         pg.get("token_id") or None,
+                        pg.get("verified_candidate") or None,
+                        pg.get("verified_source") or None,
                         pg["page_id"],
                     )
                 )
@@ -2394,13 +2448,15 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
         "total_pages_found": len(seen_pages),
         "added": added,
         "refreshed_existing": refreshed_existing,
-        "manual_verified_id_only": True,
+        "auto_identified": auto_identified,
+        "auto_probe_failed": auto_probe_failed,
         "skipped_existing": skipped,
         "pages": [
             {
                 "page_id": pg["page_id"],
                 "page_name": pg["page_name"],
                 "verified_identity_id": (existing_rows.get(pg["page_id"]) or {}).get("verified_identity_id"),
+                "verified_source": (existing_rows.get(pg["page_id"]) or {}).get("verified_source"),
                 "token_alias": pg["token_alias"],
                 "matrix_id": pg.get("matrix_id"),
                 "is_new": pg["page_id"] not in existing
@@ -2980,3 +3036,118 @@ def get_matrices(current_user=Depends(get_current_user)):
         ).fetchall()
     conn.close()
     return {"matrices": [r["matrix_id"] for r in rows]}
+
+
+# ── 消费上限设置 ──────────────────────────────────────────────────────────────
+
+class SetSpendCapBody(BaseModel):
+    spend_cap_usd: Optional[float] = None  # USD金额，None或0=移除上限
+
+
+@router.post("/{act_id}/set-spend-cap")
+def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_current_user)):
+    """设置账户消费上限 - 通过FB API直接设置 spend_cap，FB平台强制执行"""
+    conn = get_conn()
+    acc = conn.execute(
+        "SELECT act_id, name, currency FROM accounts WHERE act_id=?",
+        (act_id,)
+    ).fetchone()
+    if not acc:
+        conn.close()
+        raise HTTPException(404, f"账户 {act_id} 不存在")
+
+    currency = (acc["currency"] or "USD").upper()
+    cap_usd = body.spend_cap_usd
+
+    # 获取操作号 Token（需要写权限）
+    from services.token_manager import get_exec_token, ACTION_UPDATE
+    token = get_exec_token(act_id, ACTION_UPDATE)
+    if not token:
+        conn.close()
+        raise HTTPException(400, f"账户 {act_id} 没有可用的操作号Token，无法设置消费上限")
+
+    # 零小数位货币（FB API 对这类货币直接传整数，不需要 ×100）
+    _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
+
+    # 汇率表（1 单位本币 = X USD）
+    _DEFAULT_RATES = {
+        "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067,
+        "CNY": 0.138, "HKD": 0.128, "TWD": 0.031, "SGD": 0.74,
+        "AUD": 0.65, "CAD": 0.74, "BRL": 0.20, "MXN": 0.058,
+        "CLP": 0.0011, "COP": 0.00025, "PEN": 0.27, "ARS": 0.001,
+        "THB": 0.028, "VND": 0.000040, "IDR": 0.000063, "PHP": 0.017,
+        "MYR": 0.21, "INR": 0.012, "TRY": 0.031, "ZAR": 0.053,
+        "BDT": 0.0091, "PKR": 0.0036, "LKR": 0.0031, "NPR": 0.0075,
+        "KRW": 0.00072, "CHF": 1.12, "NZD": 0.60, "SEK": 0.096,
+        "NOK": 0.093, "DKK": 0.145, "PLN": 0.25, "CZK": 0.044,
+        "HUF": 0.0028, "RON": 0.22, "BGN": 0.55, "AED": 0.272,
+        "SAR": 0.267, "QAR": 0.275, "KWD": 3.26, "BHD": 2.65,
+        "OMR": 2.60, "JOD": 1.41, "EGP": 0.021, "MAD": 0.099,
+        "TND": 0.32, "GHS": 0.067, "NGN": 0.00065, "KES": 0.0077,
+        "UAH": 0.027, "KZT": 0.0022, "GEL": 0.37,
+    }
+
+    if cap_usd is None or cap_usd <= 0:
+        # 移除上限：传空字符串到 FB API（spend_cap=0 会报错，省略参数不会清空）
+        is_remove = True
+        fb_value = ""  # 空字符串 = 清除此字段
+        db_value = None  # DB 存 NULL，表示无上限
+    else:
+        is_remove = False
+        if currency == "USD":
+            local_amount = cap_usd
+        else:
+            # 优先使用数据库汇率
+            rate = None
+            try:
+                rrow = conn.execute(
+                    "SELECT rate FROM currency_rates WHERE currency=?", (currency,)
+                ).fetchone()
+                if rrow:
+                    rate = rrow["rate"]
+            except Exception:
+                pass
+            if rate is None:
+                rate = _DEFAULT_RATES.get(currency, 1.0)
+            local_amount = round(cap_usd / rate, 2) if rate > 0 else cap_usd
+
+        # FB API 的 spend_cap 参数使用账户主货币单位（美元/日元等），非分
+        if currency in _NO_DECIMAL_CURRENCIES:
+            fb_value = int(local_amount)
+            db_value = fb_value
+        else:
+            fb_value = int(local_amount)
+            db_value = fb_value * 100  # DB 存储用分，与 FB GET 返回格式一致
+
+    # 调用 FB API 设置/移除 spend_cap
+    # 移除: 传空字符串 spend_cap= （传 0 报错 1007，省略参数则 FB 不修改）
+    try:
+        resp = requests.post(
+            f"https://graph.facebook.com/v25.0/{act_id}",
+            data={"spend_cap": fb_value, "access_token": token},
+            timeout=30
+        )
+        result = resp.json()
+        if not resp.ok:
+            error_msg = result.get("error", {}).get("message", str(result))
+            conn.close()
+            raise HTTPException(400, f"FB API 设置失败: {error_msg}")
+    except requests.RequestException as e:
+        conn.close()
+        raise HTTPException(500, f"FB API 请求失败: {str(e)}")
+
+    # 更新本地数据库（存分为单位，与 FB GET 返回格式一致）
+    conn.execute(
+        "UPDATE accounts SET spend_cap=?, spending_limit=?, updated_at=datetime('now') WHERE act_id=?",
+        (db_value, db_value, act_id)
+    )
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "act_id": act_id,
+        "spend_cap": fb_value,
+        "spend_cap_usd": None if is_remove else cap_usd,
+        "message": "消费上限已移除" if is_remove else f"消费上限已设置为 ${cap_usd:,.2f} USD"
+    }

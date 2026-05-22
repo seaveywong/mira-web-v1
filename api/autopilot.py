@@ -202,6 +202,7 @@ async def get_launch_overview(_=Depends(get_current_user)):
             SELECT a.id, a.act_id, a.name, a.currency, a.timezone_name,
                    COALESCE(a.ai_managed, 0) as ai_managed,
                    COALESCE(a.auto_dispatch, 0) as auto_dispatch,
+                   COALESCE(a.mirror_enabled, 0) as mirror_enabled,
                    COALESCE(a.lifecycle_stage, 'new') as lifecycle_stage,
                    COALESCE(a.enabled, 0) as enabled,
                    a.page_id, a.pixel_id, a.landing_url,

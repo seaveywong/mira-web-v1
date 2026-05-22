@@ -857,25 +857,27 @@ def spend_query(
 
 # ─── 其他接口（保持不变） ─────────────────────────────────────
 @router.get("/ads")
-def get_ads(act_id: Optional[str] = None, user=Depends(get_current_user)):
-    today = date.today().isoformat()
+def get_ads(act_id: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, user=Depends(get_current_user)):
+    df, dt = _default_dates(date_from, date_to)
     conn = get_conn()
+    date_range = (df, dt) if df != dt else (df,)
+    where_date = "p.snapshot_date BETWEEN ? AND ?" if df != dt else "p.snapshot_date = ?"
     if act_id:
         rows = conn.execute(
-            """SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
+            f"""SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
                FROM perf_snapshots p
                LEFT JOIN accounts a ON a.act_id = p.act_id
                LEFT JOIN kpi_configs k ON k.target_id = p.ad_id AND k.level = 'ad'
-               WHERE p.snapshot_date = ? AND p.act_id = ?
-               ORDER BY p.spend DESC""", (today, act_id)).fetchall()
+               WHERE {where_date} AND p.act_id = ?
+               ORDER BY p.spend DESC""", (*date_range, act_id)).fetchall()
     else:
         rows = conn.execute(
-            """SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
+            f"""SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
                FROM perf_snapshots p
                LEFT JOIN accounts a ON a.act_id = p.act_id
                LEFT JOIN kpi_configs k ON k.target_id = p.ad_id AND k.level = 'ad'
-               WHERE p.snapshot_date = ?
-               ORDER BY p.spend DESC""", (today,)).fetchall()
+               WHERE {where_date}
+               ORDER BY p.spend DESC""", date_range).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
