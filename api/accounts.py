@@ -3088,9 +3088,9 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
     }
 
     if cap_usd is None or cap_usd <= 0:
-        # 移除上限：传空字符串到 FB API（spend_cap=0 会报错，省略参数不会清空）
+        # 移除上限: FB API v25 接受 spend_cap=0 来清除上限
         is_remove = True
-        fb_value = ""  # 空字符串 = 清除此字段
+        fb_value = 0  # 0 = 清除上限
         db_value = None  # DB 存 NULL，表示无上限
     else:
         is_remove = False
@@ -3120,7 +3120,6 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
             db_value = fb_value * 100  # DB 存储用分，与 FB GET 返回格式一致
 
     # 调用 FB API 设置/移除 spend_cap
-    # 移除: 传空字符串 spend_cap= （传 0 报错 1007，省略参数则 FB 不修改）
     try:
         resp = requests.post(
             f"https://graph.facebook.com/v25.0/{act_id}",
@@ -3129,9 +3128,24 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
         )
         result = resp.json()
         if not resp.ok:
-            error_msg = result.get("error", {}).get("message", str(result))
-            conn.close()
-            raise HTTPException(400, f"FB API 设置失败: {error_msg}")
+            err_info = result.get("error", {})
+            err_code = err_info.get("code")
+            # 移除上限时如果 spend_cap=0 报错 1007，尝试空字符串
+            if is_remove and err_code == 1007:
+                resp2 = requests.post(
+                    f"https://graph.facebook.com/v25.0/{act_id}",
+                    data={"spend_cap": "", "access_token": token},
+                    timeout=30
+                )
+                result2 = resp2.json()
+                if not resp2.ok:
+                    error_msg = result2.get("error", {}).get("message", str(result2))
+                    conn.close()
+                    raise HTTPException(400, f"FB API 设置失败: {error_msg}")
+            else:
+                error_msg = err_info.get("message", str(result))
+                conn.close()
+                raise HTTPException(400, f"FB API 设置失败: {error_msg}")
     except requests.RequestException as e:
         conn.close()
         raise HTTPException(500, f"FB API 请求失败: {str(e)}")

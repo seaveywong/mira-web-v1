@@ -286,7 +286,7 @@ tr:hover td{background:var(--bgh)}
 .btn-ic.d:hover{background:var(--erg);color:var(--er);border-color:rgba(239,68,68,.3)}
 .btn-sm{padding:5px 10px;font-size:12px}
 /* Form */
-.fg{margin-bottom:18px}
+.fg{margin-bottom:14px}
 .fl{display:block;font-size:12px;color:var(--t2);font-weight:600;margin-bottom:7px;letter-spacing:.3px}
 .fl .req{color:var(--er);margin-left:2px}
 .fc{width:100%;padding:10px 14px;background:var(--bgi);border:1px solid var(--bd);border-radius:var(--rs);color:var(--t1);font-size:13px;transition:var(--tr);outline:none;font-family:inherit}
@@ -395,9 +395,9 @@ textarea.fc{resize:vertical;min-height:80px}
 .rtd{padding:12px 14px;background:var(--bgi);border:1px solid var(--bd);border-radius:var(--rs);font-size:12px;color:var(--t2);margin-top:8px;line-height:1.6;display:none}
 .rtd.show{display:block}
 /* Settings */
-.ss{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:20px}
-.ss-title{font-size:13px;font-weight:700;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px}
-.sg{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ss{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:18px 20px;margin-bottom:16px}
+.ss-title{font-size:13px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px}
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;align-items:start}
 @media(max-width:800px){.sg{grid-template-columns:1fr}}
 .si{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs)}
 .si-label{font-size:13px;font-weight:500}
@@ -1253,7 +1253,7 @@ textarea.fc{resize:vertical;min-height:80px}
             <div class="ss-title">主页列表</div>
             <div id="twPagesList2" style="margin-bottom:14px"><span class="spin"></span> 加载中...</div>
             <div class="ss-title" style="margin-top:8px">添加主页</div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-items:end;margin-top:8px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;align-items:start;margin-top:8px">
               <div class="fg" style="margin:0">
                 <label class="fl">主页 ID <span class="req">*</span></label>
                 <input class="fc" id="twNewPageId2" placeholder="如：1020399831162841" onblur="autoFetchTwPageName2(this.value)">
@@ -2999,7 +2999,7 @@ textarea.fc{resize:vertical;min-height:80px}
       <div id="spendCapError" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
     </div>
     <div class="mf">
-      <button class="btn btn-r btn-sm" id="btnRemoveCap" style="margin-right:auto;display:none" onclick="submitSpendCap(0)">移除上限</button>
+      <button class="btn btn-r btn-sm" id="btnRemoveCap" style="margin-right:auto;display:none" onclick="submitSpendCap(true)">移除上限</button>
       <button class="btn btn-g" onclick="closeModal('moSpendCap')">取消</button>
       <button class="btn btn-p" id="btnSubmitCap" onclick="submitSpendCap()">确认设置</button>
     </div>
@@ -3623,7 +3623,7 @@ async function initApp(){
   },60000);
   // 恢复上次所在页面，否则默认显示看板
   var lastPage=localStorage.getItem('mira_last_page')||'dashboard';
-  var validPages=['dashboard','ads','logs','tokens','accounts','kpi','rules','settings','assets','templates','kpi_mapping','creative_gen','warmup'];
+  var validPages=['dashboard','ads','logs','tokens','accounts','kpi','rules','settings','assets','templates','kpi_mapping','creative_gen','warmup','twpages','launch','landing_urls'];
   if(validPages.indexOf(lastPage)>=0&&lastPage!=='dashboard'){
     showPage(lastPage);
   } else {
@@ -9076,6 +9076,7 @@ function renderSI(s, providers, prefix) {
   var icon = meta.icon || '';
   var val = s.value;
   var isSecret = s.key.indexOf('key') >= 0 || s.key.indexOf('token') >= 0 || s.key.indexOf('secret') >= 0;
+  var isMasked = isSecret && val && val.indexOf('****') >= 0;
 
   var inputHtml = '';
   if (val === '0' || val === '1' || s.key.indexOf('enabled') >= 0 || s.key.indexOf('protect') >= 0 || s.key.indexOf('auto') >= 0) {
@@ -9084,12 +9085,12 @@ function renderSI(s, providers, prefix) {
       '<input type="checkbox" data-key="' + s.key + '" ' + (val === '1' || val === 'true' ? 'checked' : '') + ' onchange="markSettingChanged(this)">' +
       '<span class="toggle-sl"></span></label>' +
       '<span style="font-size:12px;color:var(--t3);margin-left:8px" id="si-status-' + s.key + '">' + (val === '1' ? '已开启' : '已关闭') + '</span>';
-    return '<div class="fg" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
-      '<div style="flex:1;min-width:200px">' +
+    return '<div class="fg" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:6px;min-height:38px">' +
+      '<div style="flex:1;min-width:180px">' +
       '<label class="fl" style="margin-bottom:2px">' + icon + ' ' + label + '</label>' +
       (hint ? '<div class="fh" style="margin-top:2px">' + hint + '</div>' : '') +
       '</div>' +
-      '<div style="display:flex;align-items:center">' + inputHtml + '</div>' +
+      '<div style="display:flex;align-items:center;flex-shrink:0;padding-top:2px">' + inputHtml + '</div>' +
       '</div>';
   } else if (s.key === 'ai_provider' || s.key === 'vision_provider' || s.key === 'img_gen_provider') {
     // 厂商选择
@@ -9102,6 +9103,9 @@ function renderSI(s, providers, prefix) {
       return '<option value="' + o[0] + '"' + (val === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
     }).join('');
     inputHtml = '<select class="fc" data-key="' + s.key + '" onchange="markSettingChanged(this)">' + opts + '</select>';
+  } else if (isMasked) {
+    // 脱敏字段：显示占位提示，不暴露真实值
+    inputHtml = '<input class="fc" type="password" data-key="' + s.key + '" value="" placeholder="已设置 (点击输入新值替换)" data-original="' + val + '" data-was-masked="1" onfocus="this.placeholder=\'\';this.removeAttribute(\'data-was-masked\')" oninput="markSettingChanged(this)">';
   } else {
     // 文本/数字输入
     inputHtml = '<input class="fc" type="' + (isSecret ? 'password' : 'text') + '" data-key="' + s.key + '" value="' + (val || '') + '" placeholder="' + (s.placeholder || '') + '" oninput="markSettingChanged(this)">';
@@ -9334,10 +9338,13 @@ function testImgGen() {
 function markSettingChanged(el) {
   var key = el.dataset.key;
   if (!key) return;
-  // 更新开关状态文字
   if (el.type === 'checkbox') {
     var statusEl = document.getElementById('si-status-' + key);
     if (statusEl) statusEl.textContent = el.checked ? '已开启' : '已关闭';
+  }
+  // 脱敏字段：用户开始输入后清除mask标记
+  if (el.getAttribute('data-was-masked')==='1' && el.value) {
+    el.removeAttribute('data-was-masked');
   }
 }
 
@@ -9372,7 +9379,12 @@ function renderAiVisionSec(items,providers){
           '</select></div>';
       }
       if(s.key==='vision_api_key'){
-        return'<div class="fg"><label class="fl">视觉 AI API Key</label><input class="fc" id="setting_vision_api_key" type="password" value="'+(s.value||'')+'" placeholder="留空=自动复用文本 AI 的 Key"><div class="fh">视觉分析专用 Key（若与文本 AI 使用同一 Key 可留空，支持 OpenAI/Gemini）</div></div>';
+        var vkVal=s.value||'';
+        var vkMasked=vkVal.indexOf('****')>=0;
+        if(vkMasked){
+          return'<div class="fg"><label class="fl">视觉 AI API Key</label><input class="fc" id="setting_vision_api_key" type="password" value="" placeholder="已设置 (点击输入新值替换)" data-original="'+vkVal+'" data-was-masked="1"><div class="fh">视觉分析专用 Key（若与文本 AI 使用同一 Key 可留空，支持 OpenAI/Gemini）</div></div>';
+        }
+        return'<div class="fg"><label class="fl">视觉 AI API Key</label><input class="fc" id="setting_vision_api_key" type="password" value="'+vkVal+'" placeholder="留空=自动复用文本 AI 的 Key"><div class="fh">视觉分析专用 Key（若与文本 AI 使用同一 Key 可留空，支持 OpenAI/Gemini）</div></div>';
       }
       if(s.key==='vision_api_base'){
         return'<div class="fg"><label class="fl">视觉 AI Base URL</label><input class="fc" id="setting_vision_api_base" type="text" value="'+(s.value||'')+'" placeholder="视觉 AI 接口地址（切换厂商后自动填充）"><div class="fh">视觉 AI 接口地址（切换厂商后自动填充）</div></div>';
@@ -9408,7 +9420,19 @@ function renderSI(s,providers,cp){
   var isModel=s.key==='ai_model'&&providers&&cp&&providers[cp];
   if(isToggle)return'<div class="si"><div><div class="si-label">'+s.label+'</div>'+(s.description?'<div class="si-desc">'+s.description+'</div>':'')+'</div><label class="toggle"><input type="checkbox" id="setting_'+s.key+'" '+(s.value==='1'?'checked':'')+' onchange="saveSettingImmediate(this)" data-key="'+s.key+'"><span class="ts"></span></label></div>';
   if(isModel){var p=providers[cp];return'<div class="fg"><label class="fl">'+s.label+'</label><select class="fc" id="setting_'+s.key+'">'+p.models.map(function(m){return'<option value="'+m+'" '+(m===s.value?'selected':'')+'>'+m+'</option>'}).join('')+'</select></div>'}
-  var isSens=['ai_api_key','tg_bot_token','vision_api_key'].includes(s.key);
+  // 厂商下拉（img_gen_provider）
+  var isProvider=s.key==='img_gen_provider';
+  if(isProvider){
+    var provOpts=[['auto','自动选择'],['fal_kontext','FAL Kontext（图生图）'],['fal_schnell','FAL Schnell（快速）'],['openai','OpenAI DALL-E'],['stability_ultra','Stability Ultra'],['stability_core','Stability Core'],['ideogram','Ideogram（文字）']];
+    var opts=provOpts.map(function(o){return'<option value="'+o[0]+'"'+(s.value===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('');
+    return'<div class="fg"><label class="fl">'+s.label+'</label><select class="fc" id="setting_'+s.key+'" onchange="markSettingChanged(this)" data-key="'+s.key+'">'+opts+'</select><div class="fh">'+(s.description||'')+'</div></div>';
+  }
+  var SENS_KEYS=['ai_api_key','tg_bot_token','vision_api_key','img_gen_fal_key','img_gen_openai_key','img_gen_ideogram_key','img_gen_stability_key','img_gen_replicate_key'];
+  var isSens=SENS_KEYS.includes(s.key);
+  var isMasked=isSens&&s.value&&s.value.indexOf('****')>=0;
+  if(isMasked){
+    return'<div class="fg"><label class="fl">'+s.label+'</label><input class="fc" id="setting_'+s.key+'" type="password" value="" placeholder="已设置 (点击输入新值替换)" data-original="'+s.value+'" data-was-masked="1"><div class="fh">'+(s.description||'')+'</div></div>';
+  }
   return'<div class="fg"><label class="fl">'+s.label+'</label><input class="fc" id="setting_'+s.key+'" type="'+(isSens?'password':'text')+'" value="'+(s.value||'')+'" placeholder="'+(s.placeholder||'')+'"><div class="fh">'+(s.description||'')+'</div></div>';
 }
 async function saveSettingImmediate(el){
@@ -9426,6 +9450,8 @@ async function saveSettings(){
   settingsData.forEach(function(s){
     var el=document.getElementById('setting_'+s.key);if(!el)return;
     var v=el.type==='checkbox'?(el.checked?'1':'0'):el.value;
+    if(el.getAttribute('data-was-masked')==='1'&&!v)return;
+    if(el.getAttribute('data-original')&&v)el.removeAttribute('data-was-masked');
     updates.push({key:s.key,value:v});
   });
   try{await api('PUT','/settings',{settings:updates});toast('设置保存成功','ok');checkAi();}catch(e){toast('保存失败：'+e.message,'er')}

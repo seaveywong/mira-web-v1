@@ -14,7 +14,7 @@ from core.database import get_conn
 
 router = APIRouter()
 
-SENSITIVE_KEYS = {"ai_api_key", "tg_bot_token", "vision_api_key"}
+SENSITIVE_KEYS = {"ai_api_key", "tg_bot_token", "vision_api_key", "img_gen_fal_key", "img_gen_openai_key", "img_gen_ideogram_key", "img_gen_stability_key", "img_gen_replicate_key"}
 
 
 class SettingItem(BaseModel):
