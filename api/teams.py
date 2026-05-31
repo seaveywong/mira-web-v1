@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 from core.auth import is_superadmin, require_admin, require_superadmin
 from core.database import get_db
@@ -13,6 +13,74 @@ class TeamBody(BaseModel):
     name: str
     note: Optional[str] = None
     status: Optional[str] = "active"
+
+
+class ResourceAssignBody(BaseModel):
+    kind: str
+    ids: list[int]
+    team_id: Optional[int] = None
+
+
+RESOURCE_CONFIG: dict[str, dict[str, Any]] = {
+    "accounts": {
+        "table": "accounts",
+        "alias": "r",
+        "label": "Ad accounts",
+        "select": """r.id, r.act_id, COALESCE(NULLIF(r.name,''), r.act_id) AS name,
+                       r.currency, r.account_status, r.enabled, r.created_at,
+                       r.team_id, t.name AS team_name""",
+        "search": ("r.act_id", "r.name", "r.currency"),
+        "order": "r.created_at DESC, r.id DESC",
+    },
+    "tokens": {
+        "table": "fb_tokens",
+        "alias": "r",
+        "label": "Tokens",
+        "select": """r.id, r.token_alias AS name, r.token_type, r.token_source,
+                       r.status, r.account_count, r.last_verified_at, r.created_at,
+                       r.team_id, t.name AS team_name""",
+        "search": ("r.token_alias", "r.token_type", "r.token_source", "r.status"),
+        "order": "r.created_at DESC, r.id DESC",
+    },
+    "assets": {
+        "table": "ad_assets",
+        "alias": "r",
+        "label": "Assets",
+        "select": """r.id, COALESCE(NULLIF(r.display_name,''), NULLIF(r.file_name,''), r.asset_code) AS name,
+                       r.file_name, r.asset_code, r.file_type, r.source, r.upload_status,
+                       r.score_label, r.created_at, r.team_id, t.name AS team_name""",
+        "search": ("r.display_name", "r.file_name", "r.asset_code", "r.tags", "r.source"),
+        "order": "r.created_at DESC, r.id DESC",
+    },
+    "pages": {
+        "table": "tw_certified_pages",
+        "alias": "r",
+        "label": "Certified pages",
+        "select": """r.id, r.page_id, COALESCE(NULLIF(r.page_name,''), r.page_id) AS name,
+                       r.page_status, r.page_can_advertise, r.page_is_published,
+                       r.matrix_id, r.created_at, r.team_id, t.name AS team_name""",
+        "search": ("r.page_id", "r.page_name", "r.page_status", "r.note"),
+        "order": "r.created_at DESC, r.id DESC",
+    },
+    "msg_templates": {
+        "table": "msg_templates",
+        "alias": "r",
+        "label": "Message templates",
+        "select": """r.id, r.name, r.destination, r.note, r.created_at, r.updated_at,
+                       r.team_id, t.name AS team_name""",
+        "search": ("r.name", "r.destination", "r.note"),
+        "order": "r.updated_at DESC, r.id DESC",
+    },
+    "lead_forms": {
+        "table": "lead_form_templates",
+        "alias": "r",
+        "label": "Lead form templates",
+        "select": """r.id, r.name, r.locale, r.note, r.created_at, r.updated_at,
+                       r.team_id, t.name AS team_name""",
+        "search": ("r.name", "r.locale", "r.note"),
+        "order": "r.updated_at DESC, r.id DESC",
+    },
+}
 
 
 def _count(conn, table: str, team_id: int) -> int:
@@ -127,3 +195,112 @@ def list_team_users(team_id: int, user=Depends(require_admin)):
     ).fetchall()
     conn.close()
     return {"users": [dict(row) for row in rows]}
+
+
+@router.get("/resources/kinds")
+def list_resource_kinds(user=Depends(require_superadmin)):
+    return {
+        "kinds": [
+            {"kind": kind, "label": cfg["label"]}
+            for kind, cfg in RESOURCE_CONFIG.items()
+        ]
+    }
+
+
+@router.get("/resources")
+def list_resources(
+    kind: str = "accounts",
+    team_id: Optional[str] = None,
+    keyword: str = "",
+    limit: int = 200,
+    offset: int = 0,
+    user=Depends(require_superadmin),
+):
+    cfg = RESOURCE_CONFIG.get(kind)
+    if not cfg:
+        raise HTTPException(status_code=400, detail="Unsupported resource kind")
+    limit = max(1, min(int(limit or 200), 500))
+    offset = max(0, int(offset or 0))
+    alias = cfg["alias"]
+    where = ["1=1"]
+    params: list[Any] = []
+    if team_id not in (None, "", "all"):
+        if team_id == "unassigned":
+            where.append(f"{alias}.team_id IS NULL")
+        else:
+            try:
+                team_id_int = int(team_id)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="Invalid team_id") from exc
+            where.append(f"{alias}.team_id=?")
+            params.append(team_id_int)
+    keyword = (keyword or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        search_clause = " OR ".join([f"{col} LIKE ?" for col in cfg["search"]])
+        where.append(f"({search_clause})")
+        params.extend([like] * len(cfg["search"]))
+
+    sql_from = f"{cfg['table']} {alias} LEFT JOIN teams t ON t.id = {alias}.team_id"
+    where_sql = " AND ".join(where)
+    conn = get_db()
+    total = conn.execute(
+        f"SELECT COUNT(*) AS c FROM {sql_from} WHERE {where_sql}",
+        params,
+    ).fetchone()["c"]
+    rows = conn.execute(
+        f"""SELECT {cfg['select']}
+            FROM {sql_from}
+            WHERE {where_sql}
+            ORDER BY {cfg['order']}
+            LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    ).fetchall()
+    teams = conn.execute("SELECT id, name, status FROM teams ORDER BY status, name").fetchall()
+    conn.close()
+    return {
+        "kind": kind,
+        "label": cfg["label"],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [dict(row) for row in rows],
+        "teams": [dict(row) for row in teams],
+    }
+
+
+@router.patch("/resources/assign")
+def assign_resources(body: ResourceAssignBody, user=Depends(require_superadmin)):
+    cfg = RESOURCE_CONFIG.get(body.kind)
+    if not cfg:
+        raise HTTPException(status_code=400, detail="Unsupported resource kind")
+    ids = sorted({int(x) for x in (body.ids or []) if int(x) > 0})
+    if not ids:
+        raise HTTPException(status_code=400, detail="No resources selected")
+    if len(ids) > 500:
+        raise HTTPException(status_code=400, detail="At most 500 resources can be assigned at once")
+
+    conn = get_db()
+    team_name = None
+    if body.team_id is not None:
+        team = conn.execute("SELECT id, name FROM teams WHERE id=?", (body.team_id,)).fetchone()
+        if not team:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Team not found")
+        team_name = team["name"]
+
+    placeholders = ",".join(["?"] * len(ids))
+    conn.execute(
+        f"UPDATE {cfg['table']} SET team_id=? WHERE id IN ({placeholders})",
+        [body.team_id] + ids,
+    )
+    changed = conn.execute("SELECT changes()").fetchone()[0]
+    conn.commit()
+    conn.close()
+    return {
+        "success": True,
+        "kind": body.kind,
+        "updated": changed,
+        "team_id": body.team_id,
+        "team_name": team_name,
+    }

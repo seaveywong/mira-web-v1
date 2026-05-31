@@ -2590,6 +2590,7 @@ function toast(msg,type){
   setTimeout(function(){if(t.parentNode)t.remove();},300);
  },3000);
 }
+function showToast(msg,type){toast(msg,type)}
 function openModal(id){document.getElementById(id).classList.add('show')}
 function closeModal(id){document.getElementById(id).classList.remove('show')}
 function showConfirm(msg, onOk) {
@@ -2917,6 +2918,156 @@ async function deleteUser(uid, username){
 }
 
 
+
+
+// ── 团队资源分配 ─────────────────────────────────────────────────────────────
+var _teamResKinds = [
+ ['accounts','广告账户'],
+ ['tokens','Token'],
+ ['assets','素材'],
+ ['pages','认证主页'],
+ ['msg_templates','消息模板'],
+ ['lead_forms','表单模板']
+];
+var _teamResItems = [];
+var _teamResTeams = [];
+
+function renderTeamResourceSection(){
+ if(!hasRole('superadmin')) return '';
+ var kindOpts = _teamResKinds.map(function(k){return '<option value="'+k[0]+'">'+k[1]+'</option>';}).join('');
+ return '<div class="ss role-superadmin-only">' +
+  '<div class="ss-title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+  '<span>团队资源分配 <span style="font-size:12px;font-weight:400;color:var(--t3)">先分配归属，暂不强制隔离</span></span>' +
+  '<button class="btn btn-g btn-sm" onclick="createTeamQuick()">新建团队</button>' +
+  '</div>' +
+  '<div class="sg">' +
+  '<div style="display:grid;grid-template-columns:140px 160px 1fr auto;gap:8px;align-items:center;margin-bottom:10px">' +
+  '<select class="fc" id="teamResKind" onchange="loadTeamResources()">'+kindOpts+'</select>' +
+  '<select class="fc" id="teamResFilter" onchange="loadTeamResources()"><option value="all">全部归属</option><option value="unassigned">未分配</option></select>' +
+  '<input class="fc" id="teamResKeyword" placeholder="搜索名称 / ID / 状态" onkeydown="if(event.key===&quot;Enter&quot;)loadTeamResources()">' +
+  '<button class="btn btn-g" onclick="loadTeamResources()">查询</button>' +
+  '</div>' +
+  '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
+  '<select class="fc" id="teamResAssignTeam" style="width:200px"><option value="">取消分配</option></select>' +
+  '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置归属</button>' +
+  '<span id="teamResSummary" style="font-size:12px;color:var(--t3)"></span>' +
+  '</div>' +
+  '<div id="teamResourceWrap"><div style="color:var(--t3);font-size:13px">加载中...</div></div>' +
+  '</div></div>';
+}
+
+function _teamResFillTeamOptions(teams){
+ _teamResTeams = teams || [];
+ var filter = document.getElementById('teamResFilter');
+ var assign = document.getElementById('teamResAssignTeam');
+ var oldFilter = filter ? filter.value : 'all';
+ var oldAssign = assign ? assign.value : '';
+ var opts = _teamResTeams.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name)+'</option>';}).join('');
+ if(filter){
+  filter.innerHTML = '<option value="all">全部归属</option><option value="unassigned">未分配</option>' + opts;
+  filter.value = Array.prototype.some.call(filter.options,function(o){return o.value===oldFilter;}) ? oldFilter : 'all';
+ }
+ if(assign){
+  assign.innerHTML = '<option value="">取消分配</option>' + opts;
+  assign.value = Array.prototype.some.call(assign.options,function(o){return o.value===oldAssign;}) ? oldAssign : '';
+ }
+}
+
+function _teamResMain(item, kind){
+ if(kind==='accounts') return [item.name||item.act_id||('账户 '+item.id), item.act_id||'', item.currency||'', item.account_status?'状态 '+item.account_status:''];
+ if(kind==='tokens') return [item.name||('Token '+item.id), item.token_type||'', item.token_source||'', item.status||''];
+ if(kind==='assets') return [item.name||item.file_name||('素材 '+item.id), item.asset_code||'', item.file_type||'', item.upload_status||''];
+ if(kind==='pages') return [item.name||item.page_id||('主页 '+item.id), item.page_id||'', item.page_status||'', item.page_can_advertise===0?'不可投放':''];
+ if(kind==='msg_templates') return [item.name||('消息模板 '+item.id), item.destination||'', item.note||'', ''];
+ if(kind==='lead_forms') return [item.name||('表单模板 '+item.id), item.locale||'', item.note||'', ''];
+ return [item.name||('资源 '+item.id), '', '', ''];
+}
+
+function _renderTeamResources(kind){
+ var wrap = document.getElementById('teamResourceWrap');
+ if(!wrap) return;
+ if(!_teamResItems.length){
+  wrap.innerHTML = '<div style="padding:18px;text-align:center;color:var(--t3);border:1px solid var(--bd);border-radius:6px">暂无资源</div>';
+  return;
+ }
+ var html = '<div style="max-height:420px;overflow:auto;border:1px solid var(--bd);border-radius:6px">' +
+  '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+  '<thead><tr style="color:var(--t3);border-bottom:1px solid var(--bd);background:var(--bg2)">' +
+  '<th style="width:34px;padding:8px;text-align:left"><input type="checkbox" onchange="toggleTeamResourceChecks(this.checked)"></th>' +
+  '<th style="padding:8px;text-align:left">资源</th>' +
+  '<th style="padding:8px;text-align:left">当前团队</th>' +
+  '<th style="padding:8px;text-align:right">操作</th>' +
+  '</tr></thead><tbody>';
+ _teamResItems.forEach(function(item){
+  var parts = _teamResMain(item, kind);
+  var sub = parts.slice(1).filter(Boolean).map(escHtml).join(' · ');
+  var team = item.team_name ? escHtml(item.team_name) : '<span style="color:var(--wa)">未分配</span>';
+  html += '<tr style="border-bottom:1px solid var(--bd)">' +
+   '<td style="padding:8px"><input type="checkbox" class="team-res-check" value="'+item.id+'"></td>' +
+   '<td style="padding:8px"><div style="font-weight:600;color:var(--t1)">'+escHtml(parts[0])+'</div>' +
+   (sub?'<div style="font-size:12px;color:var(--t3);margin-top:2px">'+sub+'</div>':'')+'</td>' +
+   '<td style="padding:8px">'+team+'</td>' +
+   '<td style="padding:8px;text-align:right"><button class="btn btn-g btn-sm" onclick="selectSingleTeamResource('+item.id+')">选择</button></td>' +
+   '</tr>';
+ });
+ html += '</tbody></table></div>';
+ wrap.innerHTML = html;
+}
+
+async function loadTeamResources(){
+ if(!hasRole('superadmin')) return;
+ var kindEl = document.getElementById('teamResKind');
+ var filterEl = document.getElementById('teamResFilter');
+ var keywordEl = document.getElementById('teamResKeyword');
+ var kind = kindEl ? kindEl.value : 'accounts';
+ var teamFilter = filterEl ? filterEl.value : 'all';
+ var keyword = keywordEl ? keywordEl.value.trim() : '';
+ var wrap = document.getElementById('teamResourceWrap');
+ if(wrap) wrap.innerHTML = '<div style="color:var(--t3);font-size:13px">加载中...</div>';
+ try{
+  var qs = '?kind='+encodeURIComponent(kind)+'&team_id='+encodeURIComponent(teamFilter)+'&keyword='+encodeURIComponent(keyword)+'&limit=300';
+  var r = await api('GET','/teams/resources'+qs);
+  _teamResItems = r.items || [];
+  _teamResFillTeamOptions(r.teams || []);
+  _renderTeamResources(kind);
+  var sum = document.getElementById('teamResSummary');
+  if(sum) sum.textContent = '显示 '+_teamResItems.length+' / '+(r.total||0)+' 个资源';
+ }catch(e){
+  if(wrap) wrap.innerHTML = '<div style="color:var(--er)">加载失败：'+escHtml(e.message||e)+'</div>';
+ }
+}
+
+function toggleTeamResourceChecks(checked){
+ document.querySelectorAll('.team-res-check').forEach(function(el){el.checked=checked;});
+}
+
+function selectSingleTeamResource(id){
+ document.querySelectorAll('.team-res-check').forEach(function(el){el.checked=String(el.value)===String(id);});
+}
+
+async function assignSelectedTeamResources(){
+ var ids = Array.prototype.slice.call(document.querySelectorAll('.team-res-check:checked')).map(function(el){return parseInt(el.value,10);}).filter(Boolean);
+ if(!ids.length){toast('请选择要分配的资源','wa');return;}
+ var kind = (document.getElementById('teamResKind')||{}).value || 'accounts';
+ var target = (document.getElementById('teamResAssignTeam')||{}).value || '';
+ var teamId = target ? parseInt(target,10) : null;
+ try{
+  var r = await api('PATCH','/teams/resources/assign',{kind:kind,ids:ids,team_id:teamId});
+  toast('已更新 '+(r.updated||ids.length)+' 个资源归属','ok');
+  loadTeamResources();
+ }catch(e){toast('分配失败：'+(e.message||e),'er');}
+}
+
+async function createTeamQuick(){
+ var name = window.prompt('请输入团队名称');
+ if(!name || !name.trim()) return;
+ try{
+  await api('POST','/teams',{name:name.trim(),status:'active'});
+  toast('团队已创建','ok');
+  loadTeamResources();
+  loadUserList();
+ }catch(e){toast('创建团队失败：'+(e.message||e),'er');}
+}
 
 
 // ── 矩阵动态加载 ──────────────────────────────────────────────────────────────
@@ -9217,6 +9368,7 @@ async function loadSettings() {
   html += renderConnectionTestSection();
   html += renderGuardHealthSection();
   html += renderServerResourceSection();
+  html += renderTeamResourceSection();
   html += renderUserManageSection();
 
   document.getElementById('settingsContent').innerHTML = html;
@@ -9228,7 +9380,10 @@ async function loadSettings() {
   window._resTimer = setInterval(loadServerResource, 30000);
   if(window._guardHealthTimer) clearInterval(window._guardHealthTimer);
   window._guardHealthTimer = setInterval(loadGuardHealth, 30000);
-  if(hasRole('superadmin')) loadUserList();
+  if(hasRole('superadmin')){
+   loadTeamResources();
+   loadUserList();
+  }
 
  } catch(e) {
   document.getElementById('settingsContent').innerHTML = '<div style="padding:40px;text-align:center;color:var(--er)">加载失败：' + (e.message || e) + '</div>';
