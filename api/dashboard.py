@@ -13,6 +13,7 @@ from datetime import date, timedelta, datetime
 import requests as req
 import time
 from api.accounts import _calc_available_balance
+from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token
 
 router = APIRouter()
 _SUMMARY_CACHE = {}
@@ -69,6 +70,13 @@ def _count_conversions(actions: list, kpi_field: Optional[str] = None) -> int:
 
 def _get_token_for_account(acc: dict) -> Optional[str]:
     from core.database import decrypt_token
+    try:
+        if acc.get("act_id"):
+            token = get_exec_token(acc["act_id"], ACTION_READ, notify_exhausted=False)
+            if token:
+                return token
+    except Exception:
+        pass
     conn = get_conn()
     token = None
     if acc.get('token_id'):
@@ -101,6 +109,53 @@ def _get_rate(currency: str, conn) -> float:
         return float(row["rate"]) if row else 1.0
     except Exception:
         return 1.0
+
+
+_ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
+
+
+def _minor_to_amount(value, currency: str):
+    if value in (None, ""):
+        return None
+    try:
+        raw = float(value)
+    except (TypeError, ValueError):
+        return None
+    if (currency or "USD").upper() in _ZERO_DECIMAL_CURRENCIES:
+        return round(raw, 2)
+    return round(raw / 100, 2)
+
+
+def _fb_ads_paginated(act_id: str, token: str, fields: str, limit: int = 200, max_pages: int = 20):
+    rows = []
+    next_url = f"https://graph.facebook.com/v25.0/{act_id}/ads"
+    params = {"access_token": token, "fields": fields, "limit": limit}
+    pages = 0
+    last_error = None
+    while next_url and pages < max_pages:
+        try:
+            if pages == 0:
+                resp = req.get(next_url, params=params, timeout=25)
+            else:
+                resp = req.get(next_url, timeout=25)
+            data = resp.json()
+        except Exception as exc:
+            last_error = str(exc)
+            break
+        if data.get("error"):
+            last_error = data["error"].get("message") or str(data["error"])
+            break
+        rows.extend(data.get("data", []) or [])
+        pages += 1
+        next_url = (data.get("paging") or {}).get("next")
+    return rows, last_error
+
+
+def _account_writeable_status(acc: dict) -> bool:
+    try:
+        return int(acc.get("account_status") or 1) == 1
+    except (TypeError, ValueError):
+        return False
 
 
 def _default_dates(date_from: Optional[str], date_to: Optional[str]):
@@ -611,6 +666,88 @@ def get_ads_live(
         accs = conn.execute('SELECT * FROM accounts WHERE act_id=?', (act_id,)).fetchall()
     else:
         accs = conn.execute('SELECT * FROM accounts').fetchall()
+    accs = [dict(a) for a in accs]
+    act_ids = [a["act_id"] for a in accs]
+
+    settings_map = {}
+    try:
+        settings_rows = conn.execute(
+            "SELECT key,value FROM settings WHERE key IN ('mirror_enabled','sentinel_enabled','heartbeat_enabled')"
+        ).fetchall()
+        settings_map = {r["key"]: str(r["value"]) for r in settings_rows}
+    except Exception:
+        settings_map = {}
+
+    cap_map = {a["act_id"]: {
+        "manage_token_ok": False,
+        "write_token_ok": False,
+        "pause_token_ok": False,
+        "update_token_ok": False,
+        "read_token_ok": False,
+    } for a in accs}
+    if act_ids:
+        try:
+            placeholders = ",".join("?" for _ in act_ids)
+            token_rows = conn.execute(
+                f"""SELECT aot.act_id, t.token_type, COALESCE(t.token_source, '') as token_source,
+                          t.status as token_status, aot.status as bind_status
+                   FROM account_op_tokens aot
+                   JOIN fb_tokens t ON t.id = aot.token_id
+                   WHERE aot.act_id IN ({placeholders})""",
+                act_ids,
+            ).fetchall()
+            for row in token_rows:
+                active = row["token_status"] == "active" and row["bind_status"] == "active"
+                if not active:
+                    continue
+                meta = cap_map.setdefault(row["act_id"], {})
+                if row["token_type"] == "manage":
+                    meta["manage_token_ok"] = True
+                    meta["read_token_ok"] = True
+                elif row["token_type"] in ("operate", "user"):
+                    meta["read_token_ok"] = True
+                if (
+                    row["token_type"] == "operate"
+                    and (row["token_source"] or TOKEN_SOURCE_SYSTEM_USER) == TOKEN_SOURCE_SYSTEM_USER
+                ):
+                    meta["write_token_ok"] = True
+        except Exception:
+            pass
+    if act_ids:
+        try:
+            placeholders = ",".join("?" for _ in act_ids)
+            primary_rows = conn.execute(
+                f"""SELECT a.act_id, t.token_type, t.status as token_status
+                    FROM accounts a
+                    JOIN fb_tokens t ON t.id = a.token_id
+                    WHERE a.act_id IN ({placeholders})""",
+                act_ids,
+            ).fetchall()
+            for row in primary_rows:
+                if row["token_status"] != "active":
+                    continue
+                meta = cap_map.setdefault(row["act_id"], {})
+                meta["read_token_ok"] = True
+                if row["token_type"] == "manage":
+                    meta["manage_token_ok"] = True
+        except Exception:
+            pass
+        try:
+            global_manage = conn.execute(
+                "SELECT 1 FROM fb_tokens WHERE status='active' AND token_type='manage' LIMIT 1"
+            ).fetchone()
+            if global_manage:
+                for meta in cap_map.values():
+                    meta["read_token_ok"] = True
+                    meta["manage_token_ok"] = True
+        except Exception:
+            pass
+    for acc in accs:
+        meta = cap_map.setdefault(acc["act_id"], {})
+        writeable_account = _account_writeable_status(acc)
+        meta["pause_token_ok"] = bool(meta.get("write_token_ok") or meta.get("manage_token_ok"))
+        meta["update_token_ok"] = bool(meta.get("write_token_ok") and writeable_account)
+        meta["account_writeable"] = writeable_account
     conn.close()
 
     kpi_conn = get_conn()
@@ -623,7 +760,6 @@ def get_ads_live(
 
     all_ads = []
     for acc in accs:
-        acc = dict(acc)
         currency = (acc.get('currency') or 'USD').upper()
         token = _get_token_for_account(acc)
         if not token:
@@ -633,16 +769,29 @@ def get_ads_live(
         conn2.close()
 
         try:
-            fields = f'id,name,status,effective_status,adset_id,campaign_id,{insights_field}'
-            resp = req.get(
-                f'https://graph.facebook.com/v25.0/{acc["act_id"]}/ads',
-                params={'access_token': token, 'fields': fields, 'limit': 200},
-                timeout=20
+            rich_fields = (
+                "id,name,status,effective_status,adset_id,campaign_id,"
+                "adset{id,name,status,effective_status,daily_budget,lifetime_budget,"
+                "budget_remaining,bid_strategy,optimization_goal,campaign_id},"
+                "campaign{id,name,status,effective_status,daily_budget,lifetime_budget,"
+                "budget_remaining,bid_strategy,objective},"
+                f"{insights_field}"
             )
-            data = resp.json()
-            if 'error' in data:
+            ads, err = _fb_ads_paginated(acc["act_id"], token, rich_fields)
+            if err:
+                fallback_fields = f'id,name,status,effective_status,adset_id,campaign_id,{insights_field}'
+                ads, err = _fb_ads_paginated(acc["act_id"], token, fallback_fields)
+            if err:
                 continue
-            for ad in data.get('data', []):
+            acc_caps = cap_map.get(acc["act_id"], {})
+            automation_warnings = []
+            if settings_map.get("mirror_enabled") == "1" or int(acc.get("mirror_enabled") or 0) == 1:
+                automation_warnings.append("mirror_enabled")
+            if settings_map.get("sentinel_enabled") == "1":
+                automation_warnings.append("sentinel_enabled")
+            if settings_map.get("heartbeat_enabled") == "1":
+                automation_warnings.append("heartbeat_enabled")
+            for ad in ads:
                 ins_data = ad.get('insights', {})
                 ins = ins_data.get('data', []) if isinstance(ins_data, dict) else []
                 spend_orig = 0.0
@@ -661,6 +810,42 @@ def get_ads_live(
                 kpi_field = kpi.get('kpi_field')
                 conversions = _count_conversions(raw_actions, kpi_field)
                 cpa = round(spend_usd / conversions, 2) if conversions > 0 else 0
+                adset = ad.get("adset") if isinstance(ad.get("adset"), dict) else {}
+                campaign = ad.get("campaign") if isinstance(ad.get("campaign"), dict) else {}
+                ad_status = ad.get("status", "")
+                effective_status = ad.get("effective_status", "")
+                adset_id = ad.get("adset_id") or adset.get("id") or ""
+                campaign_id = ad.get("campaign_id") or campaign.get("id") or ""
+                terminal = effective_status in ("DELETED", "ARCHIVED") or ad_status in ("DELETED", "ARCHIVED")
+                paused_effective = effective_status in ("PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED")
+                write_block_reason = ""
+                if not acc_caps.get("account_writeable"):
+                    write_block_reason = f"account_status={acc.get('account_status')}"
+                elif not acc_caps.get("write_token_ok"):
+                    write_block_reason = "no_system_user_operate_token"
+                pause_block_reason = ""
+                if not acc_caps.get("pause_token_ok"):
+                    pause_block_reason = "no_pause_token"
+                elif terminal:
+                    pause_block_reason = "target_archived_or_deleted"
+                elif paused_effective or ad_status == "PAUSED":
+                    pause_block_reason = "already_paused"
+                resume_block_reason = ""
+                if not acc_caps.get("update_token_ok"):
+                    resume_block_reason = write_block_reason or "no_update_token"
+                elif terminal:
+                    resume_block_reason = "target_archived_or_deleted"
+                elif ad_status == "ACTIVE" and effective_status == "ACTIVE":
+                    resume_block_reason = "already_active"
+                adset_budget_amount = _minor_to_amount(adset.get("daily_budget"), currency)
+                campaign_budget_amount = _minor_to_amount(campaign.get("daily_budget"), currency)
+                adset_budget_block = ""
+                if not acc_caps.get("update_token_ok"):
+                    adset_budget_block = write_block_reason or "no_update_token"
+                elif not adset_id:
+                    adset_budget_block = "missing_adset_id"
+                elif adset_budget_amount is None:
+                    adset_budget_block = "adset_daily_budget_unavailable"
                 all_ads.append({
                     'ad_id': ad['id'],
                     'ad_name': ad.get('name', ad['id']),
@@ -670,18 +855,46 @@ def get_ads_live(
                     'timezone': acc.get('timezone', 'UTC'),
                     'date_from': date_from,
                     'date_to': date_to,
-                    'status': ad.get('status', ''),
-                    'effective_status': ad.get('effective_status', ''),
+                    'status': ad_status,
+                    'effective_status': effective_status,
                     'spend': spend_usd,
                     'conversions': conversions,
                     'cpa': cpa,
                     'roas': roas,
-                    'adset_id': ad.get('adset_id', ''),
-                    'campaign_id': ad.get('campaign_id', ''),
+                    'adset_id': adset_id,
+                    'adset_name': adset.get('name', ''),
+                    'adset_status': adset.get('status', ''),
+                    'adset_effective_status': adset.get('effective_status', ''),
+                    'adset_daily_budget': adset_budget_amount,
+                    'adset_lifetime_budget': _minor_to_amount(adset.get("lifetime_budget"), currency),
+                    'adset_budget_remaining': _minor_to_amount(adset.get("budget_remaining"), currency),
+                    'adset_bid_strategy': adset.get('bid_strategy', ''),
+                    'adset_optimization_goal': adset.get('optimization_goal', ''),
+                    'campaign_id': campaign_id,
+                    'campaign_name': campaign.get('name', ''),
+                    'campaign_status': campaign.get('status', ''),
+                    'campaign_effective_status': campaign.get('effective_status', ''),
+                    'campaign_daily_budget': campaign_budget_amount,
+                    'campaign_lifetime_budget': _minor_to_amount(campaign.get("lifetime_budget"), currency),
+                    'campaign_budget_remaining': _minor_to_amount(campaign.get("budget_remaining"), currency),
+                    'campaign_bid_strategy': campaign.get('bid_strategy', ''),
+                    'campaign_objective': campaign.get('objective', ''),
                     'target_cpa': kpi.get('target_cpa'),   # 已是USD
                     'kpi_field': kpi_field,
                     'kpi_label': kpi.get('kpi_label', ''),
                     'kpi_source': kpi.get('source', ''),
+                    'manage_token_ok': bool(acc_caps.get('manage_token_ok')),
+                    'write_token_ok': bool(acc_caps.get('write_token_ok')),
+                    'pause_token_ok': bool(acc_caps.get('pause_token_ok')),
+                    'update_token_ok': bool(acc_caps.get('update_token_ok')),
+                    'account_writeable': bool(acc_caps.get('account_writeable')),
+                    'automation_warnings': automation_warnings,
+                    'can_pause': not bool(pause_block_reason),
+                    'can_resume': not bool(resume_block_reason),
+                    'can_edit_budget': not bool(adset_budget_block),
+                    'pause_block_reason': pause_block_reason,
+                    'resume_block_reason': resume_block_reason,
+                    'budget_block_reason': adset_budget_block,
                 })
         except Exception:
             continue

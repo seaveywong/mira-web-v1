@@ -18,11 +18,12 @@ from api.logs import router as logs_router
 from api.op_tokens import router as op_tokens_router
 from api.assets import router as assets_router
 from api.ad_templates import router as ad_templates_router
-from api.creative_gen import router as creative_gen_router
 from api.storage import router as storage_router
-from api.autopilot import router as autopilot_router
 from api.users import router as users_router
 from api.admin import router as admin_router
+from api.mirror import router as mirror_router
+from api.warmup import router as warmup_router
+from api.ad_ops import router as ad_ops_router
 from core.scheduler import start_scheduler
 import logging
 import sys
@@ -81,6 +82,14 @@ class ActivityAuditMiddleware(BaseHTTPMiddleware):
                     "UPDATE users SET last_active_at=datetime('now','+8 hours'), last_ip=? WHERE username=?",
                     (ip, username)
                 )
+                if role in ("superadmin", "admin", "operator"):
+                    result = conn.execute(
+                        "UPDATE settings SET value=datetime('now','+8 hours') WHERE key='last_admin_activity'"
+                    )
+                    if result.rowcount == 0:
+                        conn.execute(
+                            "INSERT INTO settings(key,value) VALUES('last_admin_activity', datetime('now','+8 hours'))"
+                        )
                 conn.commit()
                 conn.close()
             except Exception:
@@ -130,6 +139,13 @@ async def startup():
     except Exception as e:
         import logging
         logging.getLogger("mira").warning(f"v5 migrate warning: {e}")
+    # v3.10: 预热列自愈
+    try:
+        from services.warmup_engine import _ensure_schema
+        _ensure_schema()
+    except Exception as e:
+        import logging
+        logging.getLogger("mira").warning(f"warmup schema warning: {e}")
     start_scheduler()
 
 
@@ -144,11 +160,12 @@ app.include_router(logs_router,      prefix="/api/logs",      tags=["logs"])
 app.include_router(op_tokens_router, prefix="/api/op-tokens", tags=["op-tokens"])
 app.include_router(assets_router,    prefix="/api/assets",    tags=["assets"])
 app.include_router(ad_templates_router, prefix="/api/ad-templates", tags=["ad-templates"])
-app.include_router(creative_gen_router, prefix="/api/creative-gen", tags=["creative-gen"])
 app.include_router(storage_router,       prefix="/api/storage",       tags=["storage"])
-app.include_router(autopilot_router,    prefix="/api/autopilot",    tags=["autopilot"])
 app.include_router(users_router,        prefix="/api/users",        tags=["users"])
 app.include_router(admin_router,       prefix="/api/admin",       tags=["admin"])
+app.include_router(mirror_router,      prefix="/api/mirror",     tags=["mirror"])
+app.include_router(warmup_router,      prefix="/api/warmup",     tags=["warmup"])
+app.include_router(ad_ops_router,      prefix="/api/ad-ops",     tags=["ad-ops"])
 app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
 
 
@@ -162,9 +179,20 @@ async def health():
 FRONTEND = "/opt/mira/frontend"
 
 
+def _index_response():
+    return FileResponse(
+        os.path.join(FRONTEND, "index.html"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @app.get("/")
 async def root():
-    return FileResponse(os.path.join(FRONTEND, "index.html"))
+    return _index_response()
 
 
 # 静态资源（CSS/JS/图片等）
@@ -173,7 +201,7 @@ async def favicon():
     fp = os.path.join(FRONTEND, "favicon.ico")
     if os.path.exists(fp):
         return FileResponse(fp)
-    return FileResponse(os.path.join(FRONTEND, "index.html"))
+    return _index_response()
 
 
 # SPA 兜底路由：只处理非 /api 路径
@@ -190,4 +218,4 @@ async def catch_all(path: str):
         return JSONResponse({"detail": "Forbidden"}, status_code=403)
     if os.path.exists(fp) and os.path.isfile(fp):
         return FileResponse(fp)
-    return FileResponse(os.path.join(FRONTEND, "index.html"))
+    return _index_response()

@@ -34,16 +34,17 @@ def _get_conn():
 
 def _get_active_accounts() -> list:
     """获取所有启用的广告账户"""
+    conn = _get_conn()
     try:
-        conn = _get_conn()
         rows = conn.execute(
             "SELECT act_id, name FROM accounts WHERE enabled=1"
         ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"[MetricsSync] 获取账户列表失败: {e}")
         return []
+    finally:
+        conn.close()
 
 
 def _get_account_token(act_id: str) -> str:
@@ -154,7 +155,7 @@ def _fetch_account_insights(act_id: str, token: str) -> dict:
 
 
 def _fetch_account_balance(act_id: str, token: str) -> float:
-    """从 FB API 获取账户余额（USD）"""
+    """从 FB API 获取账户余额，保持 FB minor units 原值以便与 amount_spent/spend_cap 一致"""
     try:
         resp = requests.get(
             f"{FB_API_BASE}/{act_id}",
@@ -167,12 +168,7 @@ def _fetch_account_balance(act_id: str, token: str) -> float:
         data = resp.json()
         if "error" in data:
             return -1.0
-        balance_cents = int(data.get("balance", 0) or 0)
-        currency = data.get("currency", "USD").upper()
-        # FB balance 单位是账户货币的分（cents）
-        balance = balance_cents / 100.0
-        # 如果不是 USD，需要换算（简单处理：直接返回原始值，由前端显示货币）
-        return balance
+        return float(data.get("balance", 0) or 0)
     except Exception as e:
         logger.warning(f"[MetricsSync] 获取账户 {act_id} 余额失败: {e}")
         return -1.0
@@ -206,9 +202,10 @@ def _write_metrics(act_id: str, metrics: dict):
                 logger.warning(f"[MetricsSync] 写入指标 {metric_name} 失败: {e}")
 
         conn.commit()
-        conn.close()
     except Exception as e:
         logger.error(f"[MetricsSync] 写入账户 {act_id} 指标失败: {e}")
+    finally:
+        conn.close()
 
 
 def _update_account_balance(act_id: str, balance: float):
@@ -222,9 +219,10 @@ def _update_account_balance(act_id: str, balance: float):
             (balance, act_id)
         )
         conn.commit()
-        conn.close()
     except Exception as e:
         logger.warning(f"[MetricsSync] 更新账户 {act_id} 余额失败: {e}")
+    finally:
+        conn.close()
 
 
 def _cleanup_old_metrics():
@@ -235,10 +233,11 @@ def _cleanup_old_metrics():
             "DELETE FROM ad_metrics WHERE recorded_at < datetime('now', '-30 days')"
         )
         conn.commit()
-        conn.close()
         logger.info("[MetricsSync] 清理过期指标数据完成")
     except Exception as e:
         logger.warning(f"[MetricsSync] 清理过期数据失败: {e}")
+    finally:
+        conn.close()
 
 
 def run_metrics_sync():
@@ -309,8 +308,8 @@ def get_account_metrics_summary(act_id: str, days: int = 7) -> dict:
     获取账户近 N 天的指标汇总（供 API 调用）
     返回 {metric_name: total_value} 字典
     """
+    conn = _get_conn()
     try:
-        conn = _get_conn()
         rows = conn.execute(
             """SELECT metric_name, SUM(CAST(value AS REAL)) as total
                FROM ad_metrics
@@ -318,8 +317,9 @@ def get_account_metrics_summary(act_id: str, days: int = 7) -> dict:
                GROUP BY metric_name""",
             (act_id, f"-{days} days")
         ).fetchall()
-        conn.close()
         return {r["metric_name"]: round(r["total"], 4) for r in rows}
     except Exception as e:
         logger.error(f"[MetricsSync] 获取账户 {act_id} 指标汇总失败: {e}")
         return {}
+    finally:
+        conn.close()

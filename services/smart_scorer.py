@@ -453,7 +453,7 @@ def score_asset(asset_id: int) -> bool:
                 grade,
                 score,
                 ",".join(countries) if isinstance(countries, list) else countries,
-                f"{reason} | 优点: {strengths}" + (f" | 不足: {weaknesses}" if weaknesses else ""),
+                full_reason,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 asset_id
             )
@@ -502,7 +502,7 @@ def run_asset_scoring():
 def score_asset_after_approve(asset_id: int):
     """
     素材审核通过后立即触发评分（在后台线程中执行）
-    由 creative_gen.py 的 approve_pending 函数调用
+    由素材审核或人工补评分流程调用
     """
     import threading
 
@@ -556,25 +556,17 @@ def _correlate_with_performance():
                 dev_pct = 0
 
             if dev_pct > 0.3 or deviation > 20:
-                conn.execute(
-                    "UPDATE ad_assets SET needs_rescore=1 WHERE id=?",
-                    (asset["id"],)
-                )
                 large_deviation += 1
-                logger.info(f"[SmartScorer] 偏差过大: asset={asset['id']}, ai={ai_s}, perf={perf_s}, dev={deviation:.1f}")
+                logger.info(
+                    f"[SmartScorer] 视觉分与实投分偏差较大，仅记录不触发视觉重评: "
+                    f"asset={asset['id']}, ai={ai_s}, perf={perf_s}, dev={deviation:.1f}"
+                )
 
         conn.commit()
 
         avg_dev = total_deviation / total if total > 0 else 0
         logger.info(f"[SmartScorer] 反馈环完成: 检查 {total} 个素材, 偏差过大 {large_deviation} 个, 平均偏差 {avg_dev:.1f} 分")
 
-        # 清理旧的 needs_rescore 素材
-        conn.execute("""
-            UPDATE ad_assets SET needs_rescore=0
-            WHERE needs_rescore=1 AND scored_at IS NOT NULL
-              AND datetime(scored_at) > datetime('now', '-1 hour')
-        """)
-        conn.commit()
         conn.close()
         return large_deviation
 

@@ -123,8 +123,10 @@ CACHE_TTL = 600  # 10 分钟
 _selection_lock = threading.Lock()
 _matrix_rr_state: dict[int, int] = {}
 _token_runtime_state: dict[int, dict] = {}
+_op_exhaust_alert_state: dict[tuple[str, str], float] = {}
 TOKEN_MIN_GAP_SECONDS = 1.5
 TOKEN_REQUEST_GAP_SECONDS = 0.8
+OP_EXHAUST_ALERT_COOLDOWN_SECONDS = 1800
 
 TRANSIENT_ERROR_COOLDOWNS = {
     1: 12.0,
@@ -158,7 +160,19 @@ def _is_token_alive(token_id: int, token_plain: str) -> bool:
             timeout=8
         )
         data = resp.json()
-        valid = "id" in data and "error" not in data
+        err = data.get("error") if isinstance(data, dict) else None
+        if err:
+            err_code = err.get("code")
+            if err_code in TRANSIENT_ERROR_COOLDOWNS or err.get("is_transient"):
+                logger.warning(
+                    f"[TokenManager] token_id={token_id} 心跳遇到 Meta 临时错误 code={err_code}，"
+                    "不标记失效"
+                )
+                valid = True
+            else:
+                valid = False
+        else:
+            valid = "id" in data
     except Exception:
         valid = False
 
@@ -173,21 +187,21 @@ def invalidate_token_cache(token_id: int):
 
 def _get_manage_token(act_id: str) -> Optional[str]:
     """
-    获取账户的管理号 Token（accounts.token_id 关联的 Token）。
-    仅在操作号全灭且动作为 PAUSE 时作为最后兜底。
+    获取账户的管理号 Token。READ/PAUSE 兜底允许使用 active 管理号，
+    不要求该管理号绑定处于 active，避免操作号失效后巡检/关闭被误阻断。
     """
     conn = get_conn()
     ensure_token_source_columns(conn)
     row = conn.execute(
         """
-        SELECT t.id, t.access_token_enc, t.status
+        SELECT t.id, t.access_token_enc, t.status, aot.status as bind_status
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
         WHERE aot.act_id = ?
-          AND aot.status = 'active'
           AND t.status = 'active'
           AND t.token_type = 'manage'
-        ORDER BY aot.priority ASC, aot.id ASC
+        ORDER BY CASE WHEN aot.status='active' THEN 0 ELSE 1 END,
+                 aot.priority ASC, aot.id ASC
         LIMIT 1
         """,
         (act_id,),
@@ -199,9 +213,20 @@ def _get_manage_token(act_id: str) -> Optional[str]:
             FROM accounts a
             JOIN fb_tokens t ON t.id = a.token_id
             WHERE a.act_id = ?
+              AND t.status = 'active'
             LIMIT 1
             """,
             (act_id,),
+        ).fetchone()
+    if not row:
+        row = conn.execute(
+            """
+            SELECT id, access_token_enc, status
+            FROM fb_tokens
+            WHERE status='active' AND token_type='manage'
+            ORDER BY id ASC
+            LIMIT 1
+            """
         ).fetchone()
     conn.close()
 
@@ -392,7 +417,12 @@ def wait_for_token_slot_by_plain(
     return wait_seconds
 
 
-def get_exec_token_candidates(act_id: str, action_type: str = ACTION_CREATE) -> list[dict]:
+def get_exec_token_candidates(
+    act_id: str,
+    action_type: str = ACTION_CREATE,
+    notify_exhausted: bool = True,
+    reserve: bool = True,
+) -> list[dict]:
     """
     返回当前账户可用的 Token 候选池，按“矩阵内全局轮询 + 冷却避让”排序。
     第一项会被视为本次优先使用的 Token，并立即占位，避免并发账户扎堆打到同一颗 Token。
@@ -421,15 +451,17 @@ def get_exec_token_candidates(act_id: str, action_type: str = ACTION_CREATE) -> 
                     f"[TokenManager] 账户 {act_id} 操作号 token_id={candidate['token_id']} 心跳失败，跳过"
                 )
 
-        if alive_candidates:
-            _reserve_token_locked(alive_candidates[0])
-            _update_rr_state(act_id, alive_candidates[0]["token_id"])
+        if alive_candidates and action_type not in (ACTION_PAUSE, ACTION_READ):
+            if reserve:
+                _reserve_token_locked(alive_candidates[0])
+                _update_rr_state(act_id, alive_candidates[0]["token_id"])
             return alive_candidates
 
     if action_type in (ACTION_PAUSE, ACTION_READ):
         manage = _get_manage_token(act_id)
+        manage_candidate = None
         if manage:
-            return [{
+            manage_candidate = {
                 "token_id": None,
                 "token_plain": manage,
                 "token": manage,
@@ -437,15 +469,37 @@ def get_exec_token_candidates(act_id: str, action_type: str = ACTION_CREATE) -> 
                 "label": "管理号兜底",
                 "matrix_id": None,
                 "source": "manage",
-            }]
+            }
+        if action_type == ACTION_PAUSE:
+            candidates = list(alive_candidates)
+            if manage_candidate:
+                candidates.append(manage_candidate)
+            if candidates and alive_candidates and reserve:
+                with _selection_lock:
+                    _reserve_token_locked(alive_candidates[0])
+                    _update_rr_state(act_id, alive_candidates[0]["token_id"])
+            return candidates
+        if manage_candidate:
+            return [manage_candidate] + alive_candidates
+        if alive_candidates:
+            if reserve:
+                with _selection_lock:
+                    _reserve_token_locked(alive_candidates[0])
+                    _update_rr_state(act_id, alive_candidates[0]["token_id"])
+            return alive_candidates
         return []
 
     logger.error(f"[TokenManager] 账户 {act_id} 所有操作号均失效！action={action_type}")
-    _send_op_pool_exhausted_alert(act_id, action_type)
+    if notify_exhausted:
+        _send_op_pool_exhausted_alert(act_id, action_type)
     return []
 
 
-def get_exec_token(act_id: str, action_type: str = ACTION_PAUSE) -> Optional[str]:
+def get_exec_token(
+    act_id: str,
+    action_type: str = ACTION_PAUSE,
+    notify_exhausted: bool = True,
+) -> Optional[str]:
     """
     核心调度函数：根据 act_id 和操作类型，返回最合适的 Token。
 
@@ -457,7 +511,7 @@ def get_exec_token(act_id: str, action_type: str = ACTION_PAUSE) -> Optional[str
        - CREATE / UPDATE：直接返回 None，拒绝执行，并触发告警。
     4. READ 操作：直接使用管理号 Token。
     """
-    candidates = get_exec_token_candidates(act_id, action_type)
+    candidates = get_exec_token_candidates(act_id, action_type, notify_exhausted=notify_exhausted)
     if candidates:
         return candidates[0]["token_plain"]
     if action_type in (ACTION_PAUSE, ACTION_READ):
@@ -604,7 +658,17 @@ def _mark_token_invalid(token_id: int):
 def _send_op_pool_exhausted_alert(act_id: str, action_type: str):
     """操作号全灭时发送 TG 告警"""
     try:
+        now = time.time()
+        alert_key = (act_id, action_type)
+        last_sent = _op_exhaust_alert_state.get(alert_key, 0.0)
+        if now - last_sent < OP_EXHAUST_ALERT_COOLDOWN_SECONDS:
+            return
+        _op_exhaust_alert_state[alert_key] = now
+
         conn = get_conn()
+        acc = conn.execute(
+            "SELECT name FROM accounts WHERE act_id=?", (act_id,)
+        ).fetchone()
         tg_token = conn.execute(
             "SELECT value FROM settings WHERE key='tg_bot_token'"
         ).fetchone()
@@ -623,13 +687,15 @@ def _send_op_pool_exhausted_alert(act_id: str, action_type: str):
 
         token_val = tg_token["value"]
         chat_ids = [c.strip() for c in chat_ids_row["value"].split(",") if c.strip()]
+        acc_name = (acc["name"] if acc else "") or act_id
+        account_label = f"{acc_name} (<code>{act_id}</code>)" if acc_name != act_id else f"<code>{act_id}</code>"
 
         fallback_note = "已回退到管理号执行 PAUSE 兜底" if action_type == ACTION_PAUSE \
             else f"⛔ {action_type} 操作已被系统拦截，保护管理号安全"
 
         msg = (
             f"🚨 <b>Mira 操作号池耗尽告警</b>\n\n"
-            f"账户：<code>{act_id}</code>\n"
+            f"账户：{account_label}\n"
             f"触发操作：<code>{action_type}</code>\n"
             f"状态：{fallback_note}\n\n"
             f"⚠️ 自动铺广告和加预算功能已暂停，请尽快在后台补充操作号！"

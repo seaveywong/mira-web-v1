@@ -35,21 +35,6 @@ class GuardRuleIn(BaseModel):
     kpi_filter: Optional[str] = None   # KPI类型筛选
 
 
-class ScaleRuleIn(BaseModel):
-    act_id: str
-    rule_name: Optional[str] = None
-    rule_type: str
-    # rule_type: slow_scale / winner_alert / winner_copy
-    target_regions: Optional[List[str]] = None  # 地区列表，如 ["US","TW"]，None=全部
-    cpa_ratio: float = 0.8
-    min_conversions: int = 3
-    consecutive_days: int = 2
-    scale_pct: float = 0.15
-    max_budget: Optional[float] = None
-    roas_threshold: float = 3.0
-    enabled: int = 1
-    note: Optional[str] = None
-
 
 class EmergencyPauseRequest(BaseModel):
     confirm: str
@@ -150,107 +135,6 @@ def delete_guard_rule(rule_id: int, user=Depends(get_current_user)):
     return {"success": True}
 
 
-# ── 拉量规则 ──────────────────────────────────────────────────────────────
-
-@router.get("/scale")
-def list_scale_rules(act_id: Optional[str] = None, user=Depends(get_current_user)):
-    conn = get_conn()
-    if act_id and act_id != "__global__":
-        # 返回指定账户规则 + 全局规则（全局规则排前面，与止损规则逻辑一致）
-        global_rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id='__global__' ORDER BY id DESC"
-        ).fetchall()
-        acc_rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (act_id,)
-        ).fetchall()
-        rows = list(global_rows) + list(acc_rows)
-    elif act_id == "__global__":
-        rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id='__global__' ORDER BY id DESC"
-        ).fetchall()
-    else:
-        # 全部：全局规则排前面
-        global_rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id='__global__' ORDER BY id DESC"
-        ).fetchall()
-        other_rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id!='__global__' ORDER BY id DESC"
-        ).fetchall()
-        rows = list(global_rows) + list(other_rows)
-    conn.close()
-    result = []
-    for r in rows:
-        d = dict(r)
-        # 反序列化地区字段
-        if d.get("target_regions"):
-            try:
-                d["target_regions"] = json.loads(d["target_regions"])
-            except Exception:
-                d["target_regions"] = []
-        result.append(d)
-    return result
-
-
-@router.post("/scale")
-def add_scale_rule(body: ScaleRuleIn, user=Depends(get_current_user)):
-    regions_json = json.dumps(body.target_regions) if body.target_regions else None
-    conn = get_conn()
-    cur = conn.execute(
-        """INSERT INTO scale_rules
-           (act_id, rule_name, rule_type, target_regions,
-            cpa_ratio, min_conversions, consecutive_days,
-            scale_pct, max_budget, roas_threshold, enabled, note)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (body.act_id, body.rule_name, body.rule_type, regions_json,
-         body.cpa_ratio, body.min_conversions, body.consecutive_days,
-         body.scale_pct, body.max_budget, body.roas_threshold, body.enabled, body.note)
-    )
-    new_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return {"success": True, "id": new_id, "message": "规则添加成功"}
-
-
-@router.put("/scale/{rule_id}")
-def update_scale_rule(rule_id: int, body: ScaleRuleIn, user=Depends(get_current_user)):
-    regions_json = json.dumps(body.target_regions) if body.target_regions else None
-    conn = get_conn()
-    conn.execute(
-        """UPDATE scale_rules SET
-           act_id=?, rule_name=?, rule_type=?, target_regions=?,
-           cpa_ratio=?, min_conversions=?, consecutive_days=?,
-           scale_pct=?, max_budget=?, roas_threshold=?, enabled=?, note=?,
-           updated_at=datetime('now')
-           WHERE id=?""",
-        (body.act_id, body.rule_name, body.rule_type, regions_json,
-         body.cpa_ratio, body.min_conversions, body.consecutive_days,
-         body.scale_pct, body.max_budget, body.roas_threshold, body.enabled, body.note,
-         rule_id)
-    )
-    conn.commit()
-    conn.close()
-    return {"success": True}
-
-
-@router.patch("/scale/{rule_id}/toggle")
-def toggle_scale_rule(rule_id: int, user=Depends(get_current_user)):
-    conn = get_conn()
-    conn.execute("UPDATE scale_rules SET enabled = 1 - enabled WHERE id=?", (rule_id,))
-    row = conn.execute("SELECT enabled FROM scale_rules WHERE id=?", (rule_id,)).fetchone()
-    conn.commit()
-    conn.close()
-    return {"success": True, "enabled": row["enabled"] if row else None}
-
-
-@router.delete("/scale/{rule_id}")
-def delete_scale_rule(rule_id: int, user=Depends(get_current_user)):
-    conn = get_conn()
-    conn.execute("DELETE FROM scale_rules WHERE id=?", (rule_id,))
-    conn.commit()
-    conn.close()
-    return {"success": True}
-
-
 # ── 一键紧急暂停 ──────────────────────────────────────────────────────────
 
 @router.post("/emergency-pause")
@@ -338,31 +222,6 @@ def get_rule_types(user=Depends(get_current_user)):
         },
     ]
 
-    scale_types = [
-        {
-            "value": "slow_scale",
-            "label": "平滑加量",
-            "desc": "CPA低于目标的X%且连续N天，自动按比例提升预算。",
-            "params": [
-                {"key": "cpa_ratio", "label": "CPA优秀比例(如0.8=低于目标80%)", "type": "number", "default": 0.8},
-                {"key": "min_conversions", "label": "最低转化数", "type": "number", "default": 3},
-                {"key": "consecutive_days", "label": "连续天数", "type": "number", "default": 2},
-                {"key": "scale_pct", "label": "加量比例(如0.15=+15%)", "type": "number", "default": 0.15},
-                {"key": "max_budget", "label": "预算上限(USD)", "type": "number", "default": None},
-                {"key": "target_regions", "label": "适用地区(空=全部)", "type": "regions", "default": []}
-            ]
-        },
-        {
-            "value": "winner_alert",
-            "label": "赢家提示",
-            "desc": "ROAS超过阈值时，发送TG通知提示复制该广告组。",
-            "params": [
-                {"key": "roas_threshold", "label": "ROAS阈值", "type": "number", "default": 3.0},
-                {"key": "target_regions", "label": "适用地区(空=全部)", "type": "regions", "default": []}
-            ]
-        },
-    ]
-
     actions = [
         {"value": "pause", "label": "暂停广告"},
         {"value": "reduce_budget", "label": "降低预算"},
@@ -371,7 +230,13 @@ def get_rule_types(user=Depends(get_current_user)):
         {"value": "pause_campaign", "label": "暂停广告系列"},
     ]
 
-    return {"guard_types": guard_types, "scale_types": scale_types, "actions": actions}
+    return {"guard_types": guard_types, "scale_types": [], "actions": actions}
+
+
+@router.get("/scale")
+def list_scale_rules_removed(user=Depends(get_current_user)):
+    """旧拉量策略已移除，保留空响应避免旧前端缓存拖垮规则页。"""
+    return []
 
 
 # ─── 规则模板 API ────────────────────────────────────────────────────────
@@ -400,14 +265,6 @@ RULE_TEMPLATES = [
                 "target_id": "__global__",
                 "param_ratio": 1.5,
                 "action": "pause",
-                "note": "来自「新手入门」模板"
-            }
-        ],
-        "scale_rules": [
-            {
-                "rule_name": "赢家提示 ROAS≥3",
-                "rule_type": "winner_alert",
-                "roas_threshold": 3.0,
                 "note": "来自「新手入门」模板"
             }
         ]
@@ -453,23 +310,6 @@ RULE_TEMPLATES = [
                 "param_days": 2,
                 "param_ratio": 1.3,
                 "action": "pause",
-                "note": "来自「激进拉量」模板"
-            }
-        ],
-        "scale_rules": [
-            {
-                "rule_name": "平滑加量 +20%",
-                "rule_type": "slow_scale",
-                "cpa_ratio": 0.8,
-                "min_conversions": 3,
-                "consecutive_days": 2,
-                "scale_pct": 0.20,
-                "note": "来自「激进拉量」模板"
-            },
-            {
-                "rule_name": "赢家提示 ROAS≥4",
-                "rule_type": "winner_alert",
-                "roas_threshold": 4.0,
                 "note": "来自「激进拉量」模板"
             }
         ]
@@ -526,8 +366,7 @@ RULE_TEMPLATES = [
                 "action": "alert_only",
                 "note": "来自「保守防御」模板"
             }
-        ],
-        "scale_rules": []
+        ]
     },
     {
         "id": "ecommerce",
@@ -569,23 +408,6 @@ RULE_TEMPLATES = [
                 "target_id": "__global__",
                 "param_value": 70.0,
                 "action": "alert_only",
-                "note": "来自「电商专属」模板"
-            }
-        ],
-        "scale_rules": [
-            {
-                "rule_name": "平滑加量 +15%",
-                "rule_type": "slow_scale",
-                "cpa_ratio": 0.75,
-                "min_conversions": 5,
-                "consecutive_days": 3,
-                "scale_pct": 0.15,
-                "note": "来自「电商专属」模板"
-            },
-            {
-                "rule_name": "赢家提示 ROAS≥3.5",
-                "rule_type": "winner_alert",
-                "roas_threshold": 3.5,
                 "note": "来自「电商专属」模板"
             }
         ]
@@ -633,17 +455,6 @@ RULE_TEMPLATES = [
                 "action": "pause",
                 "note": "来自「线索收集」模板"
             }
-        ],
-        "scale_rules": [
-            {
-                "rule_name": "平滑加量 +10%",
-                "rule_type": "slow_scale",
-                "cpa_ratio": 0.8,
-                "min_conversions": 10,
-                "consecutive_days": 3,
-                "scale_pct": 0.10,
-                "note": "来自「线索收集」模板"
-            }
         ]
     }
 ]
@@ -652,7 +463,6 @@ class CustomTemplateCreate(BaseModel):
     name: str
     description: str = ""
     guard_rules: list = []
-    scale_rules: list = []
     tags: list = []
 
 class SaveCurrentAsTemplateRequest(BaseModel):
@@ -680,7 +490,6 @@ def list_rule_templates_v2(user=Depends(get_current_user)):
     for r in custom_rows:
         d = dict(r)
         d["guard_rules"] = json.loads(d.get("guard_rules") or "[]")
-        d["scale_rules"] = json.loads(d.get("scale_rules") or "[]")
         d["tags"] = json.loads(d.get("tags") or "[]")
         custom.append(d)
 
@@ -697,13 +506,12 @@ def create_custom_template(body: CustomTemplateCreate, user=Depends(get_current_
     conn = get_conn()
     try:
         conn.execute(
-            """INSERT INTO custom_rule_templates(name, description, guard_rules, scale_rules, tags)
-               VALUES(?,?,?,?,?)""",
+            """INSERT INTO custom_rule_templates(name, description, guard_rules, tags)
+               VALUES(?,?,?,?)""",
             (
                 body.name.strip(),
                 body.description,
                 json.dumps(body.guard_rules, ensure_ascii=False),
-                json.dumps(body.scale_rules, ensure_ascii=False),
                 json.dumps(body.tags, ensure_ascii=False),
             )
         )
@@ -726,41 +534,23 @@ def save_current_as_template(body: SaveCurrentAsTemplateRequest, user=Depends(ge
             guard_rows = conn.execute(
                 "SELECT * FROM guard_rules WHERE act_id=? AND enabled=1", (body.act_id,)
             ).fetchall()
-            scale_rows = conn.execute(
-                "SELECT * FROM scale_rules WHERE act_id=? AND enabled=1", (body.act_id,)
-            ).fetchall()
         else:
             guard_rows = conn.execute("SELECT * FROM guard_rules WHERE enabled=1").fetchall()
-            scale_rows = conn.execute("SELECT * FROM scale_rules WHERE enabled=1").fetchall()
 
         guard_list = []
         for r in guard_rows:
             d = dict(r)
-            # 去掉数据库特有字段，保留规则逻辑字段
             for k in ["id", "act_id", "created_at", "updated_at", "last_triggered"]:
                 d.pop(k, None)
             guard_list.append(d)
 
-        scale_list = []
-        for r in scale_rows:
-            d = dict(r)
-            for k in ["id", "act_id", "created_at", "updated_at", "last_triggered"]:
-                d.pop(k, None)
-            if d.get("target_regions") and isinstance(d["target_regions"], str):
-                try:
-                    d["target_regions"] = json.loads(d["target_regions"])
-                except Exception:
-                    pass
-            scale_list.append(d)
-
         conn.execute(
-            """INSERT INTO custom_rule_templates(name, description, guard_rules, scale_rules, tags)
-               VALUES(?,?,?,?,?)""",
+            """INSERT INTO custom_rule_templates(name, description, guard_rules, tags)
+               VALUES(?,?,?,?)""",
             (
                 body.name.strip(),
                 body.description,
                 json.dumps(guard_list, ensure_ascii=False),
-                json.dumps(scale_list, ensure_ascii=False),
                 json.dumps([], ensure_ascii=False),
             )
         )
@@ -773,8 +563,7 @@ def save_current_as_template(body: SaveCurrentAsTemplateRequest, user=Depends(ge
         "success": True,
         "id": new_id,
         "guard_count": len(guard_list),
-        "scale_count": len(scale_list),
-        "message": f"已保存为模板「{body.name}」（{len(guard_list)} 条止损 + {len(scale_list)} 条拉量）"
+        "message": f"已保存为模板「{body.name}」（{len(guard_list)} 条止损规则）"
     }
 
 @router.delete("/templates/{template_id}")
@@ -818,38 +607,26 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
         if row:
             d = dict(row)
             d['guard_rules'] = json.loads(d.get('guard_rules') or '[]')
-            d['scale_rules'] = json.loads(d.get('scale_rules') or '[]')
             tpl = d
         else:
             raise HTTPException(404, f'模板 {body.template_id} 不存在')
 
     conn = get_conn()
     total_guard = 0
-    total_scale = 0
     results = []
     try:
         for act_id in target_act_ids:
             guard_added = 0
-            scale_added = 0
             if body.override_existing:
                 conn.execute("DELETE FROM guard_rules WHERE act_id=? AND note LIKE '%模板%'", (act_id,))
-                conn.execute("DELETE FROM scale_rules WHERE act_id=? AND note LIKE '%模板%'", (act_id,))
             for r in tpl.get('guard_rules', []):
                 conn.execute(
                     'INSERT INTO guard_rules (act_id, rule_name, level, target_id, rule_type, param_value, param_ratio, param_days, action, action_value, enabled, note) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)',
                     (act_id, r.get('rule_name'), r.get('level','account'), r.get('target_id','__global__'), r.get('rule_type'), r.get('param_value'), r.get('param_ratio',1.2), r.get('param_days',2), r.get('action','pause'), r.get('action_value'), r.get('note', f'来自模板「{tpl.get("name", body.template_id)}」'))
                 )
                 guard_added += 1
-            for r in tpl.get('scale_rules', []):
-                regions = r.get('target_regions')
-                conn.execute(
-                    'INSERT INTO scale_rules (act_id, rule_name, rule_type, target_regions, cpa_ratio, min_conversions, consecutive_days, scale_pct, max_budget, roas_threshold, enabled, note) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)',
-                    (act_id, r.get('rule_name'), r.get('rule_type','slow_scale'), json.dumps(regions) if isinstance(regions, list) else regions, r.get('cpa_ratio',0.8), r.get('min_conversions',3), r.get('consecutive_days',2), r.get('scale_pct',0.15), r.get('max_budget'), r.get('roas_threshold',3.0), r.get('note', f'来自模板「{tpl.get("name", body.template_id)}」'))
-                )
-                scale_added += 1
             total_guard += guard_added
-            total_scale += scale_added
-            results.append({'act_id': act_id, 'guard_added': guard_added, 'scale_added': scale_added})
+            results.append({'act_id': act_id, 'guard_added': guard_added})
         conn.commit()
     finally:
         conn.close()
@@ -859,9 +636,8 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
         'template_name': tpl.get('name'),
         'account_count': acc_count,
         'total_guard_added': total_guard,
-        'total_scale_added': total_scale,
         'results': results,
-        'message': f'已应用「{tpl.get("name")}」到 {acc_count} 个账户：共添加 {total_guard} 条止损规则、{total_scale} 条拉量策略'
+        'message': f'已应用「{tpl.get("name")}」到 {acc_count} 个账户：共添加 {total_guard} 条止损规则'
     }
 
 

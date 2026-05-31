@@ -158,9 +158,53 @@ def _parse_conversions(insights: dict, kpi_field: Optional[str] = None) -> Tuple
     return spend, 0, 0.0, ""
 
 
+def _score_label(score: float) -> str:
+    if score >= 85:
+        return "爆款"
+    if score >= 72:
+        return "可放量"
+    if score >= 58:
+        return "优质"
+    if score >= 40:
+        return "观察中"
+    if score >= 20:
+        return "待优化"
+    return "淘汰"
+
+
+def _traffic_adjustment(spend: float, impressions: int, clicks: int) -> Tuple[float, str]:
+    """用点击信号做轻量修正，只影响边缘素材，不盖过转化结果。"""
+    if impressions <= 0:
+        return 0.0, ""
+    ctr = (clicks / impressions) * 100 if impressions else 0.0
+    cpc = spend / clicks if clicks > 0 else None
+    adj = 0.0
+    notes = [f"CTR {ctr:.2f}%"]
+    if clicks > 0 and cpc is not None:
+        notes.append(f"CPC ${cpc:.2f}")
+
+    if ctr >= 2.0:
+        adj += 4
+    elif ctr >= 1.0:
+        adj += 2
+    elif spend >= 5 and ctr < 0.3:
+        adj -= 5
+
+    if cpc is not None:
+        if cpc <= 0.5:
+            adj += 3
+        elif cpc >= 3 and spend >= 5:
+            adj -= 3
+    elif spend >= 3:
+        adj -= 4
+
+    return adj, "，".join(notes)
+
+
 def _calc_score(spend: float, conv: int, conv_value: float,
                 target_cpa: Optional[float], stop_loss: float,
-                matched_field: str = "") -> Tuple[float, str]:
+                matched_field: str = "", impressions: int = 0,
+                clicks: int = 0) -> Tuple[float, str, str]:
     """
     计算素材得分（0-100）和标签。
 
@@ -168,81 +212,115 @@ def _calc_score(spend: float, conv: int, conv_value: float,
     无目标 CPA：以转化量规模 + 单次转化成本（绝对值）综合评分
     无转化：以消耗是否超止血线判断淘汰/观察
 
-    返回：(score: float, label: str)
+    返回：(score: float, label: str, reason: str)
     """
+    spend = float(spend or 0)
+    conv = int(conv or 0)
+    conv_value = float(conv_value or 0)
+    stop_loss = float(stop_loss or 15)
+    traffic_adj, traffic_note = _traffic_adjustment(spend, impressions, clicks)
+
     if conv > 0:
         actual_cpa = spend / conv
+        parts = [f"实投 ${spend:.2f}", f"转化 {conv}", f"CPA ${actual_cpa:.2f}"]
 
         if target_cpa and target_cpa > 0:
-            # === 有目标 CPA：CPA 比率评分 ===
-            cpa_ratio = actual_cpa / target_cpa  # 越小越好
+            cpa_ratio = actual_cpa / target_cpa
+            parts.append(f"目标CPA ${target_cpa:.2f}")
             if cpa_ratio <= 0.5:
-                score = 100
+                score = 96
             elif cpa_ratio <= 0.8:
-                score = 90
+                score = 88
             elif cpa_ratio <= 1.0:
-                score = 80
+                score = 78
+            elif cpa_ratio <= 1.3:
+                score = 66
             elif cpa_ratio <= 1.5:
-                score = 60
+                score = 58
             elif cpa_ratio <= 2.0:
-                score = 40
+                score = 42
+            elif cpa_ratio <= 2.8:
+                score = 28
             else:
-                score = 20
+                score = 16
         else:
-            # === 无目标 CPA：转化量规模 + 单次成本综合评分 ===
-            # 基础分：转化量规模（反映素材的跑量能力）
-            if conv >= 500:
-                base = 50
-            elif conv >= 200:
-                base = 45
-            elif conv >= 50:
-                base = 40
-            elif conv >= 20:
-                base = 35
-            elif conv >= 5:
-                base = 30
+            # 没有目标 CPA 时，用止血线作为业务参照，不再用固定绝对 CPA 档位。
+            ref_cpa = max(1.0, stop_loss)
+            cpa_ratio = actual_cpa / ref_cpa
+            if cpa_ratio <= 0.25:
+                score = 90
+            elif cpa_ratio <= 0.5:
+                score = 78
+            elif cpa_ratio <= 0.8:
+                score = 66
+            elif cpa_ratio <= 1.2:
+                score = 54
+            elif cpa_ratio <= 2.0:
+                score = 38
             else:
-                base = 20  # 转化极少，数据不足
+                score = 24
 
-            # 效率分：单次转化成本（越低越好，最多加 50 分）
-            # 使用相对档位，适配不同类型转化（购买 vs 对话成本差异大）
-            if actual_cpa <= 1.0:
-                eff = 50
-            elif actual_cpa <= 3.0:
-                eff = 40
-            elif actual_cpa <= 5.0:
-                eff = 30
-            elif actual_cpa <= 10.0:
-                eff = 20
-            elif actual_cpa <= 20.0:
-                eff = 10
-            else:
-                eff = 5
+        if conv >= 20:
+            score += 10
+        elif conv >= 10:
+            score += 7
+        elif conv >= 5:
+            score += 4
+        elif conv >= 2:
+            score += 2
 
-            score = min(100, base + eff)
+        if spend > 0 and conv_value > 0:
+            roas = conv_value / spend
+            parts.append(f"ROAS {roas:.2f}x")
+            if roas >= 3:
+                score += 10
+            elif roas >= 2:
+                score += 6
+            elif roas >= 1:
+                score += 2
+            elif roas < 0.5:
+                score -= 8
 
+        score += traffic_adj
+        metric_caps = {
+            "link_click": (78, "点击类指标，仅作流量参考"),
+            "landing_page_view": (82, "落地页浏览指标，低于表单/购买权重"),
+            "add_to_cart": (88, "加购指标，未到最终购买"),
+            "offsite_conversion.fb_pixel_add_to_cart": (88, "加购指标，未到最终购买"),
+            "omni_add_to_cart": (88, "加购指标，未到最终购买"),
+        }
+        cap_info = metric_caps.get((matched_field or "").lower())
+        if cap_info and score > cap_info[0]:
+            score = cap_info[0]
+            parts.append(cap_info[1])
+        sample_cap = None
+        if conv == 1 and spend < max(5.0, min(stop_loss, target_cpa or stop_loss) * 0.4):
+            sample_cap = 68
+        elif conv < 3 and spend < max(6.0, stop_loss * 0.75):
+            sample_cap = 80
+        if sample_cap is not None and score > sample_cap:
+            score = sample_cap
+            parts.append("样本偏少，限制评分上限")
     else:
-        # 无转化
-        if spend >= stop_loss:
+        parts = [f"实投 ${spend:.2f}", "暂无转化"]
+        if spend <= 0 and impressions <= 0:
             score = 0
-            label = "淘汰"
-            return round(score, 1), label
+        elif spend >= stop_loss:
+            score = max(0, 8 + min(5, traffic_adj))
+        elif spend >= stop_loss * 0.7:
+            score = 22 + min(5, traffic_adj)
         else:
-            score = 30
-            label = "观察中"
-            return round(score, 1), label
+            score = 34 + max(-5, min(8, traffic_adj))
 
-    # 统一标签
-    if score >= 80:
-        label = "爆款"
-    elif score >= 60:
-        label = "优质"
-    elif score >= 40:
-        label = "一般"
-    else:
-        label = "待优化"
+    if matched_field:
+        parts.append(f"转化字段 {matched_field}")
+    if traffic_note:
+        parts.append(traffic_note)
 
-    return round(score, 1), label
+    score = round(max(0, min(100, score)), 1)
+    label = _score_label(score)
+    reason = "；".join(parts)
+    return score, label, reason
 
 
 def _upsert_spend_log(asset_id: int, fb_ad_id: str, act_id: str,
@@ -412,7 +490,8 @@ def score_asset(asset_id: int, force_refresh: bool = False):
     # ── 步骤 2：从持久化表汇总所有历史数据（含 inactive）────────────────────────
     conn = get_conn()
     logs = conn.execute(
-        """SELECT spend, conv, conv_value, matched_field, act_id
+        """SELECT spend, conv, conv_value, matched_field, act_id,
+                  impressions, clicks, is_active, last_synced_at
            FROM asset_spend_log
            WHERE asset_id = ?""",
         (asset_id,)
@@ -427,7 +506,19 @@ def score_asset(asset_id: int, force_refresh: bool = False):
     total_spend = sum(float(r["spend"] or 0) for r in logs)
     total_conv = sum(int(r["conv"] or 0) for r in logs)
     total_conv_value = sum(float(r["conv_value"] or 0) for r in logs)
+    total_impressions = sum(int(r["impressions"] or 0) for r in logs)
+    total_clicks = sum(int(r["clicks"] or 0) for r in logs)
     matched_fields = set(r["matched_field"] for r in logs if r["matched_field"])
+    primary_matched_field = sorted(matched_fields)[0] if matched_fields else ""
+    active_ads = sum(1 for r in logs if int(r["is_active"] or 0) == 1)
+    synced_times = [r["last_synced_at"] for r in logs if r["last_synced_at"]]
+    last_active_at = max(synced_times) if synced_times else None
+    roas_values = [
+        float(r["conv_value"] or 0) / float(r["spend"] or 0)
+        for r in logs
+        if float(r["spend"] or 0) > 0 and float(r["conv_value"] or 0) > 0
+    ]
+    best_roas = max(roas_values) if roas_values else None
 
     # 如果 target_cpa 还没从 auto_campaigns 里拿到，再从 kpi_configs 里找
     if not target_cpa:
@@ -441,24 +532,40 @@ def score_asset(asset_id: int, force_refresh: bool = False):
     conn.close()
 
     # ── 步骤 3：计算评分 ────────────────────────────────────────────────────────
-    score, label = _calc_score(total_spend, total_conv, total_conv_value, target_cpa, stop_loss)
+    score, label, reason = _calc_score(
+        total_spend, total_conv, total_conv_value, target_cpa, stop_loss,
+        primary_matched_field, total_impressions, total_clicks
+    )
 
     avg_cpa = (total_spend / total_conv) if total_conv > 0 else None
     avg_roas = (total_conv_value / total_spend) if total_spend > 0 else None
 
     # ── 步骤 4：写回 ad_assets 表 ────────────────────────────────────────────────
     conn = get_conn()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(ad_assets)").fetchall()}
+    updates = [
+        "score=?", "score_label=?",
+        "total_spend=?", "total_conv=?",
+        "avg_cpa=?", "avg_roas=?",
+    ]
+    params = [score, label, total_spend, total_conv, avg_cpa, avg_roas]
+    if "score_reason" in cols:
+        updates.append("score_reason=?")
+        params.append(reason)
+    if "best_roas" in cols:
+        updates.append("best_roas=?")
+        params.append(best_roas)
+    if "last_active_at" in cols:
+        updates.append("last_active_at=?")
+        params.append(last_active_at)
+    updates.append("updated_at=?")
+    params.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    params.append(asset_id)
     conn.execute(
-        """UPDATE ad_assets SET
-           score=?, score_label=?,
-           total_spend=?, total_conv=?,
-           avg_cpa=?, avg_roas=?,
-           updated_at=?
+        f"""UPDATE ad_assets SET
+           {', '.join(updates)}
            WHERE id=?""",
-        (score, label, total_spend, total_conv,
-         avg_cpa, avg_roas,
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-         asset_id)
+        params
     )
     conn.commit()
     conn.close()
@@ -466,11 +573,12 @@ def score_asset(asset_id: int, force_refresh: bool = False):
     logger.info(
         f"[Scorer] 素材 {asset_id} 打分完成: {score}分 ({label}) | "
         f"消耗={total_spend:.2f} 转化={total_conv} CPA={'%.2f' % avg_cpa if avg_cpa else 'N/A'} "
-        f"转化字段={matched_fields} (含历史数据 {len(logs)} 条)"
+        f"转化字段={matched_fields} 活跃广告={active_ads}/{len(logs)} | {reason}"
     )
     return {
         "score": score, "label": label,
         "spend": total_spend, "conv": total_conv,
+        "reason": reason,
         "matched_fields": list(matched_fields)
     }
 

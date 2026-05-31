@@ -240,12 +240,13 @@ def _get_setting(key: str, default: str = "") -> str:
 
 def _row_to_dict(row) -> dict:
     d = dict(row)
-    for field in ("ai_analysis", "ai_headlines", "ai_bodies", "ai_interests", "target_countries"):
+    for field in ("ai_analysis", "ai_headlines", "ai_bodies", "ai_interests", "target_countries", "tags"):
         if d.get(field) and isinstance(d[field], str):
             try:
                 d[field] = json.loads(d[field])
             except Exception:
-                pass
+                if field == "tags":
+                    d[field] = [v.strip() for v in d[field].split(",") if v.strip()]
     # 生成可访问的 URL(通过 serve 接口)
     asset_id = d.get("id")
     if asset_id:
@@ -257,14 +258,60 @@ def _row_to_dict(row) -> dict:
 def _ensure_asset_library_columns(conn) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(ad_assets)").fetchall()}
     changed = False
-    if "folder_name" not in cols:
-        conn.execute("ALTER TABLE ad_assets ADD COLUMN folder_name TEXT")
-        changed = True
-    if "batch_code" not in cols:
-        conn.execute("ALTER TABLE ad_assets ADD COLUMN batch_code TEXT")
-        changed = True
+    optional_cols = {
+        "folder_name": "TEXT",
+        "batch_code": "TEXT",
+        "display_name": "TEXT",
+        "target_countries": "TEXT",
+        "ai_score": "REAL DEFAULT 0",
+        "score_reason": "TEXT",
+        "best_roas": "REAL",
+        "last_active_at": "TEXT",
+        "dispatch_count": "INTEGER DEFAULT 0",
+        "last_dispatched_at": "TEXT",
+        "asset_status": "TEXT DEFAULT 'active'",
+        "archived_at": "TEXT",
+        "tags": "TEXT",
+        "source": "TEXT DEFAULT 'upload'",
+    }
+    for col, definition in optional_cols.items():
+        if col not in cols:
+            conn.execute(f"ALTER TABLE ad_assets ADD COLUMN {col} {definition}")
+            changed = True
     if changed:
         conn.commit()
+
+
+def _now_cst() -> str:
+    return datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _normalize_asset_tags(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            raw_items = parsed if isinstance(parsed, list) else text.split(",")
+        except Exception:
+            raw_items = text.split(",")
+    out = []
+    seen = set()
+    for item in raw_items:
+        tag = str(item or "").strip()
+        if not tag:
+            continue
+        key = tag.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tag[:40])
+    return out[:20]
 
 
 def _get_vision_client():
@@ -383,6 +430,10 @@ def list_assets(
     target_country: Optional[str] = Query(None),
     folder_name: Optional[str] = Query(None),
     batch_code: Optional[str] = Query(None),
+    asset_status: Optional[str] = Query("active"),
+    tag: Optional[str] = Query(None),
+    performance_filter: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("created_desc"),
     search: Optional[str] = Query(None),
     limit: int = Query(200, le=1000),
     offset: int = Query(0),
@@ -397,6 +448,15 @@ def list_assets(
         where.append("file_type=?"); params.append(file_type)
     if upload_status:
         where.append("upload_status=?"); params.append(upload_status)
+    status_filter = (asset_status or "active").strip().lower()
+    if status_filter == "active":
+        where.append("COALESCE(asset_status,'active') NOT IN ('archived','deleted')")
+    elif status_filter == "archived":
+        where.append("COALESCE(asset_status,'active')='archived'")
+    elif status_filter in ("all", "*"):
+        pass
+    else:
+        where.append("COALESCE(asset_status,'active')=?"); params.append(status_filter)
     if target_country:
         where.append("(target_countries LIKE ? OR target_countries LIKE ? OR target_countries LIKE ? OR target_countries=?)")
         params.extend([f"{target_country},%", f"%,{target_country},%", f"%,{target_country}", target_country])
@@ -404,24 +464,51 @@ def list_assets(
         where.append("COALESCE(folder_name,'')=?"); params.append(folder_name)
     if batch_code:
         where.append("COALESCE(batch_code,'')=?"); params.append(batch_code)
+    if tag and tag.strip():
+        where.append("COALESCE(tags,'') LIKE ?"); params.append(f"%{tag.strip()}%")
+    if performance_filter:
+        warmup_name_expr = "(UPPER(COALESCE(display_name,'')) LIKE 'YE%' OR UPPER(COALESCE(file_name,'')) LIKE 'YE%')"
+        if performance_filter == "ready_launch":
+            where.append("upload_status='ai_done'")
+        elif performance_filter == "warmup":
+            where.append(f"COALESCE(file_type,'image')='image' AND {warmup_name_expr}")
+        elif performance_filter == "spent":
+            where.append("COALESCE(total_spend,0)>0")
+        elif performance_filter == "scale":
+            where.append("COALESCE(total_spend,0)>0 AND COALESCE(score,0)>=72")
+        elif performance_filter == "watch":
+            where.append("COALESCE(total_spend,0)>0 AND COALESCE(score,0)>=40 AND COALESCE(score,0)<72")
+        elif performance_filter == "poor":
+            where.append("COALESCE(total_spend,0)>0 AND COALESCE(score,0)<40")
+        elif performance_filter == "unscored":
+            where.append("COALESCE(score,0)<=0 AND COALESCE(ai_score,0)<=0")
+        elif performance_filter == "ai_error":
+            where.append("upload_status='ai_error'")
     if search and search.strip():
         kw = f"%{search.strip()}%"
         where.append(
             "(COALESCE(display_name,'') LIKE ? OR COALESCE(file_name,'') LIKE ? OR "
             "COALESCE(asset_code,'') LIKE ? OR COALESCE(note,'') LIKE ? OR "
-            "COALESCE(folder_name,'') LIKE ? OR COALESCE(batch_code,'') LIKE ?)"
+            "COALESCE(folder_name,'') LIKE ? OR COALESCE(batch_code,'') LIKE ? OR "
+            "COALESCE(tags,'') LIKE ?)"
         )
-        params.extend([kw, kw, kw, kw, kw, kw])
+        params.extend([kw, kw, kw, kw, kw, kw, kw])
     clause = ("WHERE " + " AND ".join(where)) if where else ""
+    sort_map = {
+        "created_desc": "a.created_at DESC, a.id DESC",
+        "score_desc": "COALESCE(a.score, a.ai_score, 0) DESC, COALESCE(a.total_spend,0) DESC, a.created_at DESC",
+        "spend_desc": "COALESCE(a.total_spend,0) DESC, a.created_at DESC",
+        "conv_desc": "COALESCE(a.total_conv,0) DESC, COALESCE(a.total_spend,0) DESC, a.created_at DESC",
+        "last_active_desc": "COALESCE(a.last_active_at, a.last_dispatched_at, a.updated_at, a.created_at) DESC",
+        "name_asc": "COALESCE(NULLIF(TRIM(a.display_name), ''), a.file_name, '') ASC, a.id DESC",
+    }
+    order_by = sort_map.get(sort_by or "created_desc", sort_map["created_desc"])
     total = conn.execute(f"SELECT COUNT(*) FROM ad_assets {clause}", params).fetchone()[0]
     rows = conn.execute(
         f"""SELECT a.*,
-               (SELECT COUNT(*) FROM auto_campaign_ads aca
-                JOIN auto_campaigns ac ON ac.id=aca.campaign_id
-                WHERE aca.asset_id=a.id AND aca.fb_ad_id IS NOT NULL) as ad_count,
-               (SELECT COUNT(DISTINCT aca2.campaign_id) FROM auto_campaign_ads aca2
-                WHERE aca2.asset_id=a.id) as campaign_count
-           FROM ad_assets a {clause} ORDER BY a.created_at DESC LIMIT ? OFFSET ?""",
+                  (SELECT COUNT(*) FROM auto_campaigns ac WHERE ac.asset_id=a.id) AS campaign_count,
+                  (SELECT COUNT(*) FROM auto_campaign_ads aca WHERE aca.asset_id=a.id AND COALESCE(aca.fb_ad_id,'')!='') AS ad_count
+           FROM ad_assets a {clause} ORDER BY {order_by} LIMIT ? OFFSET ?""",
         params + [limit, offset]
     ).fetchall()
     conn.close()
@@ -462,191 +549,9 @@ def serve_asset_thumb_v2(asset_id: int):
 
 
 
-# ── 预热素材库 CRUD ────────────────────────────────────────────────────────────
-# 注意：warmup_assets表使用 label 作为名称字段，is_active 控制启用状态
-# 兼容旧表结构：id/filename/file_path/thumb_path/label/is_active/use_count/created_at/updated_at/status/enabled/asset_type/file_url/ad_text
-
-class WarmupAssetIn(BaseModel):
-    label: str                      # 素材名称/标签
-    asset_type: str = "image"       # image / video
-    file_url: Optional[str] = None  # 外部链接（可选）
-    ad_text: Optional[str] = None   # 广告文案（可选）
-    note: Optional[str] = None      # 备注
 
 
-class WarmupAssetUpdate(BaseModel):
-    """预热素材更新（所有字段可选）"""
-    name: Optional[str] = None
-    label: Optional[str] = None
-    active: Optional[bool] = None
-    is_active: Optional[int] = None
-    enabled: Optional[int] = None
-    asset_type: Optional[str] = None
-    file_url: Optional[str] = None
-    ad_text: Optional[str] = None
-
-
-# 模块加载时初始化一次（避免每次请求都执行DDL导致锁竞争）
-_warmup_table_initialized = False
-
-def _ensure_warmup_table():
-    """确保warmup_assets表存在，并补全缺失列（每进程只初始化一次）"""
-    global _warmup_table_initialized
-    if _warmup_table_initialized:
-        return
-    conn = None
-    try:
-        conn = get_conn()
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS warmup_assets (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename    TEXT,
-                file_path   TEXT,
-                thumb_path  TEXT,
-                label       TEXT DEFAULT '预热素材',
-                is_active   INTEGER DEFAULT 1,
-                use_count   INTEGER DEFAULT 0,
-                created_at  TEXT DEFAULT (datetime('now','localtime')),
-                updated_at  TEXT DEFAULT (datetime('now','localtime')),
-                status      TEXT DEFAULT 'active',
-                enabled     INTEGER DEFAULT 1,
-                asset_type  TEXT DEFAULT 'image',
-                file_url    TEXT,
-                ad_text     TEXT
-            )
-        """)
-        # 补全可能缺失的列（向后兼容）
-        existing = [r[1] for r in conn.execute('PRAGMA table_info(warmup_assets)').fetchall()]
-        for col, defn in [
-            ('enabled',    'INTEGER DEFAULT 1'),
-            ('asset_type', "TEXT DEFAULT 'image'"),
-            ('file_url',   'TEXT'),
-            ('ad_text',    'TEXT'),
-            ('updated_at', 'TEXT'),
-        ]:
-            if col not in existing:
-                conn.execute(f'ALTER TABLE warmup_assets ADD COLUMN {col} {defn}')
-        conn.commit()
-        _warmup_table_initialized = True
-    except Exception:
-        pass  # 表已存在或初始化失败时忽略
-    finally:
-        if conn:
-            conn.close()
-
-
-def _warmup_row_to_dict(row) -> dict:
-    """将warmup_assets行转为统一格式的字典，兼容旧字段"""
-    d = dict(row)
-    # 统一用 name 字段暴露给前端（映射自 label）
-    d['name'] = d.get('label') or d.get('filename') or ''
-    # 统一用 active 字段（映射自 is_active 和 enabled）
-    d['active'] = bool(d.get('is_active', 1) and d.get('enabled', 1))
-    # 生成可访问的缩略图URL（有file_path则提供serve路由）
-    if d.get('file_path') and os.path.exists(str(d['file_path'])):
-        d['thumb_url'] = f"/api/assets/warmup/{d['id']}/thumb"
-    elif d.get('file_url'):
-        d['thumb_url'] = d['file_url']
-    else:
-        d['thumb_url'] = ''
-    return d
-
-
-@router.get("/warmup")
-def list_warmup_assets(user=Depends(get_current_user)):
-    """获取预热素材列表"""
-    _ensure_warmup_table()
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM warmup_assets ORDER BY is_active DESC, use_count DESC, id DESC"
-    ).fetchall()
-    conn.close()
-    return [_warmup_row_to_dict(r) for r in rows]
-
-
-@router.post("/warmup")
-def create_warmup_asset(body: WarmupAssetIn, user=Depends(get_current_user)):
-    """添加预热素材（纯文字/链接类型，无需上传文件）"""
-    _ensure_warmup_table()
-    conn = get_conn()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cur = conn.execute(
-        """INSERT INTO warmup_assets (label, asset_type, file_url, ad_text, is_active, enabled, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 1, 1, ?, ?)""",
-        (body.label, body.asset_type, body.file_url, body.ad_text, now, now)
-    )
-    conn.commit()
-    new_id = cur.lastrowid
-    row = conn.execute("SELECT * FROM warmup_assets WHERE id=?", (new_id,)).fetchone()
-    conn.close()
-    return _warmup_row_to_dict(row)
-
-
-@router.patch("/warmup/{warmup_id}")
-def update_warmup_asset(warmup_id: int, body: WarmupAssetUpdate, user=Depends(get_current_user)):
-    """更新预热素材（启用/停用/修改字段）"""
-    _ensure_warmup_table()
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM warmup_assets WHERE id=?", (warmup_id,)).fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="预热素材不存在")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # 字段映射：前端传 name 映射到 label，传 active 映射到 is_active+enabled
-    field_map = {'name': 'label', 'active': 'is_active'}
-    allowed_direct = {'label', 'asset_type', 'file_url', 'ad_text', 'is_active', 'enabled'}
-    updates = {}
-    for k, v in body.model_dump(exclude_none=True).items():
-        mapped = field_map.get(k, k)
-        if mapped in allowed_direct:
-            updates[mapped] = v
-            if mapped == 'is_active':  # 同步 enabled 字段
-                updates['enabled'] = v
-    if not updates:
-        conn.close()
-        raise HTTPException(status_code=400, detail="无有效更新字段")
-    set_clause = ", ".join([f"{k}=?" for k in updates])
-    values = list(updates.values()) + [now, warmup_id]
-    conn.execute(f"UPDATE warmup_assets SET {set_clause}, updated_at=? WHERE id=?", values)
-    conn.commit()
-    row = conn.execute("SELECT * FROM warmup_assets WHERE id=?", (warmup_id,)).fetchone()
-    conn.close()
-    return _warmup_row_to_dict(row)
-
-
-@router.delete("/warmup/{warmup_id}")
-def delete_warmup_asset(warmup_id: int, user=Depends(get_current_user)):
-    """删除预热素材"""
-    _ensure_warmup_table()
-    conn = get_conn()
-    row = conn.execute("SELECT id FROM warmup_assets WHERE id=?", (warmup_id,)).fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="预热素材不存在")
-    conn.execute("DELETE FROM warmup_assets WHERE id=?", (warmup_id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "message": f"预热素材 {warmup_id} 已删除"}
-
-
-@router.get("/warmup/{warmup_id}/thumb")
-def serve_warmup_thumb(warmup_id: int):
-    """提供预热素材的缩略图（无需鉴权，供img标签直接访问）"""
-    _ensure_warmup_table()
-    conn = get_conn()
-    row = conn.execute("SELECT file_path, thumb_path, label FROM warmup_assets WHERE id=?", (warmup_id,)).fetchone()
-    conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="预热素材不存在")
-    # 优先用thumb_path，降级用file_path
-    path = row['thumb_path'] or row['file_path']
-    if not path or not os.path.exists(str(path)):
-        raise HTTPException(status_code=404, detail="图片文件不存在")
-    from fastapi.responses import FileResponse
-    return FileResponse(path)
-
-
-@router.get("/{asset_id}")
+@router.get("/{asset_id:int}")
 def get_asset(asset_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
@@ -654,6 +559,188 @@ def get_asset(asset_id: int, user=Depends(get_current_user)):
     if not row:
         raise HTTPException(404, "素材不存在")
     return _row_to_dict(row)
+
+
+class AssetBatchUpdateBody(BaseModel):
+    ids: list[int]
+    folder_name: Optional[str] = None
+    batch_code: Optional[str] = None
+    tags: Optional[list] = None
+    tags_mode: Optional[str] = "replace"  # replace / append
+    asset_status: Optional[str] = None
+
+
+def _update_assets_batch(conn, body: AssetBatchUpdateBody) -> int:
+    ids = [int(v) for v in (body.ids or []) if int(v) > 0]
+    if not ids:
+        raise HTTPException(400, "请选择素材")
+    if len(ids) > 500:
+        raise HTTPException(400, "单次最多整理 500 个素材")
+
+    _ensure_asset_library_columns(conn)
+    now = _now_cst()
+    updates, params = [], []
+    if body.folder_name is not None:
+        updates.append("folder_name=?")
+        params.append((body.folder_name or "").strip() or None)
+    if body.batch_code is not None:
+        updates.append("batch_code=?")
+        params.append((body.batch_code or "").strip() or None)
+    if body.asset_status is not None:
+        status = (body.asset_status or "").strip().lower()
+        if status not in ("active", "archived"):
+            raise HTTPException(400, "素材状态只支持 active / archived")
+        updates.append("asset_status=?")
+        params.append(status)
+        updates.append("archived_at=?")
+        params.append(now if status == "archived" else None)
+    if body.tags is not None and (body.tags_mode or "replace") != "append":
+        updates.append("tags=?")
+        params.append(json.dumps(_normalize_asset_tags(body.tags), ensure_ascii=False))
+
+    changed = 0
+    placeholders = ",".join(["?"] * len(ids))
+    if updates:
+        conn.execute(
+            f"UPDATE ad_assets SET {', '.join(updates)}, updated_at=? WHERE id IN ({placeholders})",
+            params + [now] + ids,
+        )
+        changed = len(ids)
+    if body.tags is not None and (body.tags_mode or "replace") == "append":
+        add_tags = _normalize_asset_tags(body.tags)
+        rows = conn.execute(
+            f"SELECT id, tags FROM ad_assets WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        for row in rows:
+            merged = _normalize_asset_tags(_normalize_asset_tags(row["tags"]) + add_tags)
+            conn.execute(
+                "UPDATE ad_assets SET tags=?, updated_at=? WHERE id=?",
+                (json.dumps(merged, ensure_ascii=False), now, row["id"]),
+            )
+        changed = len(rows)
+    return changed
+
+
+@router.post("/batch-update")
+def batch_update_assets(body: AssetBatchUpdateBody, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        changed = _update_assets_batch(conn, body)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"updated": changed, "message": "素材整理已保存"}
+
+
+@router.post("/{asset_id:int}/archive")
+def archive_asset(asset_id: int, user=Depends(get_current_user)):
+    body = AssetBatchUpdateBody(ids=[asset_id], asset_status="archived")
+    conn = get_conn()
+    try:
+        changed = _update_assets_batch(conn, body)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"updated": changed, "asset_status": "archived"}
+
+
+@router.post("/{asset_id:int}/restore")
+def restore_asset(asset_id: int, user=Depends(get_current_user)):
+    body = AssetBatchUpdateBody(ids=[asset_id], asset_status="active")
+    conn = get_conn()
+    try:
+        changed = _update_assets_batch(conn, body)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"updated": changed, "asset_status": "active"}
+
+
+@router.get("/duplicates")
+def duplicate_assets(limit: int = Query(100, ge=1, le=500), user=Depends(get_current_user)):
+    conn = get_conn()
+    _ensure_asset_library_columns(conn)
+    rows = conn.execute(
+        """
+        SELECT file_hash, COUNT(*) AS cnt, MIN(id) AS first_id, MAX(created_at) AS last_created_at
+        FROM ad_assets
+        WHERE COALESCE(file_hash,'')!='' AND COALESCE(asset_status,'active')!='deleted'
+        GROUP BY file_hash
+        HAVING COUNT(*) > 1
+        ORDER BY cnt DESC, last_created_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    groups = []
+    for row in rows:
+        items = conn.execute(
+            """SELECT id, file_name, display_name, folder_name, batch_code, asset_status, created_at
+               FROM ad_assets WHERE file_hash=? ORDER BY created_at ASC, id ASC""",
+            (row["file_hash"],),
+        ).fetchall()
+        groups.append({
+            "file_hash": row["file_hash"],
+            "count": row["cnt"],
+            "first_id": row["first_id"],
+            "items": [dict(item) for item in items],
+        })
+    conn.close()
+    return {"total_groups": len(groups), "groups": groups}
+
+
+@router.get("/{asset_id:int}/usage")
+def asset_usage(asset_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    _ensure_asset_library_columns(conn)
+    asset = conn.execute("SELECT id FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
+    if not asset:
+        conn.close()
+        raise HTTPException(404, "素材不存在")
+    campaigns = conn.execute(
+        """
+        SELECT c.id, c.act_id, COALESCE(a.name, c.act_id) AS act_name,
+               c.name, c.objective, c.status, c.fb_campaign_id,
+               c.total_adsets, c.total_ads, c.created_at, c.updated_at, c.error_msg
+        FROM auto_campaigns c
+        LEFT JOIN accounts a ON a.act_id=c.act_id
+        WHERE c.asset_id=?
+        ORDER BY c.created_at DESC
+        LIMIT 30
+        """,
+        (asset_id,),
+    ).fetchall()
+    spend_rows = conn.execute(
+        """
+        SELECT act_id, MAX(act_name) AS act_name, COUNT(*) AS ad_count,
+               SUM(spend) AS spend, SUM(conv) AS conv,
+               SUM(impressions) AS impressions, SUM(clicks) AS clicks,
+               MAX(last_synced_at) AS last_synced_at
+        FROM asset_spend_log
+        WHERE asset_id=?
+        GROUP BY act_id
+        ORDER BY spend DESC
+        LIMIT 30
+        """,
+        (asset_id,),
+    ).fetchall()
+    summary = conn.execute(
+        """
+        SELECT COUNT(*) AS ad_count, SUM(spend) AS spend, SUM(conv) AS conv,
+               SUM(impressions) AS impressions, SUM(clicks) AS clicks,
+               MAX(last_synced_at) AS last_synced_at
+        FROM asset_spend_log
+        WHERE asset_id=?
+        """,
+        (asset_id,),
+    ).fetchone()
+    conn.close()
+    return {
+        "summary": dict(summary) if summary else {},
+        "campaigns": [dict(r) for r in campaigns],
+        "accounts": [dict(r) for r in spend_rows],
+    }
 
 
 # ── 上传 ──────────────────────────────────────────────────────────────────────
@@ -1199,7 +1286,7 @@ class AiAnalyzeBody(BaseModel):
     depth: Optional[str] = "standard"   # fast / standard / deep
     style: Optional[str] = "standard"   # conservative / standard / aggressive
 
-@router.post("/{asset_id}/analyze")
+@router.post("/{asset_id:int}/analyze")
 def trigger_ai_analyze(asset_id: int, body: AiAnalyzeBody = None, user=Depends(get_current_user)):
     """
     手动触发 AI 视觉分析(v5.0)
@@ -1305,7 +1392,7 @@ class RenameBody(BaseModel):
     display_name: str
 
 
-@router.post("/{asset_id}/rename")
+@router.post("/{asset_id:int}/rename")
 def rename_asset(asset_id: int, body: RenameBody, user=Depends(get_current_user)):
     """重命名素材展示名称(不影响实际文件名)"""
     name = body.display_name.strip()
@@ -1333,13 +1420,17 @@ class AssetUpdate(BaseModel):
     ai_interests: Optional[list] = None
     score: Optional[float] = None
     score_label: Optional[str] = None
-    landing_url: Optional[str] = None  # 素材级落地页链接
+    landing_url: Optional[str] = None
+    custom_headline: Optional[str] = None
+    custom_body: Optional[str] = None  # 素材级落地页链接
     target_countries: Optional[str] = None
     folder_name: Optional[str] = None
     batch_code: Optional[str] = None
+    tags: Optional[list] = None
+    asset_status: Optional[str] = None
 
 
-@router.put("/{asset_id}")
+@router.put("/{asset_id:int}")
 def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_asset_library_columns(conn)
@@ -1374,6 +1465,19 @@ def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user
         updates.append("folder_name=?"); params.append((body.folder_name or "").strip() or None)
     if body.batch_code is not None:
         updates.append("batch_code=?"); params.append((body.batch_code or "").strip() or None)
+    if body.tags is not None:
+        updates.append("tags=?"); params.append(json.dumps(_normalize_asset_tags(body.tags), ensure_ascii=False))
+    if body.custom_headline is not None:
+        updates.append("custom_headline=?"); params.append(body.custom_headline or None)
+    if body.custom_body is not None:
+        updates.append("custom_body=?"); params.append(body.custom_body or None)
+    if body.asset_status is not None:
+        status = (body.asset_status or "").strip().lower()
+        if status not in ("active", "archived"):
+            conn.close()
+            raise HTTPException(400, "素材状态只支持 active / archived")
+        updates.append("asset_status=?"); params.append(status)
+        updates.append("archived_at=?"); params.append(_now_cst() if status == "archived" else None)
     if updates:
         updates.append("updated_at=?")
         params.append(datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"))
@@ -1386,7 +1490,7 @@ def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user
 
 # ── 删除 ──────────────────────────────────────────────────────────────────────
 
-@router.delete("/{asset_id}")
+@router.delete("/{asset_id:int}")
 def delete_asset(asset_id: int, user=Depends(get_current_user)):
     """删除素材(同时删除本地文件和缩略图)"""
     conn = get_conn()
@@ -1407,1417 +1511,362 @@ def delete_asset(asset_id: int, user=Depends(get_current_user)):
     return {"message": "素材已删除"}
 
 
-# ── 一键启动自动铺广告 ────────────────────────────────────────────────────────
 
+
+
+
+
+# ── 素材按账户明细接口 ──────────────────────────────────────────────────────────
 class LaunchCampaignBody(BaseModel):
-    act_id: str  # 单账户(兼容旧版)
-    act_ids: Optional[list] = None  # 多账户批量铺广告(优先级高于 act_id)
-    target_countries: list = ["US"]
-    target_cpa: Optional[float] = None
-    daily_budget: float = 20.0
+    act_id: Optional[str] = None
+    act_ids: Optional[list[str]] = None
     objective: str = "OUTCOME_SALES"
-    headline_idx: Optional[int] = None
-    body_idx: Optional[int] = None
-    # 受众定向
+    target_countries: Optional[list[str]] = None
+    target_cpa: Optional[float] = None
+    daily_budget: float = 20
     age_min: int = 18
     age_max: int = 65
-    gender: int = 0  # 0=不限, 1=男, 2=女
-    # 版位设置
-    placements: Optional[dict] = None  # None=自动版位
-    # 出价策略
+    gender: int = 0
+    placements: Optional[dict] = None
     bid_strategy: str = "LOWEST_COST_WITHOUT_CAP"
     max_adsets: int = 5
-    # 覆盖账户默认的page_id/pixel_id
     page_id: Optional[str] = None
     pixel_id: Optional[str] = None
-    # 转化事件细分(仅 OUTCOME_SALES/OUTCOME_LEADS 有效)
     conversion_event: Optional[str] = None
-    # 落地页链接(三层优先级:此处 > 素材绑定 > 全局默认)
     landing_url: Optional[str] = None
-    # v4.0: 设备端和语言
-    device_platforms: str = "all"   # all / mobile / desktop
+    device_platforms: str = "all"
     ad_language: str = "en"
-    # 台湾认证广告主ID(旧版兼容)
     tw_advertiser_id: Optional[int] = None
-     # 台湾认证主页ID(新版:直接传主页ID字符串,优先级高于 tw_advertiser_id)
     tw_page_id: Optional[str] = None
-    # 转化目的(ODAX 细分目标,控制 optimization_goal)
     conversion_goal: Optional[str] = None
-    # 消息广告欢迎消息模板(纯文本或 JSON 字符串,留空=自动生成)
     message_template: Optional[str] = None
-    # 潜在客户表单 ID(Lead Form,留空=使用 SIGN_UP 按钮替代)
     lead_form_id: Optional[str] = None
-    cta_type: Optional[str] = None  # 行动号召按钮类型,如 LEARN_MORE/SHOP_NOW/MESSAGE_PAGE 等
+    cta_type: Optional[str] = None
+    copy_mode: Optional[str] = "ai"
+    custom_headline: Optional[str] = None
+    custom_body: Optional[str] = None
 
-# ── 铺广告预检接口 ─────────────────────────────────────────────────────────────
-_MSG_GOALS = {
+
+class PreCheckBody(LaunchCampaignBody):
+    pass
+
+
+_MESSAGE_OBJECTIVES = {"OUTCOME_MESSAGES", "OUTCOME_MESSAGING", "MESSAGES"}
+_MESSAGE_GOALS = {
     "conversations",
     "messaging_purchase_conversion",
     "messaging_appointment_conversion",
     "messaging_leads",
 }
-_MESSAGE_OBJECTIVES = {"OUTCOME_MESSAGES", "OUTCOME_MESSAGING", "MESSAGES"}
-_CTA_LINK_TYPES = {
-    "SHOP_NOW", "LEARN_MORE", "SIGN_UP", "GET_OFFER",
-    "DOWNLOAD", "BOOK_TRAVEL", "CONTACT_US", "SUBSCRIBE",
-    "GET_QUOTE", "WATCH_MORE", "APPLY_NOW", "GET_DIRECTIONS",
-    "ORDER_NOW", "BUY_NOW", "SEE_MENU",
-}
-_CTA_MSG_TYPES = {
-    "MESSAGE_PAGE", "SEND_MESSAGE", "WHATSAPP_MESSAGE",
-    "MESSENGER_MESSAGE", "INSTAGRAM_MESSAGE",
-}
-_PIXEL_REQUIRED_GOALS = {"offsite_conversions", "value"}
 _LANDING_REQUIRED_OBJECTIVES = {"OUTCOME_TRAFFIC", "OUTCOME_SALES", "OUTCOME_ENGAGEMENT"}
+_PIXEL_REQUIRED_GOALS = {"OFFSITE_CONVERSIONS", "VALUE"}
 _REGULATED_IDENTITY_COUNTRIES = {"TW", "HK", "SG"}
 
 
-def _clean_launch_value(value: Optional[str]) -> str:
-    return (value or "").strip()
+def _normalize_launch_body(body: LaunchCampaignBody) -> None:
+    body.objective = (body.objective or "OUTCOME_SALES").strip().upper()
+    if body.objective in _MESSAGE_OBJECTIVES:
+        body.objective = "OUTCOME_MESSAGES"
+    if not body.target_countries:
+        body.target_countries = ["US"]
+    body.target_countries = [str(c).strip().upper() for c in body.target_countries if str(c).strip()]
+    if not body.target_countries:
+        body.target_countries = ["US"]
+    body.act_id = str(body.act_id or "").strip() or None
+    body.act_ids = [str(a).strip() for a in (body.act_ids or []) if str(a).strip()]
+    body.conversion_goal = (body.conversion_goal or "").strip()
+    body.page_id = (body.page_id or "").strip() or None
+    body.pixel_id = (body.pixel_id or "").strip() or None
+    body.landing_url = (body.landing_url or "").strip() or None
+    body.tw_page_id = (body.tw_page_id or "").strip() or None
 
 
-def _looks_like_http_url(value: str) -> bool:
-    value = _clean_launch_value(value).lower()
-    return value.startswith("http://") or value.startswith("https://")
+def _launch_act_ids(body: LaunchCampaignBody) -> list[str]:
+    ids = body.act_ids[:] if body.act_ids else []
+    if body.act_id:
+        ids.insert(0, body.act_id)
+    seen, out = set(), []
+    for act_id in ids:
+        act_id = str(act_id or "").strip()
+        if act_id and act_id not in seen:
+            seen.add(act_id)
+            out.append(act_id)
+    return out
 
 
-def _is_facebook_domain_url(value: str) -> bool:
-    value = _clean_launch_value(value).lower()
-    return any(host in value for host in ("facebook.com", "fb.com", "messenger.com", "instagram.com"))
-
-
-_LEAD_FORM_BLOCKED_HOSTS = {
-    "bit.ly",
-    "buff.ly",
-    "cutt.ly",
-    "goo.gl",
-    "is.gd",
-    "lnkd.in",
-    "ow.ly",
-    "rb.gy",
-    "rebrand.ly",
-    "shorturl.at",
-    "t.co",
-    "tiny.one",
-    "tinyurl.com",
-}
-
-
-def _get_blocked_lead_form_host(value: str) -> str:
-    value = _clean_launch_value(value)
-    if not _looks_like_http_url(value):
-        return ""
-    try:
-        host = (urlparse(value).hostname or "").lower().strip(".")
-    except Exception:
-        return ""
-    if not host:
-        return ""
-    for blocked in _LEAD_FORM_BLOCKED_HOSTS:
-        if host == blocked or host.endswith("." + blocked):
-            return host
-    return ""
-
-
-def _normalize_launch_objective(value: Optional[str]) -> str:
-    objective_norm = (value or "OUTCOME_SALES").strip().upper()
-    if objective_norm in _MESSAGE_OBJECTIVES:
-        return "OUTCOME_MESSAGES"
-    return objective_norm or "OUTCOME_SALES"
-
-
-def _normalize_launch_goal_fields(objective: Optional[str], conversion_goal: Optional[str]) -> tuple[str, str]:
-    objective_norm = _normalize_launch_objective(objective)
-    goal_norm = _clean_launch_value(conversion_goal)
-    if objective_norm == "OUTCOME_MESSAGES" and not goal_norm:
-        goal_norm = "CONVERSATIONS"
-    return objective_norm, goal_norm
-
-
-def _normalize_launch_body_fields(body) -> tuple[str, str]:
-    objective_norm, goal_norm = _normalize_launch_goal_fields(
-        getattr(body, "objective", None),
-        getattr(body, "conversion_goal", None),
-    )
-    try:
-        body.objective = objective_norm
-    except Exception:
-        pass
-    try:
-        body.conversion_goal = goal_norm or None
-    except Exception:
-        pass
-    tw_page_id = _clean_launch_value(getattr(body, "tw_page_id", None))
-    if not tw_page_id and getattr(body, "tw_advertiser_id", None) not in (None, ""):
-        tw_page_id = str(getattr(body, "tw_advertiser_id")).strip()
-    try:
-        body.tw_page_id = tw_page_id or None
-    except Exception:
-        pass
-    return objective_norm, goal_norm
-
-
-def _get_launch_goal_meta(objective: Optional[str], conversion_goal: Optional[str]) -> dict:
-    objective_norm, goal_norm = _normalize_launch_goal_fields(objective, conversion_goal)
-    goal_lower = goal_norm.lower()
-    is_message = objective_norm in _MESSAGE_OBJECTIVES or goal_lower in _MSG_GOALS
-    is_lead = goal_lower == "lead_generation"
-    landing_required = (
-        objective_norm in _LANDING_REQUIRED_OBJECTIVES
-        and not is_message
-        and not is_lead
-        and goal_lower != "page_likes"
-    )
+def _launch_goal_meta(body: LaunchCampaignBody) -> dict:
+    objective = (body.objective or "OUTCOME_SALES").strip().upper()
+    goal = (body.conversion_goal or "").strip().lower()
+    is_message = objective in _MESSAGE_OBJECTIVES or goal in _MESSAGE_GOALS
+    is_lead = goal == "lead_generation"
+    is_page_likes = goal == "page_likes"
     return {
-        "objective": objective_norm,
-        "goal": goal_norm,
         "is_message": is_message,
         "is_lead": is_lead,
-        "pixel_required": goal_lower in _PIXEL_REQUIRED_GOALS,
-        "landing_required": landing_required,
+        "is_page_likes": is_page_likes,
+        "landing_required": objective in _LANDING_REQUIRED_OBJECTIVES and not is_message and not is_lead and not is_page_likes,
     }
 
 
-def _parse_launch_country_codes(raw_value) -> list[str]:
-    if raw_value is None:
-        return []
-    if isinstance(raw_value, list):
-        values = raw_value
-    else:
-        raw_text = str(raw_value or "").strip()
-        if not raw_text:
-            return []
-        try:
-            parsed = json.loads(raw_text)
-            values = parsed if isinstance(parsed, list) else [raw_text]
-        except Exception:
-            values = raw_text.split(",")
-    return [str(v).strip().upper() for v in values if str(v).strip()]
+def _account_landing_or_default(conn, act_id: str) -> str:
+    row = conn.execute("SELECT landing_url FROM accounts WHERE act_id=?", (act_id,)).fetchone()
+    if row and (row["landing_url"] or "").strip():
+        return row["landing_url"].strip()
+    row = conn.execute("SELECT value FROM settings WHERE key='default_landing_url'").fetchone()
+    return (row["value"] if row else "") or ""
 
 
-def _get_regulated_identity_countries(raw_value) -> list[str]:
-    codes = _parse_launch_country_codes(raw_value)
-    return [code for code in codes if code in _REGULATED_IDENTITY_COUNTRIES]
+def _get_setting_value(conn, key: str, default: str = "") -> str:
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return (row["value"] if row and row["value"] is not None else default) or default
 
 
-def _normalize_verified_identity_value(value) -> str:
-    cleaned = _clean_launch_value("" if value is None else str(value))
-    return "" if cleaned.lower() in {"none", "null", "undefined"} else cleaned
-
-
-def _get_account_verified_identity_context(act_id: str, preferred_page_id: str = "") -> dict:
-    conn = get_conn()
+def _normalize_account_status(raw):
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, str):
+        lower = raw.strip().lower()
+        if lower in {"active", "ok", "enabled"}:
+            return 1
+        if lower in {"disabled", "inactive"}:
+            return 2
+        if lower in {"debt", "payment_failed"}:
+            return 3
+        if lower in {"api_error", "no_token", "error"}:
+            return -1
     try:
-        try:
-            from services.token_manager import get_matrix_id_for_account
-            matrix_id = get_matrix_id_for_account(act_id)
-        except Exception:
-            matrix_id = None
-        acc_row = conn.execute(
-            """
-            SELECT a.name
-            FROM accounts a
-            WHERE a.act_id=?
-            """,
-            (act_id,),
-        ).fetchone()
-        matrix_page_count = 0
-        if matrix_id is not None:
-            matrix_page_count = conn.execute(
-                "SELECT COUNT(*) FROM tw_certified_pages WHERE matrix_id=?",
-                (matrix_id,),
-            ).fetchone()[0]
-        preferred_row = None
-        if preferred_page_id:
-            preferred_row = conn.execute(
-                """
-                SELECT id, page_id, page_name, verified_identity_id, matrix_id, token_id, note
-                FROM tw_certified_pages
-                WHERE page_id=?
-                LIMIT 1
-                """,
-                (preferred_page_id,),
-            ).fetchone()
-        valid_rows = []
-        if matrix_id is not None:
-            valid_rows = conn.execute(
-                """
-                SELECT id, page_id, page_name, verified_identity_id, matrix_id, token_id, note
-                FROM tw_certified_pages
-                WHERE matrix_id=?
-                  AND verified_identity_id IS NOT NULL
-                  AND TRIM(verified_identity_id) != ''
-                  AND LOWER(TRIM(verified_identity_id)) NOT IN ('none','null','undefined')
-                ORDER BY id ASC
-                """,
-                (matrix_id,),
-            ).fetchall()
-    finally:
-        conn.close()
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
 
-    preferred = dict(preferred_row) if preferred_row else None
-    valid_pages = [dict(row) for row in valid_rows]
-    usable_page = None
-    if preferred and preferred.get("matrix_id") == matrix_id and _normalize_verified_identity_value(preferred.get("verified_identity_id")):
-        usable_page = preferred
-    elif valid_pages:
-        usable_page = valid_pages[0]
 
-    return {
-        "matrix_id": matrix_id,
-        "matrix_page_count": matrix_page_count,
-        "preferred_page": preferred,
-        "valid_pages": valid_pages,
-        "usable_page": usable_page,
-        "account_name": acc_row["name"] if acc_row else act_id,
+def _launch_account_block_reason(acc: dict) -> Optional[str]:
+    try:
+        if int(acc.get("enabled") or 0) != 1:
+            return "账户已暂停巡检/投放"
+    except (TypeError, ValueError):
+        return "账户启用状态异常"
+
+    status = _normalize_account_status(acc.get("account_status"))
+    if status in (None, 1):
+        return None
+    status_labels = {
+        -1: "状态异常",
+        2: "已禁用",
+        3: "支付失败/欠费",
+        7: "政策限制",
+        8: "待审核",
+        9: "已关闭",
+        100: "待处理",
+        101: "已关闭",
+        201: "权限/支付异常",
     }
+    return f"账户状态不允许投放：{status_labels.get(status, status)}"
 
 
-def _get_account_launch_defaults(act_id: str) -> dict:
-    conn = get_conn()
-    try:
-        row = conn.execute(
-            """
-            SELECT act_id, name, page_id, pixel_id, landing_url, form_link
-            FROM accounts
-            WHERE act_id=?
-            """,
-            (act_id,),
-        ).fetchone()
-    finally:
-        conn.close()
+def _launch_page_block_reason(conn, page_id: str) -> str:
+    page_id = str(page_id or "").strip()
+    if not page_id:
+        return ""
+    row = conn.execute(
+        """SELECT page_id, page_name, page_is_published, page_can_advertise,
+                  page_status, page_status_hint
+           FROM tw_certified_pages
+           WHERE page_id=?
+           LIMIT 1""",
+        (page_id,),
+    ).fetchone()
     if not row:
-        return {
-            "act_id": act_id,
-            "name": act_id,
-            "page_id": "",
-            "pixel_id": "",
-            "landing_url": "",
-            "form_link": "",
-        }
-    return {
-        "act_id": row["act_id"] or act_id,
-        "name": row["name"] or act_id,
-        "page_id": row["page_id"] or "",
-        "pixel_id": row["pixel_id"] or "",
-        "landing_url": row["landing_url"] or "",
-        "form_link": row["form_link"] or "",
-    }
+        return ""
+    reasons = []
+    if row["page_is_published"] == 0:
+        reasons.append("主页未发布")
+    if row["page_can_advertise"] == 0:
+        reasons.append("不可投放")
+    status = str(row["page_status"] or "").strip().lower()
+    if status in {"restricted", "unpublished"}:
+        reasons.append(str(row["page_status_hint"] or "").strip() or f"状态={status}")
+    if not reasons:
+        return ""
+    return f"{row['page_name'] or page_id}({page_id}): " + " / ".join(dict.fromkeys(reasons))
 
 
-def _parse_page_messaging_enabled(page_data: dict) -> Optional[bool]:
-    messaging_feature_status = page_data.get("messaging_feature_status") or {}
-    features = page_data.get("features") or []
-    if isinstance(messaging_feature_status, dict) and messaging_feature_status:
-        for key in ("USER_MESSAGING", "MESSENGER_PLATFORM", "MESSENGER"):
-            status = str(messaging_feature_status.get(key, "")).upper()
-            if status == "ENABLED":
-                return True
-        normalized_values = [str(v).upper() for v in messaging_feature_status.values() if v is not None]
-        if normalized_values:
-            return False
-    if features:
-        return any("messag" in str(f).lower() or "whatsapp" in str(f).lower() for f in features)
-    return None
-
-
-def _fetch_page_access_context(requests_mod, fb_base: str, token: str, page_id: str) -> dict:
-    if not token or not page_id:
-        return {
-            "found": False,
-            "can_use": False,
-            "page_name": page_id or "",
-            "tasks": [],
-            "page_token": "",
-            "error": "missing token or page_id",
-        }
-    try:
-        resp = requests_mod.get(
-            f"{fb_base}/me/accounts",
-            params={
-                "access_token": token,
-                "fields": "id,name,tasks,access_token",
-                "limit": 200,
-            },
-            timeout=12,
-        )
-        data = resp.json()
-    except Exception as exc:
-        return {
-            "found": None,
-            "can_use": None,
-            "page_name": page_id,
-            "tasks": [],
-            "page_token": "",
-            "error": str(exc),
-        }
-
-    if "error" in data:
-        return {
-            "found": None,
-            "can_use": None,
-            "page_name": page_id,
-            "tasks": [],
-            "page_token": "",
-            "error": data["error"].get("message", "failed to query /me/accounts"),
-        }
-
-    for page in data.get("data", []):
-        if str(page.get("id")) != str(page_id):
-            continue
-        tasks = page.get("tasks") or []
-        return {
-            "found": True,
-            "can_use": (not tasks) or ("ADVERTISE" in tasks) or ("MANAGE" in tasks),
-            "page_name": page.get("name") or page_id,
-            "tasks": tasks,
-            "page_token": page.get("access_token") or "",
-            "error": "",
-        }
-
-    return {
-        "found": False,
-        "can_use": False,
-        "page_name": page_id,
-        "tasks": [],
-        "page_token": "",
-        "error": f"current token cannot find page {page_id} in /me/accounts",
-    }
-
-
-def _probe_page_messaging_state(requests_mod, fb_base: str, token: str, page_ctx: dict, page_id: str) -> dict:
-    probe_token = page_ctx.get("page_token") or token
-    if not probe_token or not page_id:
-        return {"enabled": None, "error": "missing token or page_id"}
-    try:
-        resp = requests_mod.get(
-            f"{fb_base}/{page_id}",
-            params={"access_token": probe_token, "fields": "id,name,messaging_feature_status,features"},
-            timeout=10,
-        )
-        data = resp.json()
-    except Exception as exc:
-        return {"enabled": None, "error": str(exc)}
-
-    if "error" in data:
-        return {"enabled": None, "error": data["error"].get("message", "failed to probe page messaging")}
-
-    return {"enabled": _parse_page_messaging_enabled(data), "error": ""}
-
-
-def _probe_lead_form_permission(requests_mod, fb_base: str, token: str, page_id: str, page_ctx: Optional[dict] = None) -> dict:
-    probe_token = (page_ctx or {}).get("page_token") or token
-    if not probe_token or not page_id:
-        return {"ok": None, "permission_blocked": False, "error": "missing token or page_id"}
-    try:
-        resp = requests_mod.get(
-            f"{fb_base}/{page_id}/leadgen_forms",
-            params={"access_token": probe_token, "limit": 1},
-            timeout=10,
-        )
-        data = resp.json()
-    except Exception as exc:
-        return {"ok": None, "permission_blocked": False, "error": str(exc)}
-
-    if "error" not in data:
-        return {"ok": True, "permission_blocked": False, "error": ""}
-
-    err = data["error"]
-    err_msg = err.get("message", "leadgen_forms probe failed")
-    err_code = err.get("code", 0)
-    lower_msg = err_msg.lower()
-    permission_blocked = (
-        err_code in {10, 190, 200}
-        or "permission" in lower_msg
-        or "pages_manage_ads" in lower_msg
-        or "page access token" in lower_msg
-    )
-    return {"ok": False, "permission_blocked": permission_blocked, "error": err_msg}
-
-
-def _build_lead_tos_manual_hint(page_id: str) -> str:
-    page_label = f"主页 {page_id}" if page_id else "当前主页"
-    return (
-        f"{page_label} 的 Lead 服务条款无法再通过旧接口自动探测。"
-        "如果该主页是首次投放 Lead 广告，请先以主页身份访问 "
-        "https://www.facebook.com/ads/leadgen/tos 完成确认；"
-        "否则 Facebook 会在创建 AdSet 时直接拒绝发布。"
-    )
-
-
-def _run_launch_precheck(body) -> dict:
-    import requests as _req
-
-    FB_BASE = "https://graph.facebook.com/v21.0"
-    _normalize_launch_body_fields(body)
-    meta = _get_launch_goal_meta(body.objective, body.conversion_goal)
-    default_page_id = _clean_launch_value(_get_setting("autopilot_fb_page_id", ""))
-    default_pixel_id = _clean_launch_value(_get_setting("autopilot_fb_pixel_id", ""))
-    default_landing_url = _clean_launch_value(_get_setting("default_landing_url", ""))
-    default_lead_privacy_url = _clean_launch_value(_get_setting("lead_form_privacy_url", ""))
-
-    act_ids: list[str] = []
-    if getattr(body, "act_ids", None):
-        act_ids.extend([_clean_launch_value(act_id) for act_id in body.act_ids if _clean_launch_value(act_id)])
-    if _clean_launch_value(getattr(body, "act_id", None)):
-        act_ids.append(_clean_launch_value(body.act_id))
-    act_ids = list(dict.fromkeys(act_ids))
+def _run_launch_precheck(body: PreCheckBody) -> dict:
+    _normalize_launch_body(body)
+    items = []
+    act_ids = _launch_act_ids(body)
     if not act_ids:
-        raise HTTPException(status_code=400, detail="请至少选择一个广告账户")
+        items.append({"key": "account", "label": "广告账户", "status": "fail", "msg": "请选择至少一个广告账户"})
+        return {"pass": False, "overall": "fail", "items": items}
 
-    def _check_one_account(act_id: str) -> dict:
-        account_defaults = _get_account_launch_defaults(act_id)
-        results = []
-        selected_verified_page_id = _clean_launch_value(getattr(body, "tw_page_id", None))
-        regulated_countries = _get_regulated_identity_countries(getattr(body, "target_countries", None))
-        identity_ctx = (
-            _get_account_verified_identity_context(act_id, selected_verified_page_id)
-            if regulated_countries
-            else None
-        )
-
-        try:
-            from services.token_manager import ACTION_READ, get_exec_token
-            token = get_exec_token(act_id, ACTION_READ)
-        except Exception:
-            token = None
-
-        if not token:
-            results.append({
-                "key": "token",
-                "label": "操作 Token",
-                "status": "fail",
-                "msg": "未找到可用的操作 Token，请先绑定并验证 Token。",
-            })
-            return {
-                "act_id": act_id,
-                "account_name": account_defaults.get("name") or act_id,
-                "pass": False,
-                "overall": "fail",
-                "items": results,
-            }
-
-        if regulated_countries:
-            country_label = "/".join(regulated_countries)
-            matrix_id = identity_ctx.get("matrix_id") if identity_ctx else None
-            preferred_page = (identity_ctx or {}).get("preferred_page") or {}
-            usable_page = (identity_ctx or {}).get("usable_page") or {}
-            matrix_page_count = (identity_ctx or {}).get("matrix_page_count") or 0
-            if selected_verified_page_id:
-                if not preferred_page:
-                    results.append({
-                        "key": "verified_identity",
-                        "label": "认证主页 / Verified ID",
-                        "status": "fail",
-                        "msg": f"当前选择的认证主页 {selected_verified_page_id} 不在主页库中，请先在主页库录入并填写 Verified ID。",
-                    })
-                elif matrix_id is None:
-                    results.append({
-                        "key": "verified_identity",
-                        "label": "认证主页 / Verified ID",
-                        "status": "fail",
-                        "msg": f"当前账户暂未识别矩阵，无法确认主页 {preferred_page.get('page_name') or selected_verified_page_id} 是否属于同矩阵。{country_label} 属于需要认证的国家，请先绑定矩阵操作号或主 Token，再使用同矩阵且已填写 Verified ID 的主页。",
-                    })
-                elif matrix_id is not None and preferred_page.get("matrix_id") not in (None, matrix_id):
-                    results.append({
-                        "key": "verified_identity",
-                        "label": "认证主页 / Verified ID",
-                        "status": "fail",
-                        "msg": f"当前选择的认证主页属于矩阵 {preferred_page.get('matrix_id')}，但账户 {act_id} 位于矩阵 {matrix_id}。{country_label} 属于需要认证的国家，请改用同矩阵且已填写 Verified ID 的主页。",
-                    })
-                elif not _normalize_verified_identity_value(preferred_page.get("verified_identity_id")):
-                    results.append({
-                        "key": "verified_identity",
-                        "label": "认证主页 / Verified ID",
-                        "status": "fail",
-                        "msg": f"当前选择的主页 {preferred_page.get('page_name') or selected_verified_page_id} 还没有填写 Verified ID，{country_label} 属于需要认证的国家，暂时不能投放。",
-                    })
-                else:
-                    results.append({
-                        "key": "verified_identity",
-                        "label": "认证主页 / Verified ID",
-                        "status": "pass",
-                        "msg": f"已选择合规主页 {preferred_page.get('page_name') or selected_verified_page_id}，矩阵 {preferred_page.get('matrix_id') or matrix_id} 已填写 Verified ID，可用于 {country_label} 投放。",
-                    })
-            elif usable_page:
-                results.append({
-                    "key": "verified_identity",
-                    "label": "认证主页 / Verified ID",
-                    "status": "pass",
-                    "msg": f"矩阵 {usable_page.get('matrix_id') or matrix_id} 已配置可用 Verified ID，提交时会自动使用主页 {usable_page.get('page_name') or usable_page.get('page_id')} 处理 {country_label} 认证投放。",
-                })
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT act_id,name,enabled,account_status,page_id,pixel_id,landing_url FROM accounts WHERE act_id IN (%s)" %
+            ",".join("?" for _ in act_ids),
+            act_ids,
+        ).fetchall()
+        account_map = {r["act_id"]: dict(r) for r in rows}
+        default_page_id = _get_setting_value(conn, "autopilot_fb_page_id", "").strip()
+        default_pixel_id = _get_setting_value(conn, "autopilot_fb_pixel_id", "").strip()
+        default_landing_url = _get_setting_value(conn, "default_landing_url", "").strip()
+        for act_id in act_ids:
+            acc = account_map.get(act_id)
+            if not acc:
+                items.append({"key": "account", "label": act_id, "status": "fail", "msg": "账户不在系统中"})
+                continue
+            block_reason = _launch_account_block_reason(acc)
+            if block_reason:
+                items.append({"key": "account", "label": acc.get("name") or act_id, "status": "fail", "msg": block_reason})
             else:
-                if matrix_id is None:
-                    fail_msg = f"当前账户暂未识别矩阵，{country_label} 属于需要认证的国家，请先绑定矩阵操作号或主 Token，并在对应矩阵的主页库中填写 Verified ID。"
-                elif matrix_page_count > 0:
-                    fail_msg = f"矩阵 {matrix_id if matrix_id is not None else '-'} 的主页库里还没有填写 Verified ID，{country_label} 属于需要认证的国家，当前不能投放。"
-                else:
-                    fail_msg = f"矩阵 {matrix_id if matrix_id is not None else '-'} 还没有录入任何认证主页，{country_label} 属于需要认证的国家，请先在主页库中录入主页并填写 Verified ID。"
-                results.append({
-                    "key": "verified_identity",
-                    "label": "认证主页 / Verified ID",
-                    "status": "fail",
-                    "msg": fail_msg,
-                })
-
-        objective_label = {
-            "OUTCOME_TRAFFIC": "流量点击",
-            "OUTCOME_SALES": "转化购买",
-            "OUTCOME_ENGAGEMENT": "帖子互动",
-            "OUTCOME_LEADS": "线索收集",
-            "OUTCOME_MESSAGES": "消息广告",
-            "MESSAGES": "消息广告",
-        }.get(meta["objective"], meta["objective"])
-        act_id_num = act_id.replace("act_", "")
-        page_id = _clean_launch_value(getattr(body, "page_id", None)) or _clean_launch_value(account_defaults.get("page_id")) or default_page_id
-        pixel_id = _clean_launch_value(getattr(body, "pixel_id", None)) or _clean_launch_value(account_defaults.get("pixel_id")) or default_pixel_id
-        manual_link = _clean_launch_value(getattr(body, "landing_url", None))
-        resolved_landing_url = manual_link or _clean_launch_value(account_defaults.get("landing_url")) or default_landing_url
-        resolved_form_link = (
-            manual_link
-            or _clean_launch_value(account_defaults.get("form_link"))
-            or _clean_launch_value(account_defaults.get("landing_url"))
-            or default_landing_url
-        )
-        usable_privacy_url = default_lead_privacy_url or resolved_form_link
-        if usable_privacy_url and _is_facebook_domain_url(usable_privacy_url):
-            usable_privacy_url = ""
-        blocked_form_link_host = _get_blocked_lead_form_host(resolved_form_link)
-        blocked_privacy_host = _get_blocked_lead_form_host(usable_privacy_url)
+                items.append({"key": "account", "label": acc.get("name") or act_id, "status": "pass", "msg": "账户状态正常"})
 
         try:
-            resp = _req.get(
-                f"{FB_BASE}/me",
-                params={"access_token": token, "fields": "id,name"},
-                timeout=10,
+            from services.token_manager import ACTION_CREATE, get_exec_token_candidates
+            token_missing = [
+                act_id for act_id in act_ids
+                if not get_exec_token_candidates(act_id, ACTION_CREATE, notify_exhausted=False, reserve=False)
+            ]
+            if token_missing:
+                items.append({"key": "token", "label": "操作号 Token", "status": "fail", "msg": "以下账户没有可用 CREATE Token：" + ", ".join(token_missing[:5])})
+            else:
+                items.append({"key": "token", "label": "操作号 Token", "status": "pass", "msg": "已找到可用于创建广告的操作号"})
+        except Exception as e:
+            items.append({"key": "token", "label": "操作号 Token", "status": "warn", "msg": f"Token 预检失败，提交时会再次校验：{e}"})
+
+        meta = _launch_goal_meta(body)
+        page_missing = [
+            (account_map.get(act_id, {}) or {}).get("name") or act_id
+            for act_id in act_ids
+            if not (
+                body.page_id
+                or ((account_map.get(act_id, {}) or {}).get("page_id") or "").strip()
+                or default_page_id
             )
-            data = resp.json()
-            if "error" in data:
-                results.append({
-                    "key": "token",
-                    "label": "Token 有效性",
-                    "status": "fail",
-                    "msg": f"Token 无效：{data['error'].get('message', '未知错误')}",
-                })
+        ]
+        if page_missing:
+            items.append({"key": "page", "label": "主页", "status": "fail", "msg": "以下账户缺少主页 ID：" + ", ".join(page_missing[:5])})
+        else:
+            page_blocks = []
+            for act_id in act_ids:
+                selected_page = (
+                    body.page_id
+                    or ((account_map.get(act_id, {}) or {}).get("page_id") or "").strip()
+                    or default_page_id
+                )
+                reason = _launch_page_block_reason(conn, selected_page)
+                if reason:
+                    page_blocks.append(((account_map.get(act_id, {}) or {}).get("name") or act_id) + ": " + reason)
+            if body.tw_page_id:
+                tw_reason = _launch_page_block_reason(conn, body.tw_page_id)
+                if tw_reason:
+                    page_blocks.append("认证主页: " + tw_reason)
+            if page_blocks:
+                items.append({"key": "page", "label": "主页", "status": "fail", "msg": "主页不可投放：" + "；".join(page_blocks[:5])})
             else:
-                results.append({
-                    "key": "token",
-                    "label": "Token 有效性",
-                    "status": "pass",
-                    "msg": f"Token 正常（{data.get('name', '未知')})",
-                })
-        except Exception as exc:
-            results.append({
-                "key": "token",
-                "label": "Token 有效性",
-                "status": "fail",
-                "msg": f"Token 检测失败：{str(exc)}",
-            })
+                items.append({"key": "page", "label": "主页", "status": "pass", "msg": "已选择主页"})
 
-        account_status_map = {
-            1: ("pass", "正常"),
-            2: ("fail", "已禁用"),
-            3: ("fail", "未结清"),
-            7: ("warn", "待审核"),
-            8: ("fail", "已关闭"),
-            9: ("fail", "违规关闭"),
-            100: ("warn", "待审核"),
-            101: ("warn", "已关闭（可申诉）"),
-            201: ("fail", "超出消费限额"),
-        }
-        try:
-            resp = _req.get(
-                f"{FB_BASE}/act_{act_id_num}",
-                params={"access_token": token, "fields": "account_status,disable_reason,name"},
-                timeout=10,
+        pixel_missing = [
+            (account_map.get(act_id, {}) or {}).get("name") or act_id
+            for act_id in act_ids
+            if not (
+                body.pixel_id
+                or ((account_map.get(act_id, {}) or {}).get("pixel_id") or "").strip()
+                or default_pixel_id
             )
-            data = resp.json()
-            if "error" in data:
-                results.append({
-                    "key": "account",
-                    "label": "广告账户状态",
-                    "status": "warn",
-                    "msg": f"无法读取账户状态：{data['error'].get('message', '')}",
-                })
-            else:
-                status_code = data.get("account_status", 0)
-                status_info = account_status_map.get(status_code, ("warn", f"未知状态({status_code})"))
-                disable_reason = data.get("disable_reason") or ""
-                msg = f"账户状态：{status_info[1]}"
-                if disable_reason:
-                    msg += f"（{disable_reason}）"
-                results.append({
-                    "key": "account",
-                    "label": "广告账户状态",
-                    "status": status_info[0],
-                    "msg": msg,
-                })
-        except Exception as exc:
-            results.append({
-                "key": "account",
-                "label": "广告账户状态",
-                "status": "warn",
-                "msg": f"账户状态检测失败：{str(exc)}",
-            })
-
-        page_data = None
-        if page_id:
-            try:
-                resp = _req.get(
-                    f"{FB_BASE}/{page_id}",
-                    params={"access_token": token, "fields": "id,name,messaging_feature_status,features"},
-                    timeout=10,
-                )
-                page_data = resp.json()
-                if "error" in page_data:
-                    results.append({
-                        "key": "page",
-                        "label": "主页权限",
-                        "status": "fail",
-                        "msg": f"无法访问主页 {page_id}：{page_data['error'].get('message', '')}",
-                    })
-                    page_data = None
-                else:
-                    tasks = page_data.get("tasks", [])
-                    has_advertise = "ADVERTISE" in tasks or "MANAGE" in tasks or not tasks
-                    page_name = page_data.get("name", page_id)
-                    results.append({
-                        "key": "page",
-                        "label": f"主页权限（{page_name}）",
-                        "status": "pass" if has_advertise else "warn",
-                        "msg": "主页可用于投放" if has_advertise else "主页可能缺少 ADVERTISE 权限，请检查主页角色。",
-                    })
-            except Exception as exc:
-                results.append({
-                    "key": "page",
-                    "label": "主页权限",
-                    "status": "warn",
-                    "msg": f"主页检测失败：{str(exc)}",
-                })
+        ]
+        if (body.conversion_goal or "").upper() in _PIXEL_REQUIRED_GOALS and pixel_missing:
+            items.append({"key": "pixel", "label": "Pixel", "status": "fail", "msg": "网站转化/转化价值目标缺少 Pixel：" + ", ".join(pixel_missing[:5])})
+        elif body.objective == "OUTCOME_SALES" and pixel_missing:
+            items.append({"key": "pixel", "label": "Pixel", "status": "warn", "msg": "以下账户未配置 Pixel，转化广告建议补齐：" + ", ".join(pixel_missing[:5])})
         else:
-            results.append({
-                "key": "page",
-                "label": "主页 ID",
-                "status": "fail",
-                "msg": (
-                    "当前投放没有可用主页 ID。请在账户详情配置主页，"
-                    "或在系统设置中配置全局默认主页（autopilot_fb_page_id）。"
-                ),
-            })
-
-        page_ctx = None
-        results = [item for item in results if item.get("key") != "page"]
-        if page_id:
-            page_ctx = _fetch_page_access_context(_req, FB_BASE, token, page_id)
-            if page_ctx["found"] is True:
-                has_advertise = bool(page_ctx.get("can_use"))
-                page_name = page_ctx.get("page_name") or page_id
-                results.append({
-                    "key": "page",
-                    "label": f"主页权限（{page_name}）",
-                    "status": "pass" if has_advertise else "warn",
-                    "msg": (
-                        "主页已出现在当前 Token 的 /me/accounts 中，可用于投放。"
-                        if has_advertise else
-                        "主页已关联到当前 Token，但未看到 ADVERTISE / MANAGE 任务，请在 Facebook 主页角色中复核。"
-                    ),
-                })
-            elif page_ctx["found"] is False:
-                results.append({
-                    "key": "page",
-                    "label": "主页权限",
-                    "status": "fail",
-                    "msg": page_ctx.get("error") or f"current token cannot manage page {page_id}",
-                })
-            else:
-                results.append({
-                    "key": "page",
-                    "label": "主页权限",
-                    "status": "warn",
-                    "msg": f"主页检测失败: {page_ctx.get('error', '')}",
-                })
-        else:
-            results.append({
-                "key": "page",
-                "label": "主页 ID",
-                "status": "fail",
-                "msg": (
-                    "当前投放没有可用主页 ID。请在账户详情配置主页，"
-                    "或在系统设置中配置全局默认主页（autopilot_fb_page_id）。"
-                ),
-            })
-
-        if meta["is_message"]:
-            if not page_id:
-                results.append({
-                    "key": "messaging",
-                    "label": "消息投放前置条件",
-                    "status": "fail",
-                    "msg": "消息广告必须绑定主页后才能投放。",
-                })
-            elif page_data:
-                messaging_enabled = _parse_page_messaging_enabled(page_data)
-                if messaging_enabled is False:
-                    results.append({
-                        "key": "messaging",
-                        "label": "主页消息功能",
-                        "status": "fail",
-                        "msg": "主页 Messenger/WhatsApp 消息功能未开启，消息广告会直接失败。",
-                    })
-                elif messaging_enabled is True:
-                    results.append({
-                        "key": "messaging",
-                        "label": "主页消息功能",
-                        "status": "pass",
-                        "msg": "主页消息功能已开启。",
-                    })
-                else:
-                    results.append({
-                        "key": "messaging",
-                        "label": "主页消息功能",
-                        "status": "warn",
-                        "msg": "暂时无法自动确认主页消息开关，请在 Facebook 页面设置中复核。",
-                    })
-
-        if meta["is_message"]:
-            results = [item for item in results if item.get("key") != "messaging"]
-            if not page_id:
-                results.append({
-                    "key": "messaging",
-                    "label": "主页消息能力",
-                    "status": "fail",
-                    "msg": "消息广告必须先绑定主页后才能投放。",
-                })
-            elif page_ctx and page_ctx.get("found") is True:
-                messaging_probe = _probe_page_messaging_state(_req, FB_BASE, token, page_ctx, page_id)
-                messaging_enabled = messaging_probe.get("enabled")
-                if messaging_enabled is False:
-                    results.append({
-                        "key": "messaging",
-                        "label": "主页消息能力",
-                        "status": "fail",
-                        "msg": "主页 Messenger / WhatsApp 消息功能未开启，消息广告会直接失败。",
-                    })
-                elif messaging_enabled is True:
-                    results.append({
-                        "key": "messaging",
-                        "label": "主页消息能力",
-                        "status": "pass",
-                        "msg": "主页消息功能已开启。",
-                    })
-                else:
-                    tasks = set(page_ctx.get("tasks") or [])
-                    probe_err = messaging_probe.get("error", "")
-                    if probe_err and ("pages_messaging" in probe_err.lower() or "page access token is required" in probe_err.lower()):
-                        if "MESSAGING" in tasks or "MANAGE" in tasks:
-                            probe_err = "已确认当前 Token 能管理该主页，且当前权限链路可用于消息广告；但 Facebook 仍不开放 messaging_feature_status 探测，因此无法自动确认“允许通过消息联系”开关，请在主页设置里手动复核 Messenger / WhatsApp。"
-                    results.append({
-                        "key": "messaging",
-                        "label": "主页消息能力",
-                        "status": "warn",
-                        "msg": probe_err or "暂时无法自动确认主页消息开关，请在 Facebook 主页设置中复核。",
-                    })
-
-        if meta["is_lead"]:
-            if page_id:
-                results.append({
-                    "key": "lead_tos",
-                    "label": "Lead 服务条款",
-                    "status": "warn",
-                    "msg": _build_lead_tos_manual_hint(page_id),
-                })
-            if _clean_launch_value(getattr(body, "lead_form_id", None)):
-                results.append({
-                    "key": "lead_form",
-                    "label": "Lead 表单",
-                    "status": "pass",
-                    "msg": "已选择现成 Lead Form 模板/ID。",
-                })
-            else:
-                if blocked_form_link_host:
-                    results.append({
-                        "key": "lead_form_link",
-                        "label": "Lead 表单回跳链接",
-                        "status": "fail",
-                        "msg": (
-                            f"当前表单回跳链接使用了高风险短链域名 {blocked_form_link_host}，"
-                            "Facebook 会直接拒绝创建 Lead Form，请改用真实直链。"
-                        ),
-                    })
-                if blocked_privacy_host:
-                    results.append({
-                        "key": "lead_form_privacy",
-                        "label": "Lead 隐私/回跳链接",
-                        "status": "fail",
-                        "msg": (
-                            f"当前 Lead 隐私或回跳链接使用了高风险短链域名 {blocked_privacy_host}，"
-                            "Facebook 会直接拒绝创建 Lead Form，请改用真实直链。"
-                        ),
-                    })
-                if not usable_privacy_url:
-                    results.append({
-                        "key": "lead_form",
-                        "label": "Lead 表单自动创建",
-                        "status": "fail",
-                        "msg": (
-                            "未选择现成 Lead Form，且系统没有可用的隐私政策/回跳链接。"
-                            "请先选择表单模板，或配置 lead_form_privacy_url，或填写可用表单链接。"
-                        ),
-                    })
-                elif not blocked_form_link_host and not blocked_privacy_host:
-                    auto_msg = "未选择现成表单，系统将自动创建 Lead Form。"
-                    if _looks_like_http_url(resolved_form_link):
-                        auto_msg += f" 提交后将优先回跳到：{resolved_form_link}"
-                    else:
-                        auto_msg += " 建议补充表单链接，方便用户提交后继续跳转。"
-                    results.append({
-                        "key": "lead_form",
-                        "label": "Lead 表单自动创建",
-                        "status": "warn",
-                        "msg": auto_msg,
-                    })
-        elif _clean_launch_value(getattr(body, "lead_form_id", None)):
-            results.append({
-                "key": "lead_form",
-                "label": "Lead 表单",
-                "status": "warn",
-                "msg": "当前不是即时表单广告，已选 Lead Form 不会生效。",
-            })
-
-        if meta["is_lead"]:
-            results = [item for item in results if item.get("key") not in {"lead_tos", "lead_access"}]
-            selected_lead_form = _clean_launch_value(getattr(body, "lead_form_id", None))
-            if page_id:
-                results.append({
-                    "key": "lead_tos",
-                    "label": "Lead 服务条款",
-                    "status": "warn",
-                    "msg": _build_lead_tos_manual_hint(page_id),
-                })
-                if not selected_lead_form:
-                    lead_probe = _probe_lead_form_permission(_req, FB_BASE, token, page_id, page_ctx)
-                    if lead_probe.get("ok") is True:
-                        results.append({
-                            "key": "lead_access",
-                            "label": "Lead 表单权限",
-                            "status": "pass",
-                            "msg": "当前 Token 可以读取 / 管理该主页的 Lead Form，自动创建表单条件已满足。",
-                        })
-                    else:
-                        blocked = bool(lead_probe.get("permission_blocked"))
-                        results.append({
-                            "key": "lead_access",
-                            "label": "Lead 表单权限",
-                            "status": "fail" if blocked else "warn",
-                            "msg": (
-                                "当前 Token 缺少 pages_manage_ads 等必要权限，系统无法自动创建 Lead Form。请先换用有主页管理权限的 Token，或手动选择已有表单。"
-                                if blocked else
-                                f"暂时无法确认 Lead 表单权限：{lead_probe.get('error', '')}"
-                            ),
-                        })
-                else:
-                    results.append({
-                        "key": "lead_access",
-                        "label": "Lead 表单权限",
-                        "status": "warn",
-                        "msg": "已选择现成 Lead Form，本次预检不再强制探测自动创建权限。",
-                    })
-
-        should_check_pixel = meta["pixel_required"] or bool(pixel_id) or meta["objective"] in {"OUTCOME_SALES", "OUTCOME_LEADS", "OUTCOME_TRAFFIC"}
-        if meta["pixel_required"] and not pixel_id:
-            results.append({
-                "key": "pixel",
-                "label": "Pixel 像素",
-                "status": "fail",
-                "msg": "当前转化目标必须配置 Pixel，请先选择像素后再启动。",
-            })
-        elif should_check_pixel and pixel_id:
-            try:
-                resp = _req.get(
-                    f"{FB_BASE}/{pixel_id}",
-                    params={"access_token": token, "fields": "id,name,last_fired_time"},
-                    timeout=10,
-                )
-                data = resp.json()
-                if "error" in data:
-                    results.append({
-                        "key": "pixel",
-                        "label": "Pixel 像素",
-                        "status": "warn" if not meta["pixel_required"] else "fail",
-                        "msg": f"Pixel {pixel_id} 无法访问：{data['error'].get('message', '')}",
-                    })
-                else:
-                    last_fired = data.get("last_fired_time")
-                    pixel_msg = "Pixel 可用"
-                    if last_fired:
-                        pixel_msg += f"，最后触发：{last_fired}"
-                    else:
-                        pixel_msg += "，暂未检测到触发记录"
-                    results.append({
-                        "key": "pixel",
-                        "label": f"Pixel 像素（{data.get('name', pixel_id)}）",
-                        "status": "pass",
-                        "msg": pixel_msg,
-                    })
-            except Exception as exc:
-                results.append({
-                    "key": "pixel",
-                    "label": "Pixel 像素",
-                    "status": "warn" if not meta["pixel_required"] else "fail",
-                    "msg": f"Pixel 检测失败：{str(exc)}",
-                })
-        elif meta["objective"] == "OUTCOME_SALES":
-            results.append({
-                "key": "pixel",
-                "label": "Pixel 像素",
-                "status": "warn",
-                "msg": "当前未配置 Pixel。即使不是网站转化目标，也建议配置像素方便后续归因。",
-            })
+            items.append({"key": "pixel", "label": "Pixel", "status": "pass", "msg": "Pixel 配置可用或当前目标不强制"})
 
         if meta["landing_required"]:
-            if not _looks_like_http_url(resolved_landing_url):
-                results.append({
-                    "key": "landing_url",
-                    "label": "落地页链接",
-                    "status": "fail",
-                    "msg": (
-                        f"{objective_label}广告必须有可用落地页链接。"
-                        "请在弹窗填写落地页，或在账户/系统设置中补齐默认链接。"
-                    ),
-                })
-            else:
-                results.append({
-                    "key": "landing_url",
-                    "label": "落地页链接",
-                    "status": "pass",
-                    "msg": f"已找到可用落地页：{resolved_landing_url}",
-                })
-        elif meta["is_message"] and manual_link:
-            results.append({
-                "key": "landing_url",
-                "label": "落地页链接",
-                "status": "warn",
-                "msg": "当前是消息广告，落地页链接不是主要跳转逻辑，系统会优先走消息入口。",
-            })
-        elif meta["is_lead"] and _looks_like_http_url(resolved_form_link):
-            results.append({
-                "key": "form_link",
-                "label": "表单回跳链接",
-                "status": "pass",
-                "msg": f"已配置表单回跳/补充链接：{resolved_form_link}",
-            })
-
-        cta_type = _clean_launch_value(getattr(body, "cta_type", None)).upper()
-        if cta_type and cta_type != "AUTO":
-            if meta["is_message"] and cta_type in _CTA_LINK_TYPES:
-                results.append({
-                    "key": "cta",
-                    "label": "CTA 按钮",
-                    "status": "fail",
-                    "msg": "消息广告不能使用 Shop Now / Learn More 这类链接 CTA，请改为 Auto、Send Message 或 WhatsApp。",
-                })
-            elif not meta["is_message"] and cta_type in _CTA_MSG_TYPES:
-                results.append({
-                    "key": "cta",
-                    "label": "CTA 按钮",
-                    "status": "fail",
-                    "msg": "当前不是消息广告，不能使用 MESSAGE_PAGE / WHATSAPP_MESSAGE 这类消息 CTA。",
-                })
-            elif meta["is_lead"] and cta_type not in {"SIGN_UP"}:
-                results.append({
-                    "key": "cta",
-                    "label": "CTA 按钮",
-                    "status": "warn",
-                    "msg": "即时表单广告更建议使用 Auto 或 SIGN_UP，避免按钮文案和实际转化路径不一致。",
-                })
-
-        if meta["is_message"] and not _clean_launch_value(getattr(body, "message_template", None)):
-            results.append({
-                "key": "message_template",
-                "label": "欢迎消息模板",
-                "status": "warn",
-                "msg": "未选择欢迎消息模板，系统会自动生成消息内容，建议先确认文案语气是否符合业务。",
-            })
-        elif not meta["is_message"] and _clean_launch_value(getattr(body, "message_template", None)):
-            results.append({
-                "key": "message_template",
-                "label": "欢迎消息模板",
-                "status": "warn",
-                "msg": "当前不是消息广告，已选欢迎消息模板不会生效。",
-            })
-
-        has_fail = any(item["status"] == "fail" for item in results)
-        has_warn = any(item["status"] == "warn" for item in results)
-        overall = "fail" if has_fail else ("warn" if has_warn else "pass")
-        return {
-            "act_id": act_id,
-            "account_name": account_defaults.get("name") or act_id,
-            "pass": not has_fail,
-            "overall": overall,
-            "items": results,
-        }
-
-    account_reports = [_check_one_account(act_id) for act_id in act_ids]
-    if len(account_reports) == 1:
-        return account_reports[0]
-
-    fail_count = sum(1 for report in account_reports if report["overall"] == "fail")
-    warn_count = sum(1 for report in account_reports if report["overall"] == "warn")
-    pass_count = sum(1 for report in account_reports if report["overall"] == "pass")
-    overall = "fail" if fail_count else ("warn" if warn_count else "pass")
-    summary_msg = f"共检查 {len(account_reports)} 个账户：{pass_count} 个通过"
-    if warn_count:
-        summary_msg += f"，{warn_count} 个警告"
-    if fail_count:
-        summary_msg += f"，{fail_count} 个失败"
-
-    return {
-        "pass": fail_count == 0,
-        "overall": overall,
-        "items": [{
-            "key": "batch_summary",
-            "label": "批量预检汇总",
-            "status": overall,
-            "msg": summary_msg,
-        }],
-        "accounts": account_reports,
-        "total_accounts": len(account_reports),
-    }
-
-
-def _build_launch_precheck_block_message(precheck_report: dict) -> str:
-    if not precheck_report:
-        return ""
-
-    lines = []
-
-    def _append_failures(report: dict):
-        fail_msgs = [
-            str(item.get("msg") or "").strip()
-            for item in report.get("items", [])
-            if item.get("status") == "fail" and str(item.get("msg") or "").strip()
-        ]
-        if not fail_msgs:
-            return
-        label = report.get("account_name") or report.get("act_id") or "当前账户"
-        lines.append(f"{label}：{'；'.join(fail_msgs[:3])}")
-
-    if isinstance(precheck_report.get("accounts"), list):
-        for account_report in precheck_report.get("accounts", []):
-            _append_failures(account_report)
-    else:
-        _append_failures(precheck_report)
-
-    if not lines:
-        return ""
-    return "投放前置检查未通过：\n" + "\n".join(lines[:6])
-
-
-class PreCheckBody(BaseModel):
-    act_id: Optional[str] = None
-    act_ids: Optional[list[str]] = None
-    objective: Optional[str] = "OUTCOME_SALES"
-    conversion_goal: Optional[str] = None
-    target_countries: Optional[list[str]] = None
-    page_id: Optional[str] = None
-    pixel_id: Optional[str] = None
-    landing_url: Optional[str] = None
-    tw_advertiser_id: Optional[int] = None
-    tw_page_id: Optional[str] = None
-    message_template: Optional[str] = None
-    lead_form_id: Optional[str] = None
-    cta_type: Optional[str] = None
-
-@router.post("/precheck-launch")
-def precheck_launch(body: PreCheckBody, user=Depends(get_current_user)):
-    """
-    铺广告预检：在正式铺广告前检测账户/主页/Pixel/TOS状态
-    返回每个检测项的 pass/warn/fail 状态和修复建议
-    """
-    return _run_launch_precheck(body)
-
-    import requests as _req
-    FB_BASE = "https://graph.facebook.com/v21.0"
-    results = []
-
-    # ── 获取 Token ──────────────────────────────────────────────────────────
-    try:
-        from services.token_manager import get_exec_token, ACTION_READ
-        token = get_exec_token(body.act_id, ACTION_READ)
-    except Exception:
-        token = None
-
-    if not token:
-        return {
-            "pass": False,
-            "items": [{"key": "token", "label": "操作Token", "status": "fail",
-                       "msg": "未找到可用的操作Token，请先配置Token"}]
-        }
-
-    act_id_num = body.act_id.replace("act_", "")
-    is_lead = (body.conversion_goal or "").lower() == "lead_generation"
-    page_id = body.page_id
-
-    # 如果没传 page_id，从数据库读取
-    if not page_id:
-        try:
-            conn2 = get_conn()
-            acc_row = conn2.execute("SELECT page_id FROM accounts WHERE act_id=?", (body.act_id,)).fetchone()
-            conn2.close()
-            if acc_row:
-                page_id = acc_row["page_id"] or acc_row[0]
-        except Exception:
-            pass
-
-    # ── 检测1：Token有效性 ────────────────────────────────────────────────────
-    try:
-        r = _req.get(f"{FB_BASE}/me", params={"access_token": token, "fields": "id,name"}, timeout=10)
-        d = r.json()
-        if "error" in d:
-            results.append({"key": "token", "label": "Token有效性", "status": "fail",
-                            "msg": f"Token无效：{d['error'].get('message','未知错误')}"})
-        else:
-            results.append({"key": "token", "label": "Token有效性", "status": "pass",
-                            "msg": f"Token正常（{d.get('name','未知')}）"})
-    except Exception as e:
-        results.append({"key": "token", "label": "Token有效性", "status": "fail",
-                        "msg": f"Token检测失败：{str(e)}"})
-
-    # ── 检测2：广告账户状态 ───────────────────────────────────────────────────
-    ACCOUNT_STATUS_MAP = {
-        1: ("pass", "正常"),
-        2: ("fail", "已禁用"),
-        3: ("fail", "未结清"),
-        7: ("warn", "待审核"),
-        8: ("fail", "已关闭"),
-        9: ("fail", "违规关闭"),
-        100: ("warn", "待审核"),
-        101: ("warn", "已关闭（可申诉）"),
-        201: ("fail", "超出消费限额"),
-    }
-    try:
-        r = _req.get(f"{FB_BASE}/act_{act_id_num}",
-                     params={"access_token": token, "fields": "account_status,disable_reason,name"},
-                     timeout=10)
-        d = r.json()
-        if "error" in d:
-            results.append({"key": "account", "label": "广告账户状态", "status": "warn",
-                            "msg": f"无法获取账户状态：{d['error'].get('message','')}"})
-        else:
-            st = d.get("account_status", 0)
-            status_info = ACCOUNT_STATUS_MAP.get(st, ("warn", f"未知状态({st})"))
-            results.append({"key": "account", "label": "广告账户状态",
-                            "status": status_info[0],
-                            "msg": f"账户状态：{status_info[1]}"
-                                   + (f"（{d.get('disable_reason','')}）" if d.get("disable_reason") else "")})
-    except Exception as e:
-        results.append({"key": "account", "label": "广告账户状态", "status": "warn",
-                        "msg": f"检测失败：{str(e)}"})
-
-    # ── 检测3：主页权限（仅Lead/消息/主页赞广告需要） ──────────────────────────
-    if page_id:
-        try:
-            r = _req.get(f"{FB_BASE}/{page_id}",
-                         params={"access_token": token, "fields": "id,name,tasks"},
-                         timeout=10)
-            d = r.json()
-            if "error" in d:
-                results.append({"key": "page", "label": "主页权限", "status": "fail",
-                                "msg": f"无法访问主页 {page_id}：{d['error'].get('message','')}"})
-            else:
-                tasks = d.get("tasks", [])
-                has_advertise = "ADVERTISE" in tasks or "MANAGE" in tasks or not tasks
-                results.append({"key": "page", "label": f"主页权限（{d.get('name', page_id)}）",
-                                "status": "pass" if has_advertise else "warn",
-                                "msg": "有广告投放权限" if has_advertise else "可能缺少 ADVERTISE 权限，请检查主页角色"})
-        except Exception as e:
-            results.append({"key": "page", "label": "主页权限", "status": "warn",
-                            "msg": f"检测失败：{str(e)}"})
-    else:
-        if is_lead or body.objective in ("OUTCOME_LEADS", "OUTCOME_MESSAGES", "OUTCOME_ENGAGEMENT"):
-            results.append({"key": "page", "label": "主页权限", "status": "fail",
-                            "msg": "此广告目标需要主页 ID，请在账户详情中配置主页"})
-        else:
-            results.append({"key": "page", "label": "主页权限", "status": "warn",
-                            "msg": "未配置主页 ID（建议配置以提升广告效果）"})
-
-    # ── 检测4：Lead Generation TOS（仅Lead广告） ─────────────────────────────
-    if is_lead and page_id:
-        try:
-            r = _req.get(f"{FB_BASE}/{page_id}/leadgen_tos",
-                         params={"access_token": token},
-                         timeout=10)
-            d = r.json()
-            if "error" in d:
-                err_msg = d["error"].get("message", "")
-                err_code = d["error"].get("code", 0)
-                if err_code == 100 or "permission" in err_msg.lower():
-                    results.append({"key": "lead_tos", "label": "Lead广告服务条款",
-                                    "status": "fail",
-                                    "msg": "⚠️ 主页尚未接受 Facebook Lead Generation 服务条款！"
-                                           "请访问 https://www.facebook.com/ads/leadgen/tos 接受条款后再铺广告。"})
-                else:
-                    results.append({"key": "lead_tos", "label": "Lead广告服务条款",
-                                    "status": "warn",
-                                    "msg": f"无法检测TOS状态：{err_msg}"})
-            else:
-                data_list = d.get("data", [])
-                if data_list and data_list[0].get("accepted"):
-                    results.append({"key": "lead_tos", "label": "Lead广告服务条款",
-                                    "status": "pass",
-                                    "msg": "✅ 主页已接受 Lead Generation 服务条款"})
-                elif data_list:
-                    results.append({"key": "lead_tos", "label": "Lead广告服务条款",
-                                    "status": "fail",
-                                    "msg": "⚠️ 主页尚未接受 Facebook Lead Generation 服务条款！"
-                                           "请访问 https://www.facebook.com/ads/leadgen/tos 接受条款后再铺广告。"})
-                else:
-                    results.append({"key": "lead_tos", "label": "Lead广告服务条款",
-                                    "status": "fail",
-                                    "msg": "⚠️ 主页尚未接受 Facebook Lead Generation 服务条款！"
-                                           "请访问 https://www.facebook.com/ads/leadgen/tos 接受条款后再铺广告。"})
-        except Exception as e:
-            results.append({"key": "lead_tos", "label": "Lead广告服务条款", "status": "warn",
-                            "msg": f"TOS检测失败：{str(e)}"})
-    elif is_lead and not page_id:
-        results.append({"key": "lead_tos", "label": "Lead广告服务条款", "status": "fail",
-                        "msg": "Lead广告必须配置主页ID才能检测TOS状态"})
-
-    # ── 检测5：Pixel有效性（转化广告建议配置） ────────────────────────────────
-    pixel_id = body.pixel_id
-    if not pixel_id:
-        try:
-            conn3 = get_conn()
-            px_row = conn3.execute("SELECT pixel_id FROM accounts WHERE act_id=?", (body.act_id,)).fetchone()
-            conn3.close()
-            if px_row:
-                pixel_id = px_row["pixel_id"] or px_row[0]
-        except Exception:
-            pass
-
-    if pixel_id and body.objective in ("OUTCOME_SALES", "OUTCOME_LEADS", "OUTCOME_TRAFFIC"):
-        try:
-            r = _req.get(f"{FB_BASE}/{pixel_id}",
-                         params={"access_token": token, "fields": "id,name,last_fired_time"},
-                         timeout=10)
-            d = r.json()
-            if "error" in d:
-                results.append({"key": "pixel", "label": "Pixel像素", "status": "warn",
-                                "msg": f"Pixel {pixel_id} 无法访问：{d['error'].get('message','')}"})
-            else:
-                last_fired = d.get("last_fired_time")
-                results.append({"key": "pixel", "label": f"Pixel像素（{d.get('name', pixel_id)}）",
-                                "status": "pass",
-                                "msg": f"Pixel正常" + (f"，最后触发：{last_fired}" if last_fired else "，尚未触发")})
-        except Exception as e:
-            results.append({"key": "pixel", "label": "Pixel像素", "status": "warn",
-                            "msg": f"Pixel检测失败：{str(e)}"})
-    elif not pixel_id and body.objective in ("OUTCOME_SALES",):
-        results.append({"key": "pixel", "label": "Pixel像素", "status": "warn",
-                        "msg": "转化广告建议配置Pixel以追踪转化，当前未配置"})
-
-    # ── 检测6：落地页链接（流量/转化广告必填） ────────────────────────────────
-    _LANDING_REQUIRED_OBJECTIVES = ("OUTCOME_TRAFFIC", "OUTCOME_SALES", "OUTCOME_ENGAGEMENT")
-    _landing_url_val = getattr(body, 'landing_url', None) or ""
-    if body.objective in _LANDING_REQUIRED_OBJECTIVES:
-        _has_landing = bool(_landing_url_val.strip())
-        if not _has_landing:
-            try:
-                _conn_lu = get_conn()
-                _lu_row = _conn_lu.execute(
-                    "SELECT landing_url FROM accounts WHERE act_id=?", (body.act_id,)
-                ).fetchone()
-                _conn_lu.close()
-                if _lu_row and (_lu_row[0] if isinstance(_lu_row, tuple) else _lu_row.get("landing_url", "")):
-                    _has_landing = True
-            except Exception:
-                pass
-        if not _has_landing:
-            try:
-                _conn_gs = get_conn()
-                _gs_row = _conn_gs.execute(
-                    "SELECT value FROM settings WHERE key='default_landing_url'"
-                ).fetchone()
-                _conn_gs.close()
-                if _gs_row and (_gs_row[0] if isinstance(_gs_row, tuple) else _gs_row.get("value", "")):
-                    _has_landing = True
-            except Exception:
-                pass
-        _obj_label = {"OUTCOME_TRAFFIC": "流量点击", "OUTCOME_SALES": "转化购买", "OUTCOME_ENGAGEMENT": "帖子互动"}.get(body.objective, body.objective)
-        if not _has_landing:
-            results.append({
-                "key": "landing_url",
-                "label": "落地页链接",
-                "status": "fail",
-                "msg": (
-                    f"❌ {_obj_label}广告必须填写落地页链接！"
-                    "请在铺广告弹窗中填写「落地页链接」，"
-                    "或在「投放链接管理」中为该账户配置默认落地页，"
-                    "或在系统设置中配置全局默认落地页（default_landing_url）。"
+            landing_missing = [
+                (account_map.get(act_id, {}) or {}).get("name") or act_id
+                for act_id in act_ids
+                if not (
+                    body.landing_url
+                    or ((account_map.get(act_id, {}) or {}).get("landing_url") or "").strip()
+                    or default_landing_url
                 )
-            })
-        else:
-            results.append({
-                "key": "landing_url",
-                "label": "落地页链接",
-                "status": "pass",
-                "msg": "✅ 落地页链接已配置"
-            })
-    # ── 汇总结果 ──────────────────────────────────────────────────────────────
-    has_fail = any(r["status"] == "fail" for r in results)
-    has_warn = any(r["status"] == "warn" for r in results)
-    overall = "fail" if has_fail else ("warn" if has_warn else "pass")
+            ]
+            if not landing_missing:
+                items.append({"key": "landing_url", "label": "落地页链接", "status": "pass", "msg": "已配置落地页"})
+            else:
+                items.append({"key": "landing_url", "label": "落地页链接", "status": "fail", "msg": "以下账户缺少落地页链接：" + ", ".join(landing_missing[:5])})
 
-    return {
-        "pass": not has_fail,
-        "overall": overall,
-        "items": results
-    }
+        regulated = [c for c in (body.target_countries or []) if c in _REGULATED_IDENTITY_COUNTRIES]
+        if regulated:
+            from services.token_manager import get_matrix_id_for_account
+            _label = f"合规投放 ({'/'.join(regulated)})"
+            _any_fail = False
+            _any_pass = False
+            _messages = []
+            for _act_id in act_ids:
+                _mid = None
+                try:
+                    _mid = get_matrix_id_for_account(_act_id)
+                except Exception:
+                    pass
+                if _mid is None:
+                    _any_fail = True
+                    _messages.append(f"{_act_id}: 未识别矩阵归属")
+                else:
+                    _c2 = get_conn()
+                    _cp = _c2.execute(
+                        "SELECT page_name FROM tw_certified_pages WHERE matrix_id=? AND verified_identity_id IS NOT NULL AND TRIM(verified_identity_id)!='' LIMIT 1",
+                        (_mid,)
+                    ).fetchone()
+                    _c2.close()
+                    if _cp:
+                        _any_pass = True
+                        _messages.append(f"矩阵 {_mid}: {_cp['page_name']} (已认证)")
+                    else:
+                        _any_fail = True
+                        _messages.append(f"矩阵 {_mid}: 无 Verified ID")
+            if _any_pass and not _any_fail:
+                items.append({"key": "tw_identity", "label": _label, "status": "pass", "msg": "; ".join(_messages)})
+            elif _any_fail and _any_pass:
+                items.append({"key": "tw_identity", "label": _label, "status": "warn", "msg": "; ".join(_messages)})
+            else:
+                items.append({"key": "tw_identity", "label": _label, "status": "fail", "msg": "所有账户均无 Verified ID。请先在主页库为对应矩阵的主页填写 Verified Identity ID。"})
+    finally:
+        conn.close()
 
-@router.post("/{asset_id}/launch")
-def launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_current_user)):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(404, "素材不存在")
-    if not row["ai_headlines"] or not row["ai_bodies"]:
-        conn.close()
-        raise HTTPException(400, "请先完成 AI 分析,生成文案后再启动铺广告")
-    if _get_setting("autopilot_enabled", "0") != "1":
-        conn.close()
-        raise HTTPException(400, "全自动铺广告功能未启用,请在系统设置中开启")
+    has_fail = any(i["status"] == "fail" for i in items)
+    has_warn = any(i["status"] == "warn" for i in items)
+    return {"pass": not has_fail, "overall": "fail" if has_fail else ("warn" if has_warn else "pass"), "items": items}
 
-    now = datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
-    precheck_report = _run_launch_precheck(body)
-    precheck_block_msg = _build_launch_precheck_block_message(precheck_report)
-    if precheck_block_msg:
-        conn.close()
-        raise HTTPException(400, precheck_block_msg)
 
-    row = dict(row)
-    display_name = row.get("display_name") or row.get("file_name") or f"asset_{asset_id}"
-    # 命名格式:{target}-{country}-{asset_code}-{MMDD}
-    # 实际系列名由 autopilot_engine 在创建 Campaign 时覆盖,这里存的是占位名
-    _obj_abbr_api = {
-        "OUTCOME_SALES": "CONV", "OUTCOME_LEADS": "LEAD",
-        "OUTCOME_TRAFFIC": "TRAF", "OUTCOME_AWARENESS": "AWR",
-        "OUTCOME_ENGAGEMENT": "ENG", "OUTCOME_MESSAGES": "MSG",
+def _build_launch_precheck_block_message(report: dict) -> str:
+    fails = [i for i in report.get("items", []) if i.get("status") == "fail"]
+    return "；".join(f"{i.get('label')}: {i.get('msg')}" for i in fails[:4]) if fails else ""
+
+
+def _launch_now() -> str:
+    return datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _launch_campaign_name(asset: dict, body: LaunchCampaignBody) -> str:
+    objective_abbr = {
+        "OUTCOME_SALES": "CONV",
+        "OUTCOME_LEADS": "LEAD",
+        "OUTCOME_TRAFFIC": "TRAF",
+        "OUTCOME_AWARENESS": "AWR",
+        "OUTCOME_ENGAGEMENT": "ENG",
+        "OUTCOME_MESSAGES": "MSG",
         "OUTCOME_APP_PROMOTION": "APP",
-    }
-    _obj_s = _obj_abbr_api.get(body.objective, "ADS")
-    _ctry_s = "-".join((body.target_countries or ["XX"])[:2])
-    _ast_c = row.get("asset_code") or f"AST-{asset_id:04d}"
-    try:
-        from datetime import datetime as _dt2
-        import pytz as _pytz2
-        _now_cst = _dt2.now(_pytz2.timezone("Asia/Shanghai"))
-    except Exception:
-        from datetime import datetime as _dt2
-        _now_cst = _dt2.now()
-    _mmdd = _now_cst.strftime("%m%d")
-    campaign_name = f"{_obj_s}-{_ctry_s}-{_ast_c}-{_mmdd}"
+    }.get(body.objective, "ADS")
+    countries = "-".join((body.target_countries or ["XX"])[:2])
+    asset_code = asset.get("asset_code") or f"AST-{asset.get('id', 0):04d}"
+    return f"{objective_abbr}-{countries}-{asset_code}-{datetime.now(tz=timezone(timedelta(hours=8))).strftime('%m%d')}"
 
+
+def _insert_launch_campaign(conn, asset: dict, act_id: str, body: LaunchCampaignBody) -> int:
+    now = _launch_now()
+    campaign_name = _launch_campaign_name(asset, body)
     cur = conn.execute(
         """INSERT INTO auto_campaigns
            (act_id, asset_id, name, objective, target_countries,
@@ -2826,233 +1875,136 @@ def launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(g
             page_id_override, pixel_id_override, landing_url,
             device_platforms, ad_language, conversion_event,
             tw_page_id, conversion_goal, message_template, lead_form_id,
-            cta_type, status, created_at, updated_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
-        (body.act_id, asset_id, campaign_name, body.objective,
-         json.dumps(body.target_countries), body.target_cpa, body.daily_budget,
-         body.age_min, body.age_max, body.gender,
-         json.dumps(body.placements) if body.placements else None,
-         body.bid_strategy, body.max_adsets,
-         body.page_id, body.pixel_id, body.landing_url,
-         getattr(body, 'device_platforms', 'all'),
-         getattr(body, 'ad_language', 'en'),
-         getattr(body, 'conversion_event', None) or 'PURCHASE',
-         getattr(body, 'tw_page_id', None),
-         getattr(body, 'conversion_goal', None),
-         getattr(body, 'message_template', None),
-         getattr(body, 'lead_form_id', None),
-         getattr(body, 'cta_type', None) or '',
-         now, now)
+            cta_type, copy_mode, custom_copy, status, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
+        (
+            act_id, asset["id"], campaign_name, body.objective,
+            json.dumps(body.target_countries or ["US"]), body.target_cpa, body.daily_budget,
+            body.age_min, body.age_max, body.gender,
+            json.dumps(body.placements) if body.placements else None,
+            body.bid_strategy, body.max_adsets,
+            body.page_id, body.pixel_id, body.landing_url,
+            body.device_platforms or "all", body.ad_language or "en",
+            body.conversion_event or "PURCHASE",
+            body.tw_page_id,
+            body.conversion_goal or None,
+            body.message_template or None,
+            body.lead_form_id or None,
+            body.cta_type or "",
+            body.copy_mode or "ai",
+            json.dumps({"headline": body.custom_headline, "body": body.custom_body}) if (body.custom_headline or body.custom_body) else None,
+            now, now
+        ),
     )
-    # 如果铺广告时指定了台湾认证广告主，临时更新账户配置
-    if getattr(body, 'tw_advertiser_id', None):
-        conn.execute(
-            "UPDATE accounts SET tw_advertiser_id=? WHERE act_id=?",
-            (body.tw_advertiser_id, body.act_id)
-        )
-    campaign_id = cur.lastrowid
-    conn.commit(); conn.close()
-
-    threading.Thread(target=_trigger_autopilot, args=(campaign_id,), daemon=True).start()
-    return {
-        "campaign_id": campaign_id,
-        "campaign_name": campaign_name,
-        "status": "pending",
-        "message": "自动铺广告任务已创建,正在后台执行"
-    }
+    return int(cur.lastrowid)
 
 
-@router.post("/{asset_id}/batch-launch")
-def batch_launch_auto_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_current_user)):
-    """批量多账户铺广告:为多个广告账户同时创建铺广告任务"""
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(404, "素材不存在")
-    if not row["ai_headlines"] or not row["ai_bodies"]:
-        conn.close()
-        raise HTTPException(400, "请先完成 AI 分析,生成文案后再启动铺广告")
-    if _get_setting("autopilot_enabled", "0") != "1":
-        conn.close()
-        raise HTTPException(400, "全自动铺广告功能未启用,请在系统设置中开启")
-
-    _normalize_launch_body_fields(body)
-    # 获取账户列表:优先用 act_ids,否则用 act_id
-    precheck_report = _run_launch_precheck(body)
-    precheck_block_msg = _build_launch_precheck_block_message(precheck_report)
-    if precheck_block_msg:
-        conn.close()
-        raise HTTPException(400, precheck_block_msg)
-
-    act_ids = body.act_ids if body.act_ids else [body.act_id]
-    act_ids = [a.strip() for a in act_ids if a and a.strip()]
-    if not act_ids:
-        conn.close()
-        raise HTTPException(400, "请至少指定一个广告账户")
-
-    now = datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
-    # 批量投放系列名也采用规范格式
-    _obj_abbr_b = {
-        "OUTCOME_SALES": "CONV", "OUTCOME_LEADS": "LEAD",
-        "OUTCOME_TRAFFIC": "TRAF", "OUTCOME_AWARENESS": "AWR",
-        "OUTCOME_ENGAGEMENT": "ENG", "OUTCOME_MESSAGES": "MSG",
-        "OUTCOME_APP_PROMOTION": "APP",
-    }
-    _obj_sb = _obj_abbr_b.get(body.objective, "ADS")
-    _ctry_sb = "-".join((body.target_countries or ["XX"])[:2])
-    _ast_cb = dict(row).get("asset_code") if row else None
-    _ast_cb = _ast_cb or f"AST-{asset_id:04d}"
-    try:
-        from datetime import datetime as _dt3
-        import pytz as _pytz3
-        _now_cst_b = _dt3.now(_pytz3.timezone("Asia/Shanghai"))
-    except Exception:
-        from datetime import datetime as _dt3
-        _now_cst_b = _dt3.now()
-    _mmdd = _now_cst_b.strftime("%m%d")
-    results = []
-
-    for act_id in act_ids:
-        try:
-            campaign_name = f"{_obj_sb}-{_ctry_sb}-{_ast_cb}-{_mmdd}"
-            cur = conn.execute(
-                """INSERT INTO auto_campaigns
-                   (act_id, asset_id, name, objective, target_countries,
-                    target_cpa, daily_budget,
-                    age_min, age_max, gender, placements, bid_strategy, max_adsets,
-                    page_id_override, pixel_id_override, landing_url,
-                    device_platforms, ad_language, conversion_event,
-                    tw_page_id, conversion_goal, message_template, lead_form_id,
-                    cta_type, status, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
-                (act_id, asset_id, campaign_name, body.objective,
-                 json.dumps(body.target_countries), body.target_cpa, body.daily_budget,
-                 body.age_min, body.age_max, body.gender,
-                 json.dumps(body.placements) if body.placements else None,
-                 body.bid_strategy, body.max_adsets,
-                 body.page_id, body.pixel_id, body.landing_url,
-                 getattr(body, 'device_platforms', 'all'),
-                 getattr(body, 'ad_language', 'en'),
-                 getattr(body, 'conversion_event', None) or 'PURCHASE',
-                 getattr(body, 'tw_page_id', None),
-                 getattr(body, 'conversion_goal', None),
-                 getattr(body, 'message_template', None),
-                 getattr(body, 'lead_form_id', None),
-                 getattr(body, 'cta_type', None) or '',
-                 now, now)
-            )
-            campaign_id = cur.lastrowid
-            conn.commit()
-            threading.Thread(target=_trigger_autopilot, args=(campaign_id,), daemon=True).start()
-            results.append({
-                "act_id": act_id,
-                "asset_id": asset_id,
-                "campaign_id": campaign_id,
-                "campaign_name": campaign_name,
-                "status": "pending",
-                "message": "任务已创建"
-            })
-        except Exception as e:
-            results.append({
-                "act_id": act_id,
-                "asset_id": asset_id,
-                "campaign_id": None,
-                "status": "error",
-                "message": str(e)
-            })
-
-    conn.close()
-    success_count = sum(1 for r in results if r["status"] == "pending")
-    return {
-        "total": len(act_ids),
-        "success": success_count,
-        "failed": len(act_ids) - success_count,
-        "results": results,
-        "message": f"已为 {success_count}/{len(act_ids)} 个账户创建铺广告任务"
-    }
-
-def _trigger_autopilot(campaign_id: int):
+def _trigger_manual_launch(campaign_id: int) -> None:
     import traceback as _tb
     try:
-        from services.autopilot_engine import AutoPilotEngine
+        from services.launch_engine import AutoPilotEngine
         AutoPilotEngine().run_campaign(campaign_id)
     except Exception as e:
-        _full_err = f"{type(e).__name__}: {e}\n{_tb.format_exc()[-800:]}"
-        logger.error(f"[AutoPilot] 任务 {campaign_id} 崩溃: {_full_err}")
+        full_err = f"{type(e).__name__}: {e}\n{_tb.format_exc()[-800:]}"
+        logger.error(f"[ManualLaunch] task {campaign_id} crashed: {full_err}")
         try:
             conn = get_conn()
             conn.execute(
                 "UPDATE auto_campaigns SET status='error', error_msg=?, progress_msg=?, updated_at=? WHERE id=?",
-                (_full_err[:1000], _full_err[:500], 
-                 datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
-                 campaign_id)
+                (full_err[:1000], full_err[:500], _launch_now(), campaign_id),
             )
-            conn.commit(); conn.close()
-        except Exception as _db_err:
-            logger.error(f"[AutoPilot] 写入错误状态失败: {_db_err}")
+            conn.commit()
+            conn.close()
+        except Exception as db_err:
+            logger.error(f"[ManualLaunch] failed to persist error state: {db_err}")
 
 
-@router.get("/{asset_id}/campaigns")
-def list_asset_campaigns(asset_id: int, user=Depends(get_current_user)):
+@router.post("/precheck-launch")
+def precheck_launch(body: PreCheckBody, user=Depends(get_current_user)):
+    return _run_launch_precheck(body)
+
+
+@router.post("/{asset_id:int}/launch")
+def launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_current_user)):
+    _normalize_launch_body(body)
+    act_ids = _launch_act_ids(body)
+    if not act_ids:
+        raise HTTPException(400, "请选择广告账户")
+    body.act_id = act_ids[0]
+    report = _run_launch_precheck(PreCheckBody(**body.dict()))
+    block_msg = _build_launch_precheck_block_message(report)
+    if block_msg:
+        raise HTTPException(400, block_msg)
+
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM auto_campaigns WHERE asset_id=? ORDER BY created_at DESC",
-        (asset_id,)
-    ).fetchall()
+    asset_row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
+    if not asset_row:
+        conn.close()
+        raise HTTPException(404, "素材不存在")
+    asset = dict(asset_row)
+    _copy_mode = (body.copy_mode or "ai").strip()
+    if _copy_mode == "ai":
+        if not asset.get("ai_headlines") or not asset.get("ai_bodies"):
+            conn.close()
+            raise HTTPException(400, "素材还未 AI 分析生成文案，请先跑 AI 分析或选择空/自定义文案")
+    elif _copy_mode == "custom":
+        if not body.custom_headline or not body.custom_body:
+            conn.close()
+            raise HTTPException(400, "自定义模式需要在素材详情中填写自定义标题和正文")
+    results = []
+    for act_id in act_ids:
+        try:
+            campaign_id = _insert_launch_campaign(conn, asset, act_id, body)
+            conn.commit()
+            threading.Thread(target=_trigger_manual_launch, args=(campaign_id,), daemon=True).start()
+            results.append({"act_id": act_id, "asset_id": asset_id, "campaign_id": campaign_id, "status": "pending", "message": "任务已创建"})
+        except Exception as e:
+            results.append({"act_id": act_id, "asset_id": asset_id, "campaign_id": None, "status": "error", "message": str(e)})
     conn.close()
-    return [dict(r) for r in rows]
-@router.get("/{asset_id}/campaigns/{campaign_id}/status")
-def get_campaign_status(asset_id: int, campaign_id: int, user=Depends(get_current_user)):
-    """获取铺广告任务实时进度(供前端轮询)"""
+    success = sum(1 for r in results if r["status"] == "pending")
+    return {"total": len(act_ids), "success": success, "failed": len(act_ids) - success, "results": results}
+
+
+@router.post("/{asset_id:int}/batch-launch")
+def batch_launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_current_user)):
+    return launch_campaign(asset_id, body, user)
+
+
+@router.get("/{asset_id:int}/campaigns/{campaign_id:int}/status")
+def get_launch_campaign_status(asset_id: int, campaign_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     row = conn.execute(
         """SELECT c.id, c.status, c.progress_step, c.progress_msg,
                   c.fb_campaign_id, c.total_adsets, c.total_ads,
                   c.error_msg, c.updated_at,
-                  (SELECT COUNT(*) FROM auto_campaign_ads WHERE campaign_id=c.id) as ad_count,
-                  (SELECT COUNT(*) FROM auto_campaign_ads WHERE campaign_id=c.id AND status='done') as ad_done,
-                  (SELECT COUNT(*) FROM auto_campaign_ads WHERE campaign_id=c.id AND status='error') as ad_error
+                  (SELECT COUNT(*) FROM auto_campaign_ads WHERE campaign_id=c.id) AS ad_count,
+                  (SELECT COUNT(*) FROM auto_campaign_ads WHERE campaign_id=c.id AND status='done') AS ad_done,
+                  (SELECT COUNT(*) FROM auto_campaign_ads WHERE campaign_id=c.id AND status='error') AS ad_error
            FROM auto_campaigns c
            WHERE c.id=? AND c.asset_id=?""",
-        (campaign_id, asset_id)
+        (campaign_id, asset_id),
     ).fetchone()
     conn.close()
     if not row:
         raise HTTPException(404, "任务不存在")
     r = dict(row)
-    # 计算进度百分比
     step = r.get("progress_step") or ""
-    step_map = {
-        "init": 5, "token": 10, "asset": 20, "upload": 35,
-        "campaign": 50, "adset_1": 60, "adset_2": 70, "adset_3": 80,
-        "adset_4": 85, "adset_5": 88, "done": 100
-    }
+    step_map = {"init": 5, "token": 10, "asset": 20, "upload": 35, "campaign": 50, "adset_1": 60, "adset_2": 70, "adset_3": 80, "adset_4": 85, "adset_5": 88, "done": 100}
     if r["status"] == "error":
         r["progress_pct"] = 0
-        # 确保前端能看到错误信息:如果 progress_msg 为空,将 error_msg 回填进去
         if not r.get("progress_msg") and r.get("error_msg"):
             r["progress_msg"] = r["error_msg"]
     elif r["status"] == "done":
         r["progress_pct"] = 100
     else:
-        base_pct = step_map.get(step, 5)
         ad_count = int(r.get("ad_count") or 0)
-        ad_done = int(r.get("ad_done") or 0)
-        ad_error = int(r.get("ad_error") or 0)
-        finished_ads = min(ad_count, ad_done + ad_error)
-        if ad_count > 0:
-            ad_pct = 88 + int((finished_ads / max(ad_count, 1)) * 10)
-            r["progress_pct"] = max(base_pct, min(98, ad_pct))
-        else:
-            r["progress_pct"] = base_pct
+        finished = int(r.get("ad_done") or 0) + int(r.get("ad_error") or 0)
+        base = step_map.get(step, 5)
+        r["progress_pct"] = max(base, min(98, 88 + int((finished / max(ad_count, 1)) * 10))) if ad_count else base
     return r
 
 
-
-
-# ── 素材按账户明细接口 ──────────────────────────────────────────────────────────
-@router.get("/{asset_id}/breakdown")
+@router.get("/{asset_id:int}/breakdown")
 def get_asset_breakdown(
     asset_id: int,
     force_refresh: bool = False,
@@ -3106,132 +2058,6 @@ def get_asset_breakdown(
         (asset_id,)
     ).fetchall()
 
-    # ── 同时获取 auto_campaign_ads 中的广告总数(含未成功同步的)────────────
-    ad_count_rows = conn.execute(
-        """
-        SELECT aca.act_id,
-               COUNT(aca.id) as total_ads,
-               SUM(CASE WHEN aca.status='done' THEN 1 ELSE 0 END) as ad_done,
-               SUM(CASE WHEN aca.status='error' THEN 1 ELSE 0 END) as ad_error,
-               ac.daily_budget, ac.target_cpa
-        FROM auto_campaign_ads aca
-        JOIN auto_campaigns ac ON ac.id = aca.campaign_id
-        WHERE aca.asset_id = ?
-        GROUP BY aca.act_id
-        """,
-        (asset_id,)
-    ).fetchall()
-    conn.close()
-
-    ad_count_map = {r["act_id"]: dict(r) for r in ad_count_rows}
-
-    # ── 如果 asset_spend_log 没有数据(首次巡检前),降级到实时拉取 ──────────
-    if not log_rows:
-        # 降级:实时从 FB API 拉取(旧逻辑兜底)
-        conn = get_conn()
-        rows = conn.execute(
-            """
-            SELECT aca.act_id, acc.name as act_name,
-                   COUNT(aca.id) as ad_count,
-                   SUM(CASE WHEN aca.status='done' THEN 1 ELSE 0 END) as ad_done,
-                   SUM(CASE WHEN aca.status='error' THEN 1 ELSE 0 END) as ad_error,
-                   GROUP_CONCAT(aca.fb_ad_id, ',') as fb_ad_ids,
-                   ac.target_countries, ac.objective, ac.daily_budget, ac.target_cpa
-            FROM auto_campaign_ads aca
-            JOIN auto_campaigns ac ON ac.id = aca.campaign_id
-            LEFT JOIN accounts acc ON acc.act_id = aca.act_id
-            WHERE aca.asset_id = ?
-            GROUP BY aca.act_id ORDER BY ad_count DESC
-            """,
-            (asset_id,)
-        ).fetchall()
-        conn.close()
-
-        if not rows:
-            return {"breakdown": [], "summary": {}, "data_source": "none"}
-
-        breakdown = []
-        total_spend = 0.0
-        total_conv = 0
-        total_ads = 0
-
-        for row in rows:
-            item = dict(row)
-            act_id = item["act_id"]
-            fb_ad_ids = [x for x in (item.get("fb_ad_ids") or "").split(",") if x.strip()]
-
-            try:
-                from core.database import get_conn as _gc
-                c2 = _gc()
-                kpi_row = c2.execute(
-                    "SELECT kpi_field FROM kpi_configs WHERE act_id=? ORDER BY id DESC LIMIT 1",
-                    (act_id,)
-                ).fetchone()
-                c2.close()
-                kpi_field = kpi_row["kpi_field"] if kpi_row else None
-            except Exception:
-                kpi_field = None
-
-            try:
-                from services.token_manager import get_exec_token, ACTION_READ
-                token = get_exec_token(act_id, ACTION_READ)
-            except Exception:
-                token = None
-
-            act_spend = 0.0
-            act_conv = 0
-            matched_field = ""
-
-            if token and fb_ad_ids:
-                from services.asset_scorer import _fb_get_ad_insights, _parse_conversions
-                for fb_ad_id in fb_ad_ids[:50]:
-                    insights = _fb_get_ad_insights(fb_ad_id, token)
-                    if not insights:
-                        continue
-                    spend, conv, conv_value, used_field = _parse_conversions(insights, kpi_field)
-                    act_spend += spend
-                    act_conv += conv
-                    if used_field and not matched_field:
-                        matched_field = used_field
-
-            total_spend += act_spend
-            total_conv += act_conv
-            total_ads += item["ad_count"]
-
-            try:
-                countries = _json.loads(item["target_countries"]) if item["target_countries"] else []
-            except Exception:
-                countries = str(item["target_countries"]).split(",") if item["target_countries"] else []
-
-            breakdown.append({
-                "act_id": act_id,
-                "act_name": item["act_name"] or act_id,
-                "ad_count": item["ad_count"],
-                "ad_done": item["ad_done"],
-                "ad_error": item["ad_error"],
-                "ad_active": item["ad_done"],
-                "ad_inactive": 0,
-                "countries": countries,
-                "objective": item["objective"],
-                "daily_budget": item["daily_budget"],
-                "target_cpa": item["target_cpa"],
-                "kpi_field": kpi_field or "",
-                "matched_field": matched_field,
-                "spend": round(act_spend, 2),
-                "conv": act_conv,
-                "cpa": round(act_spend / act_conv, 2) if act_conv > 0 else None,
-                "last_synced_at": None,
-                "is_cached": False
-            })
-
-        summary = {
-            "total_spend": round(total_spend, 2),
-            "total_conv": total_conv,
-            "total_ads": total_ads,
-            "avg_cpa": round(total_spend / total_conv, 2) if total_conv > 0 else None
-        }
-        return {"breakdown": breakdown, "summary": summary, "data_source": "realtime"}
-
     # ── 正常路径:从 asset_spend_log 构建响应 ────────────────────────────────
     breakdown = []
     total_spend = 0.0
@@ -3244,12 +2070,8 @@ def get_asset_breakdown(
         act_spend = float(item["spend"] or 0)
         act_conv = int(item["conv"] or 0)
 
-        # 合并 auto_campaign_ads 中的广告计数信息
-        ad_info = ad_count_map.get(act_id, {})
-        ad_count = item["ad_count"]  # spend_log 中的广告数
-        ad_done = ad_info.get("ad_done", item["ad_active"])
-        ad_error = ad_info.get("ad_error", 0)
-        total_ad_count = ad_info.get("total_ads", ad_count)
+        ad_count = item["ad_count"]
+        total_ad_count = ad_count
 
         total_spend += act_spend
         total_conv += act_conv
@@ -3273,12 +2095,12 @@ def get_asset_breakdown(
             "ad_synced": ad_count,       # 已成功同步数据的广告数
             "ad_active": item["ad_active"],   # 本次巡检可拉取的广告数
             "ad_inactive": item["ad_inactive"],  # 历史/已移除账户的广告数
-            "ad_done": ad_done,
-            "ad_error": ad_error,
+            "ad_done": total_ad_count,
+            "ad_error": 0,
             "countries": countries,
             "objective": item["objective"],
-            "daily_budget": ad_info.get("daily_budget"),
-            "target_cpa": ad_info.get("target_cpa"),
+            "daily_budget": None,
+            "target_cpa": None,
             "kpi_field": item["kpi_field"] or "",
             "matched_field": matched_fields_list[0] if matched_fields_list else "",
             "matched_fields": matched_fields_list,
@@ -3311,13 +2133,19 @@ def search_accounts(
     conn = get_conn()
     keyword = f"%{q}%"
     rows = conn.execute(
-        """SELECT act_id, name, currency, status, balance, timezone
+        """SELECT act_id, name, currency, account_status, balance, timezone
            FROM accounts
            WHERE (name LIKE ? OR act_id LIKE ?)
-             AND status NOT IN ('DISABLED', 'CLOSED')
+             AND COALESCE(enabled, 1)=1
+             AND CAST(COALESCE(account_status, 1) AS INTEGER)=1
            ORDER BY name ASC
            LIMIT ?""",
         (keyword, keyword, limit)
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    items = []
+    for r in rows:
+        d = dict(r)
+        d["status"] = d.get("account_status")
+        items.append(d)
+    return items

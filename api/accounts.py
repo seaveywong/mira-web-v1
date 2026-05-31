@@ -23,6 +23,8 @@ from services.token_manager import (
 
 router = APIRouter()
 
+_NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
+_UNLIMITED_SPEND_CAP_USD = 1_000_000.0
 
 # ── 余额计算辅助函数 ──────────────────────────────────────────
 # 汇率缓存（从数据库读取，不存在则用 1.0）
@@ -38,64 +40,72 @@ def _to_usd(amount, currency):
             "SELECT rate FROM currency_rates WHERE currency=?", (currency.upper(),)
         ).fetchone()
         conn.close()
-        if row:
-            return round(float(amount) * float(row['rate']), 2)
+        if row and row["rate"]:
+            return round(float(amount) / float(row["rate"]), 2)
     except Exception:
         pass
     return float(amount)  # 无汇率时原值返回
 
 
+def _money_factor(currency: str) -> int:
+    return 1 if (currency or "USD").upper() in _NO_DECIMAL_CURRENCIES else 100
+
+
+def _from_minor_units(value, currency: str):
+    if value is None:
+        return None
+    try:
+        return float(value) / _money_factor(currency)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_minor_units(value, currency: str) -> int:
+    factor = _money_factor(currency)
+    return int(round(float(value) * factor))
+
+
 def _calc_available_balance(balance, spend_cap, amount_spent, spending_limit, currency):
     """
-    计算账户剩余可用余额
+    计算账户可用投放额度
     返回: (available_balance, balance_type, amount_spent_usd)
-      - available_balance: 剩余可用（USD），None 表示无法计算
-      - balance_type: 'spending_limit' | 'prepaid' | 'unlimited'
+      - available_balance: spend_cap 减 amount_spent 后的可用额度（USD），None 表示无上限、超高上限或无法计算
+      - balance_type: 'spending_limit' | 'very_high_limit' | 'unlimited'
       - amount_spent_usd: 已消费金额（USD）
-    
-    FB 账户类型：
-    1. Cash/消费上限型：spending_limit > 0，剩余 = spending_limit - amount_spent
-    2. 预付费型：balance > 0，剩余 = balance
-    3. 无上限型：spending_limit=0 且 balance=0
-    """
-    # 单位转换：FB API 返回的金额单位是分（cents），需除以 100
-    def _cents(v):
-        if v is None:
-            return None
-        try:
-            return float(v) / 100.0
-        except (TypeError, ValueError):
-            return None
 
-    sl = _cents(spending_limit)
-    spent = _cents(amount_spent)
-    bal = _cents(balance)
-    cap = _cents(spend_cap)
+    注意：FB balance 在后付费账户里通常是账单余额/欠款，不等于还能花多少钱。
+    因此可用额度只由 spend_cap / spending_limit 与 amount_spent 推导。
+    """
+    # FB API 金额是 minor units：大多数币种为分，JPY/KRW 等零小数位币种为本币整数。
+    sl = _from_minor_units(spending_limit, currency)
+    spent = _from_minor_units(amount_spent, currency)
+    cap = _from_minor_units(spend_cap, currency)
 
     # 已消费金额（USD）
     spent_usd = _to_usd(spent, currency) if spent is not None else None
 
+    if spend_cap is None and spending_limit in (None, ""):
+        return (None, 'unlimited', spent_usd)
+
     # 优先使用 spending_limit（消费上限型）
     if sl and sl > 0:
-        avail = sl - (spent or 0)
+        if _to_usd(sl, currency) >= _UNLIMITED_SPEND_CAP_USD:
+            return (None, 'very_high_limit', spent_usd)
+        avail = max(0.0, sl - (spent or 0))
         avail_usd = _to_usd(avail, currency)
         return (round(avail_usd, 2) if avail_usd is not None else None,
                 'spending_limit', spent_usd)
 
-    # 其次使用 spend_cap（账户总上限）
+    # 其次使用 spend_cap（账户总上限），极高值（>= $1M 或 sentinel）视为超高上限。
     if cap and cap > 0:
-        avail = cap - (spent or 0)
+        if _to_usd(cap, currency) >= _UNLIMITED_SPEND_CAP_USD:
+            return (None, 'very_high_limit', spent_usd)
+        avail = max(0.0, cap - (spent or 0))
         avail_usd = _to_usd(avail, currency)
         return (round(avail_usd, 2) if avail_usd is not None else None,
                 'spending_limit', spent_usd)
 
-    # 预付费余额
-    if bal and bal > 0:
-        bal_usd = _to_usd(bal, currency)
-        return (round(bal_usd, 2) if bal_usd is not None else None,
-                'prepaid', spent_usd)
-
-    # 无上限账户
+    # spend_cap=0 / spending_limit=0 即无账户级消费上限；balance 不参与可用额度计算。
     return (None, 'unlimited', spent_usd)
 # ── 余额计算辅助函数 END ──────────────────────────────────────
 
@@ -163,6 +173,225 @@ def _fetch_all_fb_adaccount_ids(access_token: str, *, timeout: int = 20) -> List
     ]
 
 
+ACCOUNT_DETAIL_FIELDS = (
+    "id,name,currency,timezone_name,timezone_offset_hours_utc,"
+    "balance,account_status,spend_cap,amount_spent"
+)
+
+
+def _normalize_act_id(act_id: str) -> str:
+    raw = str(act_id or "").strip()
+    if not raw:
+        return raw
+    return raw if raw.startswith("act_") else f"act_{raw}"
+
+
+def _coerce_float_or_none(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ensure_account_read_columns(conn) -> None:
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+    changed = False
+    if "timezone_name" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN timezone_name TEXT")
+        changed = True
+    if "timezone_offset_hours_utc" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN timezone_offset_hours_utc REAL")
+        changed = True
+    if "spending_limit" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN spending_limit TEXT")
+        changed = True
+    if changed:
+        conn.commit()
+
+
+def _normalize_account_info(act_id: str, raw: dict) -> dict:
+    timezone_name = raw.get("timezone_name") or raw.get("timezone") or "UTC"
+    return {
+        "act_id": _normalize_act_id(raw.get("id") or act_id),
+        "name": raw.get("name") or act_id,
+        "currency": raw.get("currency") or "USD",
+        "timezone": timezone_name,
+        "timezone_name": timezone_name,
+        "timezone_offset_hours_utc": _coerce_float_or_none(raw.get("timezone_offset_hours_utc")),
+        "balance": raw.get("balance"),
+        "account_status": raw.get("account_status", 1),
+        "spend_cap": raw.get("spend_cap"),
+        "amount_spent": raw.get("amount_spent"),
+        "spending_limit": raw.get("spend_cap"),
+    }
+
+
+def _read_token_candidates_for_account(
+    act_id: str,
+    *,
+    preferred_token_id: Optional[int] = None,
+    preferred_token_plain: Optional[str] = None,
+    prefer_manage: bool = False,
+) -> List[dict]:
+    candidates = []
+    seen = set()
+
+    def add_row(row, source: str):
+        if not row:
+            return
+        token_id = row["id"]
+        marker = f"id:{token_id}"
+        if marker in seen:
+            return
+        plain = decrypt_token(row["access_token_enc"]) if row["access_token_enc"] else None
+        if not plain:
+            return
+        seen.add(marker)
+        candidates.append({
+            "token_id": token_id,
+            "token_plain": plain,
+            "token_type": row["token_type"],
+            "token_source": row["token_source"],
+            "alias": row["token_alias"] or f"token_{token_id}",
+            "source": source,
+        })
+
+    def add_plain(token_plain: Optional[str], source: str):
+        if not token_plain:
+            return
+        marker = f"plain:{token_plain[:12]}:{token_plain[-8:]}"
+        if marker in seen:
+            return
+        seen.add(marker)
+        candidates.append({
+            "token_id": None,
+            "token_plain": token_plain,
+            "token_type": "",
+            "token_source": "",
+            "alias": source,
+            "source": source,
+        })
+
+    conn = get_conn()
+    try:
+        ensure_token_source_columns(conn)
+        if prefer_manage:
+            for row in conn.execute(
+                """
+                SELECT id, access_token_enc, token_alias, token_type, token_source
+                FROM fb_tokens
+                WHERE status='active'
+                  AND token_type='manage'
+                  AND access_token_enc IS NOT NULL
+                ORDER BY id ASC
+                """
+            ).fetchall():
+                add_row(row, "manage_pool")
+
+        if preferred_token_id:
+            row = conn.execute(
+                """
+                SELECT id, access_token_enc, token_alias, token_type, token_source
+                FROM fb_tokens
+                WHERE id=? AND status='active' AND access_token_enc IS NOT NULL
+                """,
+                (preferred_token_id,),
+            ).fetchone()
+            add_row(row, "preferred")
+        add_plain(preferred_token_plain, "preferred_plain")
+
+        for row in conn.execute(
+            """
+            SELECT t.id, t.access_token_enc, t.token_alias, t.token_type, t.token_source,
+                   aot.priority
+            FROM account_op_tokens aot
+            JOIN fb_tokens t ON t.id = aot.token_id
+            WHERE aot.act_id = ?
+              AND aot.status = 'active'
+              AND t.status = 'active'
+              AND t.access_token_enc IS NOT NULL
+            ORDER BY CASE t.token_type WHEN 'operate' THEN 0 WHEN 'manage' THEN 1 ELSE 2 END,
+                     aot.priority DESC,
+                     t.id ASC
+            """,
+            (act_id,),
+        ).fetchall():
+            add_row(row, "linked")
+
+        row = conn.execute(
+            """
+            SELECT t.id, t.access_token_enc, t.token_alias, t.token_type, t.token_source
+            FROM accounts a
+            JOIN fb_tokens t ON t.id = a.token_id
+            WHERE a.act_id = ?
+              AND t.status = 'active'
+              AND t.access_token_enc IS NOT NULL
+            LIMIT 1
+            """,
+            (act_id,),
+        ).fetchone()
+        add_row(row, "primary")
+
+        if not prefer_manage:
+            for row in conn.execute(
+                """
+                SELECT id, access_token_enc, token_alias, token_type, token_source
+                FROM fb_tokens
+                WHERE status='active'
+                  AND token_type='manage'
+                  AND access_token_enc IS NOT NULL
+                ORDER BY id ASC
+                """
+            ).fetchall():
+                add_row(row, "manage_pool")
+    finally:
+        conn.close()
+
+    return candidates
+
+
+def _resolve_account_info(
+    act_id: str,
+    *,
+    preferred_token_id: Optional[int] = None,
+    preferred_token_plain: Optional[str] = None,
+    require_manage_read: bool = False,
+) -> dict:
+    normalized_act_id = _normalize_act_id(act_id)
+    candidates = _read_token_candidates_for_account(
+        normalized_act_id,
+        preferred_token_id=preferred_token_id,
+        preferred_token_plain=preferred_token_plain,
+        prefer_manage=require_manage_read,
+    )
+    errors = []
+    for candidate in candidates:
+        if require_manage_read and candidate.get("token_type") != "manage":
+            continue
+        info = _fetch_single_account(normalized_act_id, candidate["token_plain"])
+        if "error" not in info:
+            return {
+                "ok": True,
+                "info": info,
+                "read_token_id": candidate.get("token_id"),
+                "read_token_type": candidate.get("token_type"),
+                "read_source": candidate.get("source"),
+                "read_alias": candidate.get("alias"),
+            }
+        errors.append({
+            "token_id": candidate.get("token_id"),
+            "type": candidate.get("token_type"),
+            "source": candidate.get("source"),
+            "error": info.get("error"),
+        })
+    reason = "no_manage_read_token" if require_manage_read else "no_read_token"
+    if errors:
+        reason = errors[-1].get("error") or reason
+    return {"ok": False, "act_id": normalized_act_id, "error": reason, "errors": errors}
+
+
 # ── Pydantic 模型 ──────────────────────────────────────────────────────────
 
 class TokenCreate(BaseModel):
@@ -217,11 +446,9 @@ class AccountUpdate(BaseModel):
     target_objective: Optional[str] = None      # 真实广告目标，如 OUTCOME_SALES
     warmup_days: Optional[int] = None           # 预热天数，默认 1
     warmup_budget: Optional[float] = None       # 预热消耗阈值（美元），默认 5
-    lifecycle_stage: Optional[str] = None       # warmup/testing/scaling/paused
     landing_url: Optional[str] = None           # 账户级默认落地页链接
     form_link: Optional[str] = None             # 账户级表单链接（潜在客户广告用）
     target_objective_type: Optional[str] = None  # sales/website/leads/engagement
-    ai_managed: Optional[int] = None             # AI 托管开关 0/1
     mirror_enabled: Optional[int] = None       # 镜像模式开关 0/1
 
 
@@ -939,7 +1166,7 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
     try:
         fb_accounts = _fetch_all_fb_adaccounts(
             token,
-            "id,name,currency,timezone_name,account_status,balance,spend_cap,amount_spent",
+            ACCOUNT_DETAIL_FIELDS,
             timeout=30,
         )
     except Exception as e:
@@ -978,16 +1205,19 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
     result = []
     for acc in fb_accounts:
         act_id = acc["id"]
+        info = _normalize_account_info(act_id, acc)
         result.append({
             "act_id": act_id,
-            "name": acc.get("name", ""),
-            "currency": acc.get("currency", "USD"),
-            "timezone": acc.get("timezone_name", ""),
-            "account_status": acc.get("account_status", 1),
-            "balance": acc.get("balance"),
-            "spend_cap": acc.get("spend_cap"),
-            "amount_spent": acc.get("amount_spent"),
-            "spending_limit": acc.get("spend_cap"),  # FB API 用 spend_cap 表示消费上限
+            "name": info.get("name", ""),
+            "currency": info.get("currency", "USD"),
+            "timezone": info.get("timezone", ""),
+            "timezone_name": info.get("timezone_name", ""),
+            "timezone_offset_hours_utc": info.get("timezone_offset_hours_utc"),
+            "account_status": info.get("account_status", 1),
+            "balance": info.get("balance"),
+            "spend_cap": info.get("spend_cap"),
+            "amount_spent": info.get("amount_spent"),
+            "spending_limit": info.get("spending_limit"),
             "already_imported": act_id in imported
         })
         # 操作号：附带管理号状态（管理号未覆盖的账户展示为不可导入）
@@ -1001,37 +1231,20 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
 
 
 def _fetch_single_account(act_id: str, token: str) -> dict:
-    """并发拉取单个账户信息"""
+    """Fetch one ad account. Errors are explicit so callers do not persist fake defaults."""
+    normalized_act_id = _normalize_act_id(act_id)
     try:
         resp = requests.get(
-            f"{FB_API_BASE}/{act_id}",
-            params={"access_token": token, "fields": "id,name,currency,timezone_name,balance,account_status,spend_cap,amount_spent"},
+            f"{FB_API_BASE}/{normalized_act_id}",
+            params={"access_token": token, "fields": ACCOUNT_DETAIL_FIELDS},
             timeout=10
         )
         info = resp.json()
-        if "error" in info:
-            return {"act_id": act_id, "error": info["error"].get("message", "未知错误")}
-        return {
-            "act_id": act_id,
-            "name": info.get("name", act_id),
-            "currency": info.get("currency", "USD"),
-            "timezone": info.get("timezone_name", "UTC"),
-            "balance": info.get("balance"),
-            "account_status": info.get("account_status", 1),
-            "spend_cap": info.get("spend_cap"),
-            "amount_spent": info.get("amount_spent"),
-            "spending_limit": info.get("spend_cap"),  # FB API 用 spend_cap 表示消费上限
-        }
+        if resp.status_code >= 400 or "error" in info:
+            return {"act_id": normalized_act_id, "error": _format_fb_graph_error(info)}
+        return _normalize_account_info(normalized_act_id, info)
     except Exception as e:
-        return {
-            "act_id": act_id,
-            "name": act_id,
-            "currency": "USD",
-            "timezone": "UTC",
-            "balance": None,
-            "account_status": 1,
-            "spend_cap": None,
-        }
+        return {"act_id": normalized_act_id, "error": str(e)}
 
 
 def _resolve_read_token(act_id: str) -> Optional[str]:
@@ -1091,6 +1304,15 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
     """
     if not body.act_ids:
         return {"success": True, "imported": [], "skipped": []}
+    act_ids = []
+    seen_act_ids = set()
+    for raw_act_id in body.act_ids:
+        act_id = _normalize_act_id(raw_act_id)
+        if act_id and act_id not in seen_act_ids:
+            seen_act_ids.add(act_id)
+            act_ids.append(act_id)
+    if not act_ids:
+        return {"success": True, "imported": [], "skipped": []}
 
     # Step 1: 读取token，立即关闭连接
     conn = get_conn()
@@ -1103,45 +1325,44 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
 
     if not row:
         raise HTTPException(404, "Token不存在")
+    if row["status"] != "active":
+        raise HTTPException(400, "Token已失效，请先更新 Token")
 
     token = decrypt_token(row["access_token_enc"])
     token_type_import = row["token_type"]
     if token_type_import == "operate":
         _validate_token_role_source(token_type_import, row["token_source"])
 
-    # 操作号导入时：必须有管理号覆盖才能导入（实时调 FB API 验证）
-    if token_type_import == "operate":
-        _conn_guard = get_conn()
-        _mgr_tokens_guard = _conn_guard.execute(
-            "SELECT id, access_token_enc, token_alias FROM fb_tokens WHERE token_type='manage' AND status='active'"
-        ).fetchall()
-        _conn_guard.close()
-        # 并发拉取所有管理号覆盖的账户集合
-        import concurrent.futures as _cf
-        _mgr_covered = set()
-        def _fetch_mgr_ids(mgr_row):
-            try:
-                _tk = decrypt_token(mgr_row["access_token_enc"])
-                return _fetch_all_fb_adaccount_ids(_tk, timeout=15)
-            except Exception:
-                return []
-        if _mgr_tokens_guard:
-            with _cf.ThreadPoolExecutor(max_workers=5) as _pool:
-                for _ids in _pool.map(_fetch_mgr_ids, _mgr_tokens_guard):
-                    _mgr_covered.update(_ids)
-        _blocked = [_act_id for _act_id in body.act_ids if _act_id not in _mgr_covered]
-        if _blocked:
-            _blocked_short = ", ".join(_blocked[:5]) + ("..." if len(_blocked) > 5 else "")
-            raise HTTPException(400, f"以下账户无管理号覆盖，无法导入：{_blocked_short}。请先导入能覆盖该账户的管理号 Token。")
-
-    # Step 2: 并发调用FB API获取所有账户信息（不持有数据库连接）
+    # Step 2: 并发读取账户详情。操作号导入仍要求管理号可读取，保证后续巡检/关停兜底。
     account_infos = {}
-    max_workers = min(10, len(body.act_ids))
+    read_meta = {}
+    failed = []
+    max_workers = min(10, len(act_ids))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_fetch_single_account, act_id, token): act_id for act_id in body.act_ids}
+        futures = {
+            executor.submit(
+                _resolve_account_info,
+                act_id,
+                preferred_token_id=token_id,
+                preferred_token_plain=token,
+                require_manage_read=(token_type_import == "operate"),
+            ): act_id
+            for act_id in act_ids
+        }
         for future in as_completed(futures):
-            info = future.result()
-            account_infos[info["act_id"]] = info
+            act_id = futures[future]
+            resolved = future.result()
+            if resolved.get("ok"):
+                account_infos[act_id] = resolved["info"]
+                read_meta[act_id] = resolved
+            else:
+                err = resolved.get("error") or "no_read_token"
+                if err == "no_manage_read_token":
+                    err = "无可读取该账户的管理号；操作号导入前需先导入覆盖该账户的管理号"
+                elif err == "no_read_token":
+                    err = "没有任何可读取该账户的有效 Token"
+                failed.append({"act_id": act_id, "error": err})
+    successful_act_ids = [act_id for act_id in act_ids if act_id in account_infos]
 
     # Step 3: 所有FB API调用完毕后，一次性写入数据库
     imported = []
@@ -1149,23 +1370,32 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
 
     conn = get_conn()
     try:
+        _ensure_account_read_columns(conn)
         # 获取已存在的账户
         existing_ids = {r["act_id"] for r in conn.execute("SELECT act_id FROM accounts").fetchall()}
 
-        for act_id in body.act_ids:
+        for act_id in act_ids:
             if act_id in existing_ids:
                 skipped.append(act_id)
                 continue
 
-            info = account_infos.get(act_id, {})
+            info = account_infos.get(act_id)
+            if not info:
+                continue
             conn.execute(
-                """INSERT INTO accounts (act_id, name, currency, timezone, token_id, enabled, balance, account_status, spend_cap, page_id, pixel_id, amount_spent, spending_limit)
-                   VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?)""",
+                """INSERT INTO accounts (
+                       act_id, name, currency, timezone, timezone_name, timezone_offset_hours_utc,
+                       token_id, enabled, balance, account_status, spend_cap, page_id, pixel_id,
+                       amount_spent, spending_limit
+                   )
+                   VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?)""",
                 (
                     act_id,
                     info.get("name", act_id),
                     info.get("currency", "USD"),
                     info.get("timezone", "UTC"),
+                    info.get("timezone_name") or info.get("timezone", "UTC"),
+                    info.get("timezone_offset_hours_utc"),
                     token_id,
                     info.get("balance"),
                     info.get("account_status", 1),
@@ -1173,10 +1403,16 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                     body.page_id or info.get("page_id"),
                     body.pixel_id or info.get("pixel_id"),
                     info.get("amount_spent"),
-                    info.get("account_spending_limit"),
+                    info.get("spending_limit"),
                 )
             )
-            imported.append({"act_id": act_id, "name": info.get("name", act_id)})
+            imported.append({
+                "act_id": act_id,
+                "name": info.get("name", act_id),
+                "read_token_id": read_meta.get(act_id, {}).get("read_token_id"),
+                "read_token_type": read_meta.get(act_id, {}).get("read_token_type"),
+                "read_source": read_meta.get(act_id, {}).get("read_source"),
+            })
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1184,37 +1420,63 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
     finally:
         conn.close()
 
-    # v4.3: 导入账户后，立即将导入时使用的 token 写入 account_op_tokens（管理号或操作号）
-    if imported:
+    # v4.3: 导入/重复导入账户后，立即将当前 token 与读取兜底 token 写入 account_op_tokens。
+    # 注意：已存在账户会进入 skipped，但当前 token 仍应补齐关联，否则必须手点“重新匹配”。
+    if successful_act_ids:
         _c_link = get_conn()
         try:
-            for _a in imported:
-                _act_id = _a["act_id"]
-                _existing_link = _c_link.execute(
-                    "SELECT id FROM account_op_tokens WHERE act_id=? AND token_id=?",
-                    (_act_id, token_id)
-                ).fetchone()
-                if not _existing_link:
-                    _max_pri = _c_link.execute(
-                        "SELECT MAX(priority) FROM account_op_tokens WHERE act_id=?", (_act_id,)
-                    ).fetchone()[0] or 0
-                    _c_link.execute(
-                        """INSERT INTO account_op_tokens (act_id, token_id, priority, status, note, token_type, created_at)
-                           VALUES (?, ?, ?, 'active', '导入时绑定', ?, datetime('now'))""",
-                        (_act_id, token_id, _max_pri + 1, token_type_import)
-                    )
+            _linked = 0
+            _restored = 0
+            for _act_id in successful_act_ids:
+                _link_token_ids = [(token_id, token_type_import, "导入时绑定")]
+                _read_token_id = read_meta.get(_act_id, {}).get("read_token_id")
+                if _read_token_id and _read_token_id != token_id:
+                    _rt = _c_link.execute(
+                        "SELECT token_type FROM fb_tokens WHERE id=?",
+                        (_read_token_id,)
+                    ).fetchone()
+                    if _rt:
+                        _link_token_ids.append((_read_token_id, _rt["token_type"], "导入读取兜底"))
+                _seen_link_ids = set()
+                for _link_token_id, _link_token_type, _link_note in _link_token_ids:
+                    if not _link_token_id or _link_token_id in _seen_link_ids:
+                        continue
+                    _seen_link_ids.add(_link_token_id)
+                    _existing_link = _c_link.execute(
+                        "SELECT id, status FROM account_op_tokens WHERE act_id=? AND token_id=?",
+                        (_act_id, _link_token_id)
+                    ).fetchone()
+                    if not _existing_link:
+                        _max_pri = _c_link.execute(
+                            "SELECT MAX(priority) FROM account_op_tokens WHERE act_id=?", (_act_id,)
+                        ).fetchone()[0] or 0
+                        _c_link.execute(
+                            """INSERT INTO account_op_tokens (act_id, token_id, priority, status, note, token_type, created_at)
+                               VALUES (?, ?, ?, 'active', ?, ?, datetime('now'))""",
+                            (_act_id, _link_token_id, _max_pri + 1, _link_note, _link_token_type)
+                        )
+                        _linked += 1
+                    elif _existing_link["status"] != "active":
+                        _c_link.execute(
+                            "UPDATE account_op_tokens SET status='active', note=? WHERE id=?",
+                            (_link_note, _existing_link["id"])
+                        )
+                        _restored += 1
             _c_link.commit()
-            logger.info(f"[ImportLink] 导入 token_id={token_id} 关联 {len(imported)} 个账户到 account_op_tokens")
+            logger.info(
+                f"[ImportLink] 导入 token_id={token_id} 处理 {len(successful_act_ids)} 个账户，"
+                f"新增关联 {_linked} 条，恢复 {_restored} 条"
+            )
         except Exception as _le:
             _c_link.rollback()
             logger.error(f"[ImportLink] 写入关联失败: {_le}")
         finally:
             _c_link.close()
 
-    # v4.2: 导入账户后，触发所有操作号对新账户的自动匹配
-    if imported:
+    # v4.2: 导入/重复导入账户后，触发所有操作号对这些账户的自动匹配
+    if successful_act_ids:
         import threading as _threading
-        _imported_act_ids = [a["act_id"] for a in imported]
+        _matched_act_ids = list(successful_act_ids)
         def _match_op_tokens_for_new_accounts():
             try:
                 _c = get_conn()
@@ -1231,7 +1493,7 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                         _c2 = get_conn()
                         try:
                             _matched = 0
-                            for _act_id in _imported_act_ids:
+                            for _act_id in _matched_act_ids:
                                 if _act_id in _fb_act_ids:
                                     _existing = _c2.execute(
                                         "SELECT id FROM account_op_tokens WHERE act_id=? AND token_id=?",
@@ -1247,6 +1509,9 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                                             (_act_id, _op_token_id, _max_pri + 1, _op_token_id)
                                         )
                                         _matched += 1
+                            _c2.commit()
+                            if _matched:
+                                logger.info(f"[OpMatch] 操作号 {_op_token_id} 导入后自动匹配新增 {_matched} 个账户")
                         except Exception as _e2:
                             _c2.rollback()
                             logger.error(f"[OpMatch] 写入失败: {_e2}")
@@ -1257,7 +1522,17 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
             except Exception as _e0:
                 logger.error(f"[OpMatch] 整体匹配失败: {_e0}")
         _threading.Thread(target=_match_op_tokens_for_new_accounts, daemon=True).start()
-    return {"success": True, "imported": imported, "skipped": skipped}
+        def _trigger_discovery_bg():
+            try:
+                from core.scheduler import run_token_account_discovery
+                run_token_account_discovery()
+            except Exception as _e:
+                logger.warning(f"[ImportLink] 触发全局 Token-账户发现失败: {_e}")
+        _threading.Thread(target=_trigger_discovery_bg, daemon=True).start()
+    if failed and not imported and not skipped:
+        first = failed[0]
+        raise HTTPException(400, f"导入失败：无法读取账户 {first.get('act_id')}（{first.get('error')}）")
+    return {"success": True, "imported": imported, "skipped": skipped, "failed": failed}
 
 
 # ── 账户管理 ──────────────────────────────────────────────────────────────
@@ -1290,10 +1565,23 @@ _DEFAULT_RATES = {
 }
 
 def _to_usd(amount, currency: str) -> float:
-    """将任意货币金额转换为USD"""
+    """将任意货币金额转换为 USD。currency_rates 存的是 1 USD = X 本币。"""
     if amount is None:
         return 0.0
-    rate = _DEFAULT_RATES.get((currency or 'USD').upper(), 1.0)
+    cur = (currency or "USD").upper().strip()
+    if cur == "USD":
+        return round(float(amount), 2)
+    try:
+        conn = get_conn()
+        row = conn.execute("SELECT rate FROM currency_rates WHERE currency=?", (cur,)).fetchone()
+        conn.close()
+        if row and row["rate"]:
+            db_rate = float(row["rate"])
+            if db_rate > 0:
+                return round(float(amount) / db_rate, 2)
+    except Exception:
+        pass
+    rate = _DEFAULT_RATES.get(cur, 1.0)
     return round(float(amount) * rate, 2)
 
 
@@ -1302,13 +1590,15 @@ def list_accounts(user=Depends(get_current_user)):
     """获取所有账户列表"""
     conn = get_conn()
     ensure_token_source_columns(conn)
+    _ensure_account_read_columns(conn)
     rows = conn.execute("""
-        SELECT a.id, a.act_id, a.name, a.currency, a.timezone,
+        SELECT a.id, a.act_id, a.name, a.currency, a.timezone, a.timezone_name, a.timezone_offset_hours_utc,
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
                a.balance, a.account_status, a.spend_cap, a.amount_spent, a.spending_limit,
-               COALESCE(a.ai_managed, 0) as ai_managed,
                COALESCE(a.mirror_enabled, 0) as mirror_enabled,
-               COALESCE(a.lifecycle_stage, 'new') as lifecycle_stage,
+               COALESCE(a.warmup_state, '') as warmup_state,
+               a.warmup_triggered_at, a.warmup_campaign_id,
+               a.warmup_last_spend, a.warmup_last_checked_at,
                a.target_countries, a.target_age_min, a.target_age_max,
                a.target_gender, a.target_placements, a.target_objective_type, a.landing_url, a.form_link,
                t.token_alias, t.status as token_status, t.matrix_id,
@@ -1322,21 +1612,29 @@ def list_accounts(user=Depends(get_current_user)):
     # 查询每个账户关联的所有 Token（来自 account_op_tokens，管理号+操作号，动态发现）
     all_tokens_map = {}
     all_token_rows = conn.execute("""
-        SELECT aot.act_id, t.token_alias, t.token_type, t.token_source, t.matrix_id, aot.status as bind_status
+        SELECT aot.act_id, t.id as token_id, t.token_alias, t.token_type, t.token_source,
+               t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.status = 'active' AND t.status = 'active'
-        ORDER BY t.token_type DESC, aot.priority DESC, t.token_alias
+        ORDER BY
+            CASE WHEN aot.status = 'active' AND t.status = 'active' THEN 0 ELSE 1 END,
+            CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
+            aot.priority DESC,
+            t.token_alias
     """).fetchall()
     for lr in all_token_rows:
         act_id_key = lr["act_id"]
         if act_id_key not in all_tokens_map:
             all_tokens_map[act_id_key] = []
         all_tokens_map[act_id_key].append({
+            "token_id": lr["token_id"],
             "alias": lr["token_alias"],
             "type": lr["token_type"],
             "source": lr["token_source"],
             "matrix_id": lr["matrix_id"],
+            "token_status": lr["token_status"],
+            "bind_status": lr["bind_status"],
+            "active": lr["token_status"] == "active" and lr["bind_status"] == "active",
         })
     conn.close()
     result = []
@@ -1354,9 +1652,25 @@ def list_accounts(user=Depends(get_current_user)):
         d['available_balance'] = available
         d['balance_type'] = bal_type
         d['amount_spent_usd'] = spent_usd
-        # 附带 balance_usd：USD账户直接等值，非USD账户按汇率换算
+        cap_units = _from_minor_units(d.get('spend_cap'), cur)
+        limit_units = _from_minor_units(spending_limit, cur)
+        d['spend_cap_usd'] = _to_usd(cap_units, cur) if cap_units is not None else None
+        d['spending_limit_usd'] = _to_usd(limit_units, cur) if limit_units is not None else None
+        cap_usd_candidates = [d.get('spending_limit_usd'), d.get('spend_cap_usd')]
+        d['balance_cap_usd'] = next(
+            (float(v) for v in cap_usd_candidates if v is not None and float(v) > 0),
+            None,
+        )
+        d['balance_over_cap'] = bool(
+            d.get('balance_type') == 'spending_limit'
+            and d.get('balance_cap_usd') is not None
+            and spent_usd is not None
+            and float(spent_usd) >= float(d['balance_cap_usd'])
+        )
+        # 附带 balance_usd：balance 原始值来自 FB minor units，需先转换为账户货币金额。
         if bal is not None:
-            d['balance_usd'] = _to_usd(bal, cur) if cur != 'USD' else float(bal)
+            bal_units = _from_minor_units(bal, cur)
+            d['balance_usd'] = _to_usd(bal_units, cur) if bal_units is not None else None
         else:
             d['balance_usd'] = None
         # 附带 timezone_name（兼容旧字段名 timezone）
@@ -1364,6 +1678,52 @@ def list_accounts(user=Depends(get_current_user)):
             d['timezone_name'] = d.get('timezone', '')
         # 附带关联的所有 Token（来自 account_op_tokens，动态发现，管理号+操作号）
         d['linked_tokens'] = all_tokens_map.get(d.get('act_id'), [])
+        active_linked_tokens = [
+            t for t in d['linked_tokens']
+            if t.get("active") or (
+                t.get("bind_status") == "active" and t.get("token_status") == "active"
+            )
+        ]
+        writable_tokens = [
+            t for t in active_linked_tokens
+            if t.get("type") == "operate" and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) == TOKEN_SOURCE_SYSTEM_USER
+        ]
+        d['manage_token_ok'] = any(t.get("type") == "manage" for t in active_linked_tokens)
+        d['write_token_ok'] = bool(writable_tokens)
+        d['operate_token_ok'] = d['write_token_ok']
+        d['operate_token_total'] = sum(1 for t in d['linked_tokens'] if t.get("type") == "operate")
+        d['write_token_total'] = sum(
+            1 for t in d['linked_tokens']
+            if t.get("type") == "operate" and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) == TOKEN_SOURCE_SYSTEM_USER
+        )
+        d['legacy_operate_token_total'] = sum(
+            1 for t in d['linked_tokens']
+            if t.get("type") == "operate" and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) != TOKEN_SOURCE_SYSTEM_USER
+        )
+        d['primary_token_invalid'] = bool(
+            d.get("token_alias") and d.get("token_status") and d.get("token_status") != "active"
+        )
+        primary_token_active = bool(d.get("token_alias") and d.get("token_status") == "active")
+        d['read_token_ok'] = d['manage_token_ok'] or any(
+            t.get("type") in ("manage", "operate", "user") for t in active_linked_tokens
+        ) or primary_token_active
+        d['pause_token_ok'] = d['write_token_ok'] or d['manage_token_ok']
+        d['create_token_ok'] = d['write_token_ok']
+        d['update_token_ok'] = d['write_token_ok']
+        token_issue_reasons = []
+        if not d['read_token_ok']:
+            token_issue_reasons.append("没有可读取账户信息或关停兜底的活动 Token")
+        if d['read_token_ok'] and not d['write_token_ok']:
+            token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 操作号")
+        if d['legacy_operate_token_total']:
+            token_issue_reasons.append("旧版个人操作号只参与读取展示，不参与写操作")
+        d['token_issue_reasons'] = token_issue_reasons
+        if not d['read_token_ok']:
+            d['token_health'] = "unreadable"
+        elif not d['write_token_ok']:
+            d['token_health'] = "write_unavailable"
+        else:
+            d['token_health'] = "ok"
         d['linked_matrix_ids'] = sorted(
             {
                 int(t["matrix_id"])
@@ -1431,9 +1791,6 @@ def update_account(account_id: int, body: AccountUpdate, user=Depends(get_curren
     if body.warmup_budget is not None:
         updates.append("warmup_budget=?")
         params.append(body.warmup_budget)
-    if body.lifecycle_stage is not None:
-        updates.append("lifecycle_stage=?")
-        params.append(body.lifecycle_stage)
     # 账户级默认落地页和目标类型（之前遗漏处理）
     if body.landing_url is not None:
         updates.append("landing_url=?")
@@ -1441,10 +1798,6 @@ def update_account(account_id: int, body: AccountUpdate, user=Depends(get_curren
     if body.target_objective_type is not None:
         updates.append("target_objective_type=?")
         params.append(body.target_objective_type)
-    # AI 托管开关（之前遗漏处理）
-    if getattr(body, 'ai_managed', None) is not None:
-        updates.append("ai_managed=?")
-        params.append(1 if body.ai_managed else 0)
     if getattr(body, 'mirror_enabled', None) is not None:
         updates.append("mirror_enabled=?")
         params.append(1 if body.mirror_enabled else 0)
@@ -1497,8 +1850,6 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
         updates.append("target_placements=?"); params.append(body.target_placements)
     if body.target_objective_type is not None:
         updates.append("target_objective_type=?"); params.append(body.target_objective_type)
-    if getattr(body, 'ai_managed', None) is not None:
-        updates.append("ai_managed=?"); params.append(1 if body.ai_managed else 0)
     if getattr(body, 'mirror_enabled', None) is not None:
         updates.append("mirror_enabled=?"); params.append(1 if body.mirror_enabled else 0)
     if not updates:
@@ -1526,7 +1877,7 @@ def sync_account_status(account_id: int, user=Depends(get_current_user)):
     """从 FB API 同步单个账户的真实状态（account_status、balance、spend_cap）"""
     conn = get_conn()
     row = conn.execute("""
-        SELECT a.act_id
+        SELECT a.act_id, a.name
         FROM accounts a
         WHERE a.id=?
     """, (account_id,)).fetchone()
@@ -1534,36 +1885,48 @@ def sync_account_status(account_id: int, user=Depends(get_current_user)):
 
     if not row:
         raise HTTPException(404, "账户不存在")
-    token = _resolve_read_token(row["act_id"])
-    if not token:
-        raise HTTPException(400, "No readable token for this account")
-    info = _fetch_single_account(row["act_id"], token)
-
-    if "error" in info:
-        raise HTTPException(400, f"FB API 返回错误: {info['error']}")
+    resolved = _resolve_account_info(row["act_id"])
+    if not resolved.get("ok"):
+        raise HTTPException(400, f"FB API 返回错误: {resolved.get('error') or 'no_read_token'}")
+    info = resolved["info"]
+    new_name = info.get("name")
+    if not new_name or new_name == row["act_id"]:
+        new_name = row["name"]
 
     conn = get_conn()
-    conn.execute("""
-        UPDATE accounts
-        SET account_status=?, balance=?, spend_cap=?, amount_spent=?, spending_limit=?, name=?, updated_at=datetime('now')
-        WHERE id=?
-    """, (
-        info.get("account_status", 1),
-        info.get("balance"),
-        info.get("spend_cap"),
-        info.get("amount_spent"),
-        info.get("spending_limit"),  # _fetch_single_account 返回的 key 是 spending_limit
-        info.get("name"),
-        account_id
-    ))
-    conn.commit()
-    conn.close()
+    try:
+        _ensure_account_read_columns(conn)
+        conn.execute("""
+            UPDATE accounts
+            SET account_status=?, balance=?, spend_cap=?, amount_spent=?, spending_limit=?,
+                name=?, currency=?, timezone=?, timezone_name=?, timezone_offset_hours_utc=?,
+                updated_at=datetime('now')
+            WHERE id=?
+        """, (
+            info.get("account_status", 1),
+            info.get("balance"),
+            info.get("spend_cap"),
+            info.get("amount_spent"),
+            info.get("spending_limit"),
+            new_name,
+            info.get("currency", "USD"),
+            info.get("timezone", "UTC"),
+            info.get("timezone_name") or info.get("timezone", "UTC"),
+            info.get("timezone_offset_hours_utc"),
+            account_id
+        ))
+        conn.commit()
+    finally:
+        conn.close()
 
     return {
         "success": True,
         "account_status": info.get("account_status", 1),
         "balance": info.get("balance"),
-        "name": info.get("name"),
+        "name": new_name,
+        "currency": info.get("currency"),
+        "timezone": info.get("timezone"),
+        "timezone_offset_hours_utc": info.get("timezone_offset_hours_utc"),
     }
 
 
@@ -1571,6 +1934,7 @@ def sync_account_status(account_id: int, user=Depends(get_current_user)):
 def sync_all_accounts_status(user=Depends(get_current_user)):
     """批量从 FB API 同步所有账户的真实状态（并发执行）"""
     conn = get_conn()
+    _ensure_account_read_columns(conn)
     rows = conn.execute("""
         SELECT a.id, a.act_id, a.name
         FROM accounts a
@@ -1586,23 +1950,22 @@ def sync_all_accounts_status(user=Depends(get_current_user)):
     with ThreadPoolExecutor(max_workers=min(10, len(rows))) as executor:
         futures = {}
         for row in rows:
-            # 对 name=act_id 的账户，优先用操作号 token 拉取（操作号可能有该账户的名称权限）
-            token = _resolve_read_token(row["act_id"])
-            if not token:
-                results[row["id"]] = {"act_id": row["act_id"], "error": "no_read_token"}
-                continue
-            fut = executor.submit(_fetch_single_account, row["act_id"], token)
+            fut = executor.submit(_resolve_account_info, row["act_id"])
             futures[fut] = row
         for fut in as_completed(futures):
             row = futures[fut]
-            info = fut.result()
-            results[row["id"]] = info
+            resolved = fut.result()
+            results[row["id"]] = resolved["info"] if resolved.get("ok") else {
+                "act_id": row["act_id"],
+                "error": resolved.get("error") or "no_read_token",
+            }
 
     # 批量更新数据库
     updated = 0
     failed = 0
     conn = get_conn()
     try:
+        _ensure_account_read_columns(conn)
         for row in rows:
             info = results.get(row["id"], {})
             if "error" in info:
@@ -1614,15 +1977,21 @@ def sync_all_accounts_status(user=Depends(get_current_user)):
                 _new_name = row["name"]  # 保留原有名称
             conn.execute("""
                 UPDATE accounts
-                SET account_status=?, balance=?, spend_cap=?, amount_spent=?, spending_limit=?, name=?, updated_at=datetime('now')
+                SET account_status=?, balance=?, spend_cap=?, amount_spent=?, spending_limit=?,
+                    name=?, currency=?, timezone=?, timezone_name=?, timezone_offset_hours_utc=?,
+                    updated_at=datetime('now')
                 WHERE id=?
             """, (
                 info.get("account_status", 1),
                 info.get("balance"),
                 info.get("spend_cap"),
                 info.get("amount_spent"),
-                info.get("spending_limit"),  # _fetch_single_account 返回的 key 是 spending_limit
+                info.get("spending_limit"),
                 _new_name,
+                info.get("currency", "USD"),
+                info.get("timezone", "UTC"),
+                info.get("timezone_name") or info.get("timezone", "UTC"),
+                info.get("timezone_offset_hours_utc"),
                 row["id"]
             ))
             updated += 1
@@ -1659,47 +2028,14 @@ def _verify_fb_token(token: str):
 @router.get("/{act_id}/fb-pages")
 def get_fb_pages(act_id: str, user=Depends(get_current_user)):
     """
-    从 Facebook API 拉取该账户操作号（或管理号）有权限管理的主页列表。
-    策略：
-    1. 优先用操作号 Token（因为主页绑在操作号上）
-    2. 若操作号无数据，再用管理号 Token 补充
-    3. 多接口尝试：/me/accounts（个人主页）、广告账户关联主页
+    拉取自动铺广告可用主页列表。
+
+    注意：自动铺广告只会使用 ACTION_CREATE 的 System User 操作号，不会使用管理号或浏览器里的个人号。
+    这里必须和创建广告的 Token 池保持一致，否则会出现“页面能选，AdSet 创建时报主页权限不足”。
     返回格式：[{id, name, category, can_use}]
     """
     import requests as _req
-
-    def _get_all_op_tokens(act_id_: str):
-        """直接从数据库获取该账户所有操作号的 Token（不经过心跳检测）"""
-        conn = get_conn()
-        rows = conn.execute("""
-            SELECT t.access_token_enc, t.status as token_status
-            FROM account_op_tokens aot
-            JOIN fb_tokens t ON t.id = aot.token_id
-            WHERE aot.act_id = ?
-              AND aot.status = 'active'
-        """, (act_id_,)).fetchall()
-        conn.close()
-        result = []
-        for row in rows:
-            if row["token_status"] == "active":
-                plain = decrypt_token(row["access_token_enc"])
-                if plain:
-                    result.append(plain)
-        return result
-
-    def _get_manage_token_direct(act_id_: str):
-        """直接从数据库获取管理号 Token"""
-        conn = get_conn()
-        row = conn.execute("""
-            SELECT t.access_token_enc, t.status
-            FROM accounts a
-            JOIN fb_tokens t ON t.id = a.token_id
-            WHERE a.act_id = ?
-        """, (act_id_,)).fetchone()
-        conn.close()
-        if not row or row["status"] != "active":
-            return None
-        return decrypt_token(row["access_token_enc"])
+    from services.token_manager import ACTION_CREATE, get_exec_token_candidates
 
     def _probe_lead_form_capability(token_: str, page_id_: str):
         try:
@@ -1724,31 +2060,37 @@ def get_fb_pages(act_id: str, user=Depends(get_current_user)):
             return False, "缺少 pages_manage_ads，无法自动创建 Lead 表单"
         return None, f"暂时无法确认 Lead 表单权限：{err_msg}"
 
-    def _fetch_pages_with_token(token_: str) -> list:
+    def _fetch_pages_with_token(token_: str, token_label_: str) -> list:
         """用给定 Token 通过 /me/accounts 拉取主页列表"""
         pages_map = {}
         try:
-            r = _req.get(
-                f"{FB_API_BASE}/me/accounts",
-                params={"access_token": token_, "fields": "id,name,category,is_published,tasks", "limit": 200},
-                timeout=15
-            )
-            d = r.json()
-            for p in d.get("data", []):
-                pid = p.get("id")
-                if pid:
-                    tasks = p.get("tasks", [])
-                    # 有 ADVERTISE 权限即可投广告；tasks 为空时也视为可用
-                    can_adv = (not tasks) or ("ADVERTISE" in tasks)
+            url = f"{FB_API_BASE}/me/accounts"
+            params = {"access_token": token_, "fields": "id,name,category,is_published,tasks", "limit": 200}
+            seen_next = set()
+            for _ in range(20):
+                r = _req.get(url, params=params, timeout=15)
+                d = r.json()
+                if "error" in d:
+                    break
+                for p in d.get("data", []):
+                    pid = p.get("id")
+                    if not pid:
+                        continue
+                    tasks = p.get("tasks") or []
+                    is_published = p.get("is_published", True)
+                    can_adv = is_published is not False and "ADVERTISE" in tasks
                     if can_adv:
                         lead_form_can_create, lead_form_hint = _probe_lead_form_capability(token_, pid)
+                    elif is_published is False:
+                        lead_form_can_create, lead_form_hint = False, "主页未发布，不能自动铺广告"
                     else:
-                        lead_form_can_create, lead_form_hint = False, "该主页当前没有广告投放权限"
+                        lead_form_can_create, lead_form_hint = False, "当前自动铺广告操作号缺少该主页 ADVERTISE 权限"
                     pages_map[pid] = {
                         "id": pid,
                         "name": p.get("name", ""),
                         "category": p.get("category", ""),
-                        "is_published": p.get("is_published", True),
+                        "is_published": is_published,
+                        "tasks": tasks,
                         "can_use": can_adv,
                         "lead_form_can_create": lead_form_can_create,
                         "lead_form_status": (
@@ -1757,8 +2099,15 @@ def get_fb_pages(act_id: str, user=Depends(get_current_user)):
                             "warn"
                         ),
                         "lead_form_hint": lead_form_hint,
-                        "source": "me/accounts"
+                        "source": "create_token",
+                        "token_label": token_label_,
                     }
+                next_url = d.get("paging", {}).get("next")
+                if not next_url or next_url in seen_next:
+                    break
+                seen_next.add(next_url)
+                url = next_url
+                params = {}
         except Exception:
             pass
         return list(pages_map.values())
@@ -1771,24 +2120,28 @@ def get_fb_pages(act_id: str, user=Depends(get_current_user)):
             lead_rank,
         )
 
-    # 收集所有 Token（操作号优先，管理号补充）
-    all_tokens = _get_all_op_tokens(act_id)
-    manage_token = _get_manage_token_direct(act_id)
-    if manage_token and manage_token not in all_tokens:
-        all_tokens.append(manage_token)
+    create_candidates = get_exec_token_candidates(
+        act_id,
+        ACTION_CREATE,
+        notify_exhausted=False,
+        reserve=False,
+    )
+    if not create_candidates:
+        raise HTTPException(400, "该账户没有可用于自动铺广告的 System User 操作号，无法拉取可投主页")
 
-    if not all_tokens:
-        raise HTTPException(400, "该账户无可用 Token，无法拉取主页列表")
-
-    # 用所有 Token 拉取，合并去重
+    # 只用自动铺广告实际可用的 CREATE token 拉取，合并去重。
     merged = {}
-    for tok in all_tokens:
-        for p in _fetch_pages_with_token(tok):
+    for cand in create_candidates:
+        tok = cand.get("token_plain") or cand.get("token")
+        if not tok:
+            continue
+        label = cand.get("label") or cand.get("alias") or "操作号"
+        for p in _fetch_pages_with_token(tok, label):
             pid = p["id"]
             if pid not in merged:
                 merged[pid] = p
             elif _page_capability_rank(p) > _page_capability_rank(merged[pid]):
-                # 优先保留“既能投放又能自动创建 Lead 表单”的主页记录
+                # 优先保留“既能投放又能自动创建 Lead 表单”的 CREATE token 记录
                 merged[pid] = p
 
     pages = list(merged.values())
@@ -1798,6 +2151,161 @@ def get_fb_pages(act_id: str, user=Depends(get_current_user)):
         x.get("name", "")
     ))
     return {"success": True, "pages": pages, "total": len(pages)}
+
+
+@router.get("/{act_id}/lead-form-diagnostic")
+def diagnose_lead_form(
+    act_id: str,
+    page_id: str = "",
+    countries: str = "",
+    user=Depends(get_current_user),
+):
+    """无副作用诊断 Lead Form 权限和区域声明，不创建真实表单。"""
+    import requests as _req
+    from services.token_manager import ACTION_CREATE, ACTION_READ, get_exec_token_candidates
+
+    page_id = str(page_id or "").strip()
+    if not page_id:
+        raise HTTPException(400, "请先选择主页")
+
+    def _token_pool():
+        seen = set()
+        pool = []
+        for action, purpose in ((ACTION_CREATE, "CREATE"), (ACTION_READ, "READ")):
+            try:
+                candidates = get_exec_token_candidates(act_id, action, notify_exhausted=False, reserve=False)
+            except Exception:
+                candidates = []
+            for c in candidates or []:
+                token_plain = c.get("token_plain") or c.get("token")
+                if not token_plain or token_plain in seen:
+                    continue
+                seen.add(token_plain)
+                pool.append({
+                    "token": token_plain,
+                    "alias": c.get("alias") or c.get("label") or purpose,
+                    "source": c.get("source") or purpose.lower(),
+                    "purpose": purpose,
+                })
+        return pool
+
+    def _find_page(token: str):
+        resp = _req.get(
+            f"{FB_API_BASE}/me/accounts",
+            params={"access_token": token, "fields": "id,name,access_token,tasks,is_published", "limit": 200},
+            timeout=15,
+        )
+        data = resp.json()
+        if "error" in data:
+            return None, data["error"]
+        for page in data.get("data", []) or []:
+            if str(page.get("id")) == page_id:
+                return page, None
+        return None, {"message": "该 Token 的 /me/accounts 中未找到此主页"}
+
+    def _probe_forms(page_token: str):
+        resp = _req.get(
+            f"{FB_API_BASE}/{page_id}/leadgen_forms",
+            params={"access_token": page_token, "limit": 1},
+            timeout=15,
+        )
+        data = resp.json()
+        if "error" in data:
+            return False, data["error"]
+        return True, None
+
+    token_results = []
+    best = None
+    for item in _token_pool():
+        page, page_err = _find_page(item["token"])
+        row = {
+            "alias": item["alias"],
+            "source": item["source"],
+            "purpose": item["purpose"],
+            "page_visible": bool(page),
+            "page_name": page.get("name") if page else "",
+            "tasks": page.get("tasks", []) if page else [],
+            "is_published": page.get("is_published") if page else None,
+            "has_page_token": bool(page and page.get("access_token")),
+            "lead_forms_readable": False,
+            "can_create_likely": False,
+            "error": "",
+        }
+        if not page:
+            row["error"] = (page_err or {}).get("message", "主页不可见")
+            token_results.append(row)
+            continue
+        tasks = set(page.get("tasks") or [])
+        row["can_advertise"] = (not tasks) or ("ADVERTISE" in tasks)
+        if not page.get("access_token"):
+            row["error"] = "可见主页但拿不到 Page Access Token"
+            token_results.append(row)
+            continue
+        ok, form_err = _probe_forms(page["access_token"])
+        row["lead_forms_readable"] = ok
+        row["can_create_likely"] = bool(ok and row["can_advertise"])
+        if form_err:
+            err_msg = str(form_err.get("message") or form_err)
+            row["error"] = err_msg
+            row["error_code"] = form_err.get("code")
+            row["error_subcode"] = form_err.get("error_subcode")
+        if row["can_create_likely"] and best is None:
+            best = row
+        token_results.append(row)
+
+    country_list = [c.strip().upper() for c in str(countries or "").split(",") if c.strip()]
+    regulated = [c for c in country_list if c in {"TW", "HK", "SG"}]
+    regional = {
+        "countries": regulated,
+        "required": bool(regulated),
+        "verified_identity_id": "",
+        "page_in_cert_library": False,
+        "message": "无需区域声明",
+    }
+    if regulated:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                "SELECT page_name, verified_identity_id FROM tw_certified_pages WHERE page_id=?",
+                (page_id,),
+            ).fetchone()
+        except Exception:
+            row = None
+        finally:
+            conn.close()
+        if row:
+            regional["page_in_cert_library"] = True
+            regional["verified_identity_id"] = str(row["verified_identity_id"] or "").strip()
+            if regional["verified_identity_id"]:
+                regional["message"] = "已找到主页库 Verified ID"
+            else:
+                regional["message"] = "主页库有该主页，但缺少 Verified ID"
+        else:
+            regional["message"] = "该主页不在认证主页库中"
+
+    if best:
+        overall = "pass"
+        message = "当前主页可读取 Lead Form，具备自动建表单的必要条件"
+    elif any(r.get("page_visible") for r in token_results):
+        overall = "fail"
+        message = "主页可见，但 Lead Form/Page Token 权限不足"
+    else:
+        overall = "fail"
+        message = "所有可用 Token 都看不到该主页"
+
+    if regional["required"] and not regional["verified_identity_id"]:
+        overall = "fail"
+        message += "；目标国家需要区域声明，但该主页缺少 Verified ID"
+
+    return {
+        "success": True,
+        "act_id": act_id,
+        "page_id": page_id,
+        "overall": overall,
+        "message": message,
+        "tokens": token_results,
+        "regional": regional,
+    }
 
 
 @router.get("/{act_id}/fb-pixels")
@@ -1930,31 +2438,279 @@ def delete_tw_advertiser(adv_id: int, user=Depends(get_current_user)):
 # 用户手动录入已完成台湾广告认证的主页，铺广告时自动匹配 Token 有权限的认证主页
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _probe_page_verified_identity(page_id: str, page_token: str):
-    """尽量从主页本身读取 owner.id，避免把 Token 用户 ID 误当成 Verified ID。"""
-    import requests as _req
-    if not page_id or not page_token:
-        return None, None
-    try:
-        r = _req.get(
-            f"https://graph.facebook.com/v25.0/{page_id}",
-            params={"fields": "id,name,owner", "access_token": page_token},
-            timeout=5,
+def _extract_verified_identity_id(value) -> Optional[str]:
+    """Extract a Taiwan verified identity number from plain text like '丁玉香（编号：1311102860475960）'."""
+    if value is None:
+        return None
+    import html as _html
+    import re as _re
+
+    text = _html.unescape(str(value or "").strip())
+    if not text or text.lower() in {"none", "null", "undefined"}:
+        return None
+
+    def _decode_unicode_escapes(match):
+        try:
+            return chr(int(match.group(1), 16))
+        except Exception:
+            return match.group(0)
+
+    text = _re.sub(r"\\u([0-9a-fA-F]{4})", _decode_unicode_escapes, text)
+    if _re.fullmatch(r"\d{10,20}", text):
+        return text
+
+    keyword_patterns = [
+        r"(?:編號|编号|編碼|编码|認證編號|认证编号|Verified\s*ID|Identity\s*ID|ID)\s*[：:\s]*([0-9]{10,20})",
+        r"[（(]\s*(?:編號|编号|編碼|编码)\s*[：:\s]*([0-9]{10,20})\s*[）)]",
+    ]
+    for pattern in keyword_patterns:
+        match = _re.search(pattern, text, flags=_re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+    digit_runs = _re.findall(r"(?<!\d)([0-9]{10,20})(?!\d)", text)
+    return digit_runs[0] if len(digit_runs) == 1 else None
+
+
+def _normalize_verified_identity_input(value) -> Optional[str]:
+    raw = "" if value is None else str(value).strip()
+    if not raw or raw.lower() in {"none", "null", "undefined"}:
+        return None
+    extracted = _extract_verified_identity_id(raw)
+    if not extracted:
+        raise HTTPException(400, "Verified ID 必须是数字，或包含「编号：数字」这类可识别文本")
+    return extracted
+
+
+def _extract_verified_identity_from_payload(payload) -> Optional[str]:
+    if payload is None:
+        return None
+    if isinstance(payload, dict):
+        trusted_keys = (
+            "verified_identity_id",
+            "regional_regulation_identity",
+            "beneficiary",
+            "payer",
+            "bylines",
+            "beneficiary_payers",
+            "disclaimer",
+            "about",
+            "description",
+            "name",
         )
-        d = r.json()
-        owner = d.get("owner", {})
-        if isinstance(owner, dict) and owner.get("id"):
-            return str(owner["id"]), "page_owner"
+        for key in trusted_keys:
+            value = payload.get(key)
+            extracted = _extract_verified_identity_from_payload(value)
+            if extracted:
+                return extracted
+        for key, value in payload.items():
+            if key in trusted_keys or key in {"id", "page_id", "business", "owner"}:
+                continue
+            if isinstance(value, (dict, list, tuple)):
+                extracted = _extract_verified_identity_from_payload(value)
+                if extracted:
+                    return extracted
+        return None
+    if isinstance(payload, (list, tuple)):
+        for item in payload:
+            extracted = _extract_verified_identity_from_payload(item)
+            if extracted:
+                return extracted
+        return None
+    return _extract_verified_identity_id(payload)
+
+
+def _probe_page_verified_identity(page_id: str, page_token: str):
+    """Probe public/page-token payloads for a Taiwan verified identity number."""
+    import requests as _req
+    if not page_id:
+        return None, None
+    if page_token:
+        field_sets = [
+            "id,name,verification_status,about,description,business",
+            "id,name,category,link,username,fan_count",
+        ]
+        for fields in field_sets:
+            try:
+                r = _req.get(
+                    f"https://graph.facebook.com/v25.0/{page_id}",
+                    params={"fields": fields, "access_token": page_token},
+                    timeout=8,
+                )
+                d = r.json()
+                extracted = _extract_verified_identity_from_payload(d)
+                if extracted and extracted != str(page_id):
+                    return extracted, "page_graph"
+            except Exception:
+                pass
+
+    for url in (
+        f"https://www.facebook.com/{page_id}",
+        f"https://m.facebook.com/{page_id}",
+    ):
+        try:
+            r = _req.get(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                },
+                timeout=10,
+            )
+            extracted = _extract_verified_identity_id(r.text)
+            if extracted and extracted != str(page_id):
+                return extracted, "public_page_text"
+        except Exception:
+            pass
+    return None, None
+
+
+def _cleanup_bad_verified_identity_rows(conn):
+    """Clear legacy auto IDs that were accidentally set to the page ID."""
+    try:
+        conn.execute(
+            """
+            UPDATE tw_certified_pages
+            SET verified_identity_id=NULL, verified_source=NULL
+            WHERE verified_source IN ('auto_badge','auto_bm')
+              AND verified_identity_id=page_id
+            """
+        )
     except Exception:
         pass
-    return None, None
+
+
+def _ensure_tw_page_status_columns(conn):
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(tw_certified_pages)").fetchall()}
+    columns = {
+        "page_category": "TEXT DEFAULT NULL",
+        "page_is_published": "INTEGER DEFAULT NULL",
+        "page_verification_status": "TEXT DEFAULT NULL",
+        "page_tasks": "TEXT DEFAULT NULL",
+        "page_can_advertise": "INTEGER DEFAULT NULL",
+        "page_lead_form_status": "TEXT DEFAULT NULL",
+        "page_status": "TEXT DEFAULT NULL",
+        "page_status_hint": "TEXT DEFAULT NULL",
+        "page_status_checked_at": "TEXT DEFAULT NULL",
+    }
+    for name, ddl in columns.items():
+        if name not in cols:
+            try:
+                conn.execute(f"ALTER TABLE tw_certified_pages ADD COLUMN {name} {ddl}")
+            except Exception:
+                pass
+    try:
+        conn.commit()
+    except Exception:
+        pass
+
+
+def _tw_page_status_checked_at():
+    from datetime import datetime, timezone, timedelta
+    return (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _probe_tw_page_lead_form_status(page_id: str, page_token: str):
+    if not page_id or not page_token:
+        return "unknown", "缺少 page token，无法确认 Lead 表单权限"
+    try:
+        r = requests.get(
+            f"{FB_API_BASE}/{page_id}/leadgen_forms",
+            params={"access_token": page_token, "limit": 1},
+            timeout=10,
+        )
+        d = r.json()
+    except Exception as exc:
+        return "unknown", f"暂时无法确认 Lead 表单权限：{exc}"
+    if "error" not in d:
+        return "ok", "可自动创建 Lead 表单"
+    err = d.get("error") or {}
+    msg = str(err.get("message") or "")
+    code = err.get("code")
+    lower = msg.lower()
+    if code in {10, 200} or "permission" in lower or "pages_manage_ads" in lower:
+        return "fail", "缺少 pages_manage_ads，无法自动创建 Lead 表单"
+    return "warn", f"Lead 表单权限未确认：{msg or err}"
+
+
+def _probe_tw_page_status(page_id: str, page_token: str, page_payload: dict = None) -> dict:
+    payload = dict(page_payload or {})
+    if page_id and page_token:
+        try:
+            r = requests.get(
+                f"{FB_API_BASE}/{page_id}",
+                params={
+                    "fields": "id,name,category,is_published,tasks,verification_status",
+                    "access_token": page_token,
+                },
+                timeout=10,
+            )
+            d = r.json()
+            if "error" not in d:
+                payload.update(d)
+        except Exception:
+            pass
+
+    tasks = payload.get("tasks") or []
+    if isinstance(tasks, str):
+        try:
+            tasks = json.loads(tasks)
+        except Exception:
+            tasks = [tasks]
+    tasks = [str(t).upper() for t in tasks if str(t or "").strip()]
+
+    raw_published = payload.get("is_published")
+    if isinstance(raw_published, str):
+        is_published = raw_published.strip().lower() not in {"0", "false", "no"}
+    elif raw_published is None:
+        is_published = None
+    else:
+        is_published = bool(raw_published)
+
+    task_can_advertise = True if not tasks else ("ADVERTISE" in tasks)
+    can_advertise = task_can_advertise and is_published is not False
+    if is_published is False:
+        lead_status, lead_hint = "fail", "主页未发布，无法自动创建 Lead 表单"
+    elif not can_advertise:
+        lead_status, lead_hint = "fail", "该主页当前没有广告投放权限"
+    else:
+        lead_status, lead_hint = _probe_tw_page_lead_form_status(page_id, page_token)
+
+    hints = []
+    if is_published is False:
+        hints.append("主页未发布")
+    if not task_can_advertise:
+        hints.append("缺少 ADVERTISE 广告权限")
+    if can_advertise and lead_status in {"fail", "warn", "unknown"}:
+        hints.append(lead_hint)
+    if not hints:
+        hints.append("主页可投放" if can_advertise else lead_hint)
+
+    if is_published is False or not can_advertise:
+        page_status = "restricted"
+    elif lead_status == "ok":
+        page_status = "ok"
+    else:
+        page_status = "warn"
+
+    return {
+        "page_category": payload.get("category") or "",
+        "page_is_published": None if is_published is None else (1 if is_published else 0),
+        "page_verification_status": payload.get("verification_status") or "",
+        "page_tasks": json.dumps(tasks, ensure_ascii=False),
+        "page_can_advertise": 1 if can_advertise else 0,
+        "page_lead_form_status": lead_status,
+        "page_status": page_status,
+        "page_status_hint": "；".join(hints),
+        "page_status_checked_at": _tw_page_status_checked_at(),
+    }
 
 
 @router.get("/tw-certified-pages/resolve-name")
 def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_current_user)):
     """
     根据主页 ID 自动获取主页名称。
-    Verified ID 仅支持用户手动维护，此接口不再尝试自动识别或返回候选值。
+    同时尽力从主页公开文本中识别 Verified ID，识别不到时仍允许用户手动填写。
     """
     import requests as _req
     conn = get_conn()
@@ -2062,14 +2818,20 @@ def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_cu
         if not page_name:
             raise HTTPException(400, "无法获取主页名称，请检查主页 ID 是否正确，或手动填写主页名称")
 
+        verified_identity_id, verified_identity_source = _probe_page_verified_identity(page_id, page_token)
+
         return {
             "success": True,
             "page_id": page_id,
             "page_name": page_name,
-            "verified_identity_id": None,
-            "verified_identity_source": None,
+            "verified_identity_id": verified_identity_id,
+            "verified_identity_source": verified_identity_source,
             "me_user_id": None,
-            "owner_hint": "系统不再自动识别 Verified ID，请以广告后台已通过审核的受益者 ID 为准手动填写",
+            "owner_hint": (
+                f"已自动识别 Verified ID：{verified_identity_id}"
+                if verified_identity_id
+                else "未从主页公开信息识别到 Verified ID，请以广告后台已通过审核的受益者 ID 为准手动填写"
+            ),
             "token_used": found_token_alias
         }
     except HTTPException:
@@ -2098,10 +2860,16 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
         conn.commit()
     except Exception:
         pass
+    _ensure_tw_page_status_columns(conn)
+    _cleanup_bad_verified_identity_rows(conn)
+    conn.commit()
     rows = conn.execute(
         """
         SELECT p.id, p.page_id, p.page_name, p.verified_identity_id, p.verified_source, p.note, p.created_at,
                p.matrix_id, p.token_id,
+               p.page_category, p.page_is_published, p.page_verification_status, p.page_tasks,
+               p.page_can_advertise, p.page_lead_form_status, p.page_status, p.page_status_hint,
+               p.page_status_checked_at,
                ft.token_alias
         FROM tw_certified_pages p
         LEFT JOIN fb_tokens ft ON ft.id = p.token_id
@@ -2127,7 +2895,7 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
     page_id = str(body.get("page_id", "")).strip()
     page_name = str(body.get("page_name", "")).strip()
     note = body.get("note", "")
-    verified_identity_id = str(body.get("verified_identity_id", "")).strip() or None
+    verified_identity_id = _normalize_verified_identity_input(body.get("verified_identity_id"))
     matrix_id = body.get("matrix_id") or None
     token_id = body.get("token_id") or None
     if not page_id:
@@ -2178,9 +2946,15 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
     except Exception:
         pass
     try:
+        conn.execute("ALTER TABLE tw_certified_pages ADD COLUMN verified_source TEXT DEFAULT NULL")
+        conn.commit()
+    except Exception:
+        pass
+    _ensure_tw_page_status_columns(conn)
+    try:
         cur = conn.execute(
-            "INSERT INTO tw_certified_pages (page_id, page_name, verified_identity_id, note, matrix_id, token_id) VALUES (?,?,?,?,?,?)",
-            (page_id, page_name, verified_identity_id, note, matrix_id, token_id)
+            "INSERT INTO tw_certified_pages (page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id) VALUES (?,?,?,?,?,?,?)",
+            (page_id, page_name, verified_identity_id, "manual" if verified_identity_id else None, note, matrix_id, token_id)
         )
         conn.commit()
         new_id = cur.lastrowid
@@ -2201,10 +2975,11 @@ def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_curre
     if "note" in body:
         updates.append("note=?"); params.append(body["note"])
     if "verified_identity_id" in body:
+        verified_identity_id = _normalize_verified_identity_input(body.get("verified_identity_id"))
         updates.append("verified_identity_id=?")
-        params.append(str(body["verified_identity_id"]).strip() or None)
+        params.append(verified_identity_id)
         updates.append("verified_source=?")
-        params.append("manual")
+        params.append("manual" if verified_identity_id else None)
     if "matrix_id" in body:
         updates.append("matrix_id=?")
         params.append(body["matrix_id"] or None)
@@ -2251,6 +3026,9 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
             conn.execute(col_sql); conn.commit()
         except Exception:
             pass
+    _ensure_tw_page_status_columns(conn)
+    _cleanup_bad_verified_identity_rows(conn)
+    conn.commit()
 
     # 获取所有 active Token（含矩阵归属）
     token_rows = conn.execute(
@@ -2266,7 +3044,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
     existing_rows = {
         r["page_id"]: dict(r)
         for r in conn.execute(
-            "SELECT page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id FROM tw_certified_pages"
+            "SELECT * FROM tw_certified_pages"
         ).fetchall()
     }
     existing = set(existing_rows.keys())
@@ -2304,16 +3082,27 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
         try:
             r = _req.get(
                 "https://graph.facebook.com/v25.0/me/accounts",
-                params={"fields": "id,name,access_token", "access_token": t_info["plain"], "limit": 200},
+                params={"fields": "id,name,access_token,category,is_published,tasks,verification_status", "access_token": t_info["plain"], "limit": 200},
                 timeout=8
             )
             d = r.json()
+            if "error" in d:
+                r = _req.get(
+                    "https://graph.facebook.com/v25.0/me/accounts",
+                    params={"fields": "id,name,access_token", "access_token": t_info["plain"], "limit": 200},
+                    timeout=8
+                )
+                d = r.json()
             for pg in d.get("data", []):
                 if pg.get("id") and pg.get("name"):
                     results.append({
                         "page_id": str(pg["id"]),
                         "page_name": pg["name"],
                         "page_token": pg.get("access_token"),
+                        "category": pg.get("category"),
+                        "is_published": pg.get("is_published"),
+                        "tasks": pg.get("tasks"),
+                        "verification_status": pg.get("verification_status"),
                         "token_id": t_info["id"],
                         "token_alias": t_info["alias"],
                         "matrix_id": t_info["matrix_id"],
@@ -2353,7 +3142,6 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
     all_page_list = list(seen_pages.values())
 
     # ── 自动探测每个主页的 verified_identity_id 候选 ──
-    import requests as _probe_req
     auto_identified = 0
     auto_probe_failed = 0
     for pg in all_page_list:
@@ -2363,19 +3151,10 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
             pg["verified_source"] = None
             continue
         try:
-            r = _probe_req.get(
-                f"https://graph.facebook.com/v25.0/{pg['page_id']}",
-                params={"fields": "id,name,owner,verification_status", "access_token": page_token},
-                timeout=8
-            )
-            d = r.json()
-            if d.get("verification_status") == "blue_verified":
-                pg["verified_candidate"] = pg["page_id"]
-                pg["verified_source"] = "auto_badge"
-                auto_identified += 1
-            elif d.get("owner", {}).get("id"):
-                pg["verified_candidate"] = pg["page_id"]
-                pg["verified_source"] = "auto_bm"
+            candidate, source = _probe_page_verified_identity(pg["page_id"], page_token)
+            if candidate:
+                pg["verified_candidate"] = candidate
+                pg["verified_source"] = source or "auto_detected"
                 auto_identified += 1
             else:
                 pg["verified_candidate"] = None
@@ -2384,6 +3163,20 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
             auto_probe_failed += 1
             pg["verified_candidate"] = None
             pg["verified_source"] = None
+        try:
+            pg.update(_probe_tw_page_status(pg["page_id"], page_token, pg))
+        except Exception as status_exc:
+            pg.update({
+                "page_category": pg.get("category") or "",
+                "page_is_published": None,
+                "page_verification_status": pg.get("verification_status") or "",
+                "page_tasks": json.dumps(pg.get("tasks") or [], ensure_ascii=False),
+                "page_can_advertise": None,
+                "page_lead_form_status": "unknown",
+                "page_status": "unknown",
+                "page_status_hint": f"主页状态检查失败：{status_exc}",
+                "page_status_checked_at": _tw_page_status_checked_at(),
+            })
 
     # 分为新增和已存在两组
     new_pages = [pg for pg in all_page_list if pg["page_id"] not in existing]
@@ -2399,8 +3192,10 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
             try:
                 conn2.execute(
                     "INSERT OR IGNORE INTO tw_certified_pages "
-                    "(page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id) "
-                    "VALUES (?,?,?,?,?,?,?)",
+                    "(page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id, "
+                    "page_category, page_is_published, page_verification_status, page_tasks, "
+                    "page_can_advertise, page_lead_form_status, page_status, page_status_hint, page_status_checked_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         pg["page_id"],
                         pg["page_name"],
@@ -2408,7 +3203,16 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         pg.get("verified_source") or None,
                         f"自动扫描（Token: {pg['token_alias']}）",
                         pg.get("matrix_id") or None,
-                        pg.get("token_id") or None
+                        pg.get("token_id") or None,
+                        pg.get("page_category") or None,
+                        pg.get("page_is_published"),
+                        pg.get("page_verification_status") or None,
+                        pg.get("page_tasks") or None,
+                        pg.get("page_can_advertise"),
+                        pg.get("page_lead_form_status") or None,
+                        pg.get("page_status") or None,
+                        pg.get("page_status_hint") or None,
+                        pg.get("page_status_checked_at") or None,
                     )
                 )
                 added += 1
@@ -2423,7 +3227,16 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         matrix_id=?,
                         token_id=?,
                         verified_identity_id=CASE WHEN verified_source='manual' THEN verified_identity_id ELSE COALESCE(?, verified_identity_id) END,
-                        verified_source=CASE WHEN verified_source='manual' THEN verified_source ELSE COALESCE(?, verified_source) END
+                        verified_source=CASE WHEN verified_source='manual' THEN verified_source ELSE COALESCE(?, verified_source) END,
+                        page_category=?,
+                        page_is_published=?,
+                        page_verification_status=?,
+                        page_tasks=?,
+                        page_can_advertise=?,
+                        page_lead_form_status=?,
+                        page_status=?,
+                        page_status_hint=?,
+                        page_status_checked_at=?
                     WHERE page_id=?
                     """,
                     (
@@ -2432,6 +3245,15 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         pg.get("token_id") or None,
                         pg.get("verified_candidate") or None,
                         pg.get("verified_source") or None,
+                        pg.get("page_category") or None,
+                        pg.get("page_is_published"),
+                        pg.get("page_verification_status") or None,
+                        pg.get("page_tasks") or None,
+                        pg.get("page_can_advertise"),
+                        pg.get("page_lead_form_status") or None,
+                        pg.get("page_status") or None,
+                        pg.get("page_status_hint") or None,
+                        pg.get("page_status_checked_at") or None,
                         pg["page_id"],
                     )
                 )
@@ -2457,6 +3279,8 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                 "page_name": pg["page_name"],
                 "verified_identity_id": (existing_rows.get(pg["page_id"]) or {}).get("verified_identity_id"),
                 "verified_source": (existing_rows.get(pg["page_id"]) or {}).get("verified_source"),
+                "page_status": pg.get("page_status"),
+                "page_status_hint": pg.get("page_status_hint"),
                 "token_alias": pg["token_alias"],
                 "matrix_id": pg.get("matrix_id"),
                 "is_new": pg["page_id"] not in existing
@@ -2474,6 +3298,7 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
     """
     import requests as _req
     conn = get_conn()
+    _ensure_tw_page_status_columns(conn)
     try:
         from services.token_manager import get_matrix_id_for_account
         account_matrix_id = get_matrix_id_for_account(act_id)
@@ -2490,12 +3315,17 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
 
     # 仅返回已填写 Verified ID 的主页库记录
     certified_sql = """
-        SELECT p.page_id, p.page_name, p.verified_identity_id, p.matrix_id, p.token_id, ft.token_alias
+        SELECT p.page_id, p.page_name, p.verified_identity_id, p.matrix_id, p.token_id, ft.token_alias,
+               p.page_status, p.page_status_hint, p.page_is_published, p.page_can_advertise,
+               p.page_lead_form_status
         FROM tw_certified_pages p
         LEFT JOIN fb_tokens ft ON ft.id = p.token_id
         WHERE p.verified_identity_id IS NOT NULL
           AND TRIM(p.verified_identity_id) != ''
           AND LOWER(TRIM(p.verified_identity_id)) NOT IN ('none','null','undefined')
+          AND COALESCE(p.page_is_published, 1) != 0
+          AND COALESCE(p.page_can_advertise, 1) != 0
+          AND COALESCE(p.page_status, 'ok') NOT IN ('restricted','unpublished')
     """
     certified_params = []
     if account_matrix_id is not None:
@@ -2510,6 +3340,11 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
             "matrix_id": r["matrix_id"],
             "token_id": r["token_id"],
             "token_alias": r["token_alias"],
+            "page_status": r["page_status"],
+            "page_status_hint": r["page_status_hint"],
+            "page_is_published": r["page_is_published"],
+            "page_can_advertise": r["page_can_advertise"],
+            "page_lead_form_status": r["page_lead_form_status"],
         }
         for r in certified
     }
@@ -2554,7 +3389,7 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
     try:
         raw = decrypt_token(token_row["access_token_enc"])
     except Exception as e:
-        return {"success": True, "matched": [], "all_pages_count": all_pages_count, "matrix_id": account_matrix_id, "error": f"Token解密失败: {e}"}
+        return {"success": True, "matched": [], "all_certified": list(certified_ids.values()), "all_pages_count": all_pages_count, "matrix_id": account_matrix_id, "error": f"Token解密失败: {e}"}
 
     # 拉取该 Token 有管理权限的主页列表
     matched = []
@@ -2577,10 +3412,15 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
                     "matrix_id": cert_info["matrix_id"],
                     "token_id": cert_info["token_id"],
                     "token_alias": cert_info["token_alias"],
+                    "page_status": cert_info.get("page_status"),
+                    "page_status_hint": cert_info.get("page_status_hint"),
+                    "page_is_published": cert_info.get("page_is_published"),
+                    "page_can_advertise": cert_info.get("page_can_advertise"),
+                    "page_lead_form_status": cert_info.get("page_lead_form_status"),
                     "fb_name": p.get("name", "")
                 })
     except Exception as e:
-        return {"success": True, "matched": [], "all_pages_count": all_pages_count, "matrix_id": account_matrix_id, "error": f"FB API 调用失败: {e}"}
+        return {"success": True, "matched": [], "all_certified": list(certified_ids.values()), "all_pages_count": all_pages_count, "matrix_id": account_matrix_id, "error": f"FB API 调用失败: {e}"}
 
     return {
         "success": True,
@@ -2595,6 +3435,11 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
                 "matrix_id": v["matrix_id"],
                 "token_id": v["token_id"],
                 "token_alias": v["token_alias"],
+                "page_status": v.get("page_status"),
+                "page_status_hint": v.get("page_status_hint"),
+                "page_is_published": v.get("page_is_published"),
+                "page_can_advertise": v.get("page_can_advertise"),
+                "page_lead_form_status": v.get("page_lead_form_status"),
             }
             for k, v in certified_ids.items()
         ]
@@ -2738,20 +3583,6 @@ def check_page_messaging(act_id: str, page_id: str, user=Depends(get_current_use
         }
 
 
-# ── Phase 3: 账户生命周期设置 API ──────────────────────────────────────────
-@router.post("/{act_id}/lifecycle")
-async def set_account_lifecycle_api(act_id: str, body: dict, _=Depends(get_current_user)):
-    """手动设置账户生命周期阶段（warmup/testing/scaling/paused）"""
-    stage = body.get("stage", "testing")
-    valid_stages = ["new", "warmup", "testing", "scaling", "paused", "banned"]
-    if stage not in valid_stages:
-        raise HTTPException(status_code=400, detail=f"无效的生命周期阶段，有效值: {valid_stages}")
-    try:
-        from services.lifecycle_manager import set_account_lifecycle
-        set_account_lifecycle(act_id, stage)
-        return {"ok": True, "act_id": act_id, "stage": stage}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # ══════════════════════════════════════════════════════════════
 # 批量账户配置 / CSV 导入导出 / 重新扫描
@@ -2983,32 +3814,31 @@ async def update_token_value(token_id: int, body: dict, current_user=Depends(get
 @router.get("/ai-decisions")
 def get_ai_decisions(act_id: str = None, limit: int = 100, current_user=Depends(get_current_user)):
     conn = get_conn()
-    if act_id:
-        rows = conn.execute(
-            "SELECT d.*, a.name as account_name FROM ai_decisions d "
-            "LEFT JOIN accounts a ON d.act_id = a.act_id "
-            "WHERE d.act_id=? ORDER BY d.created_at DESC LIMIT ?",
-            (act_id, limit)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT d.*, a.name as account_name FROM ai_decisions d "
-            "LEFT JOIN accounts a ON d.act_id = a.act_id "
-            "ORDER BY d.created_at DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
-    conn.close()
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_decisions'"
+    ).fetchone()
+    if not exists:
+        conn.close()
+        return []
+    try:
+        if act_id:
+            rows = conn.execute(
+                "SELECT d.*, a.name as account_name FROM ai_decisions d "
+                "LEFT JOIN accounts a ON d.act_id = a.act_id "
+                "WHERE d.act_id=? ORDER BY d.created_at DESC LIMIT ?",
+                (act_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT d.*, a.name as account_name FROM ai_decisions d "
+                "LEFT JOIN accounts a ON d.act_id = a.act_id "
+                "ORDER BY d.created_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+    finally:
+        conn.close()
     return [dict(r) for r in rows]
 
-
-@router.post("/{act_id}/toggle-ai")
-def toggle_ai_managed(act_id: str, body: dict, current_user=Depends(get_current_user)):
-    enabled = 1 if body.get("enabled") else 0
-    conn = get_conn()
-    conn.execute("UPDATE accounts SET ai_managed=? WHERE act_id=?", (enabled, act_id))
-    conn.commit()
-    conn.close()
-    return {"ok": True, "ai_managed": enabled}
 
 # ── 矩阵列表 API ──────────────────────────────────────────────────────────────
 @router.get("/matrices")
@@ -3041,12 +3871,12 @@ def get_matrices(current_user=Depends(get_current_user)):
 # ── 消费上限设置 ──────────────────────────────────────────────────────────────
 
 class SetSpendCapBody(BaseModel):
-    spend_cap_usd: Optional[float] = None  # USD金额，None或0=移除上限
+    spend_cap_usd: Optional[float] = None  # USD金额；必须 > 0，移除上限请在 Meta UI 人工操作
 
 
 @router.post("/{act_id}/set-spend-cap")
 def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_current_user)):
-    """设置账户消费上限 - 通过FB API直接设置 spend_cap，FB平台强制执行"""
+    """设置账户消费上限 - API 只负责设置明确限额；移除上限请在 Meta UI 人工操作"""
     conn = get_conn()
     acc = conn.execute(
         "SELECT act_id, name, currency FROM accounts WHERE act_id=?",
@@ -3058,6 +3888,12 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
 
     currency = (acc["currency"] or "USD").upper()
     cap_usd = body.spend_cap_usd
+    if cap_usd is None or cap_usd <= 0:
+        conn.close()
+        raise HTTPException(
+            400,
+            "Mira API 只支持设置大于 0 的消费上限；移除上限请到 Meta 后台 Billing/Payment settings 人工移除，完成后回到 Mira 点击“同步状态”。"
+        )
 
     # 获取操作号 Token（需要写权限）
     from services.token_manager import get_exec_token, ACTION_UPDATE
@@ -3066,10 +3902,7 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
         conn.close()
         raise HTTPException(400, f"账户 {act_id} 没有可用的操作号Token，无法设置消费上限")
 
-    # 零小数位货币（FB API 对这类货币直接传整数，不需要 ×100）
-    _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
-
-    # 汇率表（1 单位本币 = X USD）
+    # 静态兜底汇率表（1 单位本币 = X USD）；数据库 currency_rates 为 1 USD = X 本币
     _DEFAULT_RATES = {
         "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067,
         "CNY": 0.138, "HKD": 0.128, "TWD": 0.031, "SGD": 0.74,
@@ -3087,39 +3920,31 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
         "UAH": 0.027, "KZT": 0.0022, "GEL": 0.37,
     }
 
-    if cap_usd is None or cap_usd <= 0:
-        # 移除上限: FB API v25 接受 spend_cap=0 来清除上限
-        is_remove = True
-        fb_value = 0  # 0 = 清除上限
-        db_value = None  # DB 存 NULL，表示无上限
+    if currency == "USD":
+        local_amount = cap_usd
     else:
-        is_remove = False
-        if currency == "USD":
-            local_amount = cap_usd
+        rate = None
+        db_rate = False
+        try:
+            rrow = conn.execute(
+                "SELECT rate FROM currency_rates WHERE currency=?", (currency,)
+            ).fetchone()
+            if rrow:
+                rate = rrow["rate"]
+                db_rate = True
+        except Exception:
+            pass
+        if rate is None:
+            rate = _DEFAULT_RATES.get(currency, 1.0)
+        if db_rate:
+            local_amount = round(cap_usd * float(rate), 2) if float(rate) > 0 else cap_usd
         else:
-            # 优先使用数据库汇率
-            rate = None
-            try:
-                rrow = conn.execute(
-                    "SELECT rate FROM currency_rates WHERE currency=?", (currency,)
-                ).fetchone()
-                if rrow:
-                    rate = rrow["rate"]
-            except Exception:
-                pass
-            if rate is None:
-                rate = _DEFAULT_RATES.get(currency, 1.0)
-            local_amount = round(cap_usd / rate, 2) if rate > 0 else cap_usd
+            local_amount = round(cap_usd / float(rate), 2) if float(rate) > 0 else cap_usd
 
-        # FB API 的 spend_cap 参数使用账户主货币单位（美元/日元等），非分
-        if currency in _NO_DECIMAL_CURRENCIES:
-            fb_value = int(local_amount)
-            db_value = fb_value
-        else:
-            fb_value = int(local_amount)
-            db_value = fb_value * 100  # DB 存储用分，与 FB GET 返回格式一致
+    fb_value = _to_minor_units(local_amount, currency)
+    db_value = fb_value
 
-    # 调用 FB API 设置/移除 spend_cap
+    fb_error = None
     try:
         resp = requests.post(
             f"https://graph.facebook.com/v25.0/{act_id}",
@@ -3129,28 +3954,16 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
         result = resp.json()
         if not resp.ok:
             err_info = result.get("error", {})
-            err_code = err_info.get("code")
-            # 移除上限时如果 spend_cap=0 报错 1007，尝试空字符串
-            if is_remove and err_code == 1007:
-                resp2 = requests.post(
-                    f"https://graph.facebook.com/v25.0/{act_id}",
-                    data={"spend_cap": "", "access_token": token},
-                    timeout=30
-                )
-                result2 = resp2.json()
-                if not resp2.ok:
-                    error_msg = result2.get("error", {}).get("message", str(result2))
-                    conn.close()
-                    raise HTTPException(400, f"FB API 设置失败: {error_msg}")
-            else:
-                error_msg = err_info.get("message", str(result))
-                conn.close()
-                raise HTTPException(400, f"FB API 设置失败: {error_msg}")
+            error_msg = err_info.get("message", str(result))
+            fb_error = error_msg
     except requests.RequestException as e:
-        conn.close()
-        raise HTTPException(500, f"FB API 请求失败: {str(e)}")
+        fb_error = str(e)
 
-    # 更新本地数据库（存分为单位，与 FB GET 返回格式一致）
+    if fb_error:
+        conn.close()
+        raise HTTPException(400, f"FB API 设置失败: {fb_error}")
+
+    # 更新本地数据库
     conn.execute(
         "UPDATE accounts SET spend_cap=?, spending_limit=?, updated_at=datetime('now') WHERE act_id=?",
         (db_value, db_value, act_id)
@@ -3162,6 +3975,6 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
         "ok": True,
         "act_id": act_id,
         "spend_cap": fb_value,
-        "spend_cap_usd": None if is_remove else cap_usd,
-        "message": "消费上限已移除" if is_remove else f"消费上限已设置为 ${cap_usd:,.2f} USD"
+        "spend_cap_usd": cap_usd,
+        "message": f"消费上限已设置为 ${cap_usd:,.2f} USD"
     }

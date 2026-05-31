@@ -21,6 +21,7 @@ FB_AD_FIELDS = (
     "adset{optimization_goal,destination_type},"
     "insights.date_preset(today){spend,impressions,clicks,actions,action_values,cpc,cpm}"
 )
+MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
 
 # 操作冷却：同一广告同一规则60分钟内不重复触发
 _action_cooldown: dict = {}  # key: f"{ad_id}:{rule_type}" -> timestamp
@@ -97,11 +98,16 @@ def _is_dry_run() -> bool:
     return _get_setting("dry_run", "0") == "1"
 
 
-def _fb_get(path: str, token: str, params: dict = None) -> dict:
+def _fb_get(path: str, token: str, params: dict = None,
+             paginate: bool = False, max_pages: int = 50) -> dict:
     """
     FB API GET 请求。
     注意：如果 params 中包含 effective_status，会自动将其从 params 中移出并手动拼接到URL，
     避免 requests 将方括号和引号 URL 编码导致 FB API 400 错误。
+
+    当 paginate=True 时，自动跟随 paging.next 游标获取所有分页数据，
+    返回 {"data": combined_data} 保持与单页调用兼容。
+    max_pages 限制最大翻页数，防止无限循环（默认 50）。
     """
     import urllib.parse
     p = dict(params or {})
@@ -110,9 +116,33 @@ def _fb_get(path: str, token: str, params: dict = None) -> dict:
     base_url = f"{FB_API_BASE}/{path}?{urllib.parse.urlencode(p)}"
     if effective_status:
         base_url += f"&effective_status={effective_status}"
-    resp = requests.get(base_url, timeout=20)
-    resp.raise_for_status()
-    return resp.json()
+
+    if not paginate:
+        resp = requests.get(base_url, timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── 分页模式：跟随 paging.next 游标直到所有数据拉取完毕 ──────────────
+    all_data = []
+    next_url = base_url
+    page_count = 0
+
+    while next_url and page_count < max_pages:
+        resp = requests.get(next_url, timeout=20)
+        resp.raise_for_status()
+        result = resp.json()
+        page_data = result.get("data", [])
+        if page_data:
+            all_data.extend(page_data)
+        page_count += 1
+
+        # 获取下一页游标
+        paging = result.get("paging", {})
+        next_url = paging.get("next")
+        if not next_url:
+            break
+
+    return {"data": all_data}
 
 
 def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
@@ -213,8 +243,36 @@ def _set_cooldown(ad_id: str, rule_type: str):
 
 # ── 镜像模式辅助函数 ───────────────────────────────────────────────────────────
 
+def _ensure_mirror_schema():
+    """Make mirror mode DB objects idempotent so patrol cannot fail on missing schema."""
+    conn = get_conn()
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        if "mirror_enabled" not in cols:
+            conn.execute("ALTER TABLE accounts ADD COLUMN mirror_enabled INTEGER DEFAULT 0")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mirror_snapshots (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               act_id TEXT NOT NULL,
+               ad_id TEXT NOT NULL,
+               ad_name TEXT,
+               captured_at TEXT DEFAULT (datetime('now','+8 hours')),
+               UNIQUE(act_id, ad_id)
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mirror_snapshots_act ON mirror_snapshots(act_id)")
+        conn.execute(
+            """INSERT OR IGNORE INTO settings(key,value,label,description,category,sort_order)
+               VALUES ('mirror_enabled','0','镜像模式','开启后暂停所有不在快照白名单中的活跃广告','guard',5)"""
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _load_mirror_snapshot(act_id: str) -> set:
     """返回该账户镜像快照中的广告ID集合"""
+    _ensure_mirror_schema()
     conn = get_conn()
     rows = conn.execute(
         "SELECT ad_id FROM mirror_snapshots WHERE act_id=?", (act_id,)
@@ -223,38 +281,52 @@ def _load_mirror_snapshot(act_id: str) -> set:
     return {r["ad_id"] for r in rows}
 
 
-def _capture_mirror_snapshot(act_id: str, ads: list) -> int:
-    """重建镜像快照：清除旧快照，写入当前可投放广告ID列表（排除审核中）"""
+def _mirror_snapshotable_ads(ads: list) -> list:
+    _cannot_snapshot = {"DELETED", "ARCHIVED"}
+    result = []
+    for ad in ads:
+        eff = ad.get("effective_status", "")
+        if eff in _cannot_snapshot:
+            continue
+        if ad.get("id"):
+            result.append(ad)
+    return result
+
+
+def _capture_mirror_snapshot(act_id: str, ads: list,
+                           source: str = "patrol",
+                           note: str = "",
+                           paging_complete: int = 1,
+                           expected_count: int = 0,
+                           verified: bool = False) -> int:
+    _ensure_mirror_schema()
     conn = get_conn()
     conn.execute("DELETE FROM mirror_snapshots WHERE act_id=?", (act_id,))
     count = 0
-    _cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
-                     "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
-    _review_status = {"PENDING_REVIEW", "IN_REVIEW", "PENDING_BILLING_INFO", "PREAPPROVED"}
+    _cannot_snapshot = {"DELETED", "ARCHIVED"}
     for ad in ads:
         eff = ad.get("effective_status", "")
-        if eff in _cannot_spend or eff in _review_status:
+        if eff in _cannot_snapshot:
             continue
         conn.execute(
             "INSERT OR IGNORE INTO mirror_snapshots (act_id, ad_id, ad_name) VALUES (?,?,?)",
             (act_id, ad["id"], ad.get("name", ad["id"]))
         )
         count += 1
+    from datetime import datetime
+    now_cst = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("""
+        INSERT OR REPLACE INTO mirror_snapshot_meta
+        (act_id, captured_at, source, note, expected_count, captured_count, paging_complete, is_partial)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (act_id, now_cst, source, note, expected_count, count, paging_complete,
+          0 if paging_complete else 1))
+    if verified:
+        conn.execute("UPDATE mirror_snapshot_meta SET verified_at=? WHERE act_id=?",
+                     (now_cst, act_id))
     conn.commit()
     conn.close()
     return count
-
-
-def _is_auto_campaign_ad(act_id: str, ad_id: str) -> bool:
-    """检查广告是否由 Mira 自动铺放系统创建"""
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT 1 FROM auto_campaign_ads WHERE act_id=? AND fb_ad_id=? LIMIT 1",
-        (act_id, ad_id)
-    ).fetchone()
-    conn.close()
-    return row is not None
-
 
 def _log_action(act_id, level, target_id, target_name,
                 action_type, trigger_type, trigger_detail,
@@ -295,6 +367,107 @@ def _send_tg(msg: str, parse_mode: str = "HTML"):
             logger.warning(f"TG 推送失败 (chat_id={chat_id}): {e}")
 
 
+def _build_mirror_patrol_summary(results: list) -> str:
+    """Build single TG summary message for the mirror patrol cycle (all accounts)."""
+    accounts_checked = len(results)
+    total_closed = sum(
+        sum(1 for c in r.get("closures", []) if c.get("type") not in ("dry_run", "failed"))
+        for r in results
+    )
+    total_failed = sum(
+        sum(1 for c in r.get("closures", []) if c.get("type") == "failed")
+        for r in results
+    )
+    total_dry = sum(
+        sum(1 for c in r.get("closures", []) if c.get("type") == "dry_run")
+        for r in results
+    )
+    total_review = sum(len(r.get("review_pending", [])) for r in results)
+    skipped = sum(1 for r in results if r.get("status") == "no_snapshot")
+
+    parts = ["\U0001fabe <b>镜像巡检报告</b>"]
+    summary_stats = f"检查账户: {accounts_checked} | 关闭操作: {total_closed}"
+    if total_dry:
+        summary_stats += f" | 模拟: {total_dry}"
+    if total_failed:
+        summary_stats += f" | <b>失败: {total_failed}</b>"
+    if total_review:
+        summary_stats += f" | 审核中: {total_review}"
+    if skipped:
+        summary_stats += f" | 快照为空跳过: {skipped}"
+    parts.append(summary_stats)
+
+    for r in results:
+        if not r.get("closures") and not r.get("review_pending"):
+            continue
+        name = r.get("account_name", r.get("act_id", "?"))
+        act_id = r.get("act_id", "?")
+        lines = []
+        for c in r.get("closures", []):
+            ad_names = c.get("ad_names", [])
+            ad_list = ", ".join(ad_names[:3])
+            if len(ad_names) > 3:
+                ad_list += f" ...等{len(ad_names)}条"
+            if c.get("type") == "dry_run":
+                lines.append(f"  [模拟] {c.get('level','?')} <code>{c.get('id','?')}</code>: {ad_list}")
+            elif c.get("type") == "failed":
+                err = c.get("error", "")
+                lines.append(f"  ❌ 失败 {c.get('level','?')} <code>{c.get('id','?')}</code>: {ad_list} ({err})")
+            else:
+                lines.append(f"  关闭 {c.get('level','?')} <code>{c.get('id','?')}</code>: {ad_list}")
+        for rp in r.get("review_pending", []):
+            lines.append(f"  ⚠️ 审核中 系列 <code>{rp.get('campaign_id','?')}</code>: {', '.join(rp.get('ad_names',[])[:3])}")
+        if lines:
+            parts.append(f"\n<b>{name}</b> (<code>{act_id}</code>)")
+            parts.extend(lines)
+
+    if total_dry:
+        parts.append("\n<i>当前为模拟模式，未实际执行关闭</i>")
+    return "\n".join(parts)
+
+
+def _build_mirror_account_summary(act_id: str, account_name: str, events: list) -> str:
+    """Build single TG message summarizing mirror actions for one account (inspect_account)."""
+    paused_ok = [e for e in events if e.get("type") in ("pause_ad", "close_campaign") and e.get("status") == "success"]
+    paused_fail = [e for e in events if e.get("status") == "failed"]
+    reviews = [e for e in events if e.get("type") == "review"]
+    dry = [e for e in events if e.get("type") == "close_campaign_dry"]
+
+    closed_count = sum(len(e.get("ad_names", [])) for e in paused_ok)
+    parts = ["\U0001fabe <b>镜像巡检 - {}</b>".format(account_name)]
+    stats = f"账户: <code>{act_id}</code>"
+    if closed_count:
+        stats += f" | 关闭: {closed_count} 条广告"
+    if paused_fail:
+        stats += f" | <b>失败: {len(paused_fail)}</b>"
+    if reviews:
+        stats += f" | 审核中: {len(reviews)}"
+    if dry:
+        stats += f" | 模拟: {len(dry)}"
+    parts.append(stats)
+
+    for e in events:
+        if e["type"] == "review":
+            parts.append(f"  ⚠️ 审核中 系列 <code>{e['campaign_id']}</code>: {', '.join(e['ad_names'][:3])}")
+        elif e["type"] == "pause_ad":
+            prefix = "❌ " if e["status"] == "failed" else ""
+            detail = f" ({e.get('error','')})" if e["status"] == "failed" else ""
+            parts.append(f"  {prefix}暂停广告 <code>{e['ad_id']}</code>: {', '.join(e['ad_names'])}{detail}")
+        elif e["type"] in ("close_campaign", "close_campaign_dry"):
+            label = "[模拟] " if e["type"] == "close_campaign_dry" else ""
+            if e.get("status") == "failed":
+                status_label = "失败: " + e.get("error", "")
+            elif e["type"] == "close_campaign_dry":
+                status_label = "模拟关闭"
+            else:
+                status_label = "已关闭"
+            parts.append(f"  {label}系列 <code>{e['campaign_id']}</code>: {status_label} {len(e['ad_names'])} 条 ({', '.join(e['ad_names'][:3])})")
+
+    if dry:
+        parts.append("\n<i>当前为模拟模式，未实际执行关闭</i>")
+    return "\n".join(parts)
+
+
 def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
     """
     v3.0 Token 调度入口（非侵入式升级）
@@ -325,8 +498,8 @@ def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
             token = get_exec_token(act_id, tm_action)
             if token:
                 return token
-            # TokenManager 返回 None（操作号耗尽且非 PAUSE 操作）
-            return ""
+            # TokenManager 无可用 Token，回退到旧版兜底逻辑
+            logger.warning(f"TokenManager 无可用 Token for {act_id} action={tm_action}，回退到旧版兜底")
     except Exception as e:
         logger.warning(f"TokenManager 调用失败，回退到旧逻辑: {e}")
 
@@ -731,11 +904,30 @@ class GuardEngine:
                 "SELECT * FROM accounts WHERE enabled=0 AND account_status NOT IN (3, 7, 9)"
             ).fetchall()
             conn.close()
+            patrol_results = []
             for acc in mirror_only:
                 try:
-                    self._mirror_patrol(dict(acc))
+                    result = self._mirror_patrol(dict(acc))
+                    if result:
+                        patrol_results.append(result)
                 except Exception as e:
                     logger.error(f"账户 {acc['act_id']} 镜像巡逻异常: {e}")
+                    patrol_results.append({
+                        "act_id": acc.get("act_id", "?"),
+                        "account_name": acc.get("name", acc.get("act_id", "?")),
+                        "status": "exception",
+                        "error": str(e),
+                        "review_pending": [],
+                        "closures": []
+                    })
+            # Build and send ONE aggregated TG after the entire patrol cycle
+            if patrol_results:
+                has_actions = any(
+                    r.get("closures") or r.get("review_pending")
+                    for r in patrol_results
+                )
+                if has_actions:
+                    _send_tg(_build_mirror_patrol_summary(patrol_results))
 
     def inspect_account(self, account: dict):
         act_id = account["act_id"]
@@ -748,13 +940,21 @@ class GuardEngine:
         try:
             data = _fb_get(
                 f"{act_id}/ads", token,
-                {"fields": FB_AD_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200}
+                {"fields": FB_AD_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200},
+                paginate=True
             )
         except Exception as e:
             logger.error(f"拉取广告列表失败 {act_id}: {e}")
             _log_action(act_id, "account", act_id, account.get("name", ""),
                         "inspect", "system", f"API拉取失败: {e}",
                         status="failed", error_msg=str(e))
+            if _get_setting("mirror_enabled", "0") == "1" or account.get("mirror_enabled", 0) == 1:
+                try:
+                    mirror_result = self._mirror_patrol(account)
+                    if mirror_result and (mirror_result.get("closures") or mirror_result.get("review_pending")):
+                        _send_tg(_build_mirror_patrol_summary([mirror_result]))
+                except Exception as mirror_err:
+                    logger.error(f"[Mirror] 巡检字段失败后的兜底镜像巡逻也失败 {act_id}: {mirror_err}")
             return
 
         ads = data.get("data", [])
@@ -764,6 +964,7 @@ class GuardEngine:
         global_mirror = _get_setting("mirror_enabled", "0")
         account_mirror = account.get("mirror_enabled", 0)
         if global_mirror == "1" or account_mirror == 1:
+            mirror_events = []  # Collect for aggregated TG notification per account
             mirrored_ids = _load_mirror_snapshot(act_id)
             if mirrored_ids:
                 _cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
@@ -777,8 +978,6 @@ class GuardEngine:
                     if eff in _cannot_spend:
                         continue
                     if ad_id in mirrored_ids:
-                        continue
-                    if _is_auto_campaign_ad(act_id, ad_id):
                         continue
                     if eff in _review_status:
                         review_pending.append(ad)
@@ -809,15 +1008,13 @@ class GuardEngine:
                                         old_value={"effective_status": a.get("effective_status")},
                                         new_value={"action": "monitoring"},
                                         status="warning", operator="system")
-                        _send_tg(
-                            f"⚠️ <b>Mira 镜像模式 - 审核中未授权广告</b>\n"
-                            f"账户：{account.get('name', act_id)}\n"
-                            f"系列：<code>{cid}</code>\n"
-                            f"广告：{', '.join(ad_names)}\n"
-                            f"状态：{', '.join(set(a.get('effective_status', '') for a in rads))}\n"
-                            f"原因：广告不在快照白名单中且正处于审核状态，无法暂停\n"
-                            f"提示：审核通过后巡检引擎将自动关闭该系列"
-                        )
+                        mirror_events.append({
+                            "type": "review",
+                            "campaign_id": cid,
+                            "ad_names": ad_names,
+                            "ad_ids": ad_ids,
+                            "statuses": list({a.get("effective_status", "REVIEW") for a in rads})
+                        })
                 # 按系列(campaign)去重，同一系列只关一次
                 campaigns_to_pause = {}
                 for ad in unauthorized:
@@ -850,13 +1047,13 @@ class GuardEngine:
                                         old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                                         status=action_status, error_msg=(err_msg if not ok else None),
                                         operator="system")
-                            _send_tg(
-                                f"🔒 <b>Mira 镜像模式</b>\n"
-                                f"账户：{account.get('name', act_id)}\n"
-                                f"广告：<code>{ad.get('name', ad['id'])}</code>\n"
-                                f"原因：广告不在快照白名单中，已自动暂停"
-                                + (f"\n❌ 暂停失败：{err_msg}" if action_status == "failed" else "")
-                            )
+                            mirror_events.append({
+                                "type": "pause_ad",
+                                "status": action_status,
+                                "ad_id": ad["id"],
+                                "ad_names": [ad.get("name", ad["id"])],
+                                "error": err_msg if action_status == "failed" else None
+                            })
                     else:
                         logger.warning(f"[Mirror] 未授权广告 ({', '.join(ad_names)})，直接关闭系列 {cid}")
                         if self.dry_run:
@@ -866,13 +1063,11 @@ class GuardEngine:
                                             f"[模拟] 镜像模式：广告不在快照白名单，直接关闭系列",
                                             old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                                             status="success", operator="system")
-                            _send_tg(
-                                f"🔒 <b>Mira 镜像模式</b>\n"
-                                f"账户：{account.get('name', act_id)}\n"
-                                f"系列：<code>{cid}</code>\n"
-                                f"包含广告：{', '.join(ad_names)}\n"
-                                f"原因：广告不在快照白名单中，[DRY RUN] 模拟关闭系列"
-                            )
+                            mirror_events.append({
+                                "type": "close_campaign_dry",
+                                "campaign_id": cid,
+                                "ad_names": ad_names
+                            })
                         else:
                             ok, err_msg = _fb_post(cid, token, {"status": "PAUSED"})
                             if ok:
@@ -894,32 +1089,33 @@ class GuardEngine:
                                             operator="system")
 
                             if action_status == "success":
-                                _send_tg(
-                                    f"🔒 <b>Mira 镜像模式</b>\n"
-                                    f"账户：{account.get('name', act_id)}\n"
-                                    f"系列：<code>{cid}</code>\n"
-                                    f"包含广告：{', '.join(ad_names)}\n"
-                                    f"原因：广告不在镜像快照白名单中，已直接关闭系列"
-                                )
+                                mirror_events.append({
+                                    "type": "close_campaign",
+                                    "status": "success",
+                                    "campaign_id": cid,
+                                    "ad_names": ad_names
+                                })
                             else:
-                                _send_tg(
-                                    f"🚨 <b>Mira 镜像模式 - 关闭系列失败!</b>\n"
-                                    f"账户：{account.get('name', act_id)}\n"
-                                    f"系列：<code>{cid}</code>\n"
-                                    f"包含广告：{', '.join(ad_names)}\n"
-                                    f"失败原因：{err_msg}\n"
-                                    f"请立即手动处理!"
-                                )
+                                mirror_events.append({
+                                    "type": "close_campaign",
+                                    "status": "failed",
+                                    "campaign_id": cid,
+                                    "ad_names": ad_names,
+                                    "error": err_msg
+                                })
+
+                # Send aggregated TG notification for this account's mirror actions
+                if mirror_events:
+                    _send_tg(_build_mirror_account_summary(act_id, account.get("name", act_id), mirror_events))
 
                 if unauthorized:
                     paused_ids = {a["id"] for a in unauthorized}
                     ads = [a for a in ads if a["id"] not in paused_ids]
                     logger.info(f"[Mirror] {act_id} 本次拦截 {len(unauthorized)} 条未授权广告，涉及 {len(campaigns_to_pause)} 个系列")
             else:
-                # 快照为空时自动捕获当前活跃广告作为初始快照
+                # 快照为空，跳过巡检（需手动开启镜像模式采集初始快照）
                 if ads:
-                    count = _capture_mirror_snapshot(act_id, ads)
-                    logger.info(f"[Mirror] {act_id} 快照为空，已自动捕获 {count} 条广告作为初始快照")
+                    logger.warning(f"[Mirror] {act_id} 快照为空，跳过巡检（需手动开启镜像模式采集初始快照）")
                 else:
                     logger.info(f"[Mirror] {act_id} 当前无活跃广告，跳过快照捕获")
 
@@ -1124,93 +1320,7 @@ class GuardEngine:
             # 注意：必须在 AI 决策层之前获取，否则 AI 加预算判断会引发 NameError
             target_cpa = self._get_target_cpa(act_id, ad_id, adset_id, campaign_id)
 
-            # ── AI 托管决策层 ────────────────────────────────────────────────────
-            if account.get("ai_managed") == 1:
-                try:
-                    from services.ai_advisor import analyze_ad_performance, is_ai_enabled
-                    if is_ai_enabled():
-                        ai_data = {
-                            "ad_id": ad_id, "ad_name": ad_name, "act_id": act_id,
-                            "spend": spend, "conversions": conversions,
-                            "cpa": cpa, "roas": roas, "target_cpa": target_cpa,
-                            "kpi_field": kpi_field,
-                        }
-                        ai_result = analyze_ad_performance(ai_data)
-                        if ai_result:
-                            diagnosis = ai_result.get("diagnosis", "")
-                            suggestions = ai_result.get("suggestions", [])
-                            risk_level = ai_result.get("risk_level", "low")
-                            action_taken = "observe"
-                            executed = 0
-                            error_msg = None
-
-                            if risk_level == "high" and action != "pause":
-                                if not self.dry_run:
-                                    level_ai, status_ai = _pause_with_escalation(
-                                        account, ad_id, adset_id, campaign_id,
-                                        ad_name, token, "ai_managed",
-                                        "AI高风险决策: " + diagnosis, self.dry_run
-                                    )
-                                    if status_ai in ("success", "escalated"):
-                                        action_taken = "pause"
-                                        executed = 1
-                                        _send_tg(
-                                            "\U0001f916 <b>AI 托管已暂停广告</b>\n"
-                                            "账户：" + account.get("name", act_id) + "\n"
-                                            "广告：<code>" + ad_name + "</code>\n"
-                                            "AI诊断：" + diagnosis + "\n"
-                                            "风险等级：\U0001f534 高"
-                                        )
-                                    else:
-                                        error_msg = "暂停失败: " + str(status_ai)
-                                else:
-                                    action_taken = "pause(dry_run)"
-
-                            elif risk_level == "low" and cpa and target_cpa and cpa < target_cpa * 0.8 and conversions >= 5:
-                                if not self.dry_run:
-                                    ok_b, err_b, old_b, new_b = _update_adset_budget(
-                                        adset_id, token, 0.2, act_id, ad_name
-                                    )
-                                    if ok_b:
-                                        action_taken = "increase_budget: $" + str(round(old_b, 2)) + "->" + str(round(new_b, 2))
-                                        executed = 1
-                                        _send_tg(
-                                            "\U0001f916 <b>AI 托管已加预算</b>\n"
-                                            "账户：" + account.get("name", act_id) + "\n"
-                                            "广告：<code>" + ad_name + "</code>\n"
-                                            "AI诊断：" + diagnosis + "\n"
-                                            "预算：$" + str(round(old_b, 2)) + " → $" + str(round(new_b, 2)) + " (+20%)"
-                                        )
-                                    else:
-                                        error_msg = "加预算失败: " + str(err_b)
-                                        action_taken = "increase_budget_failed"
-                                else:
-                                    action_taken = "increase_budget(dry_run)"
-                            else:
-                                executed = 1
-
-                            try:
-                                import json as _json
-                                _ai_conn = get_conn()
-                                _ai_conn.execute(
-                                    "INSERT INTO ai_decisions "
-                                    "(act_id, ad_id, adset_id, ad_name, decision_type, "
-                                    "action_taken, diagnosis, suggestions, risk_level, "
-                                    "spend, cpa, roas, conversions, executed, error_msg) "
-                                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                    (act_id, ad_id, adset_id, ad_name, "auto_inspect",
-                                     action_taken, diagnosis,
-                                     _json.dumps(suggestions, ensure_ascii=False),
-                                     risk_level, spend, cpa, roas, conversions,
-                                     executed, error_msg)
-                                )
-                                _ai_conn.commit()
-                                _ai_conn.close()
-                            except Exception as _log_err:
-                                logger.warning("AI决策日志写入失败: " + str(_log_err))
-                except Exception as ai_err:
-                    logger.warning("AI 托管决策失败（非致命）" + act_id + "/" + ad_id + ": " + str(ai_err))
-            # ── AI 托管决策层 END ─────────────────────────────────────────────────
+            # ── AI 托管决策层已移除 ──
 
 
             # 执行止损规则检查（所有金额均为 USD）
@@ -1241,20 +1351,30 @@ class GuardEngine:
     def _mirror_patrol(self, account: dict):
         """仅执行镜像检查，不做KPI/规则巡检。用于enabled=0但需镜像保护的账户"""
         act_id = account["act_id"]
+        patrol_result = {
+            "act_id": act_id,
+            "account_name": account.get("name", act_id),
+            "status": "ok",
+            "review_pending": [],
+            "closures": []
+        }
         token = _get_token_for_account(account)
         if not token:
-            return
+            patrol_result["status"] = "no_token"
+            return patrol_result
 
         try:
             data = _fb_get(
                 f"{act_id}/ads", token,
-                {"fields": FB_AD_FIELDS,
+                {"fields": MIRROR_AD_FIELDS,
                  "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]',
-                 "limit": 200}
+                 "limit": 200},
+                paginate=True
             )
         except Exception as e:
             logger.error(f"[Mirror] 拉取广告列表失败 {act_id}: {e}")
-            return
+            patrol_result["status"] = "api_error"
+            return patrol_result
 
         ads = data.get("data", [])
         logger.info(f"[Mirror Patrol] 账户 {act_id} 活跃广告数: {len(ads)}")
@@ -1262,11 +1382,11 @@ class GuardEngine:
         mirrored_ids = _load_mirror_snapshot(act_id)
         if not mirrored_ids:
             if ads:
-                count = _capture_mirror_snapshot(act_id, ads)
-                logger.info(f"[Mirror Patrol] {act_id} 快照为空，已自动捕获 {count} 条广告作为初始快照")
+                logger.warning(f"[Mirror Patrol] {act_id} 快照为空，跳过巡检（需手动开启镜像模式采集初始快照）")
             else:
                 logger.info(f"[Mirror Patrol] {act_id} 当前无活跃广告，跳过快照捕获")
-            return
+            patrol_result["status"] = "no_snapshot"
+            return patrol_result
 
         _cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
                          "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
@@ -1279,8 +1399,6 @@ class GuardEngine:
             if eff in _cannot_spend:
                 continue
             if ad_id in mirrored_ids:
-                continue
-            if _is_auto_campaign_ad(act_id, ad_id):
                 continue
             if eff in _review_status:
                 review_pending.append(ad)
@@ -1311,18 +1429,14 @@ class GuardEngine:
                                 old_value={"effective_status": a.get("effective_status")},
                                 new_value={"action": "monitoring"},
                                 status="warning", operator="system")
-                _send_tg(
-                    f"⚠️ <b>Mira 镜像巡逻 - 审核中未授权广告</b>\n"
-                    f"账户：{account.get('name', act_id)}\n"
-                    f"系列：<code>{cid}</code>\n"
-                    f"广告：{', '.join(ad_names)}\n"
-                    f"状态：{', '.join(set(a.get('effective_status', '') for a in rads))}\n"
-                    f"原因：广告不在快照白名单中且正处于审核状态，无法暂停\n"
-                    f"提示：审核通过后巡检引擎将自动关闭该系列"
-                )
+                patrol_result["review_pending"].append({
+                    "campaign_id": cid,
+                    "ad_names": ad_names,
+                    "statuses": statuses
+                })
 
         if not unauthorized:
-            return
+            return patrol_result
 
         # 按系列去重
         campaigns_to_pause = {}
@@ -1355,13 +1469,13 @@ class GuardEngine:
                                 old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                                 status=action_status, error_msg=(err_msg if not ok else None),
                                 operator="system")
-                    _send_tg(
-                        f"🔒 <b>Mira 镜像巡逻</b>\n"
-                        f"账户：{account.get('name', act_id)}\n"
-                        f"广告：<code>{ad.get('name', ad['id'])}</code>\n"
-                        f"原因：广告不在快照白名单中，已自动暂停"
-                        + (f"\n❌ 暂停失败：{err_msg}" if action_status == "failed" else "")
-                    )
+                    patrol_result["closures"].append({
+                        "type": "success" if action_status == "success" else "failed",
+                        "level": "ad",
+                        "id": ad["id"],
+                        "ad_names": [ad.get("name", ad["id"])],
+                        "error": err_msg if action_status == "failed" else None
+                    })
             else:
                 logger.warning(f"[Mirror Patrol] 未授权广告 ({', '.join(ad_names)})，直接关闭系列 {cid}")
                 if self.dry_run:
@@ -1371,13 +1485,12 @@ class GuardEngine:
                                     f"[模拟][Patrol] 广告不在快照白名单，直接关闭系列",
                                     old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                                     status="success", operator="system")
-                    _send_tg(
-                        f"🔒 <b>Mira 镜像巡逻</b>\n"
-                        f"账户：{account.get('name', act_id)}\n"
-                        f"系列：<code>{cid}</code>\n"
-                        f"包含广告：{', '.join(ad_names)}\n"
-                        f"原因：广告不在快照白名单中，[DRY RUN] 模拟关闭系列"
-                    )
+                    patrol_result["closures"].append({
+                        "type": "dry_run",
+                        "level": "campaign",
+                        "id": cid,
+                        "ad_names": ad_names
+                    })
                 else:
                     ok, err_msg = _fb_post(cid, token, {"status": "PAUSED"})
                     if ok:
@@ -1397,24 +1510,23 @@ class GuardEngine:
                                     error_msg=err_msg if action_status == "failed" else None,
                                     operator="system")
                     if action_status == "success":
-                        _send_tg(
-                            f"🔒 <b>Mira 镜像巡逻</b>\n"
-                            f"账户：{account.get('name', act_id)}\n"
-                            f"系列：<code>{cid}</code>\n"
-                            f"包含广告：{', '.join(ad_names)}\n"
-                            f"原因：广告不在快照白名单中，已直接关闭系列"
-                        )
+                        patrol_result["closures"].append({
+                            "type": "success",
+                            "level": "campaign",
+                            "id": cid,
+                            "ad_names": ad_names
+                        })
                     else:
-                        _send_tg(
-                            f"🚨 <b>Mira 镜像巡逻 - 关闭系列失败!</b>\n"
-                            f"账户：{account.get('name', act_id)}\n"
-                            f"系列：<code>{cid}</code>\n"
-                            f"包含广告：{', '.join(ad_names)}\n"
-                            f"失败原因：{err_msg}\n"
-                            f"请立即手动处理!"
-                        )
+                        patrol_result["closures"].append({
+                            "type": "failed",
+                            "level": "campaign",
+                            "id": cid,
+                            "ad_names": ad_names,
+                            "error": err_msg
+                        })
 
         logger.info(f"[Mirror Patrol] {act_id} 本次拦截 {len(unauthorized)} 条未授权广告，涉及 {len(campaigns_to_pause)} 个系列")
+        return patrol_result
 
     def _check_rule(self, rule: dict, account: dict, token: str,
                     ad_id: str, adset_id: str, campaign_id: str, ad_name: str,
@@ -1572,27 +1684,6 @@ class GuardEngine:
                     + (f"\n⬆️ 已升级关闭至{level}层级" if status == "escalated" else "")
                 )
                 # 止损后实时触发素材评分
-                try:
-                    from core.database import get_conn as _gc_score
-                    _conn_score = _gc_score()
-                    _asset_row = _conn_score.execute(
-                        "SELECT DISTINCT asset_id FROM auto_campaign_ads WHERE fb_ad_id=? AND asset_id IS NOT NULL LIMIT 1",
-                        (ad_id,)
-                    ).fetchone()
-                    _conn_score.close()
-                    if _asset_row and _asset_row["asset_id"]:
-                        _asset_id = _asset_row["asset_id"]
-                        import threading as _threading
-                        def _do_score(_aid):
-                            try:
-                                from services.asset_scorer import score_asset
-                                score_asset(_aid)
-                                logger.info(f"[守护引擎] 止损后实时评分完成: 素材 {_aid}")
-                            except Exception as _se:
-                                logger.warning(f"[守护引擎] 止损后评分失败: {_se}")
-                        _threading.Thread(target=_do_score, args=(_asset_id,), daemon=True).start()
-                except Exception as _score_err:
-                    logger.warning(f"[守护引擎] 止损后评分异常: {_score_err}")
 
         elif action == "reduce_budget":
             pct = float(rule.get("action_value") or 0.2)
@@ -1683,291 +1774,7 @@ class GuardEngine:
 
 
 
-def _run_ai_decision(conn, account: dict, ad_data: dict):
-    """
-    对 ai_managed=1 的账户广告运行 AI 分析并自动执行决策
-    """
-    import datetime, requests
-    try:
-        from services.ai_advisor import analyze_ad_performance
-    except ImportError:
-        try:
-            from ai_advisor import analyze_ad_performance
-        except ImportError:
-            return
 
-    act_id = account.get('act_id', '')
-    ad_id = ad_data.get('ad_id', ad_data.get('id', ''))
-    ad_name = ad_data.get('name', ad_data.get('ad_name', ''))
-    token_val = account.get('token_value', '')
-
-    # 获取 KPI 目标
-    kpi = {}
-    try:
-        kpi_row = conn.execute(
-            "SELECT target_cpa, target_roas FROM kpi_configs WHERE act_id=? LIMIT 1",
-            (act_id,)
-        ).fetchone()
-        if kpi_row:
-            kpi = {'target_cpa': kpi_row[0], 'target_roas': kpi_row[1]}
-    except Exception:
-        pass
-
-    # 调用 AI 分析
-    try:
-        result = analyze_ad_performance(ad_data, kpi)
-    except Exception as e:
-        return
-
-    decision_type = result.get('action', 'no_action')
-    risk_level = result.get('risk_level', 'low')
-    diagnosis = result.get('diagnosis', '')
-    suggestion = result.get('suggestion', '')
-    executed = False
-    exec_detail = ''
-
-    # 根据 AI 决策自动执行
-    if decision_type == 'pause_ad' and risk_level == 'high' and token_val and ad_id:
-        try:
-            resp = requests.post(
-                f"https://graph.facebook.com/v19.0/{ad_id}",
-                data={"status": "PAUSED", "access_token": token_val},
-                timeout=10
-            )
-            if resp.status_code == 200:
-                executed = True
-                exec_detail = f"已暂停广告 {ad_id}"
-        except Exception as e:
-            exec_detail = f"暂停失败: {e}"
-
-    elif decision_type == 'increase_budget' and risk_level in ('low',) and token_val:
-        adset_id = ad_data.get('adset_id', '')
-        if adset_id:
-            try:
-                resp = requests.get(
-                    f"https://graph.facebook.com/v19.0/{adset_id}",
-                    params={"fields": "daily_budget", "access_token": token_val},
-                    timeout=10
-                )
-                if resp.status_code == 200:
-                    current_budget = int(resp.json().get('daily_budget', 0))
-                    if current_budget > 0:
-                        new_budget = int(current_budget * 1.2)
-                        resp2 = requests.post(
-                            f"https://graph.facebook.com/v19.0/{adset_id}",
-                            data={"daily_budget": new_budget, "access_token": token_val},
-                            timeout=10
-                        )
-                        if resp2.status_code == 200:
-                            executed = True
-                            exec_detail = f"预算 {current_budget/100:.2f} → {new_budget/100:.2f}"
-            except Exception as e:
-                exec_detail = f"加预算失败: {e}"
-
-    # 记录 AI 决策日志
-    now_bj = datetime.datetime.now(
-        datetime.timezone(datetime.timedelta(hours=8))
-    ).strftime('%Y-%m-%d %H:%M:%S')
-    try:
-        conn.execute(
-            """INSERT INTO ai_decisions
-               (act_id, ad_id, ad_name, decision_type, risk_level, diagnosis, suggestion, executed, exec_detail, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (act_id, ad_id, ad_name, decision_type, risk_level, diagnosis, suggestion,
-             1 if executed else 0, exec_detail, now_bj)
-        )
-        conn.commit()
-    except Exception as e:
-        pass
-
-
-class ScaleEngine:
-    """拉量引擎 v1.2.0 - 支持地区过滤 + 全局规则 + 连续天数 + 预算上限 + 冷却期"""
-
-    def __init__(self):
-        self.dry_run = _is_dry_run()
-
-    def run_all(self):
-        conn = get_conn()
-        # 只对 testing/scaling 阶段的账户执行拉量，避免对预热期账户误操作
-        accounts = conn.execute(
-            "SELECT * FROM accounts WHERE enabled=1 AND account_status NOT IN (3, 7, 9) AND (lifecycle_stage IN ('testing','scaling') OR lifecycle_stage IS NULL)"
-        ).fetchall()
-        all_scale_rules = conn.execute("SELECT * FROM scale_rules WHERE enabled=1").fetchall()
-        # 全局规则（act_id='__global__'）：对所有账户生效，参考止损规则的全局规则逻辑
-        global_rules = [dict(r) for r in all_scale_rules if dict(r)["act_id"] == "__global__"]
-        conn.close()
-
-        for acc in accounts:
-            acc = dict(acc)
-            act_id = acc["act_id"]
-            acc_rules = [dict(r) for r in all_scale_rules if dict(r)["act_id"] == act_id]
-            # 合并：账户级同类型规则优先，全局规则补充（与止损规则逻辑一致）
-            acc_rule_types = {r["rule_type"] for r in acc_rules}
-            merged_rules = list(acc_rules)
-            for gr in global_rules:
-                if gr["rule_type"] not in acc_rule_types:
-                    gr_copy = dict(gr)
-                    gr_copy["_is_global"] = True
-                    merged_rules.append(gr_copy)
-            if merged_rules:
-                self._run_account(acc, merged_rules)
-
-    def _run_account(self, account: dict, rules: list):
-        act_id = account["act_id"]
-        token = _get_token_for_account(account)
-        today = date.today().isoformat()
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
-
-        conn = get_conn()
-        ads = conn.execute(
-            """SELECT ad_id, ad_name, adset_id,
-                      AVG(cpa) as avg_cpa, SUM(conversions) as total_conv,
-                      AVG(roas) as avg_roas
-               FROM perf_snapshots
-               WHERE act_id=? AND snapshot_date IN (?,?)
-               GROUP BY ad_id HAVING COUNT(DISTINCT snapshot_date) >= 1""",
-            (act_id, today, yesterday)
-        ).fetchall()
-        conn.close()
-
-        for ad in ads:
-            ad = dict(ad)
-            # 获取广告组地区（用于地区过滤）
-            ad_regions = self._get_adset_regions(ad.get("adset_id", ""), token)
-            for rule in rules:
-                self._check_scale(account, ad, rule, ad_regions, token)
-
-    def _get_adset_regions(self, adset_id: str, token: str) -> list:
-        """获取广告组定位地区"""
-        if not adset_id or not token:
-            return []
-        try:
-            result = _fb_get(adset_id, token, {"fields": "targeting"})
-            targeting = result.get("targeting", {})
-            geo = targeting.get("geo_locations", {})
-            countries = geo.get("countries", [])
-            return [c.upper() for c in countries]
-        except Exception:
-            return []
-
-    def _check_consecutive_good(self, act_id: str, ad_id: str, target_cpa: float,
-                                   cpa_ratio: float, min_conv: int, days: int) -> bool:
-        """检查广告是否连续N天CPA优秀（低于目标×ratio且转化数达标），参考止损规则_check_consecutive_bad逻辑"""
-        conn = get_conn()
-        rows = conn.execute(
-            """SELECT cpa, conversions FROM perf_snapshots
-               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', '+8 hours', ?)
-               ORDER BY snapshot_date DESC LIMIT ?""",
-            (act_id, ad_id, f"-{days} days", days)
-        ).fetchall()
-        conn.close()
-        if len(rows) < days:
-            return False
-        return all(
-            r["cpa"] and r["cpa"] <= target_cpa * cpa_ratio
-            and (r["conversions"] or 0) >= min_conv
-            for r in rows
-        )
-
-    def _check_scale(self, account: dict, ad: dict, rule: dict, ad_regions: list, token: str):
-        act_id = account["act_id"]
-        rule_type = rule["rule_type"]
-        rule_id = rule.get("id", rule_type)
-        ad_id = ad["ad_id"]
-        ad_name = ad["ad_name"]
-
-        # 冷却期检查：同一广告同一规则60分钟内不重复触发（与止损规则一致）
-        if _check_cooldown(ad_id, f"scale_{rule_id}"):
-            return
-
-        # 地区过滤
-        target_regions_json = rule.get("target_regions")
-        if target_regions_json:
-            try:
-                target_regions = json.loads(target_regions_json)
-                if target_regions and ad_regions:
-                    if not any(r.upper() in ad_regions for r in target_regions):
-                        return  # 地区不匹配，跳过
-            except Exception:
-                pass
-
-        if rule_type == "winner_alert":
-            if ad["avg_roas"] and ad["avg_roas"] >= rule["roas_threshold"]:
-                _send_tg(
-                    f"🚀 <b>Mira 赢家提示</b>\n"
-                    f"广告：<code>{ad_name}</code>\n"
-                    f"平均ROAS：{ad['avg_roas']:.2f}（阈值 {rule['roas_threshold']}）\n"
-                    f"建议：复制该广告组并提升 30% 预算"
-                )
-                _log_action(act_id, "ad", ad_id, ad_name,
-                            "alert", "winner_alert",
-                            f"ROAS {ad['avg_roas']:.2f} 超过阈值 {rule['roas_threshold']}")
-                _set_cooldown(ad_id, f"scale_{rule_id}")
-
-        elif rule_type == "slow_scale":
-            conn = get_conn()
-            kpi_row = conn.execute(
-                "SELECT target_cpa FROM kpi_configs WHERE act_id=? AND target_id=? AND enabled=1 LIMIT 1",
-                (act_id, ad_id)
-            ).fetchone()
-            conn.close()
-            if not kpi_row or not kpi_row["target_cpa"]:
-                return
-
-            target_cpa = float(kpi_row["target_cpa"])
-            cpa_ratio = rule.get("cpa_ratio", 0.8)
-            min_conv = rule.get("min_conversions", 3)
-            consecutive_days = rule.get("consecutive_days") or 2
-            max_budget = rule.get("max_budget")
-
-            # 连续N天达标检查（参考止损规则_check_consecutive_bad逻辑）
-            if not self._check_consecutive_good(act_id, ad_id, target_cpa, cpa_ratio, min_conv, consecutive_days):
-                return
-
-            scale_pct = rule.get("scale_pct", 0.15)
-            _adset_id = ad.get("adset_id", "")
-            if _adset_id and not self.dry_run:
-                # 预算上限检查：当前预算已达上限则跳过加量
-                if max_budget:
-                    try:
-                        adset_info = _fb_get(_adset_id, token, {"fields": "daily_budget"})
-                        cur_budget_usd = float(adset_info.get("daily_budget", 0)) / 100
-                        if cur_budget_usd >= max_budget:
-                            _log_action(act_id, "adset", _adset_id, ad_name,
-                                        "skip_scale", "slow_scale",
-                                        f"当前预算 ${cur_budget_usd:.2f} 已达上限 ${max_budget:.2f}，跳过加量")
-                            return
-                    except Exception:
-                        pass
-                ok_s, err_s, old_s, new_s = _update_adset_budget(
-                    _adset_id, token, scale_pct, act_id, ad_name
-                )
-                if ok_s:
-                    _set_cooldown(ad_id, f"scale_{rule_id}")
-                    _log_action(act_id, "adset", _adset_id, ad_name,
-                                "increase_budget", "slow_scale",
-                                f"CPA ${ad['avg_cpa']:.2f} 低于目标 {cpa_ratio*100:.0f}%，"
-                                f"连续 {consecutive_days} 天达标，"
-                                f"预算 ${old_s:.2f}→${new_s:.2f} (+{scale_pct*100:.0f}%)")
-                    _send_tg(
-                        f"📈 <b>Mira 自动加量</b>\n"
-                        f"广告：<code>{ad_name}</code>\n"
-                        f"平均CPA：${ad['avg_cpa']:.2f}（目标 ${target_cpa:.2f}）\n"
-                        f"转化数：{ad['total_conv']}\n"
-                        f"连续达标：{consecutive_days} 天\n"
-                        f"预算：${old_s:.2f} → ${new_s:.2f}（+{scale_pct*100:.0f}%）"
-                    )
-                else:
-                    _log_action(act_id, "adset", _adset_id, ad_name,
-                                "increase_budget_failed", "slow_scale",
-                                f"加量失败: {err_s}")
-            else:
-                _log_action(act_id, "ad", ad_id, ad_name,
-                            "increase_budget", "slow_scale",
-                            f"CPA ${ad['avg_cpa']:.2f} 低于目标 {cpa_ratio*100:.0f}%，"
-                            f"连续 {consecutive_days} 天达标，加量 {scale_pct*100:.0f}%"
-                            + (" [DryRun]" if self.dry_run else " [无广告组ID]"))
 
 
 def emergency_pause_all(operator: str = "user", level: str = "campaign") -> dict:
@@ -2072,6 +1879,24 @@ def emergency_pause_all(operator: str = "user", level: str = "campaign") -> dict
     }
 
 
+def _recent_action_log(act_id: str, target_id: str, trigger_type: str,
+                       status: str, minutes: int) -> bool:
+    """Return True when the same guard action was logged recently."""
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            """SELECT 1 FROM action_logs
+               WHERE act_id=? AND target_id=? AND trigger_type=? AND status=?
+                 AND created_at >= datetime('now','+8 hours', ?)
+               LIMIT 1""",
+            (act_id, target_id, trigger_type, status, f"-{int(minutes)} minutes")
+        ).fetchone()
+        conn.close()
+        return bool(row)
+    except Exception:
+        return False
+
+
 def sentinel_patrol() -> dict:
     """
     哨兵扫描：遍历所有账户，检查是否有ACTIVE状态的系列。
@@ -2080,8 +1905,15 @@ def sentinel_patrol() -> dict:
     enabled = _get_setting("sentinel_enabled", "0")
     if enabled != "1":
         return {"status": "disabled", "accounts_checked": 0, "series_closed": 0}
+    dry_run = _is_dry_run()
+    try:
+        failure_cooldown = int(_get_setting("sentinel_failure_cooldown", "30"))
+    except (ValueError, TypeError):
+        failure_cooldown = 30
     conn = get_conn()
-    accounts = conn.execute("SELECT * FROM accounts").fetchall()
+    accounts = conn.execute(
+        "SELECT * FROM accounts WHERE account_status NOT IN (3, 7, 9, 100)"
+    ).fetchall()
     conn.close()
     accounts_checked = 0
     series_closed = 0
@@ -2097,7 +1929,8 @@ def sentinel_patrol() -> dict:
             data = _fb_get(
                 f"{act_id}/campaigns", token,
                 {"fields": "id,name,status,effective_status",
-                 "effective_status": '["ACTIVE"]', "limit": 200}
+                 "effective_status": '["ACTIVE"]', "limit": 200},
+                paginate=True
             )
             campaigns = data.get("data", [])
         except Exception as e:
@@ -2106,6 +1939,17 @@ def sentinel_patrol() -> dict:
         for camp in campaigns:
             camp_id = camp["id"]
             camp_name = camp.get("name", camp_id)
+            if _recent_action_log(act_id, camp_id, "sentinel", "failed", failure_cooldown):
+                logger.info(f"[Sentinel] {camp_id} 最近 {failure_cooldown} 分钟已失败过，跳过重复告警")
+                continue
+            if dry_run:
+                series_closed += 1
+                details.append({"act_id": act_id, "campaign_id": camp_id, "name": camp_name, "status": "dry_run"})
+                _log_action(act_id, "campaign", camp_id, camp_name,
+                            "pause", "sentinel", "哨兵发现活跃系列（DryRun 未实际关闭）",
+                            old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                            status="success", operator="sentinel")
+                continue
             ok, err = _fb_post(camp_id, token, {"status": "PAUSED"})
             if ok:
                 time.sleep(0.5)
@@ -2185,13 +2029,18 @@ def heartbeat_check() -> dict:
         pass
     if timed_out:
         logger.warning(f"[Heartbeat] 管理员活动超时 {minutes_since} 分钟 (阈值={timeout_min}分钟)，触发紧急全停")
+        action_line = "DryRun 模式：仅记录，不实际关闭广告系列" if _is_dry_run() else "正在执行紧急全停..."
         _send_tg(
             f"💓 <b>Mira 心跳超时</b>\n"
             f"距上次管理员活动已超过 <b>{minutes_since}</b> 分钟（阈值：{timeout_min}分钟）\n"
-            f"正在执行紧急全停...\n"
+            f"{action_line}\n"
             f"请在控制台操作任意功能以恢复心跳"
         )
-        result = emergency_pause_all(operator="heartbeat", level="campaign")
+        if _is_dry_run():
+            result = {"total": 0, "success": 0, "failed": 0, "dry_run": True}
+            logger.warning("[Heartbeat] DryRun 模式，跳过实际紧急全停")
+        else:
+            result = emergency_pause_all(operator="heartbeat", level="campaign")
         # Log the heartbeat action
         conn = get_conn()
         conn.execute(
@@ -2199,8 +2048,14 @@ def heartbeat_check() -> dict:
             ('*', 'heartbeat', f'心跳超时 {minutes_since} 分钟，紧急全停',
              'success', f'共计 {result.get("total",0)} 个系列，成功关闭 {result.get("success",0)}')
         )
+        result2 = conn.execute(
+            "UPDATE settings SET value=datetime('now','+8 hours') WHERE key='last_admin_activity'"
+        )
+        if result2.rowcount == 0:
+            conn.execute(
+                "INSERT INTO settings(key,value) VALUES('last_admin_activity', datetime('now','+8 hours'))"
+            )
         conn.commit()
         conn.close()
         return {"status": "ok", "timeout": True, "minutes_since": minutes_since, "action": "emergency_pause", "result": result}
     return {"status": "ok", "timeout": False, "minutes_since": minutes_since, "action": "none"}
-

@@ -6,6 +6,7 @@ Mira — 广告模板库 API
 import json
 import logging
 import requests
+import time
 from datetime import datetime
 from typing import Optional
 from urllib.parse import urlparse
@@ -52,6 +53,10 @@ LEAD_FORM_BLOCKED_HOSTS = {
 
 class LeadFormCreateError(Exception):
     """Raised when Lead Form creation fails with a user-facing reason."""
+
+
+_PAGE_TOKEN_CACHE = {}
+_PAGE_TOKEN_CACHE_TTL_SECONDS = 600
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +116,11 @@ _ensure_tables()
 def _extract_page_token_from_user_token(page_id: str, user_token: str) -> Optional[str]:
     if not page_id or not user_token:
         return None
+    cache_key = (str(page_id), user_token)
+    cached = _PAGE_TOKEN_CACHE.get(cache_key)
+    now = time.time()
+    if cached and cached[1] > now:
+        return cached[0]
     try:
         resp = requests.get(
             f"{FB_API}/me/accounts",
@@ -119,11 +129,15 @@ def _extract_page_token_from_user_token(page_id: str, user_token: str) -> Option
         )
         data = resp.json()
         if "error" in data:
+            logger.warning(f"[LeadForm] /me/accounts 获取 Page Token 失败: {json.dumps(data.get('error'), ensure_ascii=False)[:300]}")
             return None
         for page in data.get("data", []) or []:
             if str(page.get("id")) == str(page_id) and page.get("access_token"):
-                return str(page["access_token"])
-    except Exception:
+                page_token = str(page["access_token"])
+                _PAGE_TOKEN_CACHE[cache_key] = (page_token, now + _PAGE_TOKEN_CACHE_TTL_SECONDS)
+                return page_token
+    except Exception as exc:
+        logger.warning(f"[LeadForm] /me/accounts 获取 Page Token 异常: {exc}")
         return None
     return None
 
@@ -208,11 +222,10 @@ def _normalize_lead_form_questions(raw_questions: list) -> list:
                 "key": _normalize_custom_question_key(custom_key, idx),
                 "label": label or f"问题 {idx + 1}",
             }
-            # Preserve options for multiple choice (requires flexible_delivery)
+            # Preserve options for multiple choice
             _raw_options = item.get("options")
             if _raw_options:
                 _normalized_custom["options"] = _raw_options
-                _normalized_custom["flexible_delivery"] = "ON_DELIVERY"
             # Preserve placeholder for question description
             _placeholder = item.get("placeholder") or item.get("description")
             if _placeholder:
@@ -298,6 +311,39 @@ def _format_fb_error(result: dict) -> str:
     return " | ".join(parts) or "Facebook API 返回未知错误"
 
 
+def _is_lead_form_policy_rejection(result: dict) -> bool:
+    err = result.get("error") or {}
+    user_msg = str(err.get("error_user_msg") or "")
+    message = str(err.get("message") or "")
+    lower = f"{user_msg} {message}".lower()
+    return (
+        err.get("code") == 368
+        or err.get("error_subcode") == 1346003
+        or "reported as abusive" in lower
+    )
+
+
+def _safe_lead_form_payload(payload: dict, normalized_questions: list, privacy_text: str, locale: str) -> dict:
+    contact_type = "EMAIL"
+    for q in normalized_questions:
+        q_type = str(q.get("type") or "").upper()
+        if q_type in LEAD_FORM_FIELD_TYPES and q_type != "CUSTOM":
+            contact_type = q_type
+            break
+    safe_payload = dict(payload)
+    safe_payload["name"] = (str(payload.get("name") or "Lead Form")[:70] + " Safe")[:90]
+    safe_payload["questions"] = json.dumps([{"type": contact_type}], ensure_ascii=False)
+    safe_payload["privacy_policy"] = json.dumps({
+        "url": _get_setting_value("lead_form_privacy_url", "") or "https://policies.google.com/privacy",
+        "link_text": privacy_text or "Privacy Policy",
+    }, ensure_ascii=False)
+    safe_payload["locale"] = locale or payload.get("locale") or "en_US"
+    safe_payload["follow_up_action_url"] = "https://example.com/thanks"
+    safe_payload.pop("context_card", None)
+    safe_payload.pop("flexible_delivery", None)
+    return safe_payload
+
+
 def _post_lead_form(
     page_id: str,
     *,
@@ -309,6 +355,9 @@ def _post_lead_form(
     locale: str,
     preferred_token: str = "",
     context_card: dict = None,
+    thank_you_title: str = "",
+    thank_you_body: str = "",
+    button_text: str = "",
 ) -> str:
     normalized_questions = _normalize_lead_form_questions(questions)
     if not normalized_questions:
@@ -334,23 +383,37 @@ def _post_lead_form(
     resolved_follow_up_url = _get_follow_up_action_url(page_id, follow_up_url)
     if resolved_follow_up_url:
         payload["follow_up_action_url"] = resolved_follow_up_url
+    # thank_you_page: customize the post-submission end screen
+    if thank_you_title:
+        _ty = {
+            "title": thank_you_title,
+            "button_type": "NONE",
+        }
+        if thank_you_body:
+            _ty["body"] = thank_you_body
+        if button_text:
+            _ty["button_text"] = button_text
+        if follow_up_url:
+            _ty["website_url"] = follow_up_url
+            _ty["button_type"] = "VIEW_WEBSITE"
+        payload["thank_you_page"] = json.dumps(_ty, ensure_ascii=False)
     if context_card:
-        # FB v25 context_card format: style + title (required), body (optional), content.button_text + button_type
+        # FB v25 context_card: style + title (required), content {button_text} (required)
+        # body/description/subtitle are NOT valid keys per FB API
         _ctx = context_card.copy() if isinstance(context_card, dict) else {}
         if "style" not in _ctx:
             _ctx["style"] = "LIST_STYLE"
-        # body belongs at top level, not inside content
-        _body = _ctx.pop("body", None) or _ctx.pop("subtitle", None)
-        # content holds button_text (and optionally button_type for CTA)
+        # content holds button_text
         _content = {}
         if _ctx.get("button_text"):
             _content["button_text"] = _ctx.pop("button_text")
-        if _ctx.get("button_type"):
-            _content["button_type"] = _ctx.pop("button_type")
+        # button_type inside content is also rejected — pop and discard
+        _ctx.pop("button_type", None)
+        _ctx.pop("body", None)
+        _ctx.pop("subtitle", None)
+        _ctx.pop("description", None)
         if _content:
             _ctx["content"] = _content
-        if _body:
-            _ctx["body"] = _body
         payload["context_card"] = json.dumps(_ctx, ensure_ascii=False)
 
     resp = requests.post(
@@ -365,6 +428,25 @@ def _post_lead_form(
 
     if resp.ok and "id" in result:
         return str(result["id"])
+
+    if _is_lead_form_policy_rejection(result):
+        first_error = _format_fb_error(result)
+        safe_payload = _safe_lead_form_payload(payload, normalized_questions, privacy_text, locale)
+        logger.warning(f"[LeadForm] FB 拒绝原始表单，尝试安全兜底: {first_error}")
+        resp_safe = requests.post(
+            f"{FB_API}/{page_id}/leadgen_forms",
+            data=safe_payload,
+            timeout=15,
+        )
+        try:
+            result_safe = resp_safe.json()
+        except Exception:
+            result_safe = {"error": {"message": resp_safe.text or f"HTTP {resp_safe.status_code}"}}
+        if resp_safe.ok and "id" in result_safe:
+            logger.info(f"[LeadForm] 安全兜底表单创建成功: page_id={page_id}, form_id={result_safe['id']}")
+            return str(result_safe["id"])
+        logger.error(f"[LeadForm] 安全兜底仍失败: full_response={json.dumps(result_safe, ensure_ascii=False)[:500]}")
+        raise LeadFormCreateError(f"{first_error}；安全兜底也失败：{_format_fb_error(result_safe)}")
 
     # If context_card was rejected (FB API version issue), retry without it
     if context_card and "context_card" in payload:
@@ -401,6 +483,9 @@ def create_custom_lead_form_for_page(
     follow_up_url: str = "",
     locale: str = "en_US",
     context_card: dict = None,
+    thank_you_title: str = "",
+    thank_you_body: str = "",
+    button_text: str = "",
 ) -> str:
     resolved_privacy_url = _get_privacy_policy_url(privacy_url)
     form_name = f"[AI] {(form_title or 'Lead Form')[:60]} {datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -414,6 +499,9 @@ def create_custom_lead_form_for_page(
         locale=locale or "en_US",
         preferred_token=token,
         context_card=context_card,
+        thank_you_title=thank_you_title or "",
+        thank_you_body=thank_you_body or "",
+        button_text=button_text or "",
     )
 
 

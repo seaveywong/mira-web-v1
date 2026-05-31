@@ -47,3 +47,22 @@ Thumbs.db
 # Temp test artifacts
 database.db
 mira.db
+
+# Additional local/runtime files
+.env.*
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.log
+uploads/
+media/
+static/uploads/
+frontend/uploads/
+frontend/media/
+tmp/
+temp/
+*.tmp
+*.pid
+_archive/
+remote_full_current/

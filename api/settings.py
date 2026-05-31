@@ -35,6 +35,45 @@ def _mask(value: str) -> str:
     return value[:4] + "****" + value[-4:]
 
 
+def _cleanup_obsolete_settings(conn):
+    obsolete_keys = [
+        "autopilot_enabled",
+        "autopilot_test_budget",
+        "autopilot_stop_loss",
+        "autopilot_max_adsets",
+        "global_dispatch_enabled",
+        "dispatch_max_tasks_per_run",
+        "dispatch_min_score",
+        "img_gen_provider",
+        "img_gen_fal_key",
+        "img_gen_openai_key",
+        "img_gen_ideogram_key",
+        "img_gen_stability_key",
+        "img_gen_replicate_key",
+        "img_gen_replicate_model",
+    ]
+    conn.execute(
+        "DELETE FROM settings WHERE key IN (%s)" % ",".join("?" for _ in obsolete_keys),
+        obsolete_keys,
+    )
+    conn.execute(
+        """UPDATE settings
+           SET label='铺广告默认主页 ID',
+               description='账户未绑定主页、铺广告弹窗也未选择主页时使用；不是 AI 托管开关。',
+               category='general',
+               sort_order=40
+           WHERE key='autopilot_fb_page_id'"""
+    )
+    conn.execute(
+        """UPDATE settings
+           SET label='铺广告默认 Pixel ID',
+               description='账户未绑定 Pixel、铺广告弹窗也未选择 Pixel 时使用；不是 AI 托管开关。',
+               category='general',
+               sort_order=41
+           WHERE key='autopilot_fb_pixel_id'"""
+    )
+
+
 def _run_storage_cleanup() -> dict:
     from services.storage_manager import (
         clean_journal_logs,
@@ -79,6 +118,8 @@ def _run_storage_cleanup() -> dict:
 @router.get("")
 def get_settings(user=Depends(get_current_user)):
     conn = get_conn()
+    _cleanup_obsolete_settings(conn)
+    conn.commit()
     rows = conn.execute(
         "SELECT key, value, label, description, placeholder, category, sort_order FROM settings ORDER BY category, sort_order, key"
     ).fetchall()
@@ -95,6 +136,7 @@ def get_settings(user=Depends(get_current_user)):
 @router.post("/batch")
 def update_settings(items: List[SettingItem], user=Depends(get_current_user)):
     conn = get_conn()
+    heartbeat_enabled = False
     for item in items:
         # 敏感字段：如果传入的是脱敏值则跳过
         if item.key in SENSITIVE_KEYS and "****" in item.value:
@@ -103,6 +145,16 @@ def update_settings(items: List[SettingItem], user=Depends(get_current_user)):
             "UPDATE settings SET value=? WHERE key=?",
             (item.value, item.key)
         )
+        if item.key == "heartbeat_enabled" and str(item.value) == "1":
+            heartbeat_enabled = True
+    if heartbeat_enabled:
+        result = conn.execute(
+            "UPDATE settings SET value=datetime('now','+8 hours') WHERE key='last_admin_activity'"
+        )
+        if result.rowcount == 0:
+            conn.execute(
+                "INSERT INTO settings(key,value) VALUES('last_admin_activity', datetime('now','+8 hours'))"
+            )
     conn.commit()
     conn.close()
     return {"success": True, "message": "设置保存成功"}
@@ -243,6 +295,7 @@ def update_settings_put(body: SettingsBatchWrap, user=Depends(get_current_user))
     """PUT /settings 别名，接收 {settings: [{key,value},...]}"""
     conn = get_conn()
     updated = 0
+    heartbeat_enabled = False
     for item in body.settings:
         if isinstance(item, dict):
             k = item.get("key") or item.get("k")
@@ -258,6 +311,16 @@ def update_settings_put(body: SettingsBatchWrap, user=Depends(get_current_user))
             if result.rowcount == 0:
                 conn.execute("INSERT INTO settings(key,value) VALUES(?,?)", (k, str(v)))
             updated += 1
+            if k == "heartbeat_enabled" and str(v) == "1":
+                heartbeat_enabled = True
+    if heartbeat_enabled:
+        result = conn.execute(
+            "UPDATE settings SET value=datetime('now','+8 hours') WHERE key='last_admin_activity'"
+        )
+        if result.rowcount == 0:
+            conn.execute(
+                "INSERT INTO settings(key,value) VALUES('last_admin_activity', datetime('now','+8 hours'))"
+            )
     conn.commit()
     conn.close()
     return {"updated": updated}
@@ -265,6 +328,38 @@ def update_settings_put(body: SettingsBatchWrap, user=Depends(get_current_user))
 @router.post("/test-ai")
 def test_ai_alias(user=Depends(get_current_user)):
     return test_ai_connection(user)
+
+
+@router.post("/test-vision")
+def test_vision_connection(user=Depends(get_current_user)):
+    """测试视觉 AI 配置是否可连接，供设置页按钮使用。"""
+    try:
+        from api.assets import _get_vision_client
+        client, model, provider = _get_vision_client()
+    except Exception as e:
+        return {"success": False, "message": f"视觉 AI 初始化失败: {e}"}
+
+    if not client:
+        return {"success": False, "message": "视觉 AI 未配置 API Key，或客户端初始化失败"}
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Reply OK"}],
+            max_tokens=5,
+            timeout=12,
+        )
+        reply = response.choices[0].message.content if response.choices else ""
+        return {
+            "success": True,
+            "message": f"{provider or 'vision'} / {model} 可用",
+            "provider": provider,
+            "model": model,
+            "response": reply,
+        }
+    except Exception as e:
+        return {"success": False, "message": f"视觉 AI 连接失败: {e}", "model": model, "provider": provider}
+
 
 @router.post("/test-tg")
 def test_tg_alias(user=Depends(get_current_user)):
@@ -466,3 +561,13 @@ def get_server_resource(user=Depends(get_current_user)):
         result['log_err'] = str(e)
 
     return result
+
+
+@router.get("/guard-health", tags=["system"])
+def get_guard_health(user=Depends(get_current_user)):
+    """返回巡检/镜像、哨兵、心跳、预热等后台任务最近运行状态。"""
+    try:
+        from core.scheduler import get_scheduler_health
+        return get_scheduler_health()
+    except Exception as e:
+        return {"running": False, "jobs": [], "error": str(e)}

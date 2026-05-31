@@ -1,139 +1,41 @@
-## v3.10.9 - 2026-05-30 - fix: 新加坡合规投放 — 账户+主页矩阵匹配优化
+## v3.10.0 - 2026-05-23 - feat: 账户预热 (Account Warmup)
 
-### Fixed
-1. `_create_adset()` 新加坡禁止 legacy beneficiary 兜底：`elif is_singapore` 插入在 `elif beneficiary` 之前，新加坡投放缺少 verified_identity_id 时直接 raise ValueError，不再发送 legacy beneficiary/payer 格式请求到 FB（subcode=3858548）。
+### Added
+1. `services/warmup_engine.py`: 新建预热引擎
+   - `check_and_warmup()`: 扫描符合条件的账户并自动创建 page_likes 广告
+   - `_warmup_account()`: 单账户预热 (选 YE* 素材 → CREATE token → FB API campaign→adset→adcreative→ad)
+   - `_followup_warming()` / `_followup_completed()`: 预热状态跟进（每小时最多查一次 FB）
+   - `_ensure_schema()`: 自愈建表 (5 个新列 + 2 个 settings 默认值)
+   - 守护模式互斥: sentinel/heartbeat/mirror 任一开启则跳过
+2. `api/warmup.py`: 新建 API 路由
+   - `POST /api/warmup/scan`: 手动批量扫描（admin/operator 权限）
+   - `POST /api/warmup/{act_id}/rewarm`: 单账户重新预热
+   - `GET /api/warmup/status`: 查看预热状态
+3. `main.py`: 注册 warmup_router
+4. `scheduler.py`: 注册 `warmup_check` 定时任务（默认 30 分钟间隔）
+5. `accounts.py`: list_accounts SELECT 添加 warmup_state / warmup_triggered_at / warmup_campaign_id
+6. `index.html`:
+   - 系统设置: warmup_enabled toggle + warmup_check_interval
+   - 账户卡片: 预热状态标签（🟡待预热/🔵预热中/🟢预热完成/🟠待重新预热）
+   - 账户页顶栏: "扫描全部预热" 按钮
+   - 侧边栏: 预热模式 toggle + 状态指示灯
+   - JS: renderWarmupBadge / scanAllWarmup / rewarmAccount / toggleWarmupMode
 
-2. 启动预检查增加受监管国家身份验证：`_run_launch_precheck()` 新增合规检查块，对 SG/TW/HK 目标国家验证账户矩阵归属和 tw_certified_pages 的 verified_identity_id，预检结果分为 pass/warn/fail。
-
-3. `get_matrix_id_for_account()` 增加管理号兜底：Stage 3 通过 account_op_tokens 中 manage token 的 matrix_id 识别矩阵归属，解决无操作号账户（如 act_2004432187053061）返回 None 的问题。
-
-4. 前端预检查传 target_countries + 合规提示条：预检查 API 调用增加 `target_countries` 参数；选中受监管国家时在认证主页选择器下方显示黄色合规警告条。
-
-### Verified
-- 语法检查通过：launch_engine.py, token_manager.py, api/assets.py
-- 前端 index.html 3 处变更均已确认
-
-### Files Changed
-1. services/launch_engine.py (Fix 1: Singapore ValueError ~line 1722)
-2. services/token_manager.py (Fix 3: Stage 3 manage token fallback)
-3. api/assets.py (Fix 2: Precheck regulated country check)
-4. frontend/index.html (Fix 4: Precheck payload + compliance warning)
-
----
-
-## v3.10.8 - 2026-05-30 - fix: OUTCOME_LEADS 目标不创建 Lead Form
-
-### Fixed
-1. OUTCOME_LEADS 目标缺少 conversion_goal 映射：`_normalize_campaign_goal_fields()` 未将 `OUTCOME_LEADS` objective 自动映射为 `lead_generation` conversion_goal，导致 `_create_ad()` 中 `_is_lead_ad_type` 判断为 False，完全跳过了 Lead Form 的 AI 自动生成与创建，所有 Lead 广告因缺少 `lead_gen_form_id` 而失败（FB error subcode=3390001）。
-   - 新增：`if objective_norm == "OUTCOME_LEADS" and not goal_norm: goal_norm = "lead_generation"`（参照已有的 OUTCOME_MESSAGES → conversations 映射）
-
-### Verified
-- Campaign 37 (AI mode): 1 AdSet + 3 Ads, Lead Form form_id=1318609899616443 ✅
-- Campaign 38 (Empty mode): 1 AdSet + 1 Ad ✅
-- Custom mode: 代码路径相同（仅 headline/body 来源不同），受 Token 35 FB 重登影响暂未实测
+### Technical
+- 状态机: NULL → warming → completed → dormant (7天沉睡自动标记)
+- CREATE 操作用 ACTION_CREATE（仅操作号，不降级管理号）
+- AdSet: PAGE_LIKES + OUTCOME_ENGAGEMENT, $5/天, US 定向, 随机页
+- FB API: campaign→adset→adcreative→ad 四步创建, 失败回滚删 campaign
+- 预算: $5 USD → 账户货币 (currency_rates 实时汇率)
+- TG 通知: 聚合摘要，不逐条通知
 
 ### Files Changed
-1. services/launch_engine.py
-
----
-
-## v3.10.7 - 2026-05-30 - fix: Lead Form 创建修复与落地页优先级
-
-### Fixed
-1. Lead Form `flexible_delivery` 位置修正：从 question 对象内部移到 payload 顶层，FB API 要求此参数在顶层而非 questions[0] 内。
-2. Lead Form `custom_disclaimer` 移除：FB API v25 拒绝此字段，改为使用默认感谢页面。context_card (含 description/button_text) 保留。
-3. 多账户落地页优先级补充：`_load_account()` 新增 `landing_url` 列查询，landing_url fallback 链从3层扩展为4层 (campaign > asset > account > global default)。
-4. 批量铺广告时不自动发送 landing_url：各账户自动使用自己配置的账户级 URL。
-
-### Changed
-1. AI Lead Form 生成内容扩展：从原来的仅 form_title 扩展为 8 个字段（form_title, description, question_label, option_a, option_b, thank_you_title, thank_you_body, button_text）。
-2. `_localized_lead_form_fallback()` 支持多语言默认内容。
-
-### Files Changed
-1. api/ad_templates.py
-2. services/launch_engine.py
-3. frontend/index.html
-
-## v3.10.6 - 2026-05-24 - fix: 全项目隐形问题巡检
-### Fixed
-1. 账户状态定时同步遇到 FB token/权限错误时，不再把账户本地 `account_status` 改成禁用；改为保留原状态并记录日志，避免 token 波动导致巡检、镜像、预热误跳过。
-2. 修复创意生成“批量拒绝待审素材”接口被 `DELETE /pending/{pending_id}` 动态路由遮挡的问题；单个删除路由收紧为 `DELETE /pending/{pending_id:int}`。
-### Changed
-1. 归档运行树中的旧 `.bak/.post-*`、旧自动铺放/生命周期残留文件，避免后续维护误读。
-### Files Changed
-1. core/scheduler.py
-2. api/creative_gen.py
-
-## v3.10.5 - 2026-05-24 - fix: 预热创建失败回滚与重试安全
-### Fixed
-1. 预热广告改为先以 PAUSED 状态创建 campaign/adset/ad，数据库记录写入后再激活，避免中途失败时产生正在花钱但 Mira 没记录的半成品广告。
-2. campaign/adset/creative/ad 任一步失败或异常都会按 ad → creative → adset → campaign 反向清理；清理失败会写入 action_logs 并把账户标记为 `warmup_state=failed`，避免自动重复创建。
-3. 重新预热不再先清空旧预热状态；只有新预热真正启动成功后才覆盖旧 campaign 记录，失败时保留原状态便于排查和再次手动重试。
-4. 账户列表增加“预热失败”标识和重新预热按钮；预热扫描诊断增加失败账户数量，设置提示改为按“是否已创建过预热广告”判断，而不是按是否有花费判断。
-### Files Changed
-1. services/warmup_engine.py
-2. api/warmup.py
-3. frontend/index.html
-
-## v3.10.4 - 2026-05-24 - fix: 管理号巡检兜底与预热候选规则
-
-### Fixed
-1. READ/PAUSE 场景下管理号兜底不再依赖 account_op_tokens 绑定状态必须 active；只要管理号 token active，就可用于巡检读取和关闭兜底。
-2. guard_engine 在 TokenManager 对 READ/PAUSE 返回空时继续走旧兜底，避免操作号失效导致巡检误停。
-3. 预热候选改为按 Mira 是否已有 warmup_state/warmup_campaign_id 判断，不再用账户总消耗阻挡预热。
-4. 预热创建广告前必须存在 active 操作号；缺操作号时诊断直接提示，不再逐账户触发操作号池耗尽 TG。
-5. 操作号池耗尽 TG 增加账户名，并加 30 分钟同账户/同操作冷却，减少刷屏。
-
-### Files Changed
-1. services/token_manager.py
-2. services/guard_engine.py
-3. services/warmup_engine.py
-4. frontend/index.html
-
-## v3.10.3 - 2026-05-24 - fix: 预热状态展示与守护通知聚合
-
-### Fixed
-1. 账户列表不再把 `warmup_state` 为空的普通账户显示成“待预热”，只展示真实的 warming/completed/dormant 状态。
-2. 预热扫描 TG 汇总增加账户名与 act_id，避免只看到 `act_****`。
-3. 哨兵模式 TG 改为每轮一条聚合通知，列出账户名、act_id、系列和处理结果，避免每个账户/系列单独刷屏。
-
-### Files Changed
-1. frontend/index.html
-2. services/warmup_engine.py
-3. services/guard_engine.py
-
-## v3.10.2 - 2026-05-24 - fix: 素材接口、预热扫描与镜像首次基线
-
-### Fixed
-1. 修复设置页视觉 AI 测试接口缺失，补齐创意生成任务列表、待审素材批准/拒绝、批量拒绝和自定义配方前后端路径错位。
-2. 修正非 USD 账户余额、已花费、消费上限的 USD 换算逻辑；消费上限 API 只保留“设置明确限额”，移除上限明确走 Meta UI 人工处理。
-3. 预热扫描跳过已有花费但没有 warmup_state 的老账户，避免误当新账户预热；扫描结果弹窗展示“已有花费跳过”诊断。
-4. 镜像模式增加首次巡检基线校验：快照为空或首次快照漏采时先补齐快照并标记已校验，本轮不关闭，下一轮开始严格拦截。
-5. 心跳模式只由 superadmin/admin/operator 的 API 活动刷新 last_admin_activity，避免只读账号或后台轮询误续命。
-
-### Files Changed
-1. frontend/index.html
-2. api/creative_gen.py
-3. api/settings.py
-4. api/accounts.py
-5. services/warmup_engine.py
-6. services/guard_engine.py
-7. main.py
-
-## v3.10.1 - 2026-05-23 - fix: 预热模式安全收口与残留清理
-
-### Fixed
-1. 修复素材库列表 SQL 语法错误、静态素材 API 被 `/{asset_id}` 动态路由误捕获、账户搜索字段错误。
-2. 修复规则自定义模板创建的 SQL 占位符错误，并让规则页只加载仍保留的止损规则。
-3. 修复账户同步跳过 `spend_cap=NULL` 导致 Meta UI 人工移除/设置限额后本地不一致的问题。
-4. 修复 `ai_decisions` 表已移除时账户决策日志接口 500。
-
-### Changed
-1. 预热模式改为复用素材库 `YE*` 图片，按素材/账户国家选择预热地区。
-2. 预热扫描增加并发锁，避免定时任务和手动触发重复创建预热广告。
-3. 预热广告达到约 `$5` 消耗目标后自动暂停 campaign 并标记完成。
-4. 前端清理旧预热素材库、铺放中心、AI 托管、生命周期和拉量策略的可触达入口。
-5. 账户余额展示对“超高上限”账户显示上限与已消费，避免把 Meta 的 `balance` 误当可用余额。
+1. services/warmup_engine.py (NEW)
+2. api/warmup.py (NEW)
+3. main.py
+4. services/scheduler.py (→ core/scheduler.py)
+5. api/accounts.py
+6. frontend/index.html
 
 ## v3.9.0 - 2026-05-23 - feat: 移除自动驾驶模块
 
@@ -423,3 +325,16 @@
    - batch_launch_auto_campaign: logs success/error per account with action_type="batch_launch"
    - Uses existing _log_action helper from services.guard_engine
    - operator set to current user username from JWT token
+## v3.10.1 - 2026-05-23 - fix: 预热模式安全收口与残留清理
+
+### Fixed
+1. 素材库列表、素材静态 API、账户搜索接口恢复可用。
+2. 规则页不再请求已移除的拉量策略接口，自定义规则模板创建恢复可用。
+3. 账户限额同步恢复以 Meta 当前值为准，设置限额走 API，移除限额走 Meta UI 后同步。
+4. 缺失 `ai_decisions` 表时账户决策日志接口返回空列表，不再 500。
+
+### Changed
+1. 预热素材来源改为素材库 `YE*` 图片，不再使用旧预热素材库。
+2. 预热增加并发锁、国家匹配和约 `$5` 消耗后自动暂停。
+3. 前端清理旧预热素材库、铺放中心、AI 托管、生命周期和拉量入口。
+4. 超高账户限额显示为“超高上限 + 已消费 + 实际上限”，不再展示误导性余额。
