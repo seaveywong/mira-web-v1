@@ -11,7 +11,7 @@ def online_users(user=Depends(require_admin)):
     """最近5分钟有活动的用户"""
     conn = get_conn()
     rows = conn.execute(
-        """SELECT id, username, role, display_name, last_active_at, last_ip
+        """SELECT id, username, role, display_name, team_id, group_name AS team_name, last_active_at, last_ip
            FROM users WHERE is_active=1 AND last_active_at IS NOT NULL
            AND last_active_at >= datetime('now','+8 hours','-5 minutes')
            ORDER BY last_active_at DESC"""
@@ -49,7 +49,7 @@ def user_activity(
     total = count_row["cnt"] if count_row else 0
 
     rows = conn.execute(
-        f"""SELECT id, user_id, username, role, method, path, status_code,
+        f"""SELECT id, user_id, username, role, team_id, team_name, method, path, status_code,
                    ip_address, duration_ms, created_at
             FROM user_activity_log {where_clause}
             ORDER BY id DESC LIMIT ? OFFSET ?""",

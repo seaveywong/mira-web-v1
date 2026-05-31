@@ -5,7 +5,7 @@ from typing import Optional
 from core.auth import (
     verify_credentials, verify_password,
     create_token, check_login_lock, get_remaining_attempts, record_fail, record_success,
-    ADMIN_USERNAME, ROLE_LABELS
+    ADMIN_USERNAME, ROLE_LABELS, build_user_claims, normalize_user_claims
 )
 from core.database import get_db
 router = APIRouter()
@@ -38,7 +38,8 @@ def login(req: LoginReq, request: Request):
             },
         )
     record_success(ip)
-    token = create_token({"role": role, "uid": uid or 0, "username": username})
+    claims = build_user_claims(username, role, uid)
+    token = create_token(claims)
     # 更新最后登录时间（非超级管理员ENV账户）
     if uid and uid > 0:
         try:
@@ -48,7 +49,15 @@ def login(req: LoginReq, request: Request):
             conn.close()
         except Exception:
             pass
-    return {"token": token, "role": role, "role_label": ROLE_LABELS.get(role, role)}
+    return {
+        "token": token,
+        "username": username,
+        "role": claims.get("role", role),
+        "role_label": ROLE_LABELS.get(claims.get("role", role), role),
+        "team_id": claims.get("team_id"),
+        "team_name": claims.get("team_name"),
+        "is_superadmin": claims.get("is_superadmin", False),
+    }
 
 @router.get("/me")
 def get_me(request: Request):
@@ -59,21 +68,47 @@ def get_me(request: Request):
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         try:
-            payload = decode_token(auth_header[7:])
+            payload = normalize_user_claims(decode_token(auth_header[7:]))
             uid = payload.get("uid", 0)
             role = payload.get("role", "superadmin")
             if uid and uid > 0:
                 conn = get_db()
-                row = conn.execute("SELECT username, display_name FROM users WHERE id=?", (uid,)).fetchone()
+                row = conn.execute(
+                    """SELECT u.username, u.display_name, u.team_id, u.group_name,
+                              t.name AS team_name
+                       FROM users u
+                       LEFT JOIN teams t ON t.id = u.team_id
+                       WHERE u.id=?""",
+                    (uid,)
+                ).fetchone()
                 conn.close()
                 if row:
                     return {
                         "username": row["username"],
                         "display_name": row["display_name"],
                         "role": role,
-                        "role_label": ROLE_LABELS.get(role, role)
+                        "role_label": ROLE_LABELS.get(role, role),
+                        "team_id": row["team_id"],
+                        "team_name": row["team_name"] or row["group_name"],
+                        "is_superadmin": False,
                     }
-            return {"username": ADMIN_USERNAME, "display_name": None, "role": "superadmin", "role_label": "超级管理员"}
+            return {
+                "username": ADMIN_USERNAME,
+                "display_name": None,
+                "role": "superadmin",
+                "role_label": "超级管理员",
+                "team_id": None,
+                "team_name": None,
+                "is_superadmin": True,
+            }
         except Exception:
             pass
-    return {"username": ADMIN_USERNAME, "display_name": None, "role": "superadmin", "role_label": "超级管理员"}
+    return {
+        "username": ADMIN_USERNAME,
+        "display_name": None,
+        "role": "superadmin",
+        "role_label": "超级管理员",
+        "team_id": None,
+        "team_name": None,
+        "is_superadmin": True,
+    }

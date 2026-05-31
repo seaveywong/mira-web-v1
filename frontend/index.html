@@ -3019,6 +3019,8 @@ async function doLogin(){
   if(d.username)localStorage.setItem('mira_user',d.username);
   if(d.role)localStorage.setItem('mira_role',d.role);
   if(d.role_label)localStorage.setItem('mira_role_label',d.role_label);
+  if(d.team_id!==undefined&&d.team_id!==null)localStorage.setItem('mira_team_id',d.team_id);
+  if(d.team_name)localStorage.setItem('mira_team_name',d.team_name);
   document.getElementById('login-page').style.display='none';
   document.getElementById('app').style.display='block';
   var u=d.username||localStorage.getItem('mira_user')||'A';
@@ -3032,6 +3034,7 @@ async function doLogin(){
 
 function logout(){
  token='';localStorage.removeItem('mira_token');localStorage.removeItem('mira_user');
+ localStorage.removeItem('mira_team_id');localStorage.removeItem('mira_team_name');
  document.getElementById('app').style.display='none';
  document.getElementById('login-page').style.display='flex';
  document.getElementById('loginUser').value='';
@@ -3047,6 +3050,8 @@ async function initApp(){
    localStorage.setItem('mira_user',me.username);
    if(me.role)localStorage.setItem('mira_role',me.role);
    if(me.role_label)localStorage.setItem('mira_role_label',me.role_label);
+   if(me.team_id!==undefined&&me.team_id!==null)localStorage.setItem('mira_team_id',me.team_id);
+   if(me.team_name)localStorage.setItem('mira_team_name',me.team_name);
    // 更新角色标签
    var rl=document.getElementById('tbRoleLabel');
    if(rl)rl.textContent=me.role_label||'';

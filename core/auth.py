@@ -142,6 +142,68 @@ def get_remaining_attempts(ip: str) -> int:
     return max(MAX_FAIL - _fail_count[ip], 0)
 
 
+def build_user_claims(username: str, role: str, uid: int | None) -> dict:
+    """Build JWT claims with team context. uid=0 remains the global superadmin."""
+    _reload_env()
+    uid = uid or 0
+    role = role or "viewer"
+    if uid == 0 or role == "superadmin":
+        return {
+            "role": "superadmin",
+            "uid": 0,
+            "username": username or ADMIN_USERNAME,
+            "is_superadmin": True,
+            "team_id": None,
+            "team_name": None,
+        }
+
+    claims = {
+        "role": role,
+        "uid": uid,
+        "username": username,
+        "is_superadmin": False,
+        "team_id": None,
+        "team_name": None,
+    }
+    try:
+        conn = _get_db_conn()
+        row = conn.execute(
+            """SELECT u.id, u.username, u.role, u.team_id, u.group_name,
+                      t.name AS team_name
+               FROM users u
+               LEFT JOIN teams t ON t.id = u.team_id
+               WHERE u.id=?""",
+            (uid,)
+        ).fetchone()
+        conn.close()
+        if row:
+            claims["username"] = row["username"] or username
+            claims["role"] = row["role"] or role
+            claims["team_id"] = row["team_id"]
+            claims["team_name"] = row["team_name"] or row["group_name"]
+    except Exception:
+        pass
+    return claims
+
+
+def normalize_user_claims(payload: dict) -> dict:
+    """Normalize legacy tokens without rejecting current logged-in admins."""
+    payload = dict(payload or {})
+    uid = payload.get("uid", -1)
+    role = payload.get("role", "viewer")
+    if role == "admin" and uid == 0:
+        role = "superadmin"
+        payload["role"] = "superadmin"
+    payload["is_superadmin"] = role == "superadmin" or uid == 0
+    payload.setdefault("team_id", None)
+    payload.setdefault("team_name", None)
+    return payload
+
+
+def is_superadmin(user: dict | None) -> bool:
+    return bool(user and normalize_user_claims(user).get("is_superadmin"))
+
+
 def verify_credentials(username: str, password: str):
     """
     验证用户名+密码，返回 (ok: bool, role: str, user_id: int|None)
@@ -195,7 +257,7 @@ def decode_token(token: str) -> dict:
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
-    return decode_token(credentials.credentials)
+    return normalize_user_claims(decode_token(credentials.credentials))
 
 
 def require_role(min_role: str):
@@ -206,7 +268,7 @@ def require_role(min_role: str):
     min_level = ROLE_LEVELS.get(min_role, 0)
 
     def _checker(credentials: HTTPAuthorizationCredentials = Security(security)):
-        payload = decode_token(credentials.credentials)
+        payload = normalize_user_claims(decode_token(credentials.credentials))
         role = payload.get("role", "viewer")
         # 向后兼容：旧版 token 中 uid=0 且 role="admin" 的是超级管理员
         uid = payload.get("uid", -1)

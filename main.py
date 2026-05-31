@@ -20,6 +20,7 @@ from api.assets import router as assets_router
 from api.ad_templates import router as ad_templates_router
 from api.storage import router as storage_router
 from api.users import router as users_router
+from api.teams import router as teams_router
 from api.admin import router as admin_router
 from api.mirror import router as mirror_router
 from api.warmup import router as warmup_router
@@ -70,13 +71,16 @@ class ActivityAuditMiddleware(BaseHTTPMiddleware):
                 uid = payload.get("uid")
                 username = payload.get("username", "unknown")
                 role = payload.get("role", "viewer")
+                team_id = payload.get("team_id")
+                team_name = payload.get("team_name")
                 ip = request.client.host if request.client else ""
 
                 conn = get_conn()
                 conn.execute(
-                    """INSERT INTO user_activity_log (user_id, username, role, method, path, status_code, ip_address, duration_ms)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (uid, username, role, request.method, path, response.status_code, ip, duration_ms)
+                    """INSERT INTO user_activity_log
+                       (user_id, username, role, team_id, team_name, method, path, status_code, ip_address, duration_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (uid, username, role, team_id, team_name, request.method, path, response.status_code, ip, duration_ms)
                 )
                 conn.execute(
                     "UPDATE users SET last_active_at=datetime('now','+8 hours'), last_ip=? WHERE username=?",
@@ -139,6 +143,12 @@ async def startup():
     except Exception as e:
         import logging
         logging.getLogger("mira").warning(f"v5 migrate warning: {e}")
+    try:
+        import db_migrate_v6
+        db_migrate_v6.run()
+    except Exception as e:
+        import logging
+        logging.getLogger("mira").warning(f"v6 migrate warning: {e}")
     # v3.10: 预热列自愈
     try:
         from services.warmup_engine import _ensure_schema
@@ -162,6 +172,7 @@ app.include_router(assets_router,    prefix="/api/assets",    tags=["assets"])
 app.include_router(ad_templates_router, prefix="/api/ad-templates", tags=["ad-templates"])
 app.include_router(storage_router,       prefix="/api/storage",       tags=["storage"])
 app.include_router(users_router,        prefix="/api/users",        tags=["users"])
+app.include_router(teams_router,        prefix="/api/teams",        tags=["teams"])
 app.include_router(admin_router,       prefix="/api/admin",       tags=["admin"])
 app.include_router(mirror_router,      prefix="/api/mirror",     tags=["mirror"])
 app.include_router(warmup_router,      prefix="/api/warmup",     tags=["warmup"])
