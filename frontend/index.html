@@ -306,6 +306,8 @@ tr:hover td{background:var(--bgh)}
 .fb-budget-edit:hover:not(:disabled){background:rgba(6,182,212,.08);border-color:rgba(6,182,212,.28)}
 .fb-budget-edit:disabled{cursor:not-allowed;opacity:.72}
 .fb-budget-readonly{display:block}
+.fb-row-check{width:16px;height:16px;accent-color:var(--ac);cursor:pointer}
+.fb-row-check:disabled{cursor:not-allowed;opacity:.38}
 .ads-table th:first-child,.ads-table td:first-child{text-align:center}
 .ads-table th:nth-child(2),.ads-table td:nth-child(2){text-align:center}
 .btn-sm{padding:5px 10px;font-size:12px}
@@ -1030,6 +1032,8 @@ tr:hover td{background:rgba(255,255,255,.025)}
        <option value="warn">CPA偏高</option>
        <option value="bad">CPA超标</option>
        <option value="no_kpi">未设KPI</option>
+       <option value="no_write">不可写/无Token</option>
+       <option value="automated">守护中</option>
       </select>
       <input class="fc" id="adsQ" placeholder="搜索广告名称..." oninput="filterAds()" style="min-width:180px">
       <button class="btn btn-g btn-sm" onclick="expandAdsTree()">展开全部</button>
@@ -1037,8 +1041,8 @@ tr:hover td{background:rgba(255,255,255,.025)}
      </div>
      <div id="adsBulkBar" class="fb" style="gap:8px;margin-top:8px;display:none">
       <span id="adsSelectedCount" style="font-size:12px;color:var(--t3)">已选 0 条</span>
-      <button class="btn btn-g btn-sm" onclick="bulkAdStatus('PAUSED')">暂停选中广告</button>
-      <button class="btn btn-p btn-sm" onclick="bulkAdStatus('ACTIVE')">开启选中广告</button>
+      <button class="btn btn-g btn-sm" onclick="bulkAdStatus('PAUSED')">暂停选中项</button>
+      <button class="btn btn-p btn-sm" onclick="bulkAdStatus('ACTIVE')">开启选中项</button>
       <button class="btn btn-g btn-sm" onclick="clearSelectedAds()">清空选择</button>
      </div>
      <div class="card" style="padding:0"><div class="table-wrap"><table class="ads-table">
@@ -3964,7 +3968,7 @@ async function loadAds(opts){
   var now=Date.now();
   if(!opts.force&&opts.auto&&_adsCache.key===cacheKey&&_adsCache.data&&(now-_adsCache.ts)<ADS_CACHE_MS){
    allAds=_adsCache.data.slice();
-   selectedAds=new Set(Array.from(selectedAds).filter(function(id){return allAds.some(function(x){return x.ad_id===id})}));
+   _adsPruneSelection();
    filterAds();
    return allAds;
   }
@@ -3976,7 +3980,7 @@ async function loadAds(opts){
   allAds=data;
   _adsCache={key:cacheKey,ts:Date.now(),data:(data||[]).slice()};
   _pageAutoCache.ads={key:_pageAutoKey('ads'),ts:Date.now()};
-  selectedAds=new Set(Array.from(selectedAds).filter(function(id){return allAds.some(function(x){return x.ad_id===id})}));
+  _adsPruneSelection();
   filterAds();
   return allAds;
  }catch(e){
@@ -4073,16 +4077,57 @@ function _adsAutomationHint(a){
  var map={mirror_enabled:'镜像',sentinel_enabled:'哨兵',heartbeat_enabled:'心跳'};
  return arr.length?'<div style="font-size:10px;color:var(--wa);margin-top:2px">自动守护：'+arr.map(function(x){return map[x]||x}).join(' / ')+'</div>':'';
 }
+function _adsSelKey(level,id){return String(level||'ad')+':'+String(id||'');}
+function _adsSplitSelKey(key){
+ var s=String(key||''),i=s.indexOf(':');
+ if(i<0)return {level:'ad',id:s};
+ return {level:s.slice(0,i)||'ad',id:s.slice(i+1)};
+}
+function _adsSelectionLabel(level){return {account:'账户',campaign:'系列',adset:'广告组',ad:'广告'}[level]||level;}
+function _adsFind(id){return (allAds||[]).find(function(a){return a.ad_id===id});}
+function _adsFindByLevel(level,id){
+ if(level==='account')return (allAds||[]).find(function(a){return a.act_id===id});
+ if(level==='campaign')return (allAds||[]).find(function(a){return a.campaign_id===id});
+ if(level==='adset')return (allAds||[]).find(function(a){return a.adset_id===id});
+ return _adsFind(id);
+}
+function _adsSelectionExists(key){
+ var p=_adsSplitSelKey(key);
+ return !!_adsFindByLevel(p.level,p.id);
+}
+function _adsPruneSelection(){
+ selectedAds=new Set(Array.from(selectedAds).filter(_adsSelectionExists));
+}
+function _adsSelectedStats(){
+ var m={account:0,campaign:0,adset:0,ad:0};
+ Array.from(selectedAds).forEach(function(key){var p=_adsSplitSelKey(key);if(m[p.level]!==undefined)m[p.level]++;});
+ var parts=[];
+ if(m.account)parts.push(m.account+' 个账户');
+ if(m.campaign)parts.push(m.campaign+' 个系列');
+ if(m.adset)parts.push(m.adset+' 个组');
+ if(m.ad)parts.push(m.ad+' 条广告');
+ return {total:selectedAds.size,parts:parts};
+}
+function _adsSelectBox(level,id,title){
+ var key=_adsSelKey(level,id);
+ return '<input class="fb-row-check" type="checkbox" '+(selectedAds.has(key)?'checked':'')+' title="'+escHtml(title||('选择'+_adsSelectionLabel(level)))+'" onclick="event.stopPropagation()" onchange="toggleSelectNode(\''+_adsJs(level)+'\',\''+_adsJs(id)+'\',this.checked)">';
+}
 function updateAdsBulkBar(){
  var bar=document.getElementById('adsBulkBar'),cnt=document.getElementById('adsSelectedCount'),all=document.getElementById('adsSelectAll');
- if(bar)bar.style.display=selectedAds.size?'flex':'none';
- if(cnt)cnt.textContent='已选 '+selectedAds.size+' 条';
- if(all){var f=window._lastFilteredAds||[];all.checked=!!f.length&&f.every(function(a){return selectedAds.has(a.ad_id)});}
+ var stats=_adsSelectedStats();
+ if(bar)bar.style.display=stats.total?'flex':'none';
+ if(cnt)cnt.textContent='已选 '+stats.total+' 项'+(stats.parts.length?'（'+stats.parts.join(' / ')+'）':'');
+ if(all){
+  var f=window._lastFilteredAds||[];
+  var any=!!f.length&&f.some(function(a){return selectedAds.has(_adsSelKey('ad',a.ad_id));});
+  all.checked=!!f.length&&f.every(function(a){return selectedAds.has(_adsSelKey('ad',a.ad_id));});
+  all.indeterminate=!all.checked&&any;
+ }
 }
-function toggleSelectAd(id,checked){if(checked)selectedAds.add(id);else selectedAds.delete(id);updateAdsBulkBar();}
-function toggleSelectAllAds(checked){(window._lastFilteredAds||[]).forEach(function(a){if(checked)selectedAds.add(a.ad_id);else selectedAds.delete(a.ad_id);});filterAds();}
+function toggleSelectNode(level,id,checked){var key=_adsSelKey(level,id);if(checked)selectedAds.add(key);else selectedAds.delete(key);updateAdsBulkBar();}
+function toggleSelectAd(id,checked){toggleSelectNode('ad',id,checked);}
+function toggleSelectAllAds(checked){(window._lastFilteredAds||[]).forEach(function(a){var key=_adsSelKey('ad',a.ad_id);if(checked)selectedAds.add(key);else selectedAds.delete(key);});filterAds();}
 function clearSelectedAds(){selectedAds.clear();filterAds();}
-function _adsFind(id){return (allAds||[]).find(function(a){return a.ad_id===id});}
 function _adsTreeDefault(type){return false;}
 function _adsTreeIsOpen(type,key,def){var m=_adsTreeOpen[type]||{};return Object.prototype.hasOwnProperty.call(m,key)?m[key]:def;}
 function toggleAdsTree(type,key){if(!_adsTreeOpen[type])_adsTreeOpen[type]={};_adsTreeOpen[type][key]=!_adsTreeIsOpen(type,key,_adsTreeDefault(type));filterAds();}
@@ -4195,21 +4240,21 @@ function renderAdsTree(rows, forceOpen){
  var accountsGroup=_adsGroupBy(rows,function(a){return a.act_id||'unknown';});
  accountsGroup.keys.forEach(function(actKey){
   var accRows=accountsGroup.map[actKey],accRep=accRows[0],accM=_adsSum(accRows),accOpen=forceOpen||_adsTreeIsOpen('accounts',actKey,false);
-  html.push('<tr style="background:var(--bg2);cursor:pointer" onclick="toggleAdsTree(\'accounts\',\''+_adsJs(actKey)+'\')"><td>'+_adsAccountSwitchButton(actKey)+'</td><td></td><td>'+_adsNameCell('accounts',actKey,accOpen,0,accRep.account_name||actKey,(actKey||'').replace(/^act_/,''))+'</td><td>'+_adsStatusBadge(_adsGroupStatus(accRows,'campaign'))+_adsAutomationHint(accRep)+'</td><td>'+_adsMoney(accM.spend,accRep.currency||'USD')+'<div style="font-size:10px;color:var(--t3)">账户消耗</div></td>'+_adsMetricCells(accM,null)+'<td><span class="badge bg-mu">'+accM.count+' 条广告</span></td><td>'+_adsMoreActions(accRep,'account')+'</td></tr>');
+  html.push('<tr style="background:var(--bg2);cursor:pointer" onclick="toggleAdsTree(\'accounts\',\''+_adsJs(actKey)+'\')"><td>'+_adsAccountSwitchButton(actKey)+'</td><td>'+_adsSelectBox('account',actKey,'选择账户')+'</td><td>'+_adsNameCell('accounts',actKey,accOpen,0,accRep.account_name||actKey,(actKey||'').replace(/^act_/,''))+'</td><td>'+_adsStatusBadge(_adsGroupStatus(accRows,'campaign'))+_adsAutomationHint(accRep)+'</td><td>'+_adsMoney(accM.spend,accRep.currency||'USD')+'<div style="font-size:10px;color:var(--t3)">账户消耗</div></td>'+_adsMetricCells(accM,null)+'<td><span class="badge bg-mu">'+accM.count+' 条广告</span></td><td>'+_adsMoreActions(accRep,'account')+'</td></tr>');
   if(!accOpen)return;
   var campGroup=_adsGroupBy(accRows,function(a){return a.campaign_id||('__camp_'+a.ad_id);});
   campGroup.keys.forEach(function(campKey){
    var campRows=campGroup.map[campKey],campRep=campRows[0],campM=_adsSum(campRows),campOpen=forceOpen||_adsTreeIsOpen('campaigns',campKey,false);
-   html.push('<tr style="background:var(--bg1);cursor:pointer" onclick="toggleAdsTree(\'campaigns\',\''+_adsJs(campKey)+'\')"><td>'+_adsSwitchButton(campRep,'campaign')+'</td><td></td><td>'+_adsNameCell('campaigns',campKey,campOpen,1,campRep.campaign_name||campKey,campKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td><td>'+_adsBudgetCell(campRep,'campaign')+'</td>'+_adsMetricCells(campM,null)+'<td><span class="badge bg-mu">'+campM.count+' 条</span></td><td>'+_adsMoreActions(campRep,'campaign')+'</td></tr>');
+   html.push('<tr style="background:var(--bg1);cursor:pointer" onclick="toggleAdsTree(\'campaigns\',\''+_adsJs(campKey)+'\')"><td>'+_adsSwitchButton(campRep,'campaign')+'</td><td>'+_adsSelectBox('campaign',campKey,'选择广告系列')+'</td><td>'+_adsNameCell('campaigns',campKey,campOpen,1,campRep.campaign_name||campKey,campKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td><td>'+_adsBudgetCell(campRep,'campaign')+'</td>'+_adsMetricCells(campM,null)+'<td><span class="badge bg-mu">'+campM.count+' 条</span></td><td>'+_adsMoreActions(campRep,'campaign')+'</td></tr>');
    if(!campOpen)return;
    var adsetGroup=_adsGroupBy(campRows,function(a){return a.adset_id||('__adset_'+a.ad_id);});
    adsetGroup.keys.forEach(function(adsetKey){
     var setRows=adsetGroup.map[adsetKey],setRep=setRows[0],setM=_adsSum(setRows),setOpen=forceOpen||_adsTreeIsOpen('adsets',adsetKey,false);
-    html.push('<tr style="cursor:pointer" onclick="toggleAdsTree(\'adsets\',\''+_adsJs(adsetKey)+'\')"><td>'+_adsSwitchButton(setRep,'adset')+'</td><td></td><td>'+_adsNameCell('adsets',adsetKey,setOpen,2,setRep.adset_name||adsetKey,adsetKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(setRows,'adset'))+'</td><td>'+_adsBudgetCell(setRep,'adset')+'</td>'+_adsMetricCells(setM,null)+'<td><span class="badge bg-mu">'+setM.count+' 条</span></td><td>'+_adsMoreActions(setRep,'adset')+'</td></tr>');
+    html.push('<tr style="cursor:pointer" onclick="toggleAdsTree(\'adsets\',\''+_adsJs(adsetKey)+'\')"><td>'+_adsSwitchButton(setRep,'adset')+'</td><td>'+_adsSelectBox('adset',adsetKey,'选择广告组')+'</td><td>'+_adsNameCell('adsets',adsetKey,setOpen,2,setRep.adset_name||adsetKey,adsetKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(setRows,'adset'))+'</td><td>'+_adsBudgetCell(setRep,'adset')+'</td>'+_adsMetricCells(setM,null)+'<td><span class="badge bg-mu">'+setM.count+' 条</span></td><td>'+_adsMoreActions(setRep,'adset')+'</td></tr>');
     if(!setOpen)return;
     setRows.sort(function(x,y){return (y.spend||0)-(x.spend||0);}).forEach(function(a){
      var cc=a.target_cpa?(a.cpa<=a.target_cpa?'cpa-good':a.cpa<=a.target_cpa*1.3?'cpa-warn':'cpa-bad'):'';
-     var cb='<input type="checkbox" '+(selectedAds.has(a.ad_id)?'checked':'')+' onclick="event.stopPropagation()" onchange="toggleSelectAd(\''+_adsJs(a.ad_id)+'\',this.checked)">';
+     var cb=_adsSelectBox('ad',a.ad_id,'选择广告');
      html.push('<tr><td>'+_adsSwitchButton(a,'ad')+'</td><td>'+cb+'</td><td>'+_adsLeafName(a)+'</td><td>'+_adsStatusBadge(a.effective_status||a.status||'')+'</td><td>'+_adsBudgetCell(a,'ad')+'</td><td><strong>$'+Number(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+Number(a.cpa).toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+Number(a.target_cpa).toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(a.roas?Number(a.roas).toFixed(2)+'x':'--')+'</td><td>'+_adsKpiCell(a)+'</td><td>'+_adsMoreActions(a,'ad')+'</td></tr>');
     });
    });
@@ -4232,6 +4277,8 @@ function filterAds(){
   if(st==='warn')return a.cpa&&a.target_cpa&&a.cpa>a.target_cpa&&a.cpa<=a.target_cpa*1.3;
   if(st==='bad')return a.cpa&&a.target_cpa&&a.cpa>a.target_cpa*1.3;
   if(st==='no_kpi')return !a.target_cpa;
+  if(st==='no_write')return !a.pause_token_ok||!a.update_token_ok||!a.can_edit_budget;
+  if(st==='automated')return (a.automation_warnings||[]).length>0;
   return true;
  });
  window._lastFilteredAds=f;
@@ -4347,20 +4394,56 @@ async function runAccountPauseCampaigns(actKey,btn){
   if(btn){btn.disabled=false;btn.removeAttribute('aria-busy');}
  }
 }
-async function bulkAdStatus(desired){
- var rows=Array.from(selectedAds).map(_adsFind).filter(Boolean);
- if(!rows.length){toast('请先选择广告','wa');return;}
- var items=[],skipped=[];
- rows.forEach(function(a){
-  var al=_adsOpAllowed(a,'ad',desired);
-  if(al.ok)items.push({act_id:a.act_id,level:'ad',target_id:a.ad_id,target_name:a.ad_name||a.ad_id,status:desired});
-  else skipped.push((a.ad_name||a.ad_id)+'：'+_adsReasonText(al.reason));
+function _adsPushBulkItem(items,seen,skipped,a,level,desired){
+ var al=_adsOpAllowed(a,level,desired);
+ var t=_adsLevelStatus(a,level);
+ var label=_adsSelectionLabel(level);
+ var name=t.name||t.id||label;
+ if(al.ok){
+  var key=level+':'+t.id;
+  if(!seen[key]){
+   seen[key]=1;
+   items.push({act_id:a.act_id,level:level,target_id:t.id,target_name:name,status:desired});
+  }
+ }else{
+  skipped.push(label+' '+name+'：'+_adsReasonText(al.reason));
+ }
+}
+function _adsBuildBulkPlan(desired){
+ var items=[],skipped=[],seen={};
+ Array.from(selectedAds).forEach(function(key){
+  var p=_adsSplitSelKey(key);
+  var a=_adsFindByLevel(p.level,p.id);
+  if(!a){skipped.push(_adsSelectionLabel(p.level)+' '+p.id+'：数据已过期');return;}
+  if(p.level==='account'){
+   if(desired!=='PAUSED'){
+    skipped.push('账户 '+(a.account_name||p.id)+'：账户级批量仅支持暂停系列，避免误开启整户');
+    return;
+   }
+   var plan=_adsAccountPausePlan(p.id);
+   (plan.items||[]).forEach(function(item){
+    var k=item.level+':'+item.target_id;
+    if(!seen[k]){seen[k]=1;items.push(item);}
+   });
+   (plan.skipped||[]).forEach(function(s){skipped.push('账户 '+(a.account_name||p.id)+'：'+s);});
+   if(!(plan.items||[]).length&&!(plan.skipped||[]).length)skipped.push('账户 '+(a.account_name||p.id)+'：没有可暂停的广告系列');
+   return;
+  }
+  _adsPushBulkItem(items,seen,skipped,a,p.level,desired);
  });
+ return {items:items,skipped:skipped};
+}
+async function bulkAdStatus(desired){
+ if(!selectedAds.size){toast('请先选择账户、系列、广告组或广告','wa');return;}
+ var plan=_adsBuildBulkPlan(desired);
+ var items=plan.items,skipped=plan.skipped;
  if(!items.length){showInfo(skipped.slice(0,12).map(escHtml).join('<br>')+(skipped.length>12?'<br>...':'') ,'全部不可操作');return;}
  var actionLabel=desired==='PAUSED'?'暂停':'开启';
- var html='<div>确认'+actionLabel+'选中的 <strong>'+items.length+'</strong>条广告？</div>';
- if(skipped.length){html+='<div style="margin-top:10px;color:var(--wa);font-size:12px">将跳过 '+skipped.length+' 条不可操作广告。</div>';}
- var ok=await confirmAsync(html,'确认'+actionLabel,'取消','批量广告操作');
+ var stats=_adsSelectedStats();
+ var html='<div>确认'+actionLabel+'选中的 <strong>'+items.length+'</strong> 个可操作对象？</div>'+
+  '<div style="font-size:12px;color:var(--t3);margin-top:6px">当前选择：'+escHtml(stats.parts.join(' / ')||stats.total+' 项')+'</div>';
+ if(skipped.length){html+='<div style="margin-top:10px;color:var(--wa);font-size:12px">将跳过 '+skipped.length+' 个不可操作对象。</div>';}
+ var ok=await confirmAsync(html,'确认'+actionLabel,'取消','批量操作确认');
  if(!ok)return;
  try{
   var r=await api('POST','/ad-ops/bulk-status',{items:items});
