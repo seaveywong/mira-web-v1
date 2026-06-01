@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from core.auth import get_current_user
 from core.database import get_conn
+from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
 
 
 # ── Facebook 广告合规要求(所有目的通用)──
@@ -273,6 +274,7 @@ def _ensure_asset_library_columns(conn) -> None:
         "archived_at": "TEXT",
         "tags": "TEXT",
         "source": "TEXT DEFAULT 'upload'",
+        "team_id": "INTEGER",
     }
     for col, definition in optional_cols.items():
         if col not in cols:
@@ -493,6 +495,7 @@ def list_assets(
             "COALESCE(tags,'') LIKE ?)"
         )
         params.extend([kw, kw, kw, kw, kw, kw, kw])
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     sort_map = {
         "created_desc": "a.created_at DESC, a.id DESC",
@@ -503,7 +506,7 @@ def list_assets(
         "name_asc": "COALESCE(NULLIF(TRIM(a.display_name), ''), a.file_name, '') ASC, a.id DESC",
     }
     order_by = sort_map.get(sort_by or "created_desc", sort_map["created_desc"])
-    total = conn.execute(f"SELECT COUNT(*) FROM ad_assets {clause}", params).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM ad_assets a {clause}", params).fetchone()[0]
     rows = conn.execute(
         f"""SELECT a.*,
                   (SELECT COUNT(*) FROM auto_campaigns ac WHERE ac.asset_id=a.id) AS campaign_count,
@@ -554,6 +557,7 @@ def serve_asset_thumb_v2(asset_id: int):
 @router.get("/{asset_id:int}")
 def get_asset(asset_id: int, user=Depends(get_current_user)):
     conn = get_conn()
+    assert_row_access(conn, "ad_assets", asset_id, user)
     row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     conn.close()
     if not row:
@@ -570,7 +574,29 @@ class AssetBatchUpdateBody(BaseModel):
     asset_status: Optional[str] = None
 
 
-def _update_assets_batch(conn, body: AssetBatchUpdateBody) -> int:
+def _resolve_asset_ids_for_write(conn, ids: list[int], user, allow_unassigned: bool = True, claim_unassigned: bool = True) -> list[int]:
+    placeholders = ",".join(["?"] * len(ids))
+    where = [f"id IN ({placeholders})"]
+    params = list(ids)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=allow_unassigned)
+    rows = conn.execute(
+        f"SELECT id FROM ad_assets WHERE {' AND '.join(where)}",
+        params,
+    ).fetchall()
+    allowed_ids = [int(row["id"]) for row in rows]
+    if len(allowed_ids) != len(set(ids)):
+        raise HTTPException(403, "Some assets are not accessible")
+    owner_team_id = team_id_for_create(user)
+    if claim_unassigned and owner_team_id is not None and allowed_ids:
+        claim_placeholders = ",".join(["?"] * len(allowed_ids))
+        conn.execute(
+            f"UPDATE ad_assets SET team_id=? WHERE id IN ({claim_placeholders}) AND team_id IS NULL",
+            [owner_team_id] + allowed_ids,
+        )
+    return allowed_ids
+
+
+def _update_assets_batch(conn, body: AssetBatchUpdateBody, user, allow_unassigned: bool = True) -> int:
     ids = [int(v) for v in (body.ids or []) if int(v) > 0]
     if not ids:
         raise HTTPException(400, "请选择素材")
@@ -578,6 +604,7 @@ def _update_assets_batch(conn, body: AssetBatchUpdateBody) -> int:
         raise HTTPException(400, "单次最多整理 500 个素材")
 
     _ensure_asset_library_columns(conn)
+    ids = _resolve_asset_ids_for_write(conn, ids, user, allow_unassigned=allow_unassigned)
     now = _now_cst()
     updates, params = [], []
     if body.folder_name is not None:
@@ -626,7 +653,7 @@ def _update_assets_batch(conn, body: AssetBatchUpdateBody) -> int:
 def batch_update_assets(body: AssetBatchUpdateBody, user=Depends(get_current_user)):
     conn = get_conn()
     try:
-        changed = _update_assets_batch(conn, body)
+        changed = _update_assets_batch(conn, body, user)
         conn.commit()
     finally:
         conn.close()
@@ -638,7 +665,7 @@ def archive_asset(asset_id: int, user=Depends(get_current_user)):
     body = AssetBatchUpdateBody(ids=[asset_id], asset_status="archived")
     conn = get_conn()
     try:
-        changed = _update_assets_batch(conn, body)
+        changed = _update_assets_batch(conn, body, user, allow_unassigned=False)
         conn.commit()
     finally:
         conn.close()
@@ -650,7 +677,7 @@ def restore_asset(asset_id: int, user=Depends(get_current_user)):
     body = AssetBatchUpdateBody(ids=[asset_id], asset_status="active")
     conn = get_conn()
     try:
-        changed = _update_assets_batch(conn, body)
+        changed = _update_assets_batch(conn, body, user, allow_unassigned=False)
         conn.commit()
     finally:
         conn.close()
@@ -661,24 +688,31 @@ def restore_asset(asset_id: int, user=Depends(get_current_user)):
 def duplicate_assets(limit: int = Query(100, ge=1, le=500), user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_asset_library_columns(conn)
+    where = ["COALESCE(file_hash,'')!=''", "COALESCE(asset_status,'active')!='deleted'"]
+    params = []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    clause = " AND ".join(where)
     rows = conn.execute(
-        """
+        f"""
         SELECT file_hash, COUNT(*) AS cnt, MIN(id) AS first_id, MAX(created_at) AS last_created_at
         FROM ad_assets
-        WHERE COALESCE(file_hash,'')!='' AND COALESCE(asset_status,'active')!='deleted'
+        WHERE {clause}
         GROUP BY file_hash
         HAVING COUNT(*) > 1
         ORDER BY cnt DESC, last_created_at DESC
         LIMIT ?
         """,
-        (limit,),
+        params + [limit],
     ).fetchall()
     groups = []
     for row in rows:
+        item_where = ["file_hash=?"]
+        item_params = [row["file_hash"]]
+        apply_team_scope(item_where, item_params, user, "team_id", include_unassigned=True)
         items = conn.execute(
-            """SELECT id, file_name, display_name, folder_name, batch_code, asset_status, created_at
-               FROM ad_assets WHERE file_hash=? ORDER BY created_at ASC, id ASC""",
-            (row["file_hash"],),
+            f"""SELECT id, file_name, display_name, folder_name, batch_code, asset_status, created_at
+               FROM ad_assets WHERE {' AND '.join(item_where)} ORDER BY created_at ASC, id ASC""",
+            item_params,
         ).fetchall()
         groups.append({
             "file_hash": row["file_hash"],
@@ -694,6 +728,7 @@ def duplicate_assets(limit: int = Query(100, ge=1, le=500), user=Depends(get_cur
 def asset_usage(asset_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_asset_library_columns(conn)
+    assert_row_access(conn, "ad_assets", asset_id, user)
     asset = conn.execute("SELECT id FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not asset:
         conn.close()
@@ -773,8 +808,12 @@ async def upload_asset(
     file_hash = hashlib.md5(content).hexdigest()
     conn = get_conn()
     _ensure_asset_library_columns(conn)
+    resource_team_id = team_id_for_create(user)
+    existing_where, existing_params = ["file_hash=?"], [file_hash]
+    apply_team_scope(existing_where, existing_params, user, "team_id", include_unassigned=True)
     existing = conn.execute(
-        "SELECT id, file_name FROM ad_assets WHERE file_hash=?", (file_hash,)
+        f"SELECT id, file_name FROM ad_assets WHERE {' AND '.join(existing_where)}",
+        existing_params,
     ).fetchone()
     if existing:
         conn.close()
@@ -821,10 +860,10 @@ async def upload_asset(
         cur = conn.execute(
             """INSERT INTO ad_assets
                (act_id, file_name, display_name, file_type, file_path, thumb_path,
-                file_size, file_hash, upload_status, note, target_countries, folder_name, batch_code, asset_code, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,'local_saved',?,?,?,?,?,?,?)""",
+                file_size, file_hash, upload_status, note, target_countries, folder_name, batch_code, asset_code, team_id, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,'local_saved',?,?,?,?,?,?,?,?)""",
             (act_id, file.filename, file.filename, file_type, save_path, thumb_path,
-             len(content), file_hash, note, target_countries, folder_name, batch_code, asset_code_new, now, now)
+             len(content), file_hash, note, target_countries, folder_name, batch_code, asset_code_new, resource_team_id, now, now)
         )
         asset_id = cur.lastrowid
         conn.commit()
@@ -1298,6 +1337,7 @@ def trigger_ai_analyze(asset_id: int, body: AiAnalyzeBody = None, user=Depends(g
     if body is None:
         body = AiAnalyzeBody()
     conn = get_conn()
+    assert_row_access(conn, "ad_assets", asset_id, user)
     row = conn.execute("SELECT id, file_type FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     conn.close()
     if not row:
@@ -1318,10 +1358,11 @@ def trigger_ai_analyze(asset_id: int, body: AiAnalyzeBody = None, user=Depends(g
     style = body.style if body.style in ("conservative", "standard", "aggressive") else "standard"
     depth_label = ANALYSIS_DEPTH_CONFIG[depth]["label"]
     conn = get_conn()
+    owner_team_id = team_id_for_create(user)
     conn.execute(
-        "UPDATE ad_assets SET upload_status='ai_pending', ai_purpose=?, ai_language=?, updated_at=? WHERE id=?",
+        "UPDATE ad_assets SET upload_status='ai_pending', ai_purpose=?, ai_language=?, updated_at=?, team_id=COALESCE(team_id, ?) WHERE id=?",
         (purpose, ",".join(languages),
-         datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"), asset_id)
+         datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"), owner_team_id, asset_id)
     )
     conn.commit(); conn.close()
     threading.Thread(
@@ -1399,13 +1440,15 @@ def rename_asset(asset_id: int, body: RenameBody, user=Depends(get_current_user)
     if not name:
         raise HTTPException(400, "名称不能为空")
     conn = get_conn()
+    assert_row_access(conn, "ad_assets", asset_id, user)
+    owner_team_id = team_id_for_create(user)
     row = conn.execute("SELECT id FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not row:
         conn.close()
         raise HTTPException(404, "素材不存在")
     conn.execute(
-        "UPDATE ad_assets SET display_name=?, updated_at=? WHERE id=?",
-        (name, datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"), asset_id)
+        "UPDATE ad_assets SET display_name=?, updated_at=?, team_id=COALESCE(team_id, ?) WHERE id=?",
+        (name, datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"), owner_team_id, asset_id)
     )
     conn.commit(); conn.close()
     return {"message": "重命名成功", "display_name": name}
@@ -1434,6 +1477,7 @@ class AssetUpdate(BaseModel):
 def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_asset_library_columns(conn)
+    assert_row_access(conn, "ad_assets", asset_id, user)
     row = conn.execute("SELECT id FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not row:
         conn.close()
@@ -1479,6 +1523,9 @@ def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user
         updates.append("asset_status=?"); params.append(status)
         updates.append("archived_at=?"); params.append(_now_cst() if status == "archived" else None)
     if updates:
+        owner_team_id = team_id_for_create(user)
+        updates.append("team_id=COALESCE(team_id, ?)")
+        params.append(owner_team_id)
         updates.append("updated_at=?")
         params.append(datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"))
         params.append(asset_id)
@@ -1494,6 +1541,7 @@ def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user
 def delete_asset(asset_id: int, user=Depends(get_current_user)):
     """删除素材(同时删除本地文件和缩略图)"""
     conn = get_conn()
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     row = conn.execute("SELECT file_path, thumb_path FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not row:
         conn.close()
@@ -1691,7 +1739,7 @@ def _launch_page_block_reason(conn, page_id: str) -> str:
     return f"{row['page_name'] or page_id}({page_id}): " + " / ".join(dict.fromkeys(reasons))
 
 
-def _run_launch_precheck(body: PreCheckBody) -> dict:
+def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
     _normalize_launch_body(body)
     items = []
     act_ids = _launch_act_ids(body)
@@ -1701,10 +1749,15 @@ def _run_launch_precheck(body: PreCheckBody) -> dict:
 
     conn = get_conn()
     try:
+        account_where = [
+            "act_id IN (%s)" % ",".join("?" for _ in act_ids)
+        ]
+        account_params = list(act_ids)
+        if user is not None:
+            apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=True)
         rows = conn.execute(
-            "SELECT act_id,name,enabled,account_status,page_id,pixel_id,landing_url FROM accounts WHERE act_id IN (%s)" %
-            ",".join("?" for _ in act_ids),
-            act_ids,
+            f"SELECT act_id,name,enabled,account_status,page_id,pixel_id,landing_url FROM accounts WHERE {' AND '.join(account_where)}",
+            account_params,
         ).fetchall()
         account_map = {r["act_id"]: dict(r) for r in rows}
         default_page_id = _get_setting_value(conn, "autopilot_fb_page_id", "").strip()
@@ -1921,7 +1974,7 @@ def _trigger_manual_launch(campaign_id: int) -> None:
 
 @router.post("/precheck-launch")
 def precheck_launch(body: PreCheckBody, user=Depends(get_current_user)):
-    return _run_launch_precheck(body)
+    return _run_launch_precheck(body, user)
 
 
 @router.post("/{asset_id:int}/launch")
@@ -1931,12 +1984,13 @@ def launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_cu
     if not act_ids:
         raise HTTPException(400, "请选择广告账户")
     body.act_id = act_ids[0]
-    report = _run_launch_precheck(PreCheckBody(**body.dict()))
+    report = _run_launch_precheck(PreCheckBody(**body.dict()), user)
     block_msg = _build_launch_precheck_block_message(report)
     if block_msg:
         raise HTTPException(400, block_msg)
 
     conn = get_conn()
+    assert_row_access(conn, "ad_assets", asset_id, user)
     asset_row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not asset_row:
         conn.close()
@@ -1973,6 +2027,7 @@ def batch_launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(
 @router.get("/{asset_id:int}/campaigns/{campaign_id:int}/status")
 def get_launch_campaign_status(asset_id: int, campaign_id: int, user=Depends(get_current_user)):
     conn = get_conn()
+    assert_row_access(conn, "ad_assets", asset_id, user)
     row = conn.execute(
         """SELECT c.id, c.status, c.progress_step, c.progress_msg,
                   c.fb_campaign_id, c.total_adsets, c.total_ads,
@@ -2020,6 +2075,12 @@ def get_asset_breakdown(
     这样即使账户被移除、Token 过期、素材被替换,历史绩效数据永不丢失.
     """
     import json as _json
+
+    guard_conn = get_conn()
+    try:
+        assert_row_access(guard_conn, "ad_assets", asset_id, user)
+    finally:
+        guard_conn.close()
 
     # ── force_refresh:先触发一次完整的 score_asset 更新数据库 ──────────────
     if force_refresh:
@@ -2132,15 +2193,20 @@ def search_accounts(
     """搜索广告账户,支持按账户名称或ID模糊搜索"""
     conn = get_conn()
     keyword = f"%{q}%"
+    where = [
+        "(name LIKE ? OR act_id LIKE ?)",
+        "COALESCE(enabled, 1)=1",
+        "CAST(COALESCE(account_status, 1) AS INTEGER)=1",
+    ]
+    params = [keyword, keyword]
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
     rows = conn.execute(
-        """SELECT act_id, name, currency, account_status, balance, timezone
+        f"""SELECT act_id, name, currency, account_status, balance, timezone
            FROM accounts
-           WHERE (name LIKE ? OR act_id LIKE ?)
-             AND COALESCE(enabled, 1)=1
-             AND CAST(COALESCE(account_status, 1) AS INTEGER)=1
+           WHERE {' AND '.join(where)}
            ORDER BY name ASC
            LIMIT ?""",
-        (keyword, keyword, limit)
+        params + [limit]
     ).fetchall()
     conn.close()
     items = []

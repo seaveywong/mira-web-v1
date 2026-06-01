@@ -83,6 +83,9 @@ def ensure_token_source_columns(conn) -> None:
     if "token_source" not in cols:
         conn.execute("ALTER TABLE fb_tokens ADD COLUMN token_source TEXT")
         changed = True
+    if "team_id" not in cols:
+        conn.execute("ALTER TABLE fb_tokens ADD COLUMN team_id INTEGER")
+        changed = True
     if changed:
         conn.commit()
     conn.execute(
@@ -107,6 +110,20 @@ def ensure_token_source_columns(conn) -> None:
         (TOKEN_SOURCE_UNKNOWN,),
     )
     conn.commit()
+
+
+def _account_team_id(conn, act_id: str) -> Optional[int]:
+    try:
+        row = conn.execute("SELECT team_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
+        return row["team_id"] if row and row["team_id"] is not None else None
+    except Exception:
+        return None
+
+
+def _token_team_clause(account_team_id: Optional[int], alias: str = "t") -> tuple[str, list]:
+    if account_team_id is None:
+        return "", []
+    return f" AND ({alias}.team_id=? OR {alias}.team_id IS NULL)", [account_team_id]
 
 # ── 操作类型常量 ──────────────────────────────────────────────────────────────
 ACTION_PAUSE  = "PAUSE"   # 关闭广告（管理号可兜底）
@@ -192,19 +209,22 @@ def _get_manage_token(act_id: str) -> Optional[str]:
     """
     conn = get_conn()
     ensure_token_source_columns(conn)
+    account_team_id = _account_team_id(conn, act_id)
+    token_team_sql, token_team_params = _token_team_clause(account_team_id, "t")
     row = conn.execute(
-        """
+        f"""
         SELECT t.id, t.access_token_enc, t.status, aot.status as bind_status
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
         WHERE aot.act_id = ?
           AND t.status = 'active'
           AND t.token_type = 'manage'
+          {token_team_sql}
         ORDER BY CASE WHEN aot.status='active' THEN 0 ELSE 1 END,
                  aot.priority ASC, aot.id ASC
         LIMIT 1
         """,
-        (act_id,),
+        [act_id] + token_team_params,
     ).fetchone()
     if not row:
         row = conn.execute(
@@ -214,19 +234,23 @@ def _get_manage_token(act_id: str) -> Optional[str]:
             JOIN fb_tokens t ON t.id = a.token_id
             WHERE a.act_id = ?
               AND t.status = 'active'
+              AND (a.team_id IS NULL OR t.team_id IS NULL OR t.team_id=a.team_id)
             LIMIT 1
             """,
             (act_id,),
         ).fetchone()
     if not row:
+        fallback_team_sql, fallback_team_params = _token_team_clause(account_team_id, "fb_tokens")
         row = conn.execute(
-            """
+            f"""
             SELECT id, access_token_enc, status
             FROM fb_tokens
             WHERE status='active' AND token_type='manage'
+              {fallback_team_sql}
             ORDER BY id ASC
             LIMIT 1
-            """
+            """,
+            fallback_team_params,
         ).fetchone()
     conn.close()
 
@@ -243,7 +267,9 @@ def _get_op_tokens(act_id: str) -> list[dict]:
     """
     conn = get_conn()
     ensure_token_source_columns(conn)
-    rows = conn.execute("""
+    account_team_id = _account_team_id(conn, act_id)
+    token_team_sql, token_team_params = _token_team_clause(account_team_id, "t")
+    rows = conn.execute(f"""
         SELECT t.id as token_id, t.access_token_enc, t.status as token_status,
                aot.status as bind_status, aot.priority,
                t.token_alias, t.matrix_id, t.token_source
@@ -254,8 +280,9 @@ def _get_op_tokens(act_id: str) -> list[dict]:
           AND t.status = 'active'
           AND t.token_type = 'operate'
           AND t.token_source = ?
+          {token_team_sql}
         ORDER BY aot.priority DESC, t.id ASC
-    """, (act_id, TOKEN_SOURCE_SYSTEM_USER)).fetchall()
+    """, [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params).fetchall()
     conn.close()
 
     result = []
@@ -771,8 +798,10 @@ def get_matrix_id_for_account(act_id: str) -> Optional[int]:
     try:
         conn = get_conn()
         ensure_token_source_columns(conn)
+        account_team_id = _account_team_id(conn, act_id)
+        token_team_sql, token_team_params = _token_team_clause(account_team_id, "ft")
         op_row = conn.execute(
-            """
+            f"""
             SELECT ft.matrix_id
             FROM account_op_tokens aot
             JOIN fb_tokens ft ON ft.id = aot.token_id
@@ -782,10 +811,11 @@ def get_matrix_id_for_account(act_id: str) -> Optional[int]:
               AND ft.token_type='operate'
               AND ft.token_source=?
               AND ft.matrix_id IS NOT NULL
+              {token_team_sql}
             ORDER BY aot.priority ASC, aot.id ASC
             LIMIT 1
             """,
-            (act_id, TOKEN_SOURCE_SYSTEM_USER),
+            [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params,
         ).fetchone()
         if op_row and op_row["matrix_id"] is not None:
             conn.close()
@@ -798,7 +828,8 @@ def get_matrix_id_for_account(act_id: str) -> Optional[int]:
             conn.close()
             return None
         token_row = conn.execute(
-            "SELECT matrix_id FROM fb_tokens WHERE id=?", (acc_row["token_id"],)
+            "SELECT matrix_id FROM fb_tokens WHERE id=? AND (? IS NULL OR team_id=? OR team_id IS NULL)",
+            (acc_row["token_id"], account_team_id, account_team_id),
         ).fetchone()
         conn.close()
         return token_row["matrix_id"] if token_row else None

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from core.auth import get_current_user
 from core.database import get_conn, decrypt_token
+from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
 
 logger = logging.getLogger("mira.ad_templates")
 router = APIRouter()
@@ -73,6 +74,7 @@ def _ensure_tables():
         buttons     TEXT NOT NULL DEFAULT '[]',
         destination TEXT NOT NULL DEFAULT 'MESSENGER',
         note        TEXT,
+        team_id     INTEGER,
         created_at  TEXT DEFAULT (datetime('now')),
         updated_at  TEXT DEFAULT (datetime('now'))
     );
@@ -89,6 +91,7 @@ def _ensure_tables():
         thank_you_body  TEXT DEFAULT '我们会尽快与您联系。',
         locale          TEXT DEFAULT 'zh_CN',
         note            TEXT,
+        team_id         INTEGER,
         created_at      TEXT DEFAULT (datetime('now')),
         updated_at      TEXT DEFAULT (datetime('now'))
     );
@@ -98,10 +101,15 @@ def _ensure_tables():
         page_id         TEXT NOT NULL,
         template_id     INTEGER NOT NULL,
         fb_form_id      TEXT NOT NULL,
+        team_id         INTEGER,
         created_at      TEXT DEFAULT (datetime('now')),
         UNIQUE(page_id, template_id)
     );
     """)
+    for table in ("msg_templates", "lead_form_templates", "page_lead_forms"):
+        cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "team_id" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN team_id INTEGER")
     conn.commit()
     conn.close()
 
@@ -142,7 +150,7 @@ def _extract_page_token_from_user_token(page_id: str, user_token: str) -> Option
     return None
 
 
-def _get_page_token(page_id: str, preferred_token: str = "") -> Optional[str]:
+def _get_page_token(page_id: str, preferred_token: str = "", team_id: int | None = None) -> Optional[str]:
     """
     Find a usable Page Access Token for the target page.
     Prefer the token already chosen for the current launch, then fall back to
@@ -155,8 +163,13 @@ def _get_page_token(page_id: str, preferred_token: str = "") -> Optional[str]:
             return page_token
 
     conn = get_conn()
+    where, params = ["status='active'"], []
+    if team_id is not None:
+        where.append("(team_id=? OR team_id IS NULL)")
+        params.append(team_id)
     tokens = conn.execute(
-        "SELECT id, access_token_enc FROM fb_tokens WHERE status='active'"
+        f"SELECT id, access_token_enc FROM fb_tokens WHERE {' AND '.join(where)}",
+        params,
     ).fetchall()
     conn.close()
 
@@ -358,12 +371,13 @@ def _post_lead_form(
     thank_you_title: str = "",
     thank_you_body: str = "",
     button_text: str = "",
+    team_id: int | None = None,
 ) -> str:
     normalized_questions = _normalize_lead_form_questions(questions)
     if not normalized_questions:
         raise LeadFormCreateError("表单字段格式无效，请重新编辑后再试")
 
-    page_token = _get_page_token(page_id, preferred_token)
+    page_token = _get_page_token(page_id, preferred_token, team_id=team_id)
     if not page_token:
         raise LeadFormCreateError("未找到当前主页的 Page Access Token，请确认当前操作号已绑定该主页并具备 ADVERTISE / MANAGE 权限")
 
@@ -550,8 +564,12 @@ class MsgTemplateBody(BaseModel):
 @router.get("/message")
 def list_msg_templates(user=Depends(get_current_user)):
     conn = get_conn()
+    where, params = [], []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
-        "SELECT * FROM msg_templates ORDER BY updated_at DESC"
+        f"SELECT * FROM msg_templates {clause} ORDER BY updated_at DESC",
+        params,
     ).fetchall()
     conn.close()
     result = []
@@ -568,12 +586,13 @@ def list_msg_templates(user=Depends(get_current_user)):
 @router.post("/message")
 def create_msg_template(body: MsgTemplateBody, user=Depends(get_current_user)):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    resource_team_id = team_id_for_create(user)
     conn = get_conn()
     cur = conn.execute(
-        """INSERT INTO msg_templates (name, greeting, buttons, destination, note, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?)""",
+        """INSERT INTO msg_templates (name, greeting, buttons, destination, note, team_id, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?)""",
         (body.name, body.greeting, json.dumps(body.buttons, ensure_ascii=False),
-         body.destination, body.note, now, now)
+         body.destination, body.note, resource_team_id, now, now)
     )
     conn.commit()
     tid = cur.lastrowid
@@ -584,6 +603,7 @@ def create_msg_template(body: MsgTemplateBody, user=Depends(get_current_user)):
 @router.get("/message/{tid}")
 def get_msg_template(tid: int, user=Depends(get_current_user)):
     conn = get_conn()
+    assert_row_access(conn, "msg_templates", tid, user)
     row = conn.execute("SELECT * FROM msg_templates WHERE id=?", (tid,)).fetchone()
     conn.close()
     if not row:
@@ -600,11 +620,13 @@ def get_msg_template(tid: int, user=Depends(get_current_user)):
 def update_msg_template(tid: int, body: MsgTemplateBody, user=Depends(get_current_user)):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
+    assert_row_access(conn, "msg_templates", tid, user)
+    owner_team_id = team_id_for_create(user)
     conn.execute(
-        """UPDATE msg_templates SET name=?, greeting=?, buttons=?, destination=?, note=?, updated_at=?
+        """UPDATE msg_templates SET name=?, greeting=?, buttons=?, destination=?, note=?, team_id=COALESCE(team_id, ?), updated_at=?
            WHERE id=?""",
         (body.name, body.greeting, json.dumps(body.buttons, ensure_ascii=False),
-         body.destination, body.note, now, tid)
+         body.destination, body.note, owner_team_id, now, tid)
     )
     conn.commit()
     conn.close()
@@ -614,6 +636,7 @@ def update_msg_template(tid: int, body: MsgTemplateBody, user=Depends(get_curren
 @router.delete("/message/{tid}")
 def delete_msg_template(tid: int, user=Depends(get_current_user)):
     conn = get_conn()
+    assert_row_access(conn, "msg_templates", tid, user, allow_unassigned=False)
     conn.execute("DELETE FROM msg_templates WHERE id=?", (tid,))
     conn.commit()
     conn.close()
@@ -644,8 +667,12 @@ class LeadFormTemplateBody(BaseModel):
 @router.get("/lead-form")
 def list_lead_form_templates(user=Depends(get_current_user)):
     conn = get_conn()
+    where, params = [], []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
-        "SELECT * FROM lead_form_templates ORDER BY updated_at DESC"
+        f"SELECT * FROM lead_form_templates {clause} ORDER BY updated_at DESC",
+        params,
     ).fetchall()
     conn.close()
     result = []
@@ -662,6 +689,7 @@ def list_lead_form_templates(user=Depends(get_current_user)):
 @router.post("/lead-form")
 def create_lead_form_template(body: LeadFormTemplateBody, user=Depends(get_current_user)):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    resource_team_id = team_id_for_create(user)
     normalized_questions = _normalize_lead_form_questions(body.questions)
     if not normalized_questions:
         raise HTTPException(400, "请至少保留一个有效的表单字段")
@@ -669,13 +697,13 @@ def create_lead_form_template(body: LeadFormTemplateBody, user=Depends(get_curre
     cur = conn.execute(
         """INSERT INTO lead_form_templates
            (name, headline, description, questions, privacy_url, privacy_text,
-            thank_you_title, thank_you_body, locale, note, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            thank_you_title, thank_you_body, locale, note, team_id, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (body.name, body.headline, body.description,
          json.dumps(normalized_questions, ensure_ascii=False),
          body.privacy_url, body.privacy_text,
          body.thank_you_title, body.thank_you_body,
-         body.locale, body.note, now, now)
+         body.locale, body.note, resource_team_id, now, now)
     )
     conn.commit()
     tid = cur.lastrowid
@@ -686,6 +714,7 @@ def create_lead_form_template(body: LeadFormTemplateBody, user=Depends(get_curre
 @router.get("/lead-form/{tid}")
 def get_lead_form_template(tid: int, user=Depends(get_current_user)):
     conn = get_conn()
+    assert_row_access(conn, "lead_form_templates", tid, user)
     row = conn.execute("SELECT * FROM lead_form_templates WHERE id=?", (tid,)).fetchone()
     conn.close()
     if not row:
@@ -705,16 +734,18 @@ def update_lead_form_template(tid: int, body: LeadFormTemplateBody, user=Depends
     if not normalized_questions:
         raise HTTPException(400, "请至少保留一个有效的表单字段")
     conn = get_conn()
+    assert_row_access(conn, "lead_form_templates", tid, user)
+    owner_team_id = team_id_for_create(user)
     conn.execute(
         """UPDATE lead_form_templates
            SET name=?, headline=?, description=?, questions=?, privacy_url=?, privacy_text=?,
-               thank_you_title=?, thank_you_body=?, locale=?, note=?, updated_at=?
+               thank_you_title=?, thank_you_body=?, locale=?, note=?, team_id=COALESCE(team_id, ?), updated_at=?
            WHERE id=?""",
         (body.name, body.headline, body.description,
          json.dumps(normalized_questions, ensure_ascii=False),
          body.privacy_url, body.privacy_text,
          body.thank_you_title, body.thank_you_body,
-         body.locale, body.note, now, tid)
+         body.locale, body.note, owner_team_id, now, tid)
     )
     conn.commit()
     conn.close()
@@ -724,6 +755,7 @@ def update_lead_form_template(tid: int, body: LeadFormTemplateBody, user=Depends
 @router.delete("/lead-form/{tid}")
 def delete_lead_form_template(tid: int, user=Depends(get_current_user)):
     conn = get_conn()
+    assert_row_access(conn, "lead_form_templates", tid, user, allow_unassigned=False)
     conn.execute("DELETE FROM lead_form_templates WHERE id=?", (tid,))
     conn.execute("DELETE FROM page_lead_forms WHERE template_id=?", (tid,))
     conn.commit()
@@ -768,6 +800,7 @@ def create_lead_form_for_page(
     if not tpl:
         logger.error(f"[LeadForm] 模板不存在: template_id={template_id}")
         raise LeadFormCreateError("表单模板不存在，请刷新后重试")
+    template_team_id = tpl["team_id"] if "team_id" in tpl.keys() else None
 
     try:
         questions = json.loads(tpl["questions"])
@@ -793,11 +826,12 @@ def create_lead_form_for_page(
         locale=tpl["locale"] or "zh_CN",
         preferred_token=token,
         context_card=_context_card or None,
+        team_id=template_team_id,
     )
     conn2 = get_conn()
     conn2.execute(
-        "INSERT OR REPLACE INTO page_lead_forms (page_id, template_id, fb_form_id, created_at) VALUES (?,?,?,?)",
-        (page_id, template_id, fb_form_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        "INSERT OR REPLACE INTO page_lead_forms (page_id, template_id, fb_form_id, team_id, created_at) VALUES (?,?,?,?,?)",
+        (page_id, template_id, fb_form_id, template_team_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     )
     conn2.commit()
     conn2.close()
@@ -838,6 +872,11 @@ def get_msg_template_fb_format(template_id: int) -> Optional[dict]:
 @router.get("/message/{tid}/preview")
 def preview_msg_template(tid: int, user=Depends(get_current_user)):
     """返回该消息模板的 FB 格式预览"""
+    conn = get_conn()
+    try:
+        assert_row_access(conn, "msg_templates", tid, user)
+    finally:
+        conn.close()
     fb_fmt = get_msg_template_fb_format(tid)
     if not fb_fmt:
         raise HTTPException(404, "模板不存在")
@@ -850,6 +889,11 @@ def create_form_on_page(tid: int, page_id: str, user=Depends(get_current_user)):
     手动触发：在指定主页上创建 Lead Form。
     返回 fb_form_id 或错误信息。
     """
+    conn = get_conn()
+    try:
+        assert_row_access(conn, "lead_form_templates", tid, user)
+    finally:
+        conn.close()
     try:
         fb_form_id = create_lead_form_for_page(page_id, tid)
     except LeadFormCreateError as exc:

@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import os
+import re
 from datetime import datetime, date, timedelta
 from typing import Optional, Tuple
 import requests
@@ -22,6 +23,43 @@ FB_AD_FIELDS = (
     "insights.date_preset(today){spend,impressions,clicks,actions,action_values,cpc,cpm}"
 )
 MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
+
+_ACCESS_TOKEN_PARAM_RE = re.compile(r"(access_token=)[^&\s]+")
+_FB_TOKEN_VALUE_RE = re.compile(r"\bEA[A-Za-z0-9_\-]{20,}\b")
+
+
+def _sanitize_error_text(value) -> str:
+    """Mask access tokens before text is logged or saved to action_logs."""
+    text = "" if value is None else str(value)
+    text = _ACCESS_TOKEN_PARAM_RE.sub(r"\1***", text)
+    return _FB_TOKEN_VALUE_RE.sub("EA***", text)
+
+
+def _format_fb_response_error(resp: requests.Response) -> str:
+    try:
+        result = resp.json()
+    except ValueError:
+        body = _sanitize_error_text(resp.text[:300])
+        return f"FB API HTTP {resp.status_code}: {body}"
+
+    if isinstance(result, dict) and isinstance(result.get("error"), dict):
+        err = result["error"]
+        code = err.get("code", resp.status_code)
+        subcode = err.get("error_subcode")
+        message = _sanitize_error_text(err.get("message", result))
+        suffix = f", subcode={subcode}" if subcode is not None else ""
+        return f"FB API error(code={code}{suffix}): {message}"
+
+    return f"FB API HTTP {resp.status_code}: {_sanitize_error_text(result)}"
+
+
+def _json_or_fb_error(resp: requests.Response) -> dict:
+    if resp.status_code >= 400:
+        raise RuntimeError(_format_fb_response_error(resp))
+    result = resp.json()
+    if isinstance(result, dict) and isinstance(result.get("error"), dict):
+        raise RuntimeError(_format_fb_response_error(resp))
+    return result
 
 # 操作冷却：同一广告同一规则60分钟内不重复触发
 _action_cooldown: dict = {}  # key: f"{ad_id}:{rule_type}" -> timestamp
@@ -118,9 +156,11 @@ def _fb_get(path: str, token: str, params: dict = None,
         base_url += f"&effective_status={effective_status}"
 
     if not paginate:
-        resp = requests.get(base_url, timeout=20)
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = requests.get(base_url, timeout=20)
+            return _json_or_fb_error(resp)
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(_sanitize_error_text(f"Network error: {e}")) from e
 
     # ── 分页模式：跟随 paging.next 游标直到所有数据拉取完毕 ──────────────
     all_data = []
@@ -128,9 +168,11 @@ def _fb_get(path: str, token: str, params: dict = None,
     page_count = 0
 
     while next_url and page_count < max_pages:
-        resp = requests.get(next_url, timeout=20)
-        resp.raise_for_status()
-        result = resp.json()
+        try:
+            resp = requests.get(next_url, timeout=20)
+            result = _json_or_fb_error(resp)
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(_sanitize_error_text(f"Network error: {e}")) from e
         page_data = result.get("data", [])
         if page_data:
             all_data.extend(page_data)
@@ -156,7 +198,7 @@ def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
         # 区分错误类型
         err = result.get("error", {})
         code = err.get("code", 0)
-        msg = err.get("message", str(result))
+        msg = _sanitize_error_text(err.get("message", str(result)))
         # 190=Token失效, 100=权限不足, 200=权限拒绝 -> 不重试，直接向上升级
         if code in (190, 100, 200, 294):
             return False, f"权限拒绝(code={code}): {msg}"
@@ -200,7 +242,7 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
             return False, err, cur_budget, 0
         return False, err, cur_budget / 100, 0
     except Exception as e:
-        return False, str(e), 0, 0
+        return False, _sanitize_error_text(e), 0, 0
 
 def _verify_status(obj_id: str, token: str, expected: str = "PAUSED") -> bool:
     """核验对象状态是否符合预期 — 必须同时检查 effective_status"""

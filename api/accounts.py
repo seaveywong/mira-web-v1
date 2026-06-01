@@ -12,6 +12,7 @@ from typing import Optional, List
 
 from core.auth import get_current_user
 from core.database import get_conn, encrypt_token, decrypt_token
+from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
 from services.token_manager import (
     ALLOWED_TOKEN_SOURCES,
     TOKEN_SOURCE_SYSTEM_USER,
@@ -710,16 +711,20 @@ def list_tokens(user=Depends(get_current_user)):
     conn = get_conn()
     ensure_token_source_columns(conn)
     _ensure_fb_token_permission_columns(conn)
-    rows = conn.execute("""
+    where, params = ["1=1"], []
+    apply_team_scope(where, params, user, "t.team_id", include_unassigned=True)
+    rows = conn.execute(f"""
         SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
                t.last_verified_at, t.note, t.created_at, t.matrix_id,
+               t.team_id,
                t.permission_snapshot, t.permission_checked_at,
                (SELECT COUNT(*) FROM account_op_tokens aot WHERE aot.token_id = t.id AND aot.status = 'active') as account_count
         FROM fb_tokens t
         LEFT JOIN accounts a ON a.token_id = t.id
+        WHERE {' AND '.join(where)}
         GROUP BY t.id
         ORDER BY t.created_at DESC
-    """).fetchall()
+    """, params).fetchall()
     conn.close()
     data = []
     for row in rows:
@@ -752,19 +757,21 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
     conn = get_conn()
     ensure_token_source_columns(conn)
     _ensure_fb_token_permission_columns(conn)
+    resource_team_id = team_id_for_create(user)
     actual_type_for_insert = _auto_detect_token_type(body.access_token) if body.token_type == "auto" else body.token_type
     resolved_source = _validate_token_role_source(actual_type_for_insert, body.token_source)
     cursor = conn.execute(
         """INSERT INTO fb_tokens (
                token_alias, access_token_enc, token_type, token_source, status,
-               last_verified_at, note, matrix_id, permission_snapshot, permission_checked_at
-           ) VALUES (?,?,?,?,?,datetime('now','+8 hours'),?,?,?,datetime('now','+8 hours'))""",
+               last_verified_at, note, matrix_id, permission_snapshot, permission_checked_at, team_id
+           ) VALUES (?,?,?,?,?,datetime('now','+8 hours'),?,?,?,datetime('now','+8 hours'),?)""",
         (body.token_alias, enc,
          actual_type_for_insert,
          resolved_source,
          "active", body.note or "",
          body.matrix_id if actual_type_for_insert == "operate" else None,
-         permission_snapshot_json)
+         permission_snapshot_json,
+         resource_team_id)
     )
     token_id = cursor.lastrowid
     conn.commit()
@@ -797,7 +804,13 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
                 c = get_conn()
                 try:
                     # 获取系统已导入的所有账户
-                    imported = c.execute("SELECT id, act_id, account_status FROM accounts").fetchall()
+                    if resource_team_id is None:
+                        imported = c.execute("SELECT id, act_id, account_status FROM accounts").fetchall()
+                    else:
+                        imported = c.execute(
+                            "SELECT id, act_id, account_status FROM accounts WHERE team_id=?",
+                            (resource_team_id,),
+                        ).fetchall()
                     matched = 0
                     status_updated = 0
                     for acc in imported:
@@ -861,6 +874,7 @@ def update_token(token_id: int, body: TokenUpdate, user=Depends(get_current_user
     conn = get_conn()
     ensure_token_source_columns(conn)
     _ensure_fb_token_permission_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     token_row = conn.execute(
         "SELECT id, token_type, token_source FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -916,6 +930,7 @@ def update_token_type(token_id: int, body: TokenTypeUpdate, user=Depends(get_cur
         raise HTTPException(400, f"token_type 必须是 {sorted(allowed)} 之一")
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute(
         "SELECT id, token_source FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -944,6 +959,7 @@ def update_token_source(token_id: int, body: TokenSourceUpdate, user=Depends(get
     """单独修改 Token 来源。"""
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute(
         "SELECT id, token_type FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -972,6 +988,7 @@ def update_token_matrix(token_id: int, body: dict, user=Depends(get_current_user
         matrix_id = None
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute(
         "SELECT id, token_type, token_source FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -994,6 +1011,7 @@ def update_token_matrix(token_id: int, body: dict, user=Depends(get_current_user
 def delete_token(token_id: int, user=Depends(get_current_user)):
     """删除Token（仅检查启用状态账户，disabled账户不阻止删除）"""
     conn = get_conn()
+    assert_row_access(conn, "fb_tokens", token_id, user)
     # 只统计 enabled=1 的活跃账户，disabled 账户不阻止删除
     count = conn.execute(
         "SELECT COUNT(*) as c FROM accounts WHERE token_id=? AND enabled=1",
@@ -1017,6 +1035,7 @@ def verify_token_now(token_id: int, user=Depends(get_current_user)):
     """立即验证Token有效性"""
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute("SELECT access_token_enc, token_type FROM fb_tokens WHERE id=?", (token_id,)).fetchone()
     conn.close()
     if not row:
@@ -1079,8 +1098,9 @@ def rematch_op_token_accounts(token_id: int, user=Depends(get_current_user)):
     """手动触发操作号重新匹配已导入账户（用于操作号添加后匹配失败的情况）"""
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute(
-        "SELECT id, token_type, token_source, access_token_enc, status FROM fb_tokens WHERE id=?",
+        "SELECT id, token_type, token_source, access_token_enc, status, team_id FROM fb_tokens WHERE id=?",
         (token_id,)
     ).fetchone()
     conn.close()
@@ -1102,7 +1122,13 @@ def rematch_op_token_accounts(token_id: int, user=Depends(get_current_user)):
     # 与系统已导入账户做交集匹配
     conn = get_conn()
     try:
-        imported = conn.execute("SELECT id, act_id, account_status FROM accounts").fetchall()
+        if row["team_id"] is None:
+            imported = conn.execute("SELECT id, act_id, account_status FROM accounts").fetchall()
+        else:
+            imported = conn.execute(
+                "SELECT id, act_id, account_status FROM accounts WHERE team_id=?",
+                (row["team_id"],),
+            ).fetchall()
         matched = 0
         already = 0
         for acc in imported:
@@ -1146,8 +1172,9 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
     # 先读取token，立即关闭连接
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute(
-        "SELECT access_token_enc, status, token_type, token_source FROM fb_tokens WHERE id=?",
+        "SELECT access_token_enc, status, token_type, token_source, team_id FROM fb_tokens WHERE id=?",
         (token_id,),
     ).fetchone()
     conn.close()
@@ -1174,14 +1201,24 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
 
     # FB API调用完毕后，再开数据库连接
     conn = get_conn()
-    imported = {r["act_id"] for r in conn.execute("SELECT act_id FROM accounts").fetchall()}
+    imported_where, imported_params = [], []
+    apply_team_scope(imported_where, imported_params, user, "team_id", include_unassigned=True)
+    imported_clause = ("WHERE " + " AND ".join(imported_where)) if imported_where else ""
+    imported = {
+        r["act_id"]
+        for r in conn.execute(f"SELECT act_id FROM accounts {imported_clause}", imported_params).fetchall()
+    }
     conn.close()
     # 操作号导入时：遍历所有管理号Token，拉取其覆盖的账户集合，判断每个账户是否有管理号兜底
     manage_token_status = {}  # act_id -> {"status": "active"|None, "alias": str}
     if token_type == "operate":
         _conn_mgr = get_conn()
+        mgr_where = ["token_type='manage'", "status='active'"]
+        mgr_params = []
+        apply_team_scope(mgr_where, mgr_params, user, "team_id", include_unassigned=True)
         _mgr_tokens = _conn_mgr.execute(
-            "SELECT id, access_token_enc, status, token_alias FROM fb_tokens WHERE token_type='manage' AND status='active'"
+            f"SELECT id, access_token_enc, status, token_alias FROM fb_tokens WHERE {' AND '.join(mgr_where)}",
+            mgr_params,
         ).fetchall()
         _conn_mgr.close()
         # 用每个管理号Token调用FB API，获取其覆盖的账户列表
@@ -1317,8 +1354,9 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
     # Step 1: 读取token，立即关闭连接
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute(
-        "SELECT access_token_enc, status, token_type, token_source FROM fb_tokens WHERE id=?",
+        "SELECT access_token_enc, status, token_type, token_source, team_id FROM fb_tokens WHERE id=?",
         (token_id,),
     ).fetchone()
     conn.close()
@@ -1330,6 +1368,7 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
 
     token = decrypt_token(row["access_token_enc"])
     token_type_import = row["token_type"]
+    resource_team_id = row["team_id"] if row["team_id"] is not None else team_id_for_create(user)
     if token_type_import == "operate":
         _validate_token_role_source(token_type_import, row["token_source"])
 
@@ -1369,13 +1408,32 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
     skipped = []
 
     conn = get_conn()
+    team_blocked_act_ids = set()
     try:
         _ensure_account_read_columns(conn)
         # 获取已存在的账户
-        existing_ids = {r["act_id"] for r in conn.execute("SELECT act_id FROM accounts").fetchall()}
+        existing_rows = {
+            r["act_id"]: dict(r)
+            for r in conn.execute("SELECT id, act_id, team_id FROM accounts").fetchall()
+        }
 
         for act_id in act_ids:
-            if act_id in existing_ids:
+            existing = existing_rows.get(act_id)
+            if existing:
+                existing_team_id = existing.get("team_id")
+                if (
+                    resource_team_id is not None
+                    and existing_team_id is not None
+                    and existing_team_id != resource_team_id
+                ):
+                    failed.append({"act_id": act_id, "error": "该账户已归属其他团队，请联系超级管理员处理"})
+                    team_blocked_act_ids.add(act_id)
+                    continue
+                if resource_team_id is not None and existing_team_id is None:
+                    conn.execute(
+                        "UPDATE accounts SET team_id=?, token_id=COALESCE(token_id,?), updated_at=datetime('now') WHERE id=?",
+                        (resource_team_id, token_id, existing["id"]),
+                    )
                 skipped.append(act_id)
                 continue
 
@@ -1386,9 +1444,9 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                 """INSERT INTO accounts (
                        act_id, name, currency, timezone, timezone_name, timezone_offset_hours_utc,
                        token_id, enabled, balance, account_status, spend_cap, page_id, pixel_id,
-                       amount_spent, spending_limit
+                       amount_spent, spending_limit, team_id
                    )
-                   VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)""",
                 (
                     act_id,
                     info.get("name", act_id),
@@ -1404,6 +1462,7 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                     body.pixel_id or info.get("pixel_id"),
                     info.get("amount_spent"),
                     info.get("spending_limit"),
+                    resource_team_id,
                 )
             )
             imported.append({
@@ -1414,6 +1473,8 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                 "read_source": read_meta.get(act_id, {}).get("read_source"),
             })
         conn.commit()
+        if team_blocked_act_ids:
+            successful_act_ids = [act_id for act_id in successful_act_ids if act_id not in team_blocked_act_ids]
     except Exception as e:
         conn.rollback()
         raise HTTPException(500, f"导入失败: {str(e)}")
@@ -1480,10 +1541,16 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
         def _match_op_tokens_for_new_accounts():
             try:
                 _c = get_conn()
-                _op_tokens = _c.execute(
-                    "SELECT id, access_token_enc FROM fb_tokens WHERE token_type='operate' AND token_source=? AND status='active'",
-                    (TOKEN_SOURCE_SYSTEM_USER,),
-                ).fetchall()
+                if resource_team_id is None:
+                    _op_tokens = _c.execute(
+                        "SELECT id, access_token_enc FROM fb_tokens WHERE token_type='operate' AND token_source=? AND status='active'",
+                        (TOKEN_SOURCE_SYSTEM_USER,),
+                    ).fetchall()
+                else:
+                    _op_tokens = _c.execute(
+                        "SELECT id, access_token_enc FROM fb_tokens WHERE token_type='operate' AND token_source=? AND status='active' AND team_id=?",
+                        (TOKEN_SOURCE_SYSTEM_USER, resource_team_id),
+                    ).fetchall()
                 _c.close()
                 for _op_row in _op_tokens:
                     _op_token_id = _op_row["id"]
@@ -1591,9 +1658,12 @@ def list_accounts(user=Depends(get_current_user)):
     conn = get_conn()
     ensure_token_source_columns(conn)
     _ensure_account_read_columns(conn)
-    rows = conn.execute("""
+    where, params = ["1=1"], []
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+    rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name, a.currency, a.timezone, a.timezone_name, a.timezone_offset_hours_utc,
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
+               a.team_id,
                a.balance, a.account_status, a.spend_cap, a.amount_spent, a.spending_limit,
                COALESCE(a.mirror_enabled, 0) as mirror_enabled,
                COALESCE(a.warmup_state, '') as warmup_state,
@@ -1607,21 +1677,25 @@ def list_accounts(user=Depends(get_current_user)):
         FROM accounts a
         LEFT JOIN fb_tokens t ON t.id = a.token_id
         LEFT JOIN tw_certified_pages tp ON tp.page_id = a.page_id
+        WHERE {' AND '.join(where)}
         ORDER BY a.created_at DESC
-    """).fetchall()
+    """, params).fetchall()
     # 查询每个账户关联的所有 Token（来自 account_op_tokens，管理号+操作号，动态发现）
     all_tokens_map = {}
-    all_token_rows = conn.execute("""
+    token_where, token_params = ["1=1"], []
+    apply_team_scope(token_where, token_params, user, "t.team_id", include_unassigned=True)
+    all_token_rows = conn.execute(f"""
         SELECT aot.act_id, t.id as token_id, t.token_alias, t.token_type, t.token_source,
                t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
+        WHERE {' AND '.join(token_where)}
         ORDER BY
             CASE WHEN aot.status = 'active' AND t.status = 'active' THEN 0 ELSE 1 END,
             CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
             aot.priority DESC,
             t.token_alias
-    """).fetchall()
+    """, token_params).fetchall()
     for lr in all_token_rows:
         act_id_key = lr["act_id"]
         if act_id_key not in all_tokens_map:
@@ -1739,6 +1813,7 @@ def list_accounts(user=Depends(get_current_user)):
 def update_account(account_id: int, body: AccountUpdate, user=Depends(get_current_user)):
     """更新账户信息"""
     conn = get_conn()
+    assert_row_access(conn, "accounts", account_id, user)
     updates = []
     params = []
     if body.name is not None:
@@ -1822,6 +1897,7 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
         conn.close()
         raise HTTPException(status_code=404, detail=f"账户 {act_id_str} 不存在")
     account_id = row[0]
+    assert_row_access(conn, "accounts", account_id, user)
     updates = []
     params = []
     if body.name is not None:
@@ -1866,6 +1942,7 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
 def delete_account(account_id: int, user=Depends(get_current_user)):
     """删除账户（不删除Token）"""
     conn = get_conn()
+    assert_row_access(conn, "accounts", account_id, user)
     conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
     conn.commit()
     conn.close()
@@ -1876,6 +1953,7 @@ def delete_account(account_id: int, user=Depends(get_current_user)):
 def sync_account_status(account_id: int, user=Depends(get_current_user)):
     """从 FB API 同步单个账户的真实状态（account_status、balance、spend_cap）"""
     conn = get_conn()
+    assert_row_access(conn, "accounts", account_id, user)
     row = conn.execute("""
         SELECT a.act_id, a.name
         FROM accounts a
@@ -2380,8 +2458,11 @@ class TwAdvertiserUpdate(BaseModel):
 def list_tw_advertisers(user=Depends(get_current_user)):
     """列出所有台湾广告认证身份"""
     conn = get_conn()
+    where, params = ["1=1"], []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
     rows = conn.execute(
-        "SELECT id, name, fb_user_id, beneficiary, payer, note, verified, created_at FROM tw_advertisers ORDER BY id"
+        f"SELECT id, name, fb_user_id, beneficiary, payer, note, verified, created_at, team_id FROM tw_advertisers WHERE {' AND '.join(where)} ORDER BY id",
+        params,
     ).fetchall()
     conn.close()
     return {"success": True, "advertisers": [dict(r) for r in rows]}
@@ -2390,9 +2471,10 @@ def list_tw_advertisers(user=Depends(get_current_user)):
 def create_tw_advertiser(body: TwAdvertiserCreate, user=Depends(get_current_user)):
     """新增台湾广告认证身份"""
     conn = get_conn()
+    resource_team_id = team_id_for_create(user)
     cur = conn.execute(
-        "INSERT INTO tw_advertisers (name, fb_user_id, beneficiary, payer, note, verified) VALUES (?,?,?,?,?,1)",
-        (body.name, body.fb_user_id, body.beneficiary, body.payer, body.note)
+        "INSERT INTO tw_advertisers (name, fb_user_id, beneficiary, payer, note, verified, team_id) VALUES (?,?,?,?,?,1,?)",
+        (body.name, body.fb_user_id, body.beneficiary, body.payer, body.note, resource_team_id)
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -2403,6 +2485,7 @@ def create_tw_advertiser(body: TwAdvertiserCreate, user=Depends(get_current_user
 def update_tw_advertiser(adv_id: int, body: TwAdvertiserUpdate, user=Depends(get_current_user)):
     """更新台湾广告认证身份"""
     conn = get_conn()
+    assert_row_access(conn, "tw_advertisers", adv_id, user)
     updates, params = [], []
     if body.name is not None:
         updates.append("name=?"); params.append(body.name)
@@ -2427,6 +2510,7 @@ def update_tw_advertiser(adv_id: int, body: TwAdvertiserUpdate, user=Depends(get
 def delete_tw_advertiser(adv_id: int, user=Depends(get_current_user)):
     """删除台湾广告认证身份"""
     conn = get_conn()
+    assert_row_access(conn, "tw_advertisers", adv_id, user)
     conn.execute("DELETE FROM tw_advertisers WHERE id=?", (adv_id,))
     conn.commit()
     conn.close()
@@ -2863,18 +2947,22 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
     _ensure_tw_page_status_columns(conn)
     _cleanup_bad_verified_identity_rows(conn)
     conn.commit()
+    where, params = ["1=1"], []
+    apply_team_scope(where, params, user, "p.team_id", include_unassigned=True)
     rows = conn.execute(
-        """
+        f"""
         SELECT p.id, p.page_id, p.page_name, p.verified_identity_id, p.verified_source, p.note, p.created_at,
-               p.matrix_id, p.token_id,
+               p.matrix_id, p.token_id, p.team_id,
                p.page_category, p.page_is_published, p.page_verification_status, p.page_tasks,
                p.page_can_advertise, p.page_lead_form_status, p.page_status, p.page_status_hint,
                p.page_status_checked_at,
                ft.token_alias
         FROM tw_certified_pages p
         LEFT JOIN fb_tokens ft ON ft.id = p.token_id
+        WHERE {' AND '.join(where)}
         ORDER BY p.id
-        """
+        """,
+        params,
     ).fetchall()
     conn.close()
     return {"success": True, "pages": [dict(r) for r in rows]}
@@ -2900,17 +2988,22 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
     token_id = body.get("token_id") or None
     if not page_id:
         raise HTTPException(400, "page_id 不能为空")
+    resource_team_id = team_id_for_create(user)
 
     # 自动获取主页名称（优先用指定 token_id，否则用任意有效 Token）
     conn_tmp = get_conn()
     if token_id:
+        assert_row_access(conn_tmp, "fb_tokens", int(token_id), user)
         token_rows = conn_tmp.execute(
             "SELECT access_token_enc FROM fb_tokens WHERE id=? AND status='active'",
             (token_id,)
         ).fetchall()
     else:
+        token_where, token_params = ["status='active'"], []
+        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=True)
         token_rows = conn_tmp.execute(
-            "SELECT access_token_enc FROM fb_tokens WHERE status='active' ORDER BY id LIMIT 10"
+            f"SELECT access_token_enc FROM fb_tokens WHERE {' AND '.join(token_where)} ORDER BY id LIMIT 10",
+            token_params,
         ).fetchall()
     conn_tmp.close()
 
@@ -2953,8 +3046,8 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
     _ensure_tw_page_status_columns(conn)
     try:
         cur = conn.execute(
-            "INSERT INTO tw_certified_pages (page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id) VALUES (?,?,?,?,?,?,?)",
-            (page_id, page_name, verified_identity_id, "manual" if verified_identity_id else None, note, matrix_id, token_id)
+            "INSERT INTO tw_certified_pages (page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id, team_id) VALUES (?,?,?,?,?,?,?,?)",
+            (page_id, page_name, verified_identity_id, "manual" if verified_identity_id else None, note, matrix_id, token_id, resource_team_id)
         )
         conn.commit()
         new_id = cur.lastrowid
@@ -2969,6 +3062,7 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
 def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_current_user)):
     """更新台湾认证主页（支持更新 matrix_id、token_id、verified_identity_id 等字段）"""
     conn = get_conn()
+    assert_row_access(conn, "tw_certified_pages", page_db_id, user)
     updates, params = [], []
     if "page_name" in body:
         updates.append("page_name=?"); params.append(body["page_name"])
@@ -2998,6 +3092,7 @@ def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_curre
 def delete_tw_certified_page(page_db_id: int, user=Depends(get_current_user)):
     """删除台湾认证主页"""
     conn = get_conn()
+    assert_row_access(conn, "tw_certified_pages", page_db_id, user)
     conn.execute("DELETE FROM tw_certified_pages WHERE id=?", (page_db_id,))
     conn.commit()
     conn.close()
@@ -3014,6 +3109,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
     """
     import requests as _req
     import concurrent.futures as _cf
+    resource_team_id = team_id_for_create(user)
 
     conn = get_conn()
     # 确保字段存在
@@ -3031,20 +3127,26 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
     conn.commit()
 
     # 获取所有 active Token（含矩阵归属）
+    token_where, token_params = ["ft.status = 'active'"], []
+    apply_team_scope(token_where, token_params, user, "ft.team_id", include_unassigned=True)
     token_rows = conn.execute(
-        """
+        f"""
         SELECT ft.id, ft.access_token_enc, ft.token_alias, ft.matrix_id
         FROM fb_tokens ft
-        WHERE ft.status = 'active'
+        WHERE {' AND '.join(token_where)}
         ORDER BY ft.id
-        """
+        """,
+        token_params,
     ).fetchall()
 
     # 获取已存在的主页记录，重扫时刷新主页名/矩阵/Token 绑定
+    existing_where, existing_params = ["1=1"], []
+    apply_team_scope(existing_where, existing_params, user, "team_id", include_unassigned=True)
     existing_rows = {
         r["page_id"]: dict(r)
         for r in conn.execute(
-            "SELECT * FROM tw_certified_pages"
+            f"SELECT * FROM tw_certified_pages WHERE {' AND '.join(existing_where)}",
+            existing_params,
         ).fetchall()
     }
     existing = set(existing_rows.keys())
@@ -3194,8 +3296,8 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                     "INSERT OR IGNORE INTO tw_certified_pages "
                     "(page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id, "
                     "page_category, page_is_published, page_verification_status, page_tasks, "
-                    "page_can_advertise, page_lead_form_status, page_status, page_status_hint, page_status_checked_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "page_can_advertise, page_lead_form_status, page_status, page_status_hint, page_status_checked_at, team_id) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         pg["page_id"],
                         pg["page_name"],
@@ -3213,6 +3315,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         pg.get("page_status") or None,
                         pg.get("page_status_hint") or None,
                         pg.get("page_status_checked_at") or None,
+                        resource_team_id,
                     )
                 )
                 added += 1
@@ -3236,7 +3339,8 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         page_lead_form_status=?,
                         page_status=?,
                         page_status_hint=?,
-                        page_status_checked_at=?
+                        page_status_checked_at=?,
+                        team_id=COALESCE(team_id, ?)
                     WHERE page_id=?
                     """,
                     (
@@ -3254,6 +3358,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         pg.get("page_status") or None,
                         pg.get("page_status_hint") or None,
                         pg.get("page_status_checked_at") or None,
+                        resource_team_id,
                         pg["page_id"],
                     )
                 )
