@@ -5179,14 +5179,20 @@ function getAccountTokenHealth(a){
 function renderAccountTokenStatusBadge(a){
  var h=getAccountTokenHealth(a);
  var reasons=Array.isArray(a.token_issue_reasons)?a.token_issue_reasons.join('；'):'';
+ var badges=[];
  if(!h.readOk){
   var label=h.health==='permission_error'?'读权限不可用':(h.health==='no_read_token'?'无读取Token':'Token不可用');
-  return '<span class="badge bg-er" title="'+escHtml(reasons||'没有可用于读取、巡检或关停的有效 Token')+'">'+label+'</span>';
+  badges.push('<span class="badge bg-er" title="'+escHtml(reasons||'没有可用于读取、巡检或关停的有效 Token')+'">'+label+'</span>');
+  return badges.join('');
+ }
+ if(!h.manageOk){
+  badges.push('<span class="badge bg-wa" title="没有可确认覆盖该账户的管理号；读取可能依赖主 Token 或操作号，建议点击权限诊断重新匹配">无管理号</span>');
  }
  if(!h.writeOk){
-  return '<span class="badge bg-wa" title="'+escHtml(reasons||'读取、巡检、关停可继续；创建广告、预算、限额需要有效的 System User 操作号')+'">写操作不可用</span>';
+  var writeLabel=h.operateTotal>0?'写操作不可用':'无操作号';
+  badges.push('<span class="badge bg-wa" title="'+escHtml(reasons||'读取、巡检、关停可继续；创建广告、预算、限额需要有效的 System User 操作号')+'">'+writeLabel+'</span>');
  }
- return '';
+ return badges.join('');
 }
 
 function formatTimezoneOffset(a){
@@ -5428,6 +5434,9 @@ function _renderAccountPermissionDiagnostic(data){
  h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:14px">';
  h+='<div style="font-size:12px;color:var(--t3);margin-bottom:4px">建议处理</div>';
  h+='<div style="font-size:13px;line-height:1.6">'+escHtml(s.recommended_action||'已完成检测')+'</div>';
+ if(hasRole('operator')){
+  h+='<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="repairAccountPermissionDiagnostic(\''+escHtml(data.act_id||'')+'\')">一键重新匹配 Token</button><span style="font-size:12px;color:var(--t3);align-self:center">会扫描同团队/同矩阵可用 Token，并补齐可见账户的绑定关系</span></div>';
+ }
  h+='</div>';
  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-bottom:14px">';
  function bestBox(title,item){
@@ -5490,6 +5499,25 @@ async function showAccountPermissionDiagnostic(actId){
   if(data&&data.restored_read_status)loadAccsPage();
  }catch(e){
   body.innerHTML='<div style="color:var(--er);padding:20px">诊断失败：'+escHtml(e.message||e)+'</div>';
+ }
+}
+async function repairAccountPermissionDiagnostic(actId){
+ if(!actId)return;
+ var ok=await confirmAsync(
+  '确定重新匹配账户 <b>'+escHtml(actId)+'</b> 的 Token 吗？<br><span style="color:var(--t3)">系统只会补齐同团队可见的管理号、System User 操作号和读取 Token，不会创建广告或修改预算。</span>',
+  '重新匹配',
+  '取消',
+  '权限修复'
+ );
+ if(!ok)return;
+ try{
+  var r=await api('POST','/accounts/'+encodeURIComponent(actId)+'/permission-diagnostic/repair');
+  var res=(r&&r.result)||{};
+  toast('匹配完成：新增 '+(res.matched||0)+'，恢复 '+(res.restored||0)+'，已有关联 '+(res.already_linked||0),'ok');
+  await showAccountPermissionDiagnostic(actId);
+  loadAccsPage();
+ }catch(e){
+  showInfo(escHtml('重新匹配失败: '+(e.message||e)).replace(/\n/g,'<br>'),'权限修复失败');
  }
 }
 
@@ -10568,17 +10596,34 @@ function renderAccMatrixFilterOptions(list){
 function getAccIssueKey(a){
  var s=(a.account_status||a.status||'').toString();
  var tokenHealth=getAccountTokenHealth(a);
- if(!tokenHealth.readOk&&(tokenHealth.primaryInvalid||(a.linked_tokens||[]).length))return'token_invalid';
+ if(!tokenHealth.readOk)return'read_error';
+ if(!tokenHealth.manageOk)return'no_manage';
+ if(!tokenHealth.writeOk)return tokenHealth.operateTotal>0?'write_unavailable':'no_operate';
  if(s==='7'||s==='debt'||s==='DEBT')return'debt';
  if(!a.enabled)return'paused';
  if(s==='api_error'||s==='no_token'||s==='2'||s==='3'||s==='disabled'||s==='9'||s==='100'||s==='101')return'issue';
  return'healthy';
 }
+function accountMatchesQuick(a,key){
+ key=key||'all';
+ if(key==='all')return true;
+ var s=(a.account_status||a.status||'').toString();
+ var h=getAccountTokenHealth(a);
+ if(key==='read_error'||key==='token_invalid')return !h.readOk;
+ if(key==='no_manage')return h.readOk&&!h.manageOk;
+ if(key==='no_operate')return h.readOk&&h.operateTotal===0;
+ if(key==='write_unavailable')return h.readOk&&!h.writeOk;
+ if(key==='debt')return s==='7'||s==='debt'||s==='DEBT';
+ if(key==='paused')return !a.enabled;
+ if(key==='issue')return s==='api_error'||s==='no_token'||s==='2'||s==='3'||s==='disabled'||s==='9'||s==='100'||s==='101';
+ return getAccIssueKey(a)===key;
+}
 function getAccQuickCounts(list){
- var counts={all:list.length,token_invalid:0,debt:0,paused:0,issue:0};
+ var counts={all:list.length,read_error:0,no_manage:0,no_operate:0,write_unavailable:0,debt:0,paused:0,issue:0};
  list.forEach(function(a){
-  var key=getAccIssueKey(a);
-  if(counts.hasOwnProperty(key))counts[key]++;
+  Object.keys(counts).forEach(function(key){
+   if(key!=='all'&&accountMatchesQuick(a,key))counts[key]++;
+  });
  });
  return counts;
 }
@@ -10587,7 +10632,7 @@ function renderAccSummaryControls(totalCount,visibleCount){
  if(!sumEl)return;
  var accs=allAccsData||[];
  renderAccMatrixFilterOptions(accs);
- var totalBal=0,enabledCount=0,debtCount=0,pausedCount=0,tokenInvalidCount=0;
+ var totalBal=0,enabledCount=0,debtCount=0,pausedCount=0,readErrorCount=0;
  accs.forEach(function(a){
   var avail1=a.available_balance!=null?parseFloat(a.available_balance):null;
   var s=(a.account_status||a.status||'').toString();
@@ -10595,21 +10640,23 @@ function renderAccSummaryControls(totalCount,visibleCount){
   if(s==='1'||s==='active'||s==='ACTIVE')enabledCount++;
   if(s==='7'||s==='debt'||s==='DEBT')debtCount++;
   if(!a.enabled)pausedCount++;
-  if(getAccIssueKey(a)==='token_invalid')tokenInvalidCount++;
+  if(accountMatchesQuick(a,'read_error'))readErrorCount++;
  });
  var counts=getAccQuickCounts(accs);
  var quicks=[
   {key:'all',label:'全部',count:counts.all},
-  {key:'token_invalid',label:'Token异常',count:counts.token_invalid},
-  {key:'debt',label:'欠费',count:counts.debt},
-  {key:'paused',label:'巡检暂停',count:counts.paused},
-  {key:'issue',label:'状态异常',count:counts.issue}
+  {key:'read_error',label:'读权限异常',count:counts.read_error},
+  {key:'no_manage',label:'无管理号',count:counts.no_manage},
+  {key:'no_operate',label:'无操作号',count:counts.no_operate},
+  {key:'write_unavailable',label:'写不可用',count:counts.write_unavailable},
+  {key:'issue',label:'账户异常',count:counts.issue},
+  {key:'paused',label:'巡检暂停',count:counts.paused}
  ];
  sumEl.innerHTML=
   '<div class="sc blue" style="min-width:140px;padding:14px"><div class="sc-label">总账户数</div><div class="sc-val blue" style="font-size:22px">'+accs.length+'</div></div>'+
   '<div class="sc green" style="min-width:140px;padding:14px"><div class="sc-label">剩余可用合计 (USD)</div><div class="sc-val green" style="font-size:22px">$'+totalBal.toFixed(2)+'</div></div>'+
   '<div class="sc orange" style="min-width:140px;padding:14px"><div class="sc-label">可用账户</div><div class="sc-val orange" style="font-size:22px">'+enabledCount+'</div></div>'+
-  '<div class="sc red" style="min-width:140px;padding:14px"><div class="sc-label">Token异常</div><div class="sc-val red" style="font-size:22px">'+tokenInvalidCount+'</div></div>'+
+  '<div class="sc red" style="min-width:140px;padding:14px"><div class="sc-label">读权限异常</div><div class="sc-val red" style="font-size:22px">'+readErrorCount+'</div></div>'+
   '<div class="sc" style="min-width:140px;padding:14px;background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.2)"><div class="sc-label">巡检暂停 / 欠费</div><div class="sc-val" style="font-size:22px;color:#b45309">'+pausedCount+' / '+debtCount+'</div></div>'+
   '<div style="flex:1 1 100%;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:4px">'+
    quicks.map(function(item){
@@ -10646,7 +10693,7 @@ function filterAccs(){
   var matrixIds=getAccountMatrixIds(a);
   var matchText=[a.name||'',a.act_id||'',a.token_alias||'',a.note||'',a.currency||'',a.page_id||'',a.page_name||'',matrixIds.map(function(mid){return '矩阵'+mid;}).join(' ')].join(' ').toLowerCase();
   if(q&&!matchText.includes(q))return false;
-  if(quick!=='all'&&getAccIssueKey(a)!==quick)return false;
+  if(quick!=='all'&&!accountMatchesQuick(a,quick))return false;
   if(matrixFilter!=='all'&&matrixIds.indexOf(parseInt(matrixFilter,10))<0)return false;
   return true;
  });
@@ -10658,7 +10705,7 @@ function filterAccs(){
  var filterNote=[];
  if(q)filterNote.push('关键词：'+escHtml(q));
  if(quick!=='all'){
-  var quickLabelMap={token_invalid:'Token异常',debt:'欠费',paused:'巡检暂停',issue:'状态异常'};
+  var quickLabelMap={read_error:'读权限异常',token_invalid:'Token异常',no_manage:'无管理号',no_operate:'无操作号',write_unavailable:'写不可用',debt:'欠费',paused:'巡检暂停',issue:'账户异常'};
   filterNote.push('筛选：'+(quickLabelMap[quick]||quick));
  }
  if(matrixFilter!=='all')filterNote.push('矩阵：'+matrixFilter);

@@ -406,6 +406,173 @@ def _resolve_account_info(
     return {"ok": False, "act_id": normalized_act_id, "error": reason, "errors": errors}
 
 
+def _matching_team_id(user: dict, account_team_id: Optional[int]) -> Optional[int]:
+    if account_team_id is not None:
+        return account_team_id
+    claims = normalize_user_claims(user)
+    if claims.get("is_superadmin"):
+        return None
+    return claims.get("team_id")
+
+
+def _auto_link_tokens_for_accounts(
+    act_ids: List[str],
+    user: dict,
+    *,
+    team_id: Optional[int] = None,
+    note: str = "auto_match",
+) -> dict:
+    normalized_act_ids = []
+    seen_acts = set()
+    for raw in act_ids or []:
+        act_id = _normalize_act_id(raw)
+        if act_id and act_id not in seen_acts:
+            seen_acts.add(act_id)
+            normalized_act_ids.append(act_id)
+    if not normalized_act_ids:
+        return {"matched": 0, "restored": 0, "already_linked": 0, "token_checked": 0, "token_failed": 0, "accounts": []}
+
+    conn = get_conn()
+    try:
+        ensure_token_source_columns(conn)
+        _ensure_account_read_columns(conn)
+        token_where = [
+            "status='active'",
+            "access_token_enc IS NOT NULL",
+            "token_type IN ('manage','operate','user')",
+            "(token_type!='operate' OR token_source=?)",
+        ]
+        token_params = [TOKEN_SOURCE_SYSTEM_USER]
+        if team_id is not None:
+            token_where.append("(team_id=? OR team_id IS NULL)")
+            token_params.append(team_id)
+        elif not normalize_user_claims(user).get("is_superadmin"):
+            user_team_id = team_id_for_create(user)
+            token_where.append("(team_id=? OR team_id IS NULL)")
+            token_params.append(user_team_id)
+        token_rows = conn.execute(
+            f"""
+            SELECT id, token_alias, token_type, token_source, matrix_id, access_token_enc
+            FROM fb_tokens
+            WHERE {' AND '.join(token_where)}
+            ORDER BY CASE token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
+                     id ASC
+            """,
+            token_params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    token_results = []
+
+    def _scan_token(row):
+        token_id = row["id"]
+        alias = row["token_alias"] or f"token_{token_id}"
+        try:
+            plain = decrypt_token(row["access_token_enc"])
+            if not plain:
+                return {"token_id": token_id, "alias": alias, "ok": False, "error": "empty token", "act_ids": []}
+            fb_ids = set(_fetch_all_fb_adaccount_ids(plain, timeout=20))
+            matched_ids = [act_id for act_id in normalized_act_ids if act_id in fb_ids]
+            return {
+                "token_id": token_id,
+                "alias": alias,
+                "token_type": row["token_type"],
+                "token_source": row["token_source"],
+                "matrix_id": row["matrix_id"],
+                "ok": True,
+                "act_ids": matched_ids,
+            }
+        except Exception as exc:
+            return {
+                "token_id": token_id,
+                "alias": alias,
+                "token_type": row["token_type"],
+                "token_source": row["token_source"],
+                "matrix_id": row["matrix_id"],
+                "ok": False,
+                "error": _compact_diag_error(exc),
+                "act_ids": [],
+            }
+
+    if token_rows:
+        with ThreadPoolExecutor(max_workers=min(6, len(token_rows))) as executor:
+            futures = [executor.submit(_scan_token, row) for row in token_rows]
+            for future in as_completed(futures):
+                token_results.append(future.result())
+
+    matched = 0
+    restored = 0
+    already_linked = 0
+    account_hits = {act_id: [] for act_id in normalized_act_ids}
+    conn = get_conn()
+    try:
+        ensure_token_source_columns(conn)
+        _ensure_account_read_columns(conn)
+        for result in token_results:
+            if not result.get("ok"):
+                continue
+            token_id = result["token_id"]
+            token_type = result.get("token_type") or "user"
+            for act_id in result.get("act_ids") or []:
+                existing = conn.execute(
+                    "SELECT id, status FROM account_op_tokens WHERE act_id=? AND token_id=?",
+                    (act_id, token_id),
+                ).fetchone()
+                if not existing:
+                    max_pri = conn.execute(
+                        "SELECT MAX(priority) FROM account_op_tokens WHERE act_id=?",
+                        (act_id,),
+                    ).fetchone()[0] or 0
+                    conn.execute(
+                        """INSERT INTO account_op_tokens (act_id, token_id, priority, status, note, token_type, created_at)
+                           VALUES (?, ?, ?, 'active', ?, ?, datetime('now'))""",
+                        (act_id, token_id, max_pri + 1, note, token_type),
+                    )
+                    matched += 1
+                elif existing["status"] != "active":
+                    conn.execute(
+                        "UPDATE account_op_tokens SET status='active', note=? WHERE id=?",
+                        (note, existing["id"]),
+                    )
+                    restored += 1
+                else:
+                    already_linked += 1
+                account_hits.setdefault(act_id, []).append({
+                    "token_id": token_id,
+                    "alias": result.get("alias"),
+                    "token_type": token_type,
+                    "token_source": result.get("token_source"),
+                })
+        for act_id, hits in account_hits.items():
+            if hits:
+                mark_account_read_success(conn, act_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    failed_tokens = [r for r in token_results if not r.get("ok")]
+    return {
+        "matched": matched,
+        "restored": restored,
+        "already_linked": already_linked,
+        "token_checked": len(token_results),
+        "token_failed": len(failed_tokens),
+        "accounts": [
+            {
+                "act_id": act_id,
+                "matched_tokens": account_hits.get(act_id, []),
+                "matched_count": len(account_hits.get(act_id, [])),
+            }
+            for act_id in normalized_act_ids
+        ],
+        "failed_tokens": failed_tokens[:10],
+    }
+
+
 # ── Pydantic 模型 ──────────────────────────────────────────────────────────
 
 class TokenCreate(BaseModel):
@@ -1547,72 +1714,31 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
         finally:
             _c_link.close()
 
-    # v4.2: 导入/重复导入账户后，触发所有操作号对这些账户的自动匹配
+    auto_match_result = {"matched": 0, "restored": 0, "already_linked": 0, "token_checked": 0, "token_failed": 0}
     if successful_act_ids:
-        import threading as _threading
-        _matched_act_ids = list(successful_act_ids)
-        def _match_op_tokens_for_new_accounts():
-            try:
-                _c = get_conn()
-                if resource_team_id is None:
-                    _op_tokens = _c.execute(
-                        "SELECT id, access_token_enc FROM fb_tokens WHERE token_type='operate' AND token_source=? AND status='active'",
-                        (TOKEN_SOURCE_SYSTEM_USER,),
-                    ).fetchall()
-                else:
-                    _op_tokens = _c.execute(
-                        "SELECT id, access_token_enc FROM fb_tokens WHERE token_type='operate' AND token_source=? AND status='active' AND team_id=?",
-                        (TOKEN_SOURCE_SYSTEM_USER, resource_team_id),
-                    ).fetchall()
-                _c.close()
-                for _op_row in _op_tokens:
-                    _op_token_id = _op_row["id"]
-                    _op_token = decrypt_token(_op_row["access_token_enc"])
-                    try:
-                        _fb_act_ids = set(_fetch_all_fb_adaccount_ids(_op_token, timeout=20))
-                        _c2 = get_conn()
-                        try:
-                            _matched = 0
-                            for _act_id in _matched_act_ids:
-                                if _act_id in _fb_act_ids:
-                                    _existing = _c2.execute(
-                                        "SELECT id FROM account_op_tokens WHERE act_id=? AND token_id=?",
-                                        (_act_id, _op_token_id)
-                                    ).fetchone()
-                                    if not _existing:
-                                        _max_pri = _c2.execute(
-                                            "SELECT MAX(priority) FROM account_op_tokens WHERE act_id=?", (_act_id,)
-                                        ).fetchone()[0] or 0
-                                        _c2.execute(
-                                            """INSERT INTO account_op_tokens (act_id, token_id, priority, status, note, token_type, created_at)
-                                               VALUES (?, ?, ?, 'active', '导入时自动匹配', (SELECT token_type FROM fb_tokens WHERE id=?), datetime('now'))""",
-                                            (_act_id, _op_token_id, _max_pri + 1, _op_token_id)
-                                        )
-                                        _matched += 1
-                            _c2.commit()
-                            if _matched:
-                                logger.info(f"[OpMatch] 操作号 {_op_token_id} 导入后自动匹配新增 {_matched} 个账户")
-                        except Exception as _e2:
-                            _c2.rollback()
-                            logger.error(f"[OpMatch] 写入失败: {_e2}")
-                        finally:
-                            _c2.close()
-                    except Exception as _e1:
-                        logger.error(f"[OpMatch] 操作号 {_op_token_id} 匹配失败: {_e1}")
-            except Exception as _e0:
-                logger.error(f"[OpMatch] 整体匹配失败: {_e0}")
-        _threading.Thread(target=_match_op_tokens_for_new_accounts, daemon=True).start()
-        def _trigger_discovery_bg():
-            try:
-                from core.scheduler import run_token_account_discovery
-                run_token_account_discovery()
-            except Exception as _e:
-                logger.warning(f"[ImportLink] 触发全局 Token-账户发现失败: {_e}")
-        _threading.Thread(target=_trigger_discovery_bg, daemon=True).start()
+        try:
+            auto_match_result = _auto_link_tokens_for_accounts(
+                successful_act_ids,
+                user,
+                team_id=resource_team_id,
+                note="import_auto_match",
+            )
+            logger.info(
+                "[ImportLink] auto matched accounts=%s tokens=%s matched=%s restored=%s already=%s failed_tokens=%s",
+                len(successful_act_ids),
+                auto_match_result.get("token_checked"),
+                auto_match_result.get("matched"),
+                auto_match_result.get("restored"),
+                auto_match_result.get("already_linked"),
+                auto_match_result.get("token_failed"),
+            )
+        except Exception as _match_exc:
+            logger.warning("[ImportLink] auto match failed: %s", _match_exc)
+
     if failed and not imported and not skipped:
         first = failed[0]
         raise HTTPException(400, f"导入失败：无法读取账户 {first.get('act_id')}（{first.get('error')}）")
-    return {"success": True, "imported": imported, "skipped": skipped, "failed": failed}
+    return {"success": True, "imported": imported, "skipped": skipped, "failed": failed, "auto_match": auto_match_result}
 
 
 # ── 账户管理 ──────────────────────────────────────────────────────────────
@@ -2541,6 +2667,37 @@ def diagnose_account_permission(act_id: str, user=Depends(get_current_user)):
             "recommended_action": recommended,
         },
         "tokens": results,
+    }
+
+
+@router.post("/{act_id}/permission-diagnostic/repair")
+def repair_account_permission_links(act_id: str, user=Depends(get_current_user)):
+    """Re-scan same-team tokens and bind every token that can see this account."""
+    _require_operator_user(user)
+    conn = get_conn()
+    try:
+        acc = assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+        team_id = _matching_team_id(user, acc["team_id"])
+    finally:
+        conn.close()
+    try:
+        result = _auto_link_tokens_for_accounts(
+            [act_id],
+            user,
+            team_id=team_id,
+            note="permission_diagnostic_repair",
+        )
+    except Exception as exc:
+        raise HTTPException(500, f"token rematch failed: {exc}")
+    return {
+        "success": True,
+        "act_id": _normalize_act_id(act_id),
+        "result": result,
+        "message": (
+            f"checked {result.get('token_checked', 0)} tokens, "
+            f"matched {result.get('matched', 0)}, "
+            f"restored {result.get('restored', 0)}"
+        ),
     }
 
 
