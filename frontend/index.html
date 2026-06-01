@@ -831,8 +831,8 @@ tr:hover td{background:rgba(255,255,255,.025)}
 
     <div class="tb-acts">
      <span id="aiBadge" class="ai-badge ai-off">AI 未启用</span>
-     <button class="btn-inspect" id="btnInspect" onclick="triggerInspect()">立即巡检</button>
-     <button class="btn btn-g btn-sm" onclick="resetRuleCooldown()" style="padding:5px 10px;font-size:12px;margin-left:6px">重置冷却</button>
+     <button class="btn-inspect role-superadmin-only" id="btnInspect" onclick="triggerInspect()">立即巡检</button>
+     <button class="btn btn-g btn-sm role-superadmin-only" onclick="resetRuleCooldown()" style="padding:5px 10px;font-size:12px;margin-left:6px">重置冷却</button>
      <div style="display:flex;align-items:center;gap:6px">
      <div class="tb-user" title="退出登录" id="tbUser" onclick="logout()">A</div>
      <span id="tbRoleLabel" style="font-size:11px;color:var(--t3);white-space:nowrap"></span>
@@ -2731,6 +2731,13 @@ function canOpenPage(name){
  var minRole=PAGE_MIN_ROLES[name];
  return !minRole || hasRole(minRole);
 }
+function roleDisplayText(me){
+ me=me||{};
+ var role=me.role_label||localStorage.getItem('mira_role_label')||me.role||getCurrentRole();
+ var team=me.team_name||localStorage.getItem('mira_team_name')||'';
+ if((me.role||getCurrentRole())==='superadmin')return role||'超级管理员';
+ return (team?('团队：'+team+' · '):'')+(role||'团队成员');
+}
 
 function applyRolePermissions(role){
  var level = ROLE_LEVELS[role]||10;
@@ -2754,13 +2761,30 @@ var _usersData = [];
 
 function renderUserManageSection(){
  if(!hasRole('superadmin')) return '';
- return '<div class="ss role-superadmin-only"><div class="ss-title">\ud83d\udc65 \u7528\u6237\u7ba1\u7406 <span style="font-size:12px;font-weight:400;color:var(--t3)">\u6388\u6743\u56e2\u961f\u6210\u5458\u8bbf\u95ee\u7cfb\u7edf</span></div>' +
+ return '<div class="ss role-superadmin-only"><div class="ss-title">用户管理 <span style="font-size:12px;font-weight:400;color:var(--t3)">授权团队成员访问系统</span></div>' +
   '<div class="sg">' +
   '<div style="display:flex;gap:8px;margin-bottom:12px">' +
   '<button class="btn btn-p" onclick="showAddUserModal()">\uff0b \u65b0\u589e\u7528\u6237</button>' +
   '</div>' +
   '<div id="userListWrap"><div style="color:var(--t3);font-size:13px">\u52a0\u8f7d\u4e2d...</div></div>' +
-  '</div></div>';
+   '</div></div>';
+}
+
+function renderPermissionMatrixSection(){
+ if(!hasRole('superadmin')) return '';
+ var rows=[
+  ['超级管理员','系统设置、团队/用户、全局守护、全部资产','最终兜底账号，保留完整权限'],
+  ['团队管理员','本团队资产、Token、账户、素材、主页、规则、KPI','不能修改系统设置和全局守护开关'],
+  ['运营','本团队投放操作、广告开关、预算、KPI、规则','用于日常投放执行'],
+  ['只读观察者','本团队数据、日志、账户状态','不允许写入和变更投放']
+ ];
+ return '<div class="ss role-superadmin-only">' +
+  '<div class="ss-title">团队权限矩阵 <span style="font-size:12px;font-weight:400;color:var(--t3)">按团队隔离资产，超级管理员保留全局视角</span></div>' +
+  '<div class="table-wrap"><table><thead><tr><th>角色</th><th>可用范围</th><th>备注</th></tr></thead><tbody>' +
+  rows.map(function(r){return '<tr><td style="font-weight:700;color:var(--t1)">'+r[0]+'</td><td>'+r[1]+'</td><td style="color:var(--t3)">'+r[2]+'</td></tr>';}).join('') +
+  '</tbody></table></div>' +
+  '<div class="fh" style="margin-top:8px">团队用户默认只处理自己团队创建或归属的资源；历史未分配资源仍作为兼容兜底可见，建议逐步在「团队资源分配」中补齐归属。</div>' +
+  '</div>';
 }
 
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -2946,7 +2970,7 @@ function renderTeamResourceSection(){
  var kindOpts = _teamResKinds.map(function(k){return '<option value="'+k[0]+'">'+k[1]+'</option>';}).join('');
  return '<div class="ss role-superadmin-only">' +
   '<div class="ss-title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
-  '<span>团队资源分配 <span style="font-size:12px;font-weight:400;color:var(--t3)">先分配归属，暂不强制隔离</span></span>' +
+  '<span>团队资源分配 <span style="font-size:12px;font-weight:400;color:var(--t3)">补齐资源归属，团队用户按归属查看和操作</span></span>' +
   '<button class="btn btn-g btn-sm" onclick="createTeamQuick()">新建团队</button>' +
   '</div>' +
   '<div class="sg">' +
@@ -3194,6 +3218,7 @@ async function doLogin(){
 
 function logout(){
  token='';localStorage.removeItem('mira_token');localStorage.removeItem('mira_user');
+ localStorage.removeItem('mira_role');localStorage.removeItem('mira_role_label');
  localStorage.removeItem('mira_team_id');localStorage.removeItem('mira_team_name');
  document.getElementById('app').style.display='none';
  document.getElementById('login-page').style.display='flex';
@@ -3212,11 +3237,9 @@ async function initApp(){
    if(me.role_label)localStorage.setItem('mira_role_label',me.role_label);
    if(me.team_id!==undefined&&me.team_id!==null)localStorage.setItem('mira_team_id',me.team_id);
    if(me.team_name)localStorage.setItem('mira_team_name',me.team_name);
-   // 更新角色标签
-   var rl=document.getElementById('tbRoleLabel');
-   if(rl)rl.textContent=me.role_label||'';
-   // 权限控制：viewer隐藏操作性导航
-   applyRolePermissions(me.role);
+    var rl=document.getElementById('tbRoleLabel');
+    if(rl)rl.textContent=roleDisplayText(me);
+    applyRolePermissions(me.role);
    if(hasRole('admin')) loadActivityUsernames();
   }
  }catch(e){}
@@ -4715,7 +4738,7 @@ function renderTokensView(){
   html+='</div>';
   html+='<div id="'+gid+'" style="display:'+(isOpen?'':'none')+'">';
   html+=groups[gk].map(function(t){
-   var statusBadge=t.status==='active'?'<span class="badge bg-ok">有效</span>':t.status==='suspended'?'<span class="badge" style="background:rgba(245,158,11,.15);color:#d97706;border:1px solid rgba(245,158,11,.3)">⏸ 已暂停</span>':'<span class="badge bg-er">已失效</span>';
+    var statusBadge=t.status==='active'?'<span class="badge bg-ok">有效</span>':t.status==='suspended'?'<span class="badge" style="background:rgba(245,158,11,.15);color:#d97706;border:1px solid rgba(245,158,11,.3)">已暂停</span>':'<span class="badge bg-er">已失效</span>';
    var typeLabel=t.token_type==='manage'?'管理号':t.token_type==='operate'?'操作号':'个人号';
    var typeColor=t.token_type==='manage'?'#4a9eff':t.token_type==='operate'?'#f0a500':'#888';
    var sourceKey=getTokenSourceKey(t);
@@ -4731,7 +4754,7 @@ function renderTokensView(){
    var aliasText=escHtml(t.token_alias||'');
    var noteText=t.note?(' · '+escHtml(t.note)):'';
    var rematchBtn=t.token_type==='operate'?'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();rematchOpToken('+t.id+',this)" title="重新匹配已导入账户">重新匹配</button>':'';
-   return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属"> 矩阵</button><button class="btn-ic" title="验证Token" onclick="verifyTk('+t.id+',this)"></button><button class="btn-ic d" title="删除" onclick="delTk('+t.id+')"></button></div></div>';
+    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
   }).join('');
   html+='</div></div>';
  });
@@ -5642,11 +5665,11 @@ async function loadOpPoolList(){
      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+bindBadge+tkBadge+sourceBadge+eligibleBadge+'</div>'+
     '</div>'+
     '<div class="td-acts">'+
-     '<button class="btn-ic" title="调整优先级" onclick="editOpPriority(\''+_currentOpActId+'\','+t.token_id+','+t.priority+')">↕</button>'+
-     (t.bind_status==='active'
-      ?'<button class="btn-ic" title="禁用" onclick="toggleOpToken(\''+_currentOpActId+'\','+t.token_id+',\'disabled\')">⏸</button>'
-      :'<button class="btn-ic" title="启用" onclick="toggleOpToken(\''+_currentOpActId+'\','+t.token_id+',\'active\')">▶</button>')+
-     '<button class="btn-ic d" title="解绑" onclick="unbindOpToken(\''+_currentOpActId+'\','+t.token_id+')"></button>'+
+      '<button class="btn-ic" title="调整优先级" onclick="editOpPriority(\''+_currentOpActId+'\','+t.token_id+','+t.priority+')">序</button>'+
+      (t.bind_status==='active'
+       ?'<button class="btn-ic" title="禁用" onclick="toggleOpToken(\''+_currentOpActId+'\','+t.token_id+',\'disabled\')">停</button>'
+       :'<button class="btn-ic" title="启用" onclick="toggleOpToken(\''+_currentOpActId+'\','+t.token_id+',\'active\')">启</button>')+
+     '<button class="btn-ic d" title="解绑" onclick="unbindOpToken(\''+_currentOpActId+'\','+t.token_id+')">解</button>'+
     '</div>'+
    '</div>';
   }).join('');
@@ -8282,8 +8305,8 @@ function renderKpiList(){
    '</div>'+
    '<div class="kc-cpa">'+(k.target_cpa?'$'+parseFloat(k.target_cpa).toFixed(2):'<span style="color:var(--t3);font-size:12px">未设CPA</span>')+'</div>'+
    '<div class="td-acts">'+
-   '<button class="btn-ic" title="编辑" onclick="editKpi('+k.id+')"></button>'+
-   '<button class="btn-ic d" title="删除" onclick="delKpi('+k.id+')"></button>'+
+    '<button class="btn-ic" title="编辑" onclick="editKpi('+k.id+')">编</button>'+
+    '<button class="btn-ic d" title="删除" onclick="delKpi('+k.id+')">删</button>'+
    '</div>'+
    '</div>';
  }).join('');
@@ -8590,7 +8613,7 @@ function renderGuard(rules){
   var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+(kpiFilterLabel[r.kpi_filter]||r.kpi_filter)+'</span>':'';
   var actBadge=isGlobal?'<span class="badge" style="background:rgba(139,92,246,.2);color:#a78bfa;border:1px solid rgba(139,92,246,.3)">全局</span>'+kfiBadge:'<span class="badge bg-mu">'+r.act_id+'</span>';
   var cardStyle=isGlobal?'border-left:3px solid rgba(139,92,246,.6);':'';
-  return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div></div><div class="rc-acts"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')"></button><button class="btn-ic d" onclick="delG('+r.id+')"></button></div></div>';
+   return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div></div><div class="rc-acts"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
  }
  var globalRules=rules.filter(function(r){return r.act_id==='__global__'});
  var accRules=rules.filter(function(r){return r.act_id!=='__global__'});
@@ -9231,7 +9254,7 @@ var SETTINGS_META = {
  default_bleed_amount: { label: '默认止血金额（USD）', hint: '广告无转化时，消耗达到此金额自动关闭，全局默认值', icon: '' },
  default_bleed_abs:  { label: '止血绝对金额（USD）', hint: '与止血金额功能相同，优先级更高，用于精确控制', icon: '' },
  default_cpa_ratio:  { label: '默认 CPA 超标倍数', hint: '实际 CPA 超过目标 CPA 的倍数时触发止损，如 1.3 = 超出 30% 时关闭', icon: '' },
- escalate_on_fail:   { label: '关闭失败时向上升级', hint: '关闭广告失败时，自动尝试关闭上级广告组或系列，确保止损生效', icon: '⬆' },
+ escalate_on_fail:   { label: '关闭失败时向上升级', hint: '关闭广告失败时，自动尝试关闭上级广告组或系列，确保止损生效', icon: '' },
  learning_phase_protect:{ label: '保护学习期广告', hint: '学习期广告不触发止损规则，避免打断 Facebook 算法学习', icon: '' },
  op_token_fail_threshold:{ label: '操作号失效判定次数', hint: '操作号连续失败多少次后标记为无效并停止使用，建议 2-5', icon: '' },
  op_token_heartbeat_interval:{ label: '操作号心跳检测间隔（分钟）', hint: '每隔多少分钟检测一次操作号 Token 的有效性，建议 10-30', icon: '' },
@@ -9243,14 +9266,14 @@ var SETTINGS_META = {
 
  // 调度
  inspect_enabled:   { label: '启用自动巡检', hint: '关闭后系统不自动巡检广告，仍可点击「立即巡检」手动触发', icon: '' },
- inspect_interval:   { label: '巡检间隔（分钟）', hint: '每隔多少分钟自动巡检一次，建议 5-30 分钟，太频繁会消耗 API 配额', icon: '⏱' },
+ inspect_interval:   { label: '巡检间隔（分钟）', hint: '每隔多少分钟自动巡检一次，建议 5-30 分钟，太频繁会消耗 API 配额', icon: '' },
 
  // 通用
  dry_run:       { label: '模拟模式（Dry Run）', hint: '开启后所有操作只记录日志不真实执行，用于测试规则逻辑，生产环境请关闭', icon: '' },
- op_cooldown_min:   { label: '操作冷却时间（分钟）', hint: '同一广告触发同一规则的最小间隔，防止频繁操作，建议 30-120 分钟', icon: '⏳' },
+ op_cooldown_min:   { label: '操作冷却时间（分钟）', hint: '同一广告触发同一规则的最小间隔，防止频繁操作，建议 30-120 分钟', icon: '' },
  // 预热
  warmup_enabled:   { label: "启用自动预热", hint: "开启后定时扫描未创建过预热广告的新账户和沉睡账户，自动创建 page_likes 预热广告", icon: "", category: "warmup" },
- warmup_check_interval:{ label: "预热扫描间隔（分钟）", hint: "每隔多少分钟检查一次是否有需要预热的账户", icon: "⏰", category: "warmup" },
+ warmup_check_interval:{ label: "预热扫描间隔（分钟）", hint: "每隔多少分钟检查一次是否有需要预热的账户", icon: "", category: "warmup" },
 
  // 存储
  storage_disk_warn_pct:{ label: '磁盘告警阈值（%）', hint: '磁盘使用率超过此百分比时发送 Telegram 告警，建议 70-80', icon: '' },
@@ -9262,16 +9285,16 @@ var SETTINGS_META = {
 
 // ── 分类名称映射（优化版） ──
 var SETTINGS_CAT_LABELS = {
- ai:     { label: ' AI 文本分析', desc: '广告分析、规则建议、消息生成' },
- ai_vision: { label: ' AI 视觉分析', desc: '素材识别、图片内容分析、自动打标' },
- guard:   { label: ' 止损与风控规则', desc: '止血金额、CPA 超标、操作号管理' },
- notify:   { label: ' Telegram 通知', desc: '巡检结果、告警推送配置' },
- tg:     { label: ' Telegram 通知', desc: '巡检结果、告警推送配置' },
- scheduler: { label: '⏱ 调度与巡检', desc: '自动巡检频率、任务调度设置' },
- inspect:  { label: '⏱ 调度与巡检', desc: '自动巡检频率、任务调度设置' },
- general:  { label: ' 通用设置', desc: '模拟模式、冷却时间、铺放参数' },
- warmup:   { label: " 预热", desc: "账户预热、自动创建 page_likes 广告激活账户" },
- storage:  { label: ' 存储与清理', desc: '磁盘告警、自动清理、备份管理' },
+ ai:     { label: 'AI 文本分析', desc: '广告分析、规则建议、消息生成' },
+ ai_vision: { label: 'AI 视觉分析', desc: '素材识别、图片内容分析、自动打标' },
+ guard:   { label: '止损与风控规则', desc: '止血金额、CPA 超标、操作号管理' },
+ notify:   { label: 'Telegram 通知', desc: '巡检结果、告警推送配置' },
+ tg:     { label: 'Telegram 通知', desc: '巡检结果、告警推送配置' },
+ scheduler: { label: '调度与巡检', desc: '自动巡检频率、任务调度设置' },
+ inspect:  { label: '调度与巡检', desc: '自动巡检频率、任务调度设置' },
+ general:  { label: '通用设置', desc: '模拟模式、冷却时间、铺放参数' },
+ warmup:   { label: "预热", desc: "账户预热、自动创建 page_likes 广告激活账户" },
+ storage:  { label: '存储与清理', desc: '磁盘告警、自动清理、备份管理' },
 };
 
 // ── 重构 renderSI 函数（带中文释义） ──
@@ -9293,7 +9316,7 @@ function renderSI(s, providers, prefix) {
    '<span style="font-size:12px;color:var(--t3);margin-left:8px" id="si-status-' + s.key + '">' + (val === '1' ? '已开启' : '已关闭') + '</span>';
   return '<div class="fg" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:6px;min-height:38px">' +
    '<div style="flex:1;min-width:180px">' +
-   '<label class="fl" style="margin-bottom:2px">' + icon + ' ' + label + '</label>' +
+    '<label class="fl" style="margin-bottom:2px">' + (icon ? icon + ' ' : '') + label + '</label>' +
    (hint ? '<div class="fh" style="margin-top:2px">' + hint + '</div>' : '') +
    '</div>' +
    '<div style="display:flex;align-items:center;flex-shrink:0;padding-top:2px">' + inputHtml + '</div>' +
@@ -9317,7 +9340,7 @@ function renderSI(s, providers, prefix) {
  }
 
  return '<div class="fg">' +
-  '<label class="fl">' + icon + ' ' + label + '</label>' +
+  '<label class="fl">' + (icon ? icon + ' ' : '') + label + '</label>' +
   inputHtml +
   (hint ? '<div class="fh">' + hint + '</div>' : '') +
   '</div>';
@@ -9381,6 +9404,7 @@ async function loadSettings() {
   html += renderConnectionTestSection();
   html += renderGuardHealthSection();
   html += renderServerResourceSection();
+  html += renderPermissionMatrixSection();
   html += renderTeamResourceSection();
   html += renderUserManageSection();
 
