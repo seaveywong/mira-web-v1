@@ -1051,6 +1051,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
        <option value="no_kpi">未设KPI</option>
        <option value="no_write">不可写/无Token</option>
        <option value="automated">守护中</option>
+       <option value="recent_ops">最近操作</option>
       </select>
       <input class="fc" id="adsQ" placeholder="搜索广告名称..." oninput="filterAds()" style="min-width:180px">
       <button class="btn btn-g btn-sm" onclick="expandAdsTree()">展开全部</button>
@@ -2490,8 +2491,8 @@ function _fmtActionLogTime(s){
  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)&&!(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)))return raw.replace('T',' ').slice(0,16);
  return _cst(raw);
 }
-var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null;
-var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsLoadSeq=0, ADS_CACHE_MS=60000;
+var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null;
+var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',ts:0}, _adsLoadSeq=0, ADS_CACHE_MS=60000;
 
 // ── API ──
 async function api(m,p,b){
@@ -3986,6 +3987,7 @@ async function loadAds(opts){
   if(!opts.force&&opts.auto&&_adsCache.key===cacheKey&&_adsCache.data&&(now-_adsCache.ts)<ADS_CACHE_MS){
    allAds=_adsCache.data.slice();
    _adsPruneSelection();
+   await loadAdsRecentOps({force:false});
    filterAds();
    return allAds;
   }
@@ -3998,6 +4000,7 @@ async function loadAds(opts){
   _adsCache={key:cacheKey,ts:Date.now(),data:(data||[]).slice()};
   _pageAutoCache.ads={key:_pageAutoKey('ads'),ts:Date.now()};
   _adsPruneSelection();
+  await loadAdsRecentOps({force:opts.force});
   filterAds();
   return allAds;
  }catch(e){
@@ -4007,8 +4010,14 @@ async function loadAds(opts){
 function _adsJs(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,' ');}
 function _adsMoney(v,c){return v!==null&&v!==undefined&&!isNaN(Number(v))?(c+' '+Number(v).toFixed(2)):'--';}
 function _adsDataTime(){
- if(!_adsCache.ts)return '';
- var d=new Date(_adsCache.ts);
+ return _adsClockTime(_adsCache.ts);
+}
+function _adsOpsDataTime(){
+ return _adsClockTime(_adsOpsCache.ts);
+}
+function _adsClockTime(ts){
+ if(!ts)return '';
+ var d=new Date(ts);
  var pad=function(n){return String(n).padStart(2,'0')};
  return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
 }
@@ -4106,8 +4115,62 @@ function recordAdsOp(op){
  _adsRecentOps[_adsOpKey(op.level,op.target_id)]=op;
 }
 function _adsErrMsg(e){return e&&e.message?String(e.message):String(e||'失败');}
+function _adsParseJson(s){
+ if(!s)return null;
+ if(typeof s==='object')return s;
+ try{return JSON.parse(s);}catch(e){return null;}
+}
+function _adsLogActionLabel(t){
+ return {manual_pause:'手动暂停',manual_resume:'手动开启',manual_budget:'手动调预算',pause:'自动暂停',emergency:'紧急暂停',escalate:'升级关闭'}[t]||t||'操作';
+}
+function _adsLogToOp(l){
+ if(!l||!l.target_id)return null;
+ var t=l.action_type||'',level=(l.level||'ad').toLowerCase();
+ if(['manual_pause','manual_resume','manual_budget','pause','emergency','escalate'].indexOf(t)<0)return null;
+ var oldV=_adsParseJson(l.old_value),newV=_adsParseJson(l.new_value);
+ var st=String(l.status||'').toLowerCase();
+ var ok=st==='success',partial=st==='warning';
+ var msg=l.error_msg||'';
+ if(!msg&&t==='manual_budget'&&newV){
+  var cur=newV.currency||l.account_currency||'USD';
+  msg='预算：'+(oldV&&oldV.amount!=null?_adsMoney(oldV.amount,cur):'--')+' -> '+(newV.amount!=null?_adsMoney(newV.amount,cur):'--');
+ }else if(!msg&&(t==='manual_pause'||t==='manual_resume')&&newV){
+  msg='状态：'+(newV.effective_status||newV.status||'已提交');
+ }
+ if(!msg)msg=l.trigger_detail||l.status||'已记录';
+ var when=_cst(l.created_at||'')||'--';
+ return {level:level,target_id:String(l.target_id),name:l.target_name||l.target_id,act_id:l.act_id||'',action:_adsLogActionLabel(t),ok:ok,partial:partial,persisted:true,message:msg,detail:'操作人：'+(l.operator||'--')+'\n记录时间：'+when+'\n'+(l.trigger_detail||''),time:when};
+}
+async function loadAdsRecentOps(opts){
+ opts=opts||{};
+ var actIds={};
+ (allAds||[]).forEach(function(a){if(a.act_id)actIds[a.act_id]=1;});
+ var actKeys=Object.keys(actIds).sort();
+ if(!actKeys.length){_adsPersistedOps={};return;}
+ var cacheKey=actKeys.join(',');
+ if(!opts.force&&_adsOpsCache.key===cacheKey&&_adsOpsCache.ts&&(Date.now()-_adsOpsCache.ts)<ADS_CACHE_MS)return;
+ try{
+  var d=await api('GET','/logs?limit=300&offset=0');
+  var next={},logs=(d&&d.items)||[];
+  logs.forEach(function(l){
+   if(l.act_id&&!actIds[l.act_id])return;
+   var op=_adsLogToOp(l);
+   if(!op)return;
+   var key=_adsOpKey(op.level,op.target_id);
+   if(!next[key])next[key]=op;
+   if(op.act_id&&!next[_adsOpKey('account',op.act_id)]){
+    next[_adsOpKey('account',op.act_id)]={level:'account',target_id:op.act_id,name:l.account_name||op.act_id,act_id:op.act_id,action:'最近账户操作',ok:op.ok,partial:op.partial,persisted:true,message:op.action+'：'+op.name,detail:op.detail,time:op.time};
+   }
+  });
+  _adsPersistedOps=next;
+  _adsOpsCache={key:cacheKey,ts:Date.now()};
+ }catch(e){
+  console.warn('loadAdsRecentOps failed',e);
+ }
+}
 function _adsRecentOp(level,id){
- return _adsRecentOps[_adsOpKey(level,id)]||null;
+ var key=_adsOpKey(level,id);
+ return _adsRecentOps[key]||_adsPersistedOps[key]||null;
 }
 function _adsRecentOpChip(level,id){
  var op=_adsRecentOp(level,id);
@@ -4312,7 +4375,7 @@ function renderAdsTree(rows, forceOpen){
   });
  });
  tb.innerHTML=html.join('');
- document.getElementById('adsCount').textContent='共 '+rows.length+' 条（总 '+allAds.length+' 条）'+(_adsCache.ts?' · 数据时间 '+_adsDataTime():'');
+ document.getElementById('adsCount').textContent='共 '+rows.length+' 条（总 '+allAds.length+' 条）'+(_adsCache.ts?' · 广告数据 '+_adsDataTime():'')+(_adsOpsCache.ts?' · 操作记录 '+_adsOpsDataTime():'');
  updateAdsBulkBar();
 }
 function filterAds(){
@@ -4330,6 +4393,7 @@ function filterAds(){
   if(st==='no_kpi')return !a.target_cpa;
   if(st==='no_write')return !a.pause_token_ok||!a.update_token_ok||!a.can_edit_budget;
   if(st==='automated')return (a.automation_warnings||[]).length>0;
+  if(st==='recent_ops')return !!(_adsRecentOp('ad',a.ad_id)||_adsRecentOp('adset',a.adset_id)||_adsRecentOp('campaign',a.campaign_id)||_adsRecentOp('account',a.act_id));
   return true;
  });
  window._lastFilteredAds=f;
