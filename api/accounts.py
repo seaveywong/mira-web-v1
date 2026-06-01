@@ -12,7 +12,13 @@ from typing import Optional, List
 
 from core.auth import get_current_user, normalize_user_claims
 from core.database import get_conn, encrypt_token, decrypt_token
-from core.account_access import ensure_account_access_columns, is_read_blocking_status
+from core.account_access import (
+    classify_read_failure,
+    ensure_account_access_columns,
+    is_read_blocking_status,
+    mark_account_read_failure,
+    mark_account_read_success,
+)
 from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
 from services.token_manager import (
     ALLOWED_TOKEN_SOURCES,
@@ -2126,6 +2132,416 @@ def _verify_fb_token(token: str):
     except Exception as e:
         return False, str(e)
 
+def _compact_diag_error(error: object) -> str:
+    text = str(error or "").strip().replace("\n", " ")
+    if not text:
+        return ""
+    return text[:500]
+
+
+@router.get("/{act_id}/permission-diagnostic")
+def diagnose_account_permission(act_id: str, user=Depends(get_current_user)):
+    """Probe each relevant token for an account without creating or updating ads."""
+    from services.token_manager import TOKEN_SOURCE_SYSTEM_USER
+
+    conn = get_conn()
+    ensure_token_source_columns(conn)
+    _ensure_account_read_columns(conn)
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    acc = conn.execute(
+        """
+        SELECT a.id, a.act_id, a.name, a.token_id, a.page_id, a.team_id,
+               a.read_permission_status, a.read_permission_error, a.read_permission_checked_at
+        FROM accounts a
+        WHERE a.act_id=?
+        """,
+        (act_id,),
+    ).fetchone()
+    if not acc:
+        conn.close()
+        raise HTTPException(404, "Account not found")
+
+    account_team_id = acc["team_id"]
+    if account_team_id is None and isinstance(user, dict) and user.get("role") != "superadmin":
+        account_team_id = user.get("team_id")
+
+    def _team_sql(alias: str) -> tuple[str, list]:
+        if account_team_id is None:
+            return "", []
+        return f" AND ({alias}.team_id=? OR {alias}.team_id IS NULL)", [account_team_id]
+
+    def _token_public(row: dict, origin: str, bind_status: str = "", priority=None) -> dict:
+        token_type = str(row.get("token_type") or "").strip().lower()
+        token_source = normalize_token_source(
+            row.get("token_source"),
+            default_token_source_for_type(token_type),
+        )
+        token_status = row.get("token_status") or row.get("status") or ""
+        return {
+            "token_id": row.get("token_id") or row.get("id"),
+            "alias": row.get("token_alias") or row.get("alias") or "",
+            "type": token_type or "unknown",
+            "source": token_source,
+            "matrix_id": row.get("matrix_id"),
+            "token_status": token_status,
+            "bind_status": bind_status,
+            "priority": priority,
+            "origins": [origin],
+            "_access_token_enc": row.get("access_token_enc"),
+        }
+
+    candidates = []
+    by_token_id = {}
+
+    def _add_candidate(item: dict):
+        token_id = item.get("token_id")
+        if token_id in by_token_id:
+            existing = by_token_id[token_id]
+            for origin in item.get("origins") or []:
+                if origin not in existing["origins"]:
+                    existing["origins"].append(origin)
+            if not existing.get("bind_status") and item.get("bind_status"):
+                existing["bind_status"] = item["bind_status"]
+            if existing.get("priority") is None and item.get("priority") is not None:
+                existing["priority"] = item["priority"]
+            return
+        by_token_id[token_id] = item
+        candidates.append(item)
+
+    token_team_sql, token_team_params = _team_sql("t")
+    bound_rows = conn.execute(
+        f"""
+        SELECT t.id as token_id, t.token_alias, t.token_type, t.token_source,
+               t.status as token_status, t.matrix_id, t.access_token_enc,
+               aot.status as bind_status, aot.priority
+        FROM account_op_tokens aot
+        JOIN fb_tokens t ON t.id = aot.token_id
+        WHERE aot.act_id=?
+          {token_team_sql}
+        ORDER BY
+          CASE WHEN aot.status='active' AND t.status='active' THEN 0 ELSE 1 END,
+          CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
+          aot.priority DESC,
+          t.id ASC
+        """,
+        [act_id] + token_team_params,
+    ).fetchall()
+    for row in bound_rows:
+        _add_candidate(_token_public(dict(row), "bound", row["bind_status"], row["priority"]))
+
+    if acc["token_id"]:
+        primary_team_sql, primary_team_params = _team_sql("t")
+        primary = conn.execute(
+            f"""
+            SELECT t.id as token_id, t.token_alias, t.token_type, t.token_source,
+                   t.status as token_status, t.matrix_id, t.access_token_enc
+            FROM fb_tokens t
+            WHERE t.id=?
+              {primary_team_sql}
+            """,
+            [acc["token_id"]] + primary_team_params,
+        ).fetchone()
+        if primary:
+            _add_candidate(_token_public(dict(primary), "primary"))
+
+    manage_team_sql, manage_team_params = _team_sql("t")
+    manage_rows = conn.execute(
+        f"""
+        SELECT t.id as token_id, t.token_alias, t.token_type, t.token_source,
+               t.status as token_status, t.matrix_id, t.access_token_enc
+        FROM fb_tokens t
+        WHERE t.status='active'
+          AND t.token_type='manage'
+          {manage_team_sql}
+        ORDER BY t.id ASC
+        LIMIT 10
+        """,
+        manage_team_params,
+    ).fetchall()
+    for row in manage_rows:
+        _add_candidate(_token_public(dict(row), "team_manage"))
+
+    matrix_ids = sorted(
+        {
+            int(c["matrix_id"])
+            for c in candidates
+            if c.get("matrix_id") not in (None, "", 0)
+        }
+    )
+    if matrix_ids:
+        matrix_team_sql, matrix_team_params = _team_sql("t")
+        matrix_placeholders = ",".join("?" for _ in matrix_ids)
+        matrix_rows = conn.execute(
+            f"""
+            SELECT t.id as token_id, t.token_alias, t.token_type, t.token_source,
+                   t.status as token_status, t.matrix_id, t.access_token_enc
+            FROM fb_tokens t
+            WHERE t.status='active'
+              AND t.token_type='operate'
+              AND t.token_source=?
+              AND t.matrix_id IN ({matrix_placeholders})
+              {matrix_team_sql}
+            ORDER BY t.matrix_id ASC, t.id ASC
+            LIMIT 20
+            """,
+            [TOKEN_SOURCE_SYSTEM_USER] + matrix_ids + matrix_team_params,
+        ).fetchall()
+        for row in matrix_rows:
+            if row["token_id"] not in by_token_id:
+                _add_candidate(_token_public(dict(row), "matrix_peer"))
+
+    def _is_active_candidate(item: dict) -> bool:
+        token_ok = item.get("token_status") == "active"
+        bind_status = item.get("bind_status")
+        bind_ok = bind_status in ("", None, "active")
+        return bool(token_ok and bind_ok)
+
+    def _participation(item: dict) -> dict:
+        active = _is_active_candidate(item)
+        origins = set(item.get("origins") or [])
+        is_bound = "bound" in origins
+        is_primary = "primary" in origins
+        is_manage = item.get("type") == "manage"
+        is_team_manage = "team_manage" in origins and is_manage
+        is_system_operate = (
+            item.get("type") == "operate"
+            and item.get("source") == TOKEN_SOURCE_SYSTEM_USER
+        )
+        read = active and (is_bound or is_primary or is_manage or is_team_manage)
+        pause = active and ((is_bound and is_system_operate) or is_manage or is_team_manage or is_primary)
+        create_update = active and is_bound and is_system_operate
+        return {
+            "read": bool(read),
+            "pause": bool(pause),
+            "create": bool(create_update),
+            "update": bool(create_update),
+        }
+
+    def _ok_probe(data: dict | None = None) -> dict:
+        return {"ok": True, "data": data or {}}
+
+    def _error_probe(error: object) -> dict:
+        text = _compact_diag_error(error)
+        return {"ok": False, "error": text, "failure_type": classify_read_failure(text)}
+
+    def _probe_account(token_plain: str) -> dict:
+        try:
+            data = _graph_get_json(
+                f"/{act_id}",
+                token_plain,
+                params={"fields": "id,name,account_status,currency,timezone_name"},
+                timeout=12,
+            )
+            return _ok_probe({
+                "id": data.get("id"),
+                "name": data.get("name"),
+                "account_status": data.get("account_status"),
+                "currency": data.get("currency"),
+                "timezone_name": data.get("timezone_name"),
+            })
+        except Exception as exc:
+            return _error_probe(exc)
+
+    def _probe_campaigns(token_plain: str) -> dict:
+        try:
+            data = _graph_get_json(
+                f"/{act_id}/campaigns",
+                token_plain,
+                params={"fields": "id,name,status,effective_status", "limit": 1},
+                timeout=12,
+            )
+            return _ok_probe({"count_sampled": len(data.get("data") or [])})
+        except Exception as exc:
+            return _error_probe(exc)
+
+    def _find_page(token_plain: str, page_id: str):
+        if not page_id:
+            return None, None
+        url = f"{FB_API_BASE}/me/accounts"
+        params = {
+            "access_token": token_plain,
+            "fields": "id,name,tasks,is_published,access_token",
+            "limit": 200,
+        }
+        seen = set()
+        for _ in range(5):
+            try:
+                resp = requests.get(url, params=params, timeout=12)
+                data = resp.json()
+            except Exception as exc:
+                return None, exc
+            if "error" in data:
+                return None, data["error"].get("message") or data["error"]
+            for page in data.get("data") or []:
+                if str(page.get("id")) == str(page_id):
+                    return page, None
+            next_url = data.get("paging", {}).get("next")
+            if not next_url or next_url in seen:
+                break
+            seen.add(next_url)
+            url = next_url
+            params = {}
+        return None, "Token 的 /me/accounts 中未找到该主页"
+
+    def _probe_lead_forms(page_id: str, page_token: str) -> dict:
+        try:
+            data = _graph_get_json(
+                f"/{page_id}/leadgen_forms",
+                page_token,
+                params={"limit": 1},
+                timeout=12,
+            )
+            return _ok_probe({"count_sampled": len(data.get("data") or [])})
+        except Exception as exc:
+            return _error_probe(exc)
+
+    results = []
+    for item in candidates:
+        enc = item.pop("_access_token_enc", None)
+        public = dict(item)
+        public["participates"] = _participation(public)
+        public["active"] = _is_active_candidate(public)
+        public["probes"] = {}
+        public["notes"] = []
+        if "matrix_peer" in public["origins"]:
+            public["notes"].append("同矩阵可见但未绑定，当前不会参与自动创建/改预算")
+        if not public["active"]:
+            public["notes"].append("Token 或绑定状态不是 active")
+        token_plain = decrypt_token(enc) if enc else ""
+        if not token_plain:
+            public["probes"]["account_read"] = _error_probe("Token 解密失败或为空")
+            results.append(public)
+            continue
+
+        account_probe = _probe_account(token_plain)
+        public["probes"]["account_read"] = account_probe
+        if account_probe.get("ok"):
+            campaigns_probe = _probe_campaigns(token_plain)
+            public["probes"]["campaigns_read"] = campaigns_probe
+        else:
+            public["probes"]["campaigns_read"] = {"ok": False, "skipped": True, "error": "账户读取失败，跳过广告列表探测"}
+
+        if acc["page_id"] and account_probe.get("ok"):
+            page, page_err = _find_page(token_plain, acc["page_id"])
+            if page:
+                tasks = page.get("tasks") or []
+                page_token = page.get("access_token") or ""
+                can_advertise = (not tasks) or ("ADVERTISE" in tasks)
+                public["probes"]["page"] = _ok_probe({
+                    "id": page.get("id"),
+                    "name": page.get("name"),
+                    "is_published": page.get("is_published"),
+                    "tasks": tasks,
+                    "can_advertise": bool(can_advertise),
+                    "has_page_token": bool(page_token),
+                })
+                if page_token:
+                    public["probes"]["lead_forms"] = _probe_lead_forms(acc["page_id"], page_token)
+                else:
+                    public["probes"]["lead_forms"] = _error_probe("可见主页，但拿不到 Page Access Token")
+            else:
+                public["probes"]["page"] = _error_probe(page_err)
+                public["probes"]["lead_forms"] = {"ok": False, "skipped": True, "error": "主页不可见，跳过 Lead Form 探测"}
+        else:
+            public["probes"]["page"] = {"ok": False, "skipped": True, "error": "账户未绑定主页或账户读取失败"}
+            public["probes"]["lead_forms"] = {"ok": False, "skipped": True, "error": "账户未绑定主页或账户读取失败"}
+
+        campaign_ok = bool(public["probes"].get("campaigns_read", {}).get("ok"))
+        page_ok = bool(public["probes"].get("page", {}).get("ok"))
+        lead_ok = bool(public["probes"].get("lead_forms", {}).get("ok"))
+        page_can_advertise = bool(
+            public["probes"].get("page", {}).get("data", {}).get("can_advertise")
+        )
+        public["can_read"] = bool(public["participates"]["read"] and account_probe.get("ok"))
+        public["can_pause_likely"] = bool(public["participates"]["pause"] and campaign_ok)
+        public["can_create_likely"] = bool(public["participates"]["create"] and account_probe.get("ok"))
+        public["can_update_likely"] = bool(public["participates"]["update"] and account_probe.get("ok"))
+        public["lead_form_likely"] = bool(lead_ok and page_can_advertise)
+        if acc["page_id"] and page_ok and not page_can_advertise:
+            public["notes"].append("主页可见，但缺少 ADVERTISE 任务或主页不可投放")
+        if acc["page_id"] and public["can_create_likely"] and not public["lead_form_likely"]:
+            public["notes"].append("广告账户可写，但当前主页/Lead Form 条件不足")
+        results.append(public)
+
+    read_ok = any(r.get("can_read") for r in results)
+    campaign_read_ok = any(
+        r.get("participates", {}).get("read") and r.get("probes", {}).get("campaigns_read", {}).get("ok")
+        for r in results
+    )
+    pause_ok = any(r.get("can_pause_likely") for r in results)
+    create_ok = any(r.get("can_create_likely") for r in results)
+    update_ok = any(r.get("can_update_likely") for r in results)
+    lead_ok = any(r.get("can_create_likely") and r.get("lead_form_likely") for r in results)
+    best_read = next((r for r in results if r.get("can_read")), None)
+    best_pause = next((r for r in results if r.get("can_pause_likely")), None)
+    best_write = next((r for r in results if r.get("can_create_likely")), None)
+
+    def _public_best(item):
+        if not item:
+            return None
+        return {
+            "token_id": item.get("token_id"),
+            "alias": item.get("alias"),
+            "type": item.get("type"),
+            "source": item.get("source"),
+            "origins": item.get("origins"),
+        }
+
+    all_read_errors = [
+        r.get("probes", {}).get("account_read", {}).get("error")
+        for r in results
+        if not r.get("probes", {}).get("account_read", {}).get("ok")
+    ]
+    all_read_errors = [e for e in all_read_errors if e]
+
+    restored_read_status = False
+    if read_ok:
+        mark_account_read_success(conn, act_id)
+        restored_read_status = True
+    else:
+        err_text = "；".join(all_read_errors[:3]) if all_read_errors else "no_read_token"
+        if not results:
+            mark_account_read_failure(conn, act_id, "no_read_token", status="no_read_token")
+        else:
+            status = classify_read_failure(err_text)
+            mark_account_read_failure(conn, act_id, err_text, status=status)
+    conn.commit()
+    conn.close()
+
+    if not results:
+        recommended = "没有找到可用于该账户的候选 Token；请先重新匹配或绑定同团队/同矩阵 Token。"
+    elif not read_ok:
+        recommended = "当前系统实际可用候选 Token 都读不到该广告账户；优先检查 BM 授权、账户归属和 Token 权限。"
+    elif not create_ok:
+        recommended = "读取和巡检链路可用，但没有绑定可写的 System User 操作号；自动铺广告、预热、改预算会失败。"
+    elif acc["page_id"] and not lead_ok:
+        recommended = "广告账户写入候选可用，但主页或 Lead Form 条件不足；创建线索广告前请检查主页权限和表单权限。"
+    else:
+        recommended = "权限链路正常：账户可读，且存在可写 System User 操作号。"
+
+    return {
+        "success": True,
+        "act_id": act_id,
+        "account_name": acc["name"],
+        "page_id": acc["page_id"],
+        "previous_read_status": acc["read_permission_status"],
+        "previous_read_error": acc["read_permission_error"],
+        "restored_read_status": restored_read_status,
+        "summary": {
+            "read_ok": read_ok,
+            "campaign_read_ok": campaign_read_ok,
+            "pause_likely": pause_ok,
+            "create_likely": create_ok,
+            "update_likely": update_ok,
+            "lead_form_likely": lead_ok if acc["page_id"] else None,
+            "candidate_count": len(results),
+            "best_read_token": _public_best(best_read),
+            "best_pause_token": _public_best(best_pause),
+            "best_write_token": _public_best(best_write),
+            "recommended_action": recommended,
+        },
+        "tokens": results,
+    }
 
 
 @router.get("/{act_id}/fb-pages")
