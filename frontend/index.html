@@ -302,6 +302,11 @@ tr:hover td{background:var(--bgh)}
 .fb-more button{height:26px;padding:0 8px;border-radius:6px;border:1px solid var(--bd);background:rgba(17,24,39,.78);color:var(--t2);font-size:11px;font-weight:700;cursor:pointer}
 .fb-more button:hover:not(:disabled){background:var(--bgh);color:var(--t1);border-color:var(--bd2)}
 .fb-more button:disabled{opacity:.35;cursor:not-allowed}
+.fb-op-chip{height:26px;padding:0 8px;border-radius:6px;border:1px solid var(--bd);background:rgba(17,24,39,.78);color:var(--t2);font-size:11px;font-weight:700;cursor:pointer}
+.fb-op-chip.ok{color:var(--ok);border-color:rgba(16,185,129,.26);background:rgba(16,185,129,.08)}
+.fb-op-chip.er{color:var(--er);border-color:rgba(239,68,68,.28);background:rgba(239,68,68,.08)}
+.fb-op-chip.wa{color:var(--wa);border-color:rgba(245,158,11,.28);background:rgba(245,158,11,.08)}
+.fb-op-chip:hover{background:var(--bgh);color:var(--t1)}
 .fb-budget-edit{display:block;width:100%;text-align:left;padding:4px 8px;margin:-4px -8px;border-radius:6px;border:1px solid transparent;background:transparent;color:inherit;font:inherit;cursor:pointer}
 .fb-budget-edit:hover:not(:disabled){background:rgba(6,182,212,.08);border-color:rgba(6,182,212,.28)}
 .fb-budget-edit:disabled{cursor:not-allowed;opacity:.72}
@@ -310,6 +315,14 @@ tr:hover td{background:var(--bgh)}
 .fb-row-check:disabled{cursor:not-allowed;opacity:.38}
 .ads-table th:first-child,.ads-table td:first-child{text-align:center}
 .ads-table th:nth-child(2),.ads-table td:nth-child(2){text-align:center}
+.ads-table tr.ads-account-row td{background:linear-gradient(90deg,rgba(59,130,246,.13),rgba(15,23,42,.96));border-top:12px solid var(--bg);border-bottom-color:rgba(59,130,246,.25)}
+.ads-table tr.ads-account-row td:first-child{box-shadow:inset 4px 0 0 var(--ac)}
+.ads-table tr.ads-account-row:hover td{background:linear-gradient(90deg,rgba(59,130,246,.18),rgba(30,41,59,.96))}
+.ads-table tr.ads-campaign-row td{background:rgba(15,23,42,.72)}
+.ads-table tr.ads-campaign-row td:first-child{box-shadow:inset 3px 0 0 rgba(16,185,129,.55)}
+.ads-table tr.ads-adset-row td{background:rgba(15,23,42,.42)}
+.ads-table tr.ads-adset-row td:first-child{box-shadow:inset 3px 0 0 rgba(245,158,11,.5)}
+.ads-table tr.ads-ad-row td:first-child{box-shadow:inset 2px 0 0 rgba(139,92,246,.38)}
 .btn-sm{padding:5px 10px;font-size:12px}
 /* Form */
 .fg{margin-bottom:14px}
@@ -505,6 +518,10 @@ tr:hover td{background:rgba(255,255,255,.025)}
 .fb-level.account,.fb-level.campaign,.fb-level.adset,.fb-level.ad{background:transparent;color:var(--t3);border-color:var(--bd)}
 .fb-more button{background:transparent;border-color:transparent;color:var(--ac);padding:0 4px}
 .fb-more button:hover:not(:disabled){background:transparent;color:#79a7ff;border-color:transparent}
+.fb-more .fb-op-chip{padding:0 7px;border-color:var(--bd);background:rgba(255,255,255,.035)}
+.fb-more .fb-op-chip.ok{color:var(--ok);border-color:rgba(33,166,122,.34)}
+.fb-more .fb-op-chip.er{color:var(--er);border-color:rgba(214,75,75,.36)}
+.fb-more .fb-op-chip.wa{color:var(--wa);border-color:rgba(245,158,11,.34)}
 .fc,.qdate-btn,.pb,.btn-ic,.fb-caret{border-radius:4px}
 .toast{box-shadow:0 8px 24px rgba(0,0,0,.24);border-radius:6px}
 .page.active{animation:none}
@@ -1046,7 +1063,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <button class="btn btn-g btn-sm" onclick="clearSelectedAds()">清空选择</button>
      </div>
      <div class="card" style="padding:0"><div class="table-wrap"><table class="ads-table">
-      <thead><tr><th style="width:70px">开关</th><th style="width:34px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th style="width:120px">更多</th></tr></thead>
+      <thead><tr><th style="width:70px">开关</th><th style="width:34px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th style="width:160px">更多</th></tr></thead>
       <tbody id="adsBody"><tr><td colspan="12" style="text-align:center;color:var(--t3);padding:40px">加载中...</td></tr></tbody>
      </table></div></div>
      <div style="padding:12px 0;font-size:12px;color:var(--t3);text-align:right" id="adsCount"></div>
@@ -2473,7 +2490,7 @@ function _fmtActionLogTime(s){
  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)&&!(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)))return raw.replace('T',' ').slice(0,16);
  return _cst(raw);
 }
-var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null;
+var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null;
 var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsLoadSeq=0, ADS_CACHE_MS=60000;
 
 // ── API ──
@@ -4077,6 +4094,39 @@ function _adsAutomationHint(a){
  var map={mirror_enabled:'镜像',sentinel_enabled:'哨兵',heartbeat_enabled:'心跳'};
  return arr.length?'<div style="font-size:10px;color:var(--wa);margin-top:2px">自动守护：'+arr.map(function(x){return map[x]||x}).join(' / ')+'</div>':'';
 }
+function _adsNowText(){
+ var d=new Date(),pad=function(n){return String(n).padStart(2,'0')};
+ return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+}
+function _adsOpKey(level,id){return String(level||'ad')+':'+String(id||'');}
+function recordAdsOp(op){
+ if(!op||!op.level||!op.target_id)return;
+ op.ts=Date.now();
+ op.time=_adsNowText();
+ _adsRecentOps[_adsOpKey(op.level,op.target_id)]=op;
+}
+function _adsErrMsg(e){return e&&e.message?String(e.message):String(e||'失败');}
+function _adsRecentOp(level,id){
+ return _adsRecentOps[_adsOpKey(level,id)]||null;
+}
+function _adsRecentOpChip(level,id){
+ var op=_adsRecentOp(level,id);
+ if(!op)return '';
+ var cls=op.ok?'ok':(op.partial?'wa':'er');
+ var text=op.ok?'成功':(op.partial?'部分':'失败');
+ var title=(op.action||'最近操作')+' · '+(op.message||'')+' · '+(op.time||'');
+ return '<button class="fb-op-chip '+cls+'" title="'+escHtml(title)+'" onclick="event.stopPropagation();showAdsRecentOp(\''+_adsJs(level)+'\',\''+_adsJs(id)+'\')">'+text+'</button>';
+}
+function showAdsRecentOp(level,id){
+ var op=_adsRecentOp(level,id);
+ if(!op){toast('暂无最近操作记录','wa');return;}
+ var html='<div><strong>'+escHtml(op.action||'最近操作')+'</strong></div>'+
+  '<div style="margin-top:8px;color:var(--t2)">对象：'+escHtml(op.name||op.target_id)+'</div>'+
+  '<div style="font-size:12px;color:var(--t3);margin-top:4px">层级：'+escHtml(_adsSelectionLabel(op.level))+' · 账户：'+escHtml(op.act_id||'--')+' · 时间：'+escHtml(op.time||'--')+'</div>'+
+  '<div style="margin-top:10px;color:'+(op.ok?'var(--ok)':op.partial?'var(--wa)':'var(--er)')+'">'+escHtml(op.message||'--')+'</div>';
+ if(op.detail)html+='<div style="margin-top:10px;font-size:12px;color:var(--t3);line-height:1.6">'+escHtml(op.detail).replace(/\n/g,'<br>')+'</div>';
+ showInfo(html,'最近操作');
+}
 function _adsSelKey(level,id){return String(level||'ad')+':'+String(id||'');}
 function _adsSplitSelKey(key){
  var s=String(key||''),i=s.indexOf(':');
@@ -4217,13 +4267,14 @@ function _adsMetricCells(m,target){
  return '<td><strong>$'+m.spend.toFixed(2)+'</strong></td><td>'+m.conversions+'</td><td>'+(m.cpa?'$'+m.cpa.toFixed(2):'--')+'</td><td>'+(target?'$'+Number(target).toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(m.roas?m.roas.toFixed(2)+'x':'--')+'</td>';
 }
 function _adsMoreActions(a,level){
- if(level==='account')return '<span style="color:var(--t3)">--</span>';
  var html='<div class="fb-more">';
+ var opId=level==='account'?a.act_id:(level==='campaign'?a.campaign_id:(level==='adset'?a.adset_id:a.ad_id));
+ html+=_adsRecentOpChip(level,opId);
  if(level==='ad'){
   html+='<button title="配置 KPI" onclick="event.stopPropagation();quickKpi(\'' + _adsJs(a.ad_id) + '\',\'' + _adsJs(a.act_id) + '\',\'' + _adsJs(a.ad_name||'') + '\')">KPI</button>'+
    '<button title="广告诊断" onclick="event.stopPropagation();showDiagnose(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\')">诊断</button>';
  }
- if(level==='campaign'||level==='adset')html+='<span style="color:var(--t3);font-size:12px">--</span>';
+ if(level!=='ad'&&!_adsRecentOp(level,opId))html+='<span style="color:var(--t3);font-size:12px">--</span>';
  return html+'</div>';
 }
 function _adsKpiCell(a){
@@ -4240,22 +4291,22 @@ function renderAdsTree(rows, forceOpen){
  var accountsGroup=_adsGroupBy(rows,function(a){return a.act_id||'unknown';});
  accountsGroup.keys.forEach(function(actKey){
   var accRows=accountsGroup.map[actKey],accRep=accRows[0],accM=_adsSum(accRows),accOpen=forceOpen||_adsTreeIsOpen('accounts',actKey,false);
-  html.push('<tr style="background:var(--bg2);cursor:pointer" onclick="toggleAdsTree(\'accounts\',\''+_adsJs(actKey)+'\')"><td>'+_adsAccountSwitchButton(actKey)+'</td><td>'+_adsSelectBox('account',actKey,'选择账户')+'</td><td>'+_adsNameCell('accounts',actKey,accOpen,0,accRep.account_name||actKey,(actKey||'').replace(/^act_/,''))+'</td><td>'+_adsStatusBadge(_adsGroupStatus(accRows,'campaign'))+_adsAutomationHint(accRep)+'</td><td>'+_adsMoney(accM.spend,accRep.currency||'USD')+'<div style="font-size:10px;color:var(--t3)">账户消耗</div></td>'+_adsMetricCells(accM,null)+'<td><span class="badge bg-mu">'+accM.count+' 条广告</span></td><td>'+_adsMoreActions(accRep,'account')+'</td></tr>');
+  html.push('<tr class="ads-account-row" style="cursor:pointer" onclick="toggleAdsTree(\'accounts\',\''+_adsJs(actKey)+'\')"><td>'+_adsAccountSwitchButton(actKey)+'</td><td>'+_adsSelectBox('account',actKey,'选择账户')+'</td><td>'+_adsNameCell('accounts',actKey,accOpen,0,accRep.account_name||actKey,(actKey||'').replace(/^act_/,''))+'</td><td>'+_adsStatusBadge(_adsGroupStatus(accRows,'campaign'))+_adsAutomationHint(accRep)+'</td><td>'+_adsMoney(accM.spend,accRep.currency||'USD')+'<div style="font-size:10px;color:var(--t3)">账户消耗</div></td>'+_adsMetricCells(accM,null)+'<td><span class="badge bg-mu">'+accM.count+' 条广告</span></td><td>'+_adsMoreActions(accRep,'account')+'</td></tr>');
   if(!accOpen)return;
   var campGroup=_adsGroupBy(accRows,function(a){return a.campaign_id||('__camp_'+a.ad_id);});
   campGroup.keys.forEach(function(campKey){
    var campRows=campGroup.map[campKey],campRep=campRows[0],campM=_adsSum(campRows),campOpen=forceOpen||_adsTreeIsOpen('campaigns',campKey,false);
-   html.push('<tr style="background:var(--bg1);cursor:pointer" onclick="toggleAdsTree(\'campaigns\',\''+_adsJs(campKey)+'\')"><td>'+_adsSwitchButton(campRep,'campaign')+'</td><td>'+_adsSelectBox('campaign',campKey,'选择广告系列')+'</td><td>'+_adsNameCell('campaigns',campKey,campOpen,1,campRep.campaign_name||campKey,campKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td><td>'+_adsBudgetCell(campRep,'campaign')+'</td>'+_adsMetricCells(campM,null)+'<td><span class="badge bg-mu">'+campM.count+' 条</span></td><td>'+_adsMoreActions(campRep,'campaign')+'</td></tr>');
+   html.push('<tr class="ads-campaign-row" style="cursor:pointer" onclick="toggleAdsTree(\'campaigns\',\''+_adsJs(campKey)+'\')"><td>'+_adsSwitchButton(campRep,'campaign')+'</td><td>'+_adsSelectBox('campaign',campKey,'选择广告系列')+'</td><td>'+_adsNameCell('campaigns',campKey,campOpen,1,campRep.campaign_name||campKey,campKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td><td>'+_adsBudgetCell(campRep,'campaign')+'</td>'+_adsMetricCells(campM,null)+'<td><span class="badge bg-mu">'+campM.count+' 条</span></td><td>'+_adsMoreActions(campRep,'campaign')+'</td></tr>');
    if(!campOpen)return;
    var adsetGroup=_adsGroupBy(campRows,function(a){return a.adset_id||('__adset_'+a.ad_id);});
    adsetGroup.keys.forEach(function(adsetKey){
     var setRows=adsetGroup.map[adsetKey],setRep=setRows[0],setM=_adsSum(setRows),setOpen=forceOpen||_adsTreeIsOpen('adsets',adsetKey,false);
-    html.push('<tr style="cursor:pointer" onclick="toggleAdsTree(\'adsets\',\''+_adsJs(adsetKey)+'\')"><td>'+_adsSwitchButton(setRep,'adset')+'</td><td>'+_adsSelectBox('adset',adsetKey,'选择广告组')+'</td><td>'+_adsNameCell('adsets',adsetKey,setOpen,2,setRep.adset_name||adsetKey,adsetKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(setRows,'adset'))+'</td><td>'+_adsBudgetCell(setRep,'adset')+'</td>'+_adsMetricCells(setM,null)+'<td><span class="badge bg-mu">'+setM.count+' 条</span></td><td>'+_adsMoreActions(setRep,'adset')+'</td></tr>');
+    html.push('<tr class="ads-adset-row" style="cursor:pointer" onclick="toggleAdsTree(\'adsets\',\''+_adsJs(adsetKey)+'\')"><td>'+_adsSwitchButton(setRep,'adset')+'</td><td>'+_adsSelectBox('adset',adsetKey,'选择广告组')+'</td><td>'+_adsNameCell('adsets',adsetKey,setOpen,2,setRep.adset_name||adsetKey,adsetKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(setRows,'adset'))+'</td><td>'+_adsBudgetCell(setRep,'adset')+'</td>'+_adsMetricCells(setM,null)+'<td><span class="badge bg-mu">'+setM.count+' 条</span></td><td>'+_adsMoreActions(setRep,'adset')+'</td></tr>');
     if(!setOpen)return;
     setRows.sort(function(x,y){return (y.spend||0)-(x.spend||0);}).forEach(function(a){
      var cc=a.target_cpa?(a.cpa<=a.target_cpa?'cpa-good':a.cpa<=a.target_cpa*1.3?'cpa-warn':'cpa-bad'):'';
      var cb=_adsSelectBox('ad',a.ad_id,'选择广告');
-     html.push('<tr><td>'+_adsSwitchButton(a,'ad')+'</td><td>'+cb+'</td><td>'+_adsLeafName(a)+'</td><td>'+_adsStatusBadge(a.effective_status||a.status||'')+'</td><td>'+_adsBudgetCell(a,'ad')+'</td><td><strong>$'+Number(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+Number(a.cpa).toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+Number(a.target_cpa).toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(a.roas?Number(a.roas).toFixed(2)+'x':'--')+'</td><td>'+_adsKpiCell(a)+'</td><td>'+_adsMoreActions(a,'ad')+'</td></tr>');
+     html.push('<tr class="ads-ad-row"><td>'+_adsSwitchButton(a,'ad')+'</td><td>'+cb+'</td><td>'+_adsLeafName(a)+'</td><td>'+_adsStatusBadge(a.effective_status||a.status||'')+'</td><td>'+_adsBudgetCell(a,'ad')+'</td><td><strong>$'+Number(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+Number(a.cpa).toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+Number(a.target_cpa).toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(a.roas?Number(a.roas).toFixed(2)+'x':'--')+'</td><td>'+_adsKpiCell(a)+'</td><td>'+_adsMoreActions(a,'ad')+'</td></tr>');
     });
    });
   });
@@ -4290,8 +4341,14 @@ async function runAdStatusOp(adId,level,desired,btn){
  var a=_adsFind(adId);
  if(!a){toast('广告数据已过期，请刷新','wa');return;}
  var allowed=_adsOpAllowed(a,level,desired);
- if(!allowed.ok){toast(_adsReasonText(allowed.reason)||'当前不可操作','wa');return;}
  var t=_adsLevelStatus(a,level);
+ if(!allowed.ok){
+  var blockMsg=_adsReasonText(allowed.reason)||'当前不可操作';
+  recordAdsOp({level:level,target_id:t.id||adId,name:t.name||adId,act_id:a.act_id,action:(desired==='PAUSED'?'暂停':'开启')+_adsSelectionLabel(level),ok:false,message:blockMsg});
+  filterAds();
+  toast(blockMsg,'wa');
+  return;
+ }
  var levelLabel={ad:'广告',adset:'广告组',campaign:'广告系列'}[level]||level;
  var actionLabel=desired==='PAUSED'?'暂停':'开启';
  var warnings=(a.automation_warnings||[]).map(function(x){return {mirror_enabled:'镜像模式',sentinel_enabled:'哨兵模式',heartbeat_enabled:'心跳模式'}[x]||x;});
@@ -4309,11 +4366,15 @@ async function runAdStatusOp(adId,level,desired,btn){
  if(btn){btn.disabled=true;if(isSwitch)btn.setAttribute('aria-busy','true');else btn.textContent='处理中';}
  try{
   var r=await api('POST','/ad-ops/status',{act_id:a.act_id,level:level,target_id:t.id,target_name:t.name||t.id,status:desired});
+  recordAdsOp({level:level,target_id:t.id,name:t.name||t.id,act_id:a.act_id,action:actionLabel+levelLabel,ok:true,message:'Meta 回读状态：'+(r.effective_status||r.actual_status||desired),detail:r.warning||''});
   toast(actionLabel+'成功：'+(r.effective_status||r.actual_status||desired),'ok');
   if(r.warning){showInfo(escHtml(r.warning),'FB 回读提示');}
   await loadAds();
  }catch(e){
-  toast(actionLabel+'失败：'+e.message,'er');
+  var msg=_adsErrMsg(e);
+  recordAdsOp({level:level,target_id:t.id,name:t.name||t.id,act_id:a.act_id,action:actionLabel+levelLabel,ok:false,message:msg});
+  filterAds();
+  toast(actionLabel+'失败：'+msg,'er');
  }finally{
   if(btn){btn.disabled=false;if(isSwitch)btn.removeAttribute('aria-busy');else btn.textContent=oldText;}
  }
@@ -4327,10 +4388,21 @@ async function editDailyBudget(adId,level,btn){
  var targetName=isCampaign?(a.campaign_name||a.campaign_id):(a.adset_name||a.adset_id);
  var currentBudget=isCampaign?a.campaign_daily_budget:a.adset_daily_budget;
  if(isCampaign){
-  if(!a.update_token_ok){toast('没有可写操作号，不能调整系列预算','wa');return;}
-  if(!targetId||currentBudget===null||currentBudget===undefined){toast('当前系列没有可编辑的日预算','wa');return;}
+  if(!a.update_token_ok){
+   recordAdsOp({level:level,target_id:targetId||adId,name:targetName||adId,act_id:a.act_id,action:'调整预算',ok:false,message:'没有可写操作号，不能调整系列预算'});
+   filterAds();
+   toast('没有可写操作号，不能调整系列预算','wa');return;
+  }
+  if(!targetId||currentBudget===null||currentBudget===undefined){
+   recordAdsOp({level:level,target_id:targetId||adId,name:targetName||adId,act_id:a.act_id,action:'调整预算',ok:false,message:'当前系列没有可编辑的日预算'});
+   filterAds();
+   toast('当前系列没有可编辑的日预算','wa');return;
+  }
  }else if(!a.can_edit_budget){
-  toast(_adsReasonText(a.budget_block_reason)||'当前不能调整预算','wa');return;
+  var budgetMsg=_adsReasonText(a.budget_block_reason)||'当前不能调整预算';
+  recordAdsOp({level:level,target_id:targetId||adId,name:targetName||adId,act_id:a.act_id,action:'调整预算',ok:false,message:budgetMsg});
+  filterAds();
+  toast(budgetMsg,'wa');return;
  }
  var levelLabel=isCampaign?'广告系列':'广告组';
  var cur=currentBudget!==null&&currentBudget!==undefined?Number(currentBudget).toFixed(2):'';
@@ -4349,10 +4421,14 @@ async function editDailyBudget(adId,level,btn){
  if(btn){btn.disabled=true;if(isInline)btn.setAttribute('aria-busy','true');else btn.textContent='处理中';}
  try{
   var r=await api('POST','/ad-ops/budget',{act_id:a.act_id,level:level,target_id:targetId,target_name:targetName,daily_budget:num});
+  recordAdsOp({level:level,target_id:targetId,name:targetName,act_id:a.act_id,action:'调整'+levelLabel+'预算',ok:true,message:'预算已更新：'+_adsMoney(r.daily_budget,r.currency||a.currency||'USD'),detail:'当前：'+_adsMoney(currentBudget,a.currency||'USD')+' -> 新预算：'+_adsMoney(num,a.currency||'USD')});
   toast('预算已更新：'+_adsMoney(r.daily_budget,r.currency||a.currency||'USD'),'ok');
   await loadAds({force:true});
  }catch(e){
-  toast('预算调整失败：'+e.message,'er');
+  var msg=_adsErrMsg(e);
+  recordAdsOp({level:level,target_id:targetId,name:targetName,act_id:a.act_id,action:'调整'+levelLabel+'预算',ok:false,message:msg,detail:'目标预算：'+_adsMoney(num,a.currency||'USD')});
+  filterAds();
+  toast('预算调整失败：'+msg,'er');
  }finally{
   if(btn){btn.disabled=false;if(isInline)btn.removeAttribute('aria-busy');else btn.textContent=oldText;}
  }
@@ -4360,11 +4436,14 @@ async function editDailyBudget(adId,level,btn){
 async function editAdsetBudget(adId,btn){return editDailyBudget(adId,'adset',btn);}
 async function runAccountPauseCampaigns(actKey,btn){
  var plan=_adsAccountPausePlan(actKey);
+ var rep=plan.rows[0]||{},accountName=rep.account_name||actKey;
  if(!plan.items.length){
-  toast(plan.skipped[0]||'账户下没有正在投放的广告系列','wa');
+  var noMsg=plan.skipped[0]||'账户下没有正在投放的广告系列';
+  recordAdsOp({level:'account',target_id:actKey,name:accountName,act_id:actKey,action:'账户级暂停',ok:false,message:noMsg});
+  filterAds();
+  toast(noMsg,'wa');
   return;
  }
- var rep=plan.rows[0]||{},accountName=rep.account_name||actKey;
  var html='<div><strong>暂停账户下所有广告</strong></div>'+
   '<div style="margin-top:8px;color:var(--t2)">账户：'+escHtml(accountName)+' · '+escHtml(actKey)+'</div>'+
   '<div style="font-size:12px;color:var(--t3);margin-top:4px">将暂停 '+plan.items.length+' 个广告系列；只操作广告系列层级，不直接改广告组/广告。</div>';
@@ -4382,6 +4461,10 @@ async function runAccountPauseCampaigns(actKey,btn){
    failed+=Number(r.failed||0);
    results=results.concat(r.results||[]);
   }
+  recordAdsOp({level:'account',target_id:actKey,name:accountName,act_id:actKey,action:'账户级暂停',ok:failed===0,partial:success>0&&failed>0,message:'成功 '+success+'，失败 '+failed,detail:failed?results.filter(function(x){return !x.ok;}).slice(0,12).map(function(x){return (x.target_id||'')+': '+(x.error||'失败');}).join('\n'):''});
+  results.forEach(function(x){
+   recordAdsOp({level:x.level||'campaign',target_id:x.target_id,name:x.target_id,act_id:x.act_id||actKey,action:'批量暂停',ok:!!x.ok,message:x.ok?'已提交并回读':'失败：'+(x.error||'未知错误'),detail:x.error||''});
+  });
   toast('账户级暂停完成：成功 '+success+'，失败 '+failed,(failed?'wa':'ok'));
   if(failed){
    var failedRows=results.filter(function(x){return !x.ok;}).slice(0,12).map(function(x){return escHtml((x.target_id||'')+': '+(x.error||'失败'));}).join('<br>');
@@ -4389,7 +4472,10 @@ async function runAccountPauseCampaigns(actKey,btn){
   }
   await loadAds();
  }catch(e){
-  toast('账户级暂停失败：'+e.message,'er');
+  var msg=_adsErrMsg(e);
+  recordAdsOp({level:'account',target_id:actKey,name:accountName,act_id:actKey,action:'账户级暂停',ok:false,message:msg});
+  filterAds();
+  toast('账户级暂停失败：'+msg,'er');
  }finally{
   if(btn){btn.disabled=false;btn.removeAttribute('aria-busy');}
  }
@@ -4447,6 +4533,20 @@ async function bulkAdStatus(desired){
  if(!ok)return;
  try{
   var r=await api('POST','/ad-ops/bulk-status',{items:items});
+  (r.results||[]).forEach(function(x){
+   var row=_adsFindByLevel(x.level,x.target_id)||{};
+   var label=actionLabel+_adsSelectionLabel(x.level);
+   recordAdsOp({
+    level:x.level,
+    target_id:x.target_id,
+    name:row.ad_name||row.adset_name||row.campaign_name||x.target_id,
+    act_id:x.act_id,
+    action:label,
+    ok:!!x.ok,
+    message:x.ok?'操作成功':'失败：'+(x.error||'未知错误'),
+    detail:x.error||''
+   });
+  });
   toast('批量完成：成功 '+r.success+'，失败 '+r.failed,(r.failed?'wa':'ok'));
   if(r.failed){
    var failed=(r.results||[]).filter(function(x){return !x.ok;}).slice(0,12).map(function(x){return escHtml(x.target_id+': '+x.error);}).join('<br>');
@@ -4455,7 +4555,13 @@ async function bulkAdStatus(desired){
   selectedAds.clear();
   await loadAds();
  }catch(e){
-  toast('批量操作失败：'+e.message,'er');
+  var msg=_adsErrMsg(e);
+  items.forEach(function(item){
+   var row=_adsFindByLevel(item.level,item.target_id)||{};
+   recordAdsOp({level:item.level,target_id:item.target_id,name:row.ad_name||row.adset_name||row.campaign_name||item.target_id,act_id:item.act_id,action:actionLabel+_adsSelectionLabel(item.level),ok:false,message:msg});
+  });
+  filterAds();
+  toast('批量操作失败：'+msg,'er');
  }
 }
 // 诊断广告
