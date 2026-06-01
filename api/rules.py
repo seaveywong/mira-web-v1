@@ -8,11 +8,47 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 
-from core.auth import get_current_user
+from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
+from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
 
 router = APIRouter()
 logger = logging.getLogger("mira.api.rules")
+
+GLOBAL_ACT_ID = "__global__"
+
+
+def _ensure_rule_team_columns(conn) -> None:
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(custom_rule_templates)").fetchall()}
+    if cols and "team_id" not in cols:
+        conn.execute("ALTER TABLE custom_rule_templates ADD COLUMN team_id INTEGER")
+        conn.commit()
+
+
+def _assert_rule_target_access(conn, act_id: str, user) -> None:
+    target = (act_id or "").strip()
+    if target == GLOBAL_ACT_ID:
+        if not is_superadmin(user):
+            raise HTTPException(403, "全局规则只能由超级管理员修改")
+        return
+    if not target:
+        raise HTTPException(400, "请指定账户")
+    assert_row_access(conn, "accounts", target, user, id_column="act_id")
+
+
+def _team_account_act_ids(conn, user) -> list[str]:
+    where, params = [], []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = conn.execute(f"SELECT act_id FROM accounts {clause}", params).fetchall()
+    return [r["act_id"] for r in rows if r["act_id"]]
+
+
+def _guard_rule_row_or_404(conn, rule_id: int):
+    row = conn.execute("SELECT id, act_id FROM guard_rules WHERE id=?", (rule_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "规则不存在")
+    return row
 
 
 class GuardRuleIn(BaseModel):
@@ -47,6 +83,7 @@ class EmergencyPauseRequest(BaseModel):
 def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user)):
     conn = get_conn()
     if act_id and act_id != "__global__":
+        _assert_rule_target_access(conn, act_id, user)
         # 返回指定账户规则 + 全局规则（全局规则排前面）
         global_rows = conn.execute(
             "SELECT * FROM guard_rules WHERE act_id='__global__' ORDER BY id DESC"
@@ -64,9 +101,15 @@ def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user
         global_rows = conn.execute(
             "SELECT * FROM guard_rules WHERE act_id='__global__' ORDER BY id DESC"
         ).fetchall()
-        other_rows = conn.execute(
-            "SELECT * FROM guard_rules WHERE act_id!='__global__' ORDER BY id DESC"
-        ).fetchall()
+        account_ids = _team_account_act_ids(conn, user)
+        if account_ids:
+            placeholders = ",".join("?" for _ in account_ids)
+            other_rows = conn.execute(
+                f"SELECT * FROM guard_rules WHERE act_id!='__global__' AND act_id IN ({placeholders}) ORDER BY id DESC",
+                account_ids,
+            ).fetchall()
+        else:
+            other_rows = []
         rows = list(global_rows) + list(other_rows)
     conn.close()
     return [dict(r) for r in rows]
@@ -75,6 +118,7 @@ def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user
 @router.post("/guard")
 def add_guard_rule(body: GuardRuleIn, user=Depends(get_current_user)):
     conn = get_conn()
+    _assert_rule_target_access(conn, body.act_id, user)
     cur = conn.execute(
         """INSERT INTO guard_rules
            (act_id, rule_name, level, target_id, rule_type,
@@ -96,6 +140,9 @@ def add_guard_rule(body: GuardRuleIn, user=Depends(get_current_user)):
 @router.put("/guard/{rule_id}")
 def update_guard_rule(rule_id: int, body: GuardRuleIn, user=Depends(get_current_user)):
     conn = get_conn()
+    old = _guard_rule_row_or_404(conn, rule_id)
+    _assert_rule_target_access(conn, old["act_id"], user)
+    _assert_rule_target_access(conn, body.act_id, user)
     conn.execute(
         """UPDATE guard_rules SET
            act_id=?, rule_name=?, level=?, target_id=?, rule_type=?,
@@ -119,6 +166,8 @@ def update_guard_rule(rule_id: int, body: GuardRuleIn, user=Depends(get_current_
 def toggle_guard_rule(rule_id: int, user=Depends(get_current_user)):
     """快速启用/禁用规则"""
     conn = get_conn()
+    row = _guard_rule_row_or_404(conn, rule_id)
+    _assert_rule_target_access(conn, row["act_id"], user)
     conn.execute("UPDATE guard_rules SET enabled = 1 - enabled WHERE id=?", (rule_id,))
     row = conn.execute("SELECT enabled FROM guard_rules WHERE id=?", (rule_id,)).fetchone()
     conn.commit()
@@ -129,6 +178,8 @@ def toggle_guard_rule(rule_id: int, user=Depends(get_current_user)):
 @router.delete("/guard/{rule_id}")
 def delete_guard_rule(rule_id: int, user=Depends(get_current_user)):
     conn = get_conn()
+    row = _guard_rule_row_or_404(conn, rule_id)
+    _assert_rule_target_access(conn, row["act_id"], user)
     conn.execute("DELETE FROM guard_rules WHERE id=?", (rule_id,))
     conn.commit()
     conn.close()
@@ -145,6 +196,8 @@ def emergency_pause(body: EmergencyPauseRequest, user=Depends(get_current_user))
     """
     if body.confirm != "CONFIRM":
         raise HTTPException(400, "请输入确认词 CONFIRM 以执行紧急暂停")
+    if not is_superadmin(user):
+        raise HTTPException(403, "全局紧急暂停只能由超级管理员执行")
 
     from services.guard_engine import emergency_pause_all
     result = emergency_pause_all(operator="user", level=body.level)
@@ -481,8 +534,13 @@ class ApplyTemplateRequest(BaseModel):
 def list_rule_templates_v2(user=Depends(get_current_user)):
     """获取所有规则模板（内置 + 自定义）"""
     conn = get_conn()
+    _ensure_rule_team_columns(conn)
+    where, params = [], []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
     custom_rows = conn.execute(
-        "SELECT * FROM custom_rule_templates ORDER BY created_at DESC"
+        f"SELECT * FROM custom_rule_templates {clause} ORDER BY created_at DESC",
+        params,
     ).fetchall()
     conn.close()
 
@@ -504,15 +562,18 @@ def create_custom_template(body: CustomTemplateCreate, user=Depends(get_current_
     if not body.name.strip():
         raise HTTPException(400, "模板名称不能为空")
     conn = get_conn()
+    _ensure_rule_team_columns(conn)
+    resource_team_id = team_id_for_create(user)
     try:
         conn.execute(
-            """INSERT INTO custom_rule_templates(name, description, guard_rules, tags)
-               VALUES(?,?,?,?)""",
+            """INSERT INTO custom_rule_templates(name, description, guard_rules, tags, team_id)
+               VALUES(?,?,?,?,?)""",
             (
                 body.name.strip(),
                 body.description,
                 json.dumps(body.guard_rules, ensure_ascii=False),
                 json.dumps(body.tags, ensure_ascii=False),
+                resource_team_id,
             )
         )
         conn.commit()
@@ -528,14 +589,26 @@ def save_current_as_template(body: SaveCurrentAsTemplateRequest, user=Depends(ge
         raise HTTPException(400, "模板名称不能为空")
 
     conn = get_conn()
+    _ensure_rule_team_columns(conn)
     try:
         # 查询止损规则
-        if body.act_id:
+        if body.act_id and body.act_id not in ("__all__", ""):
+            _assert_rule_target_access(conn, body.act_id, user)
             guard_rows = conn.execute(
                 "SELECT * FROM guard_rules WHERE act_id=? AND enabled=1", (body.act_id,)
             ).fetchall()
-        else:
+        elif is_superadmin(user):
             guard_rows = conn.execute("SELECT * FROM guard_rules WHERE enabled=1").fetchall()
+        else:
+            account_ids = _team_account_act_ids(conn, user)
+            if account_ids:
+                placeholders = ",".join("?" for _ in account_ids)
+                guard_rows = conn.execute(
+                    f"SELECT * FROM guard_rules WHERE enabled=1 AND act_id IN ({placeholders})",
+                    account_ids,
+                ).fetchall()
+            else:
+                guard_rows = []
 
         guard_list = []
         for r in guard_rows:
@@ -545,13 +618,14 @@ def save_current_as_template(body: SaveCurrentAsTemplateRequest, user=Depends(ge
             guard_list.append(d)
 
         conn.execute(
-            """INSERT INTO custom_rule_templates(name, description, guard_rules, tags)
-               VALUES(?,?,?,?)""",
+            """INSERT INTO custom_rule_templates(name, description, guard_rules, tags, team_id)
+               VALUES(?,?,?,?,?)""",
             (
                 body.name.strip(),
                 body.description,
                 json.dumps(guard_list, ensure_ascii=False),
                 json.dumps([], ensure_ascii=False),
+                team_id_for_create(user),
             )
         )
         conn.commit()
@@ -570,7 +644,9 @@ def save_current_as_template(body: SaveCurrentAsTemplateRequest, user=Depends(ge
 def delete_custom_template(template_id: int, user=Depends(get_current_user)):
     """删除自定义模板"""
     conn = get_conn()
+    _ensure_rule_team_columns(conn)
     try:
+        assert_row_access(conn, "custom_rule_templates", template_id, user, allow_unassigned=False)
         result = conn.execute(
             "DELETE FROM custom_rule_templates WHERE id=?", (template_id,)
         )
@@ -593,17 +669,34 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
     # 全局模式：act_id = __global__，规则对所有账户生效
     global_mode = getattr(body, 'global_mode', False)
     if global_mode:
+        if not is_superadmin(user):
+            raise HTTPException(403, "全局应用规则模板只能由超级管理员执行")
         target_act_ids = ['__global__']
     elif not target_act_ids:
         raise HTTPException(400, '请指定账户（act_id 或 act_ids）')
+
+    access_conn = get_conn()
+    try:
+        for target_act_id in target_act_ids:
+            _assert_rule_target_access(access_conn, target_act_id, user)
+    finally:
+        access_conn.close()
 
     # 先查内置模板
     tpl = next((t for t in RULE_TEMPLATES if t['id'] == str(body.template_id)), None)
     # 再查自定义模板
     if not tpl:
         conn = get_conn()
-        row = conn.execute('SELECT * FROM custom_rule_templates WHERE id=?', (body.template_id,)).fetchone()
-        conn.close()
+        try:
+            _ensure_rule_team_columns(conn)
+            try:
+                template_db_id = int(body.template_id)
+            except (TypeError, ValueError):
+                raise HTTPException(404, f'模板 {body.template_id} 不存在')
+            assert_row_access(conn, "custom_rule_templates", template_db_id, user)
+            row = conn.execute('SELECT * FROM custom_rule_templates WHERE id=?', (template_db_id,)).fetchone()
+        finally:
+            conn.close()
         if row:
             d = dict(row)
             d['guard_rules'] = json.loads(d.get('guard_rules') or '[]')

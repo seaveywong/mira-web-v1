@@ -10,6 +10,7 @@ from typing import Optional
 
 from core.auth import get_current_user
 from core.database import get_conn
+from core.tenancy import apply_team_scope, assert_row_access
 
 router = APIRouter()
 logger = logging.getLogger("mira.api.mirror")
@@ -130,6 +131,7 @@ def mirror_status(act_id: str = "", user=Depends(get_current_user)):
     _ensure_mirror_schema()
     conn = get_conn()
     if act_id:
+        assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
         row = conn.execute(
             "SELECT act_id, name, mirror_enabled FROM accounts WHERE act_id=?", (act_id,)
         ).fetchone()
@@ -158,8 +160,11 @@ def mirror_status(act_id: str = "", user=Depends(get_current_user)):
             "meta": dict(meta) if meta else None,
         }
     else:
+        where, params = ["enabled=1"], []
+        apply_team_scope(where, params, user, "team_id", include_unassigned=True)
         rows = conn.execute(
-            "SELECT act_id, name, mirror_enabled FROM accounts WHERE enabled=1 ORDER BY name"
+            f"SELECT act_id, name, mirror_enabled FROM accounts WHERE {' AND '.join(where)} ORDER BY name",
+            params,
         ).fetchall()
         result = []
         for r in rows:
@@ -191,6 +196,7 @@ def mirror_snapshot(act_id: str, user=Depends(get_current_user)):
     """获取账户的镜像快照中的广告ID列表"""
     _ensure_mirror_schema()
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     rows = conn.execute(
         "SELECT ad_id, ad_name, captured_at FROM mirror_snapshots WHERE act_id=? ORDER BY captured_at",
         (act_id,)
@@ -211,6 +217,7 @@ def mirror_enable(body: MirrorToggleRequest, user=Depends(get_current_user)):
     _ensure_mirror_schema()
     act_id = body.act_id
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     acc = conn.execute("SELECT * FROM accounts WHERE act_id=?", (act_id,)).fetchone()
     if not acc:
         conn.close()
@@ -249,6 +256,7 @@ def mirror_disable(body: MirrorToggleRequest, user=Depends(get_current_user)):
     _ensure_mirror_schema()
     act_id = body.act_id
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     acc = conn.execute("SELECT act_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
     if not acc:
         conn.close()
@@ -268,8 +276,11 @@ def mirror_enable_all(user=Depends(get_current_user)):
     _ensure_mirror_schema()
     from services.guard_engine import _get_token_for_account
     conn = get_conn()
+    where, params = ["account_status NOT IN (3,7,9,100)"], []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
     accounts = conn.execute(
-        "SELECT * FROM accounts WHERE account_status NOT IN (3,7,9,100)"
+        f"SELECT * FROM accounts WHERE {' AND '.join(where)}",
+        params,
     ).fetchall()
     conn.close()
 

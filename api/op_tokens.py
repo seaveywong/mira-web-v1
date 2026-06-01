@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user
 from core.database import get_conn
+from core.tenancy import assert_row_access
 from services.token_manager import (
     ensure_token_source_columns,
     get_op_token_status,
@@ -33,7 +34,8 @@ class UpdateOpToken(BaseModel):
     note: Optional[str] = None
 
 
-def _require_system_operate_token(conn, token_id: int):
+def _require_system_operate_token(conn, token_id: int, user):
+    assert_row_access(conn, "fb_tokens", token_id, user)
     token_row = conn.execute(
         """
         SELECT id, token_alias, token_type, token_source, status
@@ -55,6 +57,7 @@ def _require_system_operate_token(conn, token_id: int):
 def list_op_tokens(act_id: str, user=Depends(get_current_user)):
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     rows = conn.execute(
         """
         SELECT aot.id, aot.token_id, aot.priority, aot.status AS bind_status,
@@ -82,11 +85,21 @@ def list_op_tokens(act_id: str, user=Depends(get_current_user)):
 
 @router.get("/{act_id}/status")
 def op_token_pool_status(act_id: str, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    finally:
+        conn.close()
     return get_op_token_status(act_id)
 
 
 @router.post("/{act_id}/heartbeat")
 def trigger_heartbeat(act_id: str, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    finally:
+        conn.close()
     result = run_heartbeat_check(act_id)
     return {"success": True, **result}
 
@@ -95,12 +108,13 @@ def trigger_heartbeat(act_id: str, user=Depends(get_current_user)):
 def bind_op_token(act_id: str, body: BindOpToken, user=Depends(get_current_user)):
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     acc = conn.execute("SELECT id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
     if not acc:
         conn.close()
         raise HTTPException(404, f"账户 {act_id} 不存在")
 
-    _require_system_operate_token(conn, body.token_id)
+    _require_system_operate_token(conn, body.token_id, user)
 
     try:
         conn.execute(
@@ -130,6 +144,8 @@ def bind_op_token(act_id: str, body: BindOpToken, user=Depends(get_current_user)
 def update_op_token(act_id: str, token_id: int, body: UpdateOpToken, user=Depends(get_current_user)):
     conn = get_conn()
     ensure_token_source_columns(conn)
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    assert_row_access(conn, "fb_tokens", token_id, user)
     row = conn.execute(
         "SELECT id FROM account_op_tokens WHERE act_id=? AND token_id=?",
         (act_id, token_id),
@@ -148,7 +164,7 @@ def update_op_token(act_id: str, token_id: int, body: UpdateOpToken, user=Depend
             conn.close()
             raise HTTPException(400, "status 只能是 active 或 disabled")
         if body.status == "active":
-            _require_system_operate_token(conn, token_id)
+            _require_system_operate_token(conn, token_id, user)
         updates.append("status=?")
         params.append(body.status)
     if body.note is not None:
@@ -172,6 +188,8 @@ def update_op_token(act_id: str, token_id: int, body: UpdateOpToken, user=Depend
 @router.delete("/{act_id}/{token_id}")
 def unbind_op_token(act_id: str, token_id: int, user=Depends(get_current_user)):
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    assert_row_access(conn, "fb_tokens", token_id, user)
     conn.execute(
         "DELETE FROM account_op_tokens WHERE act_id=? AND token_id=?",
         (act_id, token_id),
