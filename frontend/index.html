@@ -768,7 +768,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
     <div class="nav-item" onclick="showPage('rules')"><span class="nav-icon"></span>规则引擎</div>
     <div class="nav-sec-title">系统</div>
     <div class="nav-item" onclick="showPage('twpages')"><span class="nav-icon"></span>主页库</div>
-    <div class="nav-item role-hide-viewer" onclick="showPage('settings')"><span class="nav-icon"></span>系统设置</div>
+    <div class="nav-item role-superadmin-only" onclick="showPage('settings')"><span class="nav-icon"></span>系统设置</div>
    </nav>
    <div class="sb-foot">
     <div style="margin-bottom:10px;background:var(--bg2);border-radius:10px;border:1px solid var(--bd);overflow:hidden">
@@ -820,7 +820,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
       </label>
      </div>
     </div>
-    <button class="btn-emg" onclick="showEmgModal()">一键紧急暂停</button>
+     <button class="btn-emg role-superadmin-only" onclick="showEmgModal()">一键紧急暂停</button>
     <div style="margin-top:8px;font-size:10px;color:var(--t3);text-align:center;opacity:0.6" id="buildVer">build 250511-2249</div>
    </div>
   </aside>
@@ -1486,7 +1486,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
    <button class="mobile-more-item" onclick="showPage('assets');setMobileNav('');toggleMobileMoreMenu()"><span></span>素材库</button>
    <button class="mobile-more-item" onclick="showPage('logs');setMobileNav('');toggleMobileMoreMenu()"><span></span>操作日志</button>
    <button class="mobile-more-item" onclick="showPage('tokens');setMobileNav('');toggleMobileMoreMenu()"><span></span>Token 管理</button>
-   <button class="mobile-more-item" onclick="showPage('settings');setMobileNav('settings');toggleMobileMoreMenu()"><span></span>系统设置</button>
+    <button class="mobile-more-item role-superadmin-only" onclick="showPage('settings');setMobileNav('settings');toggleMobileMoreMenu()"><span></span>系统设置</button>
    <button class="mobile-more-item" onclick="toggleMobileMoreMenu()" style="color:var(--t3)"><span>✕</span>取消</button>
   </div>
  </div>
@@ -2724,8 +2724,13 @@ function _validateLandingUrl(input) {
 
 // ── 权限控制 ──────────────────────────────────────────────────────────────────
 var ROLE_LEVELS = {superadmin:100, admin:80, operator:50, viewer:10};
+var PAGE_MIN_ROLES = {settings:'superadmin'};
 function getCurrentRole(){return localStorage.getItem('mira_role')||'viewer';}
 function hasRole(minRole){return (ROLE_LEVELS[getCurrentRole()]||0)>=(ROLE_LEVELS[minRole]||0);}
+function canOpenPage(name){
+ var minRole=PAGE_MIN_ROLES[name];
+ return !minRole || hasRole(minRole);
+}
 
 function applyRolePermissions(role){
  var level = ROLE_LEVELS[role]||10;
@@ -2737,6 +2742,10 @@ function applyRolePermissions(role){
  });
  document.querySelectorAll('.role-superadmin-only').forEach(function(el){
   el.style.display = level>=100 ? '' : 'none';
+ });
+ ['toggleSentinel','toggleMirror','toggleHeartbeat','toggleWarmup'].forEach(function(id){
+  var el=document.getElementById(id);
+  if(el){el.disabled=level<100;el.title=level<100?'仅超级管理员可修改全局守护开关':'';}
  });
 }
 
@@ -3222,8 +3231,8 @@ async function initApp(){
  // 恢复上次所在页面，否则默认显示看板
  var lastPage=localStorage.getItem('mira_last_page')||'dashboard';
  var validPages=['dashboard','ads','logs','tokens','accounts','kpi','rules','settings','assets','templates','kpi_mapping','twpages','landing_urls'];
- if(validPages.indexOf(lastPage)>=0&&lastPage!=='dashboard'){
-  showPage(lastPage);
+  if(validPages.indexOf(lastPage)>=0&&lastPage!=='dashboard'&&canOpenPage(lastPage)){
+   showPage(lastPage);
  } else {
   showPage('dashboard');
   setDashRange('today');
@@ -3434,7 +3443,11 @@ function markPageStale(name){
  if(!name||name==='ads')_adsCache={key:'',ts:0,data:null};
 }
 function showPage(name){
- document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+  if(!canOpenPage(name)){
+   toast('当前账号没有权限打开该页面','wa');
+   name='dashboard';
+  }
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
  document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active')});
  var pg=document.getElementById('page-'+name);if(pg)pg.classList.add('active');
  document.querySelectorAll('.nav-item').forEach(function(n){
@@ -10612,9 +10625,10 @@ function onKpiTgtSel(){
 
 // ── Mirror Mode ──
 async function toggleMirrorMode(){
- var el=document.getElementById('toggleMirror');
- if(!el)return;
- var v=el.checked?'1':'0';
+  var el=document.getElementById('toggleMirror');
+  if(!el)return;
+  if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改镜像模式','wa');return;}
+  var v=el.checked?'1':'0';
  el.disabled=true;
  try{
   if(v==='1'){
@@ -10667,9 +10681,10 @@ function _updateMirrorUI(v, hintOverride){
 }
 // ── Emergency ──
 function toggleSentinelMode(){
- var el=document.getElementById('toggleSentinel');
- if(!el)return;
- var v=el.checked?'1':'0';
+  var el=document.getElementById('toggleSentinel');
+  if(!el)return;
+  if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改哨兵模式','wa');return;}
+  var v=el.checked?'1':'0';
  el.disabled=true;
  api('PUT','/settings',{settings:[{key:'sentinel_enabled',value:v}]}).then(function(){
   _updateSentinelUI(v);
@@ -10677,9 +10692,10 @@ function toggleSentinelMode(){
  }).catch(function(e){el.checked=!el.checked;el.disabled=false;_updateSentinelUI(el.checked?'1':'0');showErr(e);});
 }
 function toggleHeartbeatMode(){
- var el=document.getElementById('toggleHeartbeat');
- if(!el)return;
- var v=el.checked?'1':'0';
+  var el=document.getElementById('toggleHeartbeat');
+  if(!el)return;
+  if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改心跳模式','wa');return;}
+  var v=el.checked?'1':'0';
  el.disabled=true;
  api('PUT','/settings',{settings:[{key:'heartbeat_enabled',value:v}]}).then(function(){
   _updateHeartbeatUI(v);
@@ -10727,7 +10743,8 @@ function initSentinelHeartbeat(){
  }).catch(function(){});
 }
 function showEmgModal(){
- openModal('moEmg');
+  if(!hasRole('superadmin')){toast('仅超级管理员可执行紧急暂停','wa');return;}
+  openModal('moEmg');
  document.getElementById('emgConfirm').value='';
  document.getElementById('emgProgress').style.display='none';
  document.getElementById('emgResult').style.display='none';
@@ -11588,6 +11605,7 @@ function renderWarmupBadge(a){
 async function toggleWarmupMode(){
  var el=document.getElementById("toggleWarmup");
  if(!el)return;
+ if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改预热模式','wa');return;}
  var v=el.checked?"1":"0";
  el.disabled=true;
  try{
@@ -11650,7 +11668,8 @@ function formatWarmupScanResult(data){
 }
 
 async function runWarmupScan(btn){
- if(window._warmupScanRunning){
+  if(!hasRole('superadmin')){toast('仅超级管理员可执行预热扫描','wa');return null;}
+  if(window._warmupScanRunning){
   toast('预热扫描正在执行，请等待本轮结果','wa');
   return null;
  }

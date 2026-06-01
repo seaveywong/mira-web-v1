@@ -6,7 +6,8 @@ GET  /status      — 查看预热状态
 """
 from fastapi import APIRouter, Depends, HTTPException
 from core.database import get_conn
-from core.auth import get_current_user
+from core.auth import get_current_user, is_superadmin
+from core.tenancy import apply_team_scope, assert_row_access
 
 router = APIRouter()
 
@@ -14,8 +15,8 @@ router = APIRouter()
 @router.post("/scan")
 def manual_scan(user=Depends(get_current_user)):
     """手动批量扫描所有符合条件的账户并预热"""
-    if user.get("role") not in ("admin", "operator", "superadmin"):
-        raise HTTPException(403, "仅管理员和操作员可执行")
+    if not is_superadmin(user):
+        raise HTTPException(403, "Superadmin only")
     from services.warmup_engine import check_and_warmup
     return check_and_warmup()
 
@@ -27,6 +28,7 @@ def re_warmup(act_id: str, user=Depends(get_current_user)):
         raise HTTPException(403, "仅管理员和操作员可执行")
 
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     acc = conn.execute("SELECT * FROM accounts WHERE act_id=?", (act_id,)).fetchone()
     if not acc:
         conn.close()
@@ -48,14 +50,16 @@ def re_warmup(act_id: str, user=Depends(get_current_user)):
 def warmup_status(user=Depends(get_current_user)):
     """查看所有有预热记录的账户状态"""
     conn = get_conn()
-    rows = conn.execute("""
+    where, params = ["warmup_state IS NOT NULL"], []
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    rows = conn.execute(f"""
         SELECT act_id, name, warmup_state, warmup_triggered_at,
                warmup_campaign_id,
                CAST(COALESCE(warmup_last_spend, 0) AS REAL) as warmup_last_spend,
                CAST(COALESCE(amount_spent, 0) AS REAL) as amount_spent
         FROM accounts
-        WHERE warmup_state IS NOT NULL
+        WHERE {' AND '.join(where)}
         ORDER BY warmup_triggered_at DESC
-    """).fetchall()
+    """, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]

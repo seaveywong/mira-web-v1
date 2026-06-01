@@ -10,10 +10,32 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List
 
-from core.auth import get_current_user
+from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
+from core.tenancy import apply_team_scope, assert_row_access
 
 router = APIRouter()
+
+
+def _require_operator_user(user):
+    if not isinstance(user, dict) or user.get("role") not in ("superadmin", "admin", "operator"):
+        raise HTTPException(status_code=403, detail="Operator permission required")
+
+
+def _assert_account_or_global_access(conn, act_id: str, user):
+    if act_id == "*":
+        if not is_superadmin(user):
+            raise HTTPException(status_code=403, detail="Global KPI config is superadmin only")
+        return
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+
+
+def _assert_kpi_config_access(conn, config_id: int, user):
+    row = conn.execute("SELECT id, act_id FROM kpi_configs WHERE id=?", (config_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="KPI config not found")
+    _assert_account_or_global_access(conn, row["act_id"], user)
+    return row
 
 # KPI 字段选项（供前端下拉）
 KPI_FIELD_OPTIONS = [
@@ -260,14 +282,20 @@ def get_opt_goals(objective: Optional[str] = None, user=Depends(get_current_user
 def list_kpi_configs(act_id: Optional[str] = None, level: Optional[str] = None,
                      user=Depends(get_current_user)):
     conn = get_conn()
-    query = "SELECT * FROM kpi_configs WHERE 1=1"
+    query = "SELECT k.* FROM kpi_configs k LEFT JOIN accounts a ON a.act_id = k.act_id WHERE 1=1"
     params = []
     if act_id:
-        query += " AND act_id=?"
+        _assert_account_or_global_access(conn, act_id, user)
+        query += " AND k.act_id=?"
         params.append(act_id)
     if level:
-        query += " AND level=?"
+        query += " AND k.level=?"
         params.append(level)
+    scope_where, scope_params = [], []
+    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=True)
+    if scope_where:
+        query += " AND " + " AND ".join(scope_where)
+        params.extend(scope_params)
     query += " ORDER BY CASE level WHEN 'ad' THEN 1 WHEN 'adset' THEN 2 WHEN 'campaign' THEN 3 ELSE 4 END, created_at DESC"
     rows = conn.execute(query, params).fetchall()
     conn.close()
@@ -284,32 +312,38 @@ def get_kpi_summary(act_id: Optional[str] = None, user=Depends(get_current_user)
     params = []
     where = "WHERE 1=1"
     if act_id:
-        where += " AND act_id=?"
+        _assert_account_or_global_access(conn, act_id, user)
+        where += " AND k.act_id=?"
         params.append(act_id)
+    scope_where, scope_params = [], []
+    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=True)
+    if scope_where:
+        where += " AND " + " AND ".join(scope_where)
+        params.extend(scope_params)
 
     # 按账户分组统计
     by_account = conn.execute(
-        f"SELECT act_id, COUNT(*) as count, "
+        f"SELECT k.act_id as act_id, COUNT(*) as count, "
         f"SUM(CASE WHEN target_cpa IS NOT NULL THEN 1 ELSE 0 END) as has_cpa, "
         f"SUM(CASE WHEN source='manual' THEN 1 ELSE 0 END) as manual_count "
-        f"FROM kpi_configs {where} GROUP BY act_id",
+        f"FROM kpi_configs k LEFT JOIN accounts a ON a.act_id = k.act_id {where} GROUP BY k.act_id",
         params
     ).fetchall()
 
     # 按 KPI 字段类型分组统计
     by_field = conn.execute(
-        f"SELECT kpi_field, kpi_label, COUNT(*) as count, "
+        f"SELECT k.kpi_field as kpi_field, k.kpi_label as kpi_label, COUNT(*) as count, "
         f"SUM(CASE WHEN target_cpa IS NOT NULL THEN 1 ELSE 0 END) as has_cpa, "
         f"AVG(CASE WHEN target_cpa IS NOT NULL THEN target_cpa END) as avg_cpa "
-        f"FROM kpi_configs {where} GROUP BY kpi_field ORDER BY count DESC",
+        f"FROM kpi_configs k LEFT JOIN accounts a ON a.act_id = k.act_id {where} GROUP BY k.kpi_field ORDER BY count DESC",
         params
     ).fetchall()
 
     # 按层级分组统计
     by_level = conn.execute(
-        f"SELECT level, COUNT(*) as count, "
+        f"SELECT k.level as level, COUNT(*) as count, "
         f"SUM(CASE WHEN target_cpa IS NOT NULL THEN 1 ELSE 0 END) as has_cpa "
-        f"FROM kpi_configs {where} GROUP BY level",
+        f"FROM kpi_configs k LEFT JOIN accounts a ON a.act_id = k.act_id {where} GROUP BY k.level",
         params
     ).fetchall()
 
@@ -323,6 +357,7 @@ def get_kpi_summary(act_id: Optional[str] = None, user=Depends(get_current_user)
 
 @router.post("")
 def add_kpi_config(body: KpiConfigIn, user=Depends(get_current_user)):
+    _require_operator_user(user)
     label = body.kpi_label
     if not label:
         for opt in KPI_FIELD_OPTIONS:
@@ -332,6 +367,7 @@ def add_kpi_config(body: KpiConfigIn, user=Depends(get_current_user)):
         label = label or body.kpi_field
 
     conn = get_conn()
+    _assert_account_or_global_access(conn, body.act_id, user)
     cur = conn.execute(
         """INSERT OR REPLACE INTO kpi_configs
            (act_id, level, target_id, target_name, kpi_field, kpi_label,
@@ -348,7 +384,9 @@ def add_kpi_config(body: KpiConfigIn, user=Depends(get_current_user)):
 
 @router.put("/{config_id}")
 def update_kpi_config(config_id: int, body: KpiConfigUpdate, user=Depends(get_current_user)):
+    _require_operator_user(user)
     conn = get_conn()
+    _assert_kpi_config_access(conn, config_id, user)
     updates = []
     params = []
     if body.kpi_field is not None:
@@ -389,7 +427,9 @@ def update_kpi_config(config_id: int, body: KpiConfigUpdate, user=Depends(get_cu
 
 @router.delete("/{config_id}")
 def delete_kpi_config(config_id: int, user=Depends(get_current_user)):
+    _require_operator_user(user)
     conn = get_conn()
+    _assert_kpi_config_access(conn, config_id, user)
     conn.execute("DELETE FROM kpi_configs WHERE id=?", (config_id,))
     conn.commit()
     conn.close()
@@ -398,11 +438,21 @@ def delete_kpi_config(config_id: int, user=Depends(get_current_user)):
 
 @router.post("/batch-cpa")
 def batch_set_cpa(body: BatchCpaIn, user=Depends(get_current_user)):
+    _require_operator_user(user)
     """
     批量设置目标 CPA
     支持按账户、KPI字段类型、层级、或指定ID列表进行批量操作
     """
     conn = get_conn()
+    if body.ids:
+        for config_id in body.ids:
+            _assert_kpi_config_access(conn, int(config_id), user)
+    elif body.act_ids:
+        for act_id in body.act_ids:
+            _assert_account_or_global_access(conn, act_id, user)
+    elif not is_superadmin(user):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Team users must choose accessible accounts or KPI rows")
 
     if body.ids:
         # 指定 ID 列表（最高优先级）
@@ -458,6 +508,7 @@ def batch_set_cpa(body: BatchCpaIn, user=Depends(get_current_user)):
 
 @router.post("/batch-kpi")
 def batch_set_kpi(body: BatchKpiIn, user=Depends(get_current_user)):
+    _require_operator_user(user)
     """
     批量设置 KPI 字段
     支持按账户、层级、或指定ID列表进行批量操作
@@ -472,6 +523,15 @@ def batch_set_kpi(body: BatchKpiIn, user=Depends(get_current_user)):
         label = label or body.kpi_field
 
     conn = get_conn()
+    if body.ids:
+        for config_id in body.ids:
+            _assert_kpi_config_access(conn, int(config_id), user)
+    elif body.act_ids:
+        for act_id in body.act_ids:
+            _assert_account_or_global_access(conn, act_id, user)
+    elif not is_superadmin(user):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Team users must choose accessible accounts or KPI rows")
 
     if body.ids:
         placeholders = ",".join("?" * len(body.ids))
@@ -521,6 +581,8 @@ def batch_set_kpi(body: BatchKpiIn, user=Depends(get_current_user)):
 
 @router.post("/ai-analyze")
 def ai_analyze_kpi(background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    if not is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin only")
     """
     对所有 rule/default 来源的 KPI 配置重新进行 AI 分析和纠偏（后台异步执行）。
     AI 会评估每条推断的合理性，对置信度低的记录直接更新为 AI 建议的字段。
@@ -541,6 +603,7 @@ def ai_analyze_kpi(background_tasks: BackgroundTasks, user=Depends(get_current_u
 @router.post("/auto-scan/{act_id}")
 def auto_scan_kpi(act_id: str, background_tasks: BackgroundTasks,
                   user=Depends(get_current_user)):
+    _require_operator_user(user)
     """
     触发广告级KPI自动扫描预设
     - 不覆盖人工配置
@@ -548,6 +611,7 @@ def auto_scan_kpi(act_id: str, background_tasks: BackgroundTasks,
     - 后台执行，立即返回任务ID
     """
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     row = conn.execute(
         "SELECT a.act_id, t.access_token_enc FROM accounts a "
         "LEFT JOIN fb_tokens t ON t.id=a.token_id "
@@ -760,6 +824,7 @@ def get_scan_result(act_id: str, user=Depends(get_current_user)):
     """获取最近一次KPI扫描结果"""
     import json
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     row = conn.execute(
         "SELECT trigger_detail as result, created_at FROM action_logs "
         "WHERE act_id=? AND target_id='__kpi_scan__' "
@@ -785,6 +850,7 @@ def get_kpi_targets(act_id: str, level: str, user=Depends(get_current_user)):
     import requests as req
     from core.database import decrypt_token
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     acc = conn.execute('SELECT * FROM accounts WHERE act_id=?', (act_id,)).fetchone()
     conn.close()
     if not acc:
@@ -802,7 +868,12 @@ def get_kpi_targets(act_id: str, level: str, user=Depends(get_current_user)):
         token = acc.get('access_token', '') or None
     if not token:
         conn3 = get_conn()
-        any_tk = conn3.execute("SELECT access_token_enc FROM fb_tokens WHERE status='active' LIMIT 1").fetchone()
+        token_where, token_params = ["status='active'"], []
+        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=True)
+        any_tk = conn3.execute(
+            "SELECT access_token_enc FROM fb_tokens WHERE " + " AND ".join(token_where) + " LIMIT 1",
+            token_params,
+        ).fetchone()
         conn3.close()
         if any_tk:
             token = decrypt_token(any_tk['access_token_enc'])
@@ -1204,6 +1275,9 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
     import requests as req
 
     from services.token_manager import get_exec_token
+    conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    conn.close()
     token = get_exec_token(act_id, 'READ')
     if not token:
         raise HTTPException(400, "无法获取Token，请检查账户Token配置")

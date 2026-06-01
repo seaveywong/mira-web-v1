@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from core.auth import get_current_user
+from core.database import get_conn
+from core.tenancy import assert_row_access
 from services.ad_ops import AdOpsError, set_adset_budget, set_status
 
 
@@ -14,6 +16,19 @@ def _operator_name(user) -> str:
     if isinstance(user, dict):
         return user.get("username") or user.get("role") or "manual"
     return "manual"
+
+
+def _require_operator_user(user) -> None:
+    if not isinstance(user, dict) or user.get("role") not in ("superadmin", "admin", "operator"):
+        raise HTTPException(status_code=403, detail="Operator permission required")
+
+
+def _assert_account_access(act_id: str, user) -> None:
+    conn = get_conn()
+    try:
+        assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    finally:
+        conn.close()
 
 
 class StatusRequest(BaseModel):
@@ -38,6 +53,8 @@ class BudgetRequest(BaseModel):
 
 @router.post("/status")
 def update_status(body: StatusRequest, user=Depends(get_current_user)):
+    _require_operator_user(user)
+    _assert_account_access(body.act_id, user)
     try:
         return set_status(
             act_id=body.act_id,
@@ -55,6 +72,7 @@ def update_status(body: StatusRequest, user=Depends(get_current_user)):
 
 @router.post("/bulk-status")
 def bulk_update_status(body: BulkStatusRequest, user=Depends(get_current_user)):
+    _require_operator_user(user)
     if not body.items:
         raise HTTPException(status_code=400, detail="No items selected")
     if len(body.items) > 100:
@@ -66,6 +84,7 @@ def bulk_update_status(body: BulkStatusRequest, user=Depends(get_current_user)):
     operator = _operator_name(user)
     for item in body.items:
         try:
+            _assert_account_access(item.act_id, user)
             result = set_status(
                 act_id=item.act_id,
                 level=item.level,
@@ -102,6 +121,8 @@ def bulk_update_status(body: BulkStatusRequest, user=Depends(get_current_user)):
 
 @router.post("/adset-budget")
 def update_adset_budget(body: BudgetRequest, user=Depends(get_current_user)):
+    _require_operator_user(user)
+    _assert_account_access(body.act_id, user)
     try:
         return set_adset_budget(
             act_id=body.act_id,

@@ -4,11 +4,12 @@ Mira Dashboard API v2.1
 - 巡检引擎使用 FB date_preset(today) 自动按账户本地时区
 - 货币统一换算为 USD 汇总
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from core.auth import get_current_user
+from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
+from core.tenancy import apply_team_scope, assert_row_access
 from datetime import date, timedelta, datetime
 import requests as req
 import time
@@ -18,6 +19,35 @@ from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_ex
 router = APIRouter()
 _SUMMARY_CACHE = {}
 _SUMMARY_CACHE_TTL = 30
+
+
+def _require_superadmin_user(user):
+    if not is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+
+def _require_operator_user(user):
+    if not isinstance(user, dict) or user.get("role") not in ("superadmin", "admin", "operator"):
+        raise HTTPException(status_code=403, detail="Operator permission required")
+
+
+def _fetch_visible_accounts(conn, user, act_id: Optional[str] = None):
+    where, params = [], []
+    if act_id:
+        where.append("act_id=?")
+        params.append(act_id)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    sql = "SELECT * FROM accounts"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    return conn.execute(sql, params).fetchall()
+
+
+def _act_id_filter_sql(act_ids: list[str], column: str):
+    if not act_ids:
+        return " AND 1=0", []
+    placeholders = ",".join("?" for _ in act_ids)
+    return f" AND {column} IN ({placeholders})", list(act_ids)
 
 # ─── KPI字段 -> actions字段映射（v1.3.0修复：每个字段只映射到自身，禁止多字段叠加）────────────
 _KPI_FIELD_TO_ACTION = {
@@ -280,16 +310,16 @@ def get_summary(
     """
     df, dt = _default_dates(date_from, date_to)
     server_today = date.today().isoformat()
-    cache_key = (df, dt, act_id or "")
+    cache_key = (df, dt, act_id or "", user.get("uid"), user.get("team_id"), user.get("role"))
     cached = _SUMMARY_CACHE.get(cache_key)
     if cached and time.time() - cached["ts"] < _SUMMARY_CACHE_TTL:
         return dict(cached["data"], source="fb_insights_api_cache")
 
     conn = get_conn()
-    if act_id:
-        accs = conn.execute('SELECT * FROM accounts WHERE act_id=?', (act_id,)).fetchall()
-    else:
-        accs = conn.execute('SELECT * FROM accounts').fetchall()
+    accs = _fetch_visible_accounts(conn, user, act_id)
+    visible_act_ids = [dict(a)["act_id"] for a in accs]
+    log_filter_sql, log_filter_params = _act_id_filter_sql(visible_act_ids, "act_id")
+    log_join_filter_sql, log_join_filter_params = _act_id_filter_sql(visible_act_ids, "l.act_id")
 
     # 止损统计：只统计自动止损（排除 emergency 紧急暂停，那是人工操作）
     # trigger_type: guard=巡棄自动, rule=规则触发, system=系统; emergency=紧急暂停(不算止损)
@@ -303,51 +333,56 @@ def get_summary(
            COUNT(DISTINCT CASE WHEN action_type='pause' AND status='success'
              AND trigger_type NOT IN ('emergency','user') THEN target_id END) as auto_unique,
            COUNT(DISTINCT CASE WHEN action_type='increase_budget' AND status='success' THEN target_id END) as scaled_unique
-           FROM action_logs WHERE date(created_at) BETWEEN ? AND ?""",
-        (df, dt)
+           FROM action_logs WHERE date(created_at) BETWEEN ? AND ?{log_filter_sql}""",
+        (df, dt, *log_filter_params)
     ).fetchone()
     # 服务器今日自动止损
     log_today = conn.execute(
-        """SELECT
+        f"""SELECT
            COUNT(DISTINCT CASE WHEN action_type='pause' AND status='success'
              AND trigger_type NOT IN ('emergency','user') THEN target_id END) as paused_today
-           FROM action_logs WHERE date(created_at)=?""",
-        (server_today,)
+           FROM action_logs WHERE date(created_at)=?{log_filter_sql}""",
+        (server_today, *log_filter_params)
     ).fetchone()
     # 历史累计自动止损
     log_total = conn.execute(
-        """SELECT COUNT(DISTINCT target_id) as paused_total
+        f"""SELECT COUNT(DISTINCT target_id) as paused_total
            FROM action_logs
            WHERE action_type='pause' AND status='success'
-             AND trigger_type NOT IN ('emergency','user')"""
+              AND trigger_type NOT IN ('emergency','user')
+              {log_filter_sql}"""
+        ,
+        log_filter_params
     ).fetchone()
     # 止损明细：JOIN accounts获取账户名称，排除紧急暂停
     pause_details = conn.execute(
-        """SELECT l.target_id, l.target_name, l.act_id,
+        f"""SELECT l.target_id, l.target_name, l.act_id,
                   COALESCE(a.name, l.act_id) as account_name,
                   l.level, l.trigger_type, MAX(l.created_at) as last_at
            FROM action_logs l
            LEFT JOIN accounts a ON a.act_id = l.act_id
            WHERE l.action_type='pause' AND l.status='success'
-             AND l.trigger_type NOT IN ('emergency','user')
-             AND date(l.created_at) BETWEEN ? AND ?
-           GROUP BY l.target_id
-           ORDER BY last_at DESC LIMIT 20""",
-        (df, dt)
+              AND l.trigger_type NOT IN ('emergency','user')
+              AND date(l.created_at) BETWEEN ? AND ?
+              {log_join_filter_sql}
+            GROUP BY l.target_id
+            ORDER BY last_at DESC LIMIT 20""",
+        (df, dt, *log_join_filter_params)
     ).fetchall()
     # 紧急暂停单独统计（仅用于展示，不计入止损）
     emg_details = conn.execute(
-        """SELECT l.target_id, l.target_name, l.act_id,
+        f"""SELECT l.target_id, l.target_name, l.act_id,
                   COALESCE(a.name, l.act_id) as account_name,
                   l.level, MAX(l.created_at) as last_at
            FROM action_logs l
            LEFT JOIN accounts a ON a.act_id = l.act_id
            WHERE l.action_type='pause' AND l.status='success'
-             AND l.trigger_type='emergency'
-             AND date(l.created_at) BETWEEN ? AND ?
-           GROUP BY l.target_id
-           ORDER BY last_at DESC LIMIT 20""",
-        (df, dt)
+              AND l.trigger_type='emergency'
+              AND date(l.created_at) BETWEEN ? AND ?
+              {log_join_filter_sql}
+            GROUP BY l.target_id
+            ORDER BY last_at DESC LIMIT 20""",
+        (df, dt, *log_join_filter_params)
     ).fetchall()
     conn.close()
 
@@ -575,10 +610,7 @@ def get_trend(
         cur += timedelta(days=1)
 
     conn = get_conn()
-    if act_id:
-        accs = conn.execute('SELECT * FROM accounts WHERE act_id=?', (act_id,)).fetchall()
-    else:
-        accs = conn.execute('SELECT * FROM accounts').fetchall()
+    accs = _fetch_visible_accounts(conn, user, act_id)
     conn.close()
 
     daily_spend = {d: 0.0 for d in day_list}
@@ -662,10 +694,7 @@ def get_ads_live(
     insights_field = f'insights.time_range({tr}){{spend,impressions,clicks,actions,action_values}}'
 
     conn = get_conn()
-    if act_id:
-        accs = conn.execute('SELECT * FROM accounts WHERE act_id=?', (act_id,)).fetchall()
-    else:
-        accs = conn.execute('SELECT * FROM accounts').fetchall()
+    accs = _fetch_visible_accounts(conn, user, act_id)
     accs = [dict(a) for a in accs]
     act_ids = [a["act_id"] for a in accs]
 
@@ -913,10 +942,7 @@ def spend_query(
 ):
     """自定义日期范围消耗查询，固定日期字符串，适用于历史数据查询"""
     conn = get_conn()
-    if account_id:
-        accs = conn.execute('SELECT * FROM accounts WHERE act_id=?', (account_id,)).fetchall()
-    else:
-        accs = conn.execute('SELECT * FROM accounts').fetchall()
+    accs = _fetch_visible_accounts(conn, user, account_id)
     conn.close()
 
     result_rows = []
@@ -1075,7 +1101,10 @@ def get_ads(act_id: Optional[str] = None, date_from: Optional[str] = None, date_
     conn = get_conn()
     date_range = (df, dt) if df != dt else (df,)
     where_date = "p.snapshot_date BETWEEN ? AND ?" if df != dt else "p.snapshot_date = ?"
+    scope_where, scope_params = [], []
+    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=True)
     if act_id:
+        assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
         rows = conn.execute(
             f"""SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
                FROM perf_snapshots p
@@ -1084,19 +1113,21 @@ def get_ads(act_id: Optional[str] = None, date_from: Optional[str] = None, date_
                WHERE {where_date} AND p.act_id = ?
                ORDER BY p.spend DESC""", (*date_range, act_id)).fetchall()
     else:
+        scope_sql = (" AND " + " AND ".join(scope_where)) if scope_where else ""
         rows = conn.execute(
             f"""SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
                FROM perf_snapshots p
                LEFT JOIN accounts a ON a.act_id = p.act_id
                LEFT JOIN kpi_configs k ON k.target_id = p.ad_id AND k.level = 'ad'
-               WHERE {where_date}
-               ORDER BY p.spend DESC""", date_range).fetchall()
+               WHERE {where_date}{scope_sql}
+               ORDER BY p.spend DESC""", tuple(date_range) + tuple(scope_params)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 @router.post("/trigger-inspect")
 def trigger_inspect(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     import threading
     from services.guard_engine import GuardEngine
     def run():
@@ -1109,13 +1140,23 @@ def trigger_inspect(user=Depends(get_current_user)):
 @router.get("/stats")
 def get_stats(user=Depends(get_current_user)):
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM perf_snapshots ORDER BY snapshot_date DESC LIMIT 100").fetchall()
+    where, params = [], []
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+    scope_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    rows = conn.execute(
+        f"""SELECT p.* FROM perf_snapshots p
+            LEFT JOIN accounts a ON a.act_id = p.act_id
+            {scope_sql}
+            ORDER BY p.snapshot_date DESC LIMIT 100""",
+        params,
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 @router.get("/system-logs")
 def get_system_logs(lines: int = 100, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     import os, re
     log_paths = ["/var/log/mira/app.log", "/var/log/mira/error.log", "/opt/mira/logs/app.log", "/opt/mira/app.log", "/var/log/mira.log"]
     content = []
@@ -1151,6 +1192,7 @@ def get_system_logs(lines: int = 100, user=Depends(get_current_user)):
 
 @router.get("/emergency-prescan")
 def emergency_prescan(level: str = "campaign", user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     conn = get_conn()
     accs = conn.execute('SELECT * FROM accounts').fetchall()
     conn.close()
@@ -1229,6 +1271,7 @@ class _DefaultCpaItem(_BaseModel):
 
 @router.post("/batch-set-cpa")
 def batch_set_cpa(req_body: _BatchCpaRequest, user=Depends(get_current_user)):
+    _require_operator_user(user)
     """
     批量设定CPA目标（v1.2.0新增）
     支持按广告/广告组/广告系列/账户级别批量设定
@@ -1240,6 +1283,7 @@ def batch_set_cpa(req_body: _BatchCpaRequest, user=Depends(get_current_user)):
     errors = []
     for item in req_body.items:
         try:
+            assert_row_access(conn, "accounts", item.act_id, user, id_column="act_id")
             existing = conn.execute(
                 "SELECT id FROM kpi_configs WHERE act_id=? AND target_id=? AND level=?",
                 (item.act_id, item.target_id, item.level)
@@ -1286,13 +1330,21 @@ def get_default_cpa(act_id: Optional[str] = None, user=Depends(get_current_user)
     """
     conn = get_conn()
     if act_id:
+        assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
         rows = conn.execute(
             """SELECT * FROM kpi_configs WHERE level='account' AND act_id=? ORDER BY updated_at DESC""",
             (act_id,)
         ).fetchall()
     else:
+        where, params = [], []
+        apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+        scope_sql = (" AND " + " AND ".join(where)) if where else ""
         rows = conn.execute(
-            """SELECT * FROM kpi_configs WHERE level='account' ORDER BY act_id, updated_at DESC"""
+            f"""SELECT k.* FROM kpi_configs k
+                LEFT JOIN accounts a ON a.act_id = k.act_id
+                WHERE k.level='account'{scope_sql}
+                ORDER BY k.act_id, k.updated_at DESC""",
+            params,
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1312,7 +1364,7 @@ def get_account_health(user=Depends(get_current_user)):
     """
     today = date.today().isoformat()
     conn = get_conn()
-    accs = conn.execute('SELECT * FROM accounts').fetchall()
+    accs = _fetch_visible_accounts(conn, user)
 
     # 今日止损日志（按账户聚合）
     paused_logs = conn.execute(
@@ -1430,6 +1482,7 @@ def get_account_health(user=Depends(get_current_user)):
 
 @router.post("/default-cpa")
 def set_default_cpa(item: _DefaultCpaItem, user=Depends(get_current_user)):
+    _require_operator_user(user)
     """
     设定默认精细化CPA（v1.2.0新增）
     act_id="*" 表示全局默认，否则为账户级默认
@@ -1437,6 +1490,11 @@ def set_default_cpa(item: _DefaultCpaItem, user=Depends(get_current_user)):
     """
     from services.kpi_resolver import get_kpi_label
     conn = get_conn()
+    if item.act_id == "*" and not is_superadmin(user):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Global default CPA is superadmin only")
+    if item.act_id != "*":
+        assert_row_access(conn, "accounts", item.act_id, user, id_column="act_id")
     target_id = f"__default__{item.kpi_field}"
     existing = conn.execute(
         "SELECT id FROM kpi_configs WHERE act_id=? AND target_id=? AND level='account'",

@@ -10,13 +10,18 @@ storage.py  —  存储空间管理 API
   POST /clean/all        — 一键全部清理（安全模式）
 """
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from core.auth import get_current_user
+from core.auth import get_current_user, is_superadmin
 
 router = APIRouter()
 logger = logging.getLogger("mira")
+
+
+def _require_superadmin_user(user):
+    if not is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin only")
 
 
 class CleanPendingReq(BaseModel):
@@ -38,6 +43,7 @@ class CleanThumbsReq(BaseModel):
 
 @router.get("/summary")
 def get_storage_summary(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """获取完整存储使用摘要"""
     try:
         from services.storage_manager import get_storage_summary
@@ -49,6 +55,7 @@ def get_storage_summary(user=Depends(get_current_user)):
 
 @router.post("/clean/pending")
 def clean_pending(req: CleanPendingReq, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """清理待审核图片"""
     try:
         from services.storage_manager import clean_pending_images
@@ -62,6 +69,7 @@ def clean_pending(req: CleanPendingReq, user=Depends(get_current_user)):
 
 @router.post("/clean/backups")
 def clean_backups(req: CleanBackupsReq, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """清理旧备份文件"""
     try:
         from services.storage_manager import clean_old_backups
@@ -75,6 +83,7 @@ def clean_backups(req: CleanBackupsReq, user=Depends(get_current_user)):
 
 @router.post("/clean/journal")
 def clean_journal(req: CleanJournalReq, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """清理 systemd journal 日志"""
     try:
         from services.storage_manager import clean_journal_logs
@@ -88,6 +97,7 @@ def clean_journal(req: CleanJournalReq, user=Depends(get_current_user)):
 
 @router.post("/clean/thumbs")
 def clean_thumbs(req: CleanThumbsReq, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """清理旧缩略图"""
     try:
         from services.storage_manager import clean_thumbs
@@ -101,6 +111,7 @@ def clean_thumbs(req: CleanThumbsReq, user=Depends(get_current_user)):
 
 @router.post("/clean/all")
 def clean_all(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """
     一键全部清理（安全模式）：
     - 清理已拒绝的待审核图片

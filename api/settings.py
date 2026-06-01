@@ -4,17 +4,32 @@
 """
 import hashlib
 import os
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
 
 from core.app_meta import APP_VERSION
-from core.auth import get_current_user
+from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
 
 router = APIRouter()
 
 SENSITIVE_KEYS = {"ai_api_key", "tg_bot_token", "vision_api_key", "img_gen_fal_key", "img_gen_openai_key", "img_gen_ideogram_key", "img_gen_stability_key", "img_gen_replicate_key"}
+
+PUBLIC_SETTING_KEYS = {
+    "sentinel_enabled",
+    "sentinel_interval",
+    "heartbeat_enabled",
+    "heartbeat_timeout",
+    "mirror_enabled",
+    "warmup_enabled",
+    "warmup_check_interval",
+}
+
+
+def _require_superadmin_user(user):
+    if not is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin only")
 
 
 class SettingItem(BaseModel):
@@ -116,7 +131,7 @@ def _run_storage_cleanup() -> dict:
 
 
 @router.get("")
-def get_settings(user=Depends(get_current_user)):
+def get_settings(keys: Optional[str] = Query(None), user=Depends(get_current_user)):
     conn = get_conn()
     _cleanup_obsolete_settings(conn)
     conn.commit()
@@ -125,8 +140,15 @@ def get_settings(user=Depends(get_current_user)):
     ).fetchall()
     conn.close()
     result = []
+    requested = None
+    if keys:
+        requested = {k.strip() for k in keys.split(",") if k.strip()}
     for r in rows:
         d = dict(r)
+        if requested is not None and d["key"] not in requested:
+            continue
+        if not is_superadmin(user) and d["key"] not in PUBLIC_SETTING_KEYS:
+            continue
         if d["key"] in SENSITIVE_KEYS:
             d["value"] = _mask(d["value"] or "")
         result.append(d)
@@ -135,6 +157,7 @@ def get_settings(user=Depends(get_current_user)):
 
 @router.post("/batch")
 def update_settings(items: List[SettingItem], user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     conn = get_conn()
     heartbeat_enabled = False
     for item in items:
@@ -162,6 +185,7 @@ def update_settings(items: List[SettingItem], user=Depends(get_current_user)):
 
 @router.post("/change-password")
 def change_password(body: PasswordChange, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """修改登录密码"""
     env_path = "/opt/mira/.env"
     if not os.path.exists(env_path):
@@ -207,6 +231,7 @@ def get_ai_providers(user=Depends(get_current_user)):
 
 @router.post("/ai-test")
 def test_ai_connection(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """测试AI连接是否正常"""
     from services.ai_advisor import get_ai_client, is_ai_enabled
     if not is_ai_enabled():
@@ -230,6 +255,7 @@ def test_ai_connection(user=Depends(get_current_user)):
 
 @router.post("/tg-test")
 def test_tg_connection(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """测试Telegram Bot连接"""
     import requests as req
     conn = get_conn()
@@ -280,6 +306,7 @@ def get_version():
 
 @router.post("/clean-storage", tags=["system"])
 def clean_storage_alias(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """兼容前端旧入口：/api/system/clean-storage"""
     try:
         return _run_storage_cleanup()
@@ -292,6 +319,7 @@ class SettingsBatchWrap(BaseModel):
 
 @router.put("")
 def update_settings_put(body: SettingsBatchWrap, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """PUT /settings 别名，接收 {settings: [{key,value},...]}"""
     conn = get_conn()
     updated = 0
@@ -332,6 +360,7 @@ def test_ai_alias(user=Depends(get_current_user)):
 
 @router.post("/test-vision")
 def test_vision_connection(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """测试视觉 AI 配置是否可连接，供设置页按钮使用。"""
     try:
         from api.assets import _get_vision_client
@@ -372,6 +401,7 @@ class UsernameChange(BaseModel):
 
 @router.post("/change-username")
 def change_username(body: UsernameChange, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """修改登录用户名（防爆破）"""
     env_path = "/opt/mira/.env"
     if not os.path.exists(env_path):
@@ -458,6 +488,7 @@ def check_ai_status(user=Depends(get_current_user)):
 # ── 服务器资源监控 ──────────────────────────────────────────────────────────────
 @router.get("/resource", tags=["system"])
 def get_server_resource(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """获取服务器 CPU / 内存 / 磁盘使用情况"""
     import shutil, subprocess, os
 
@@ -565,6 +596,7 @@ def get_server_resource(user=Depends(get_current_user)):
 
 @router.get("/guard-health", tags=["system"])
 def get_guard_health(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """返回巡检/镜像、哨兵、心跳、预热等后台任务最近运行状态。"""
     try:
         from core.scheduler import get_scheduler_health
