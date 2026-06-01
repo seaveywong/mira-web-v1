@@ -167,6 +167,7 @@ def run_account_status_sync():
     """v3.3: 定期同步所有广告账户的真实状态（account_status、余额）"""
     try:
         from core.database import get_conn
+        from core.account_access import ensure_account_access_columns, mark_account_read_failure, mark_account_read_success
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from services.token_manager import get_exec_token, ACTION_READ
         import requests
@@ -217,6 +218,7 @@ def run_account_status_sync():
             conn.execute("ALTER TABLE accounts ADD COLUMN timezone_name TEXT")
         if "timezone_offset_hours_utc" not in cols:
             conn.execute("ALTER TABLE accounts ADD COLUMN timezone_offset_hours_utc REAL")
+        ensure_account_access_columns(conn)
         updated = 0
         read_errors = 0
         for row in rows:
@@ -225,6 +227,12 @@ def run_account_status_sync():
                 continue
             if data.get("_read_error"):
                 read_errors += 1
+                mark_account_read_failure(
+                    conn,
+                    row["act_id"],
+                    data.get("_error_message", ""),
+                    status="permission_error" if data.get("_error_code") == 200 else None,
+                )
                 logger.warning(
                     "[AccountSync] 账户 %s 状态同步失败，保留本地状态不改写 (error_code=%s, message=%s)",
                     row["act_id"] if row["act_id"] else row["id"],
@@ -232,6 +240,7 @@ def run_account_status_sync():
                     data.get("_error_message", "")[:180],
                 )
                 continue
+            mark_account_read_success(conn, row["act_id"])
             new_status = data.get("account_status", 1)
             # 检测状态变化：若变为3（支付失败）或7（政策违规），主动发TG提醒
             old_row = conn.execute(

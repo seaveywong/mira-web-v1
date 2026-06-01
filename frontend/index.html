@@ -5168,16 +5168,20 @@ function getAccountTokenHealth(a){
  var operateTotal=(a.operate_token_total!=null)?parseInt(a.operate_token_total,10):linked.filter(function(t){return t.type==='operate';}).length;
  if(!isFinite(operateTotal))operateTotal=0;
  var primaryInvalid=(a.primary_token_invalid===true)||(!!(a.token_alias&&a.token_status&&a.token_status!=='active'));
+ var health=a.token_health||'';
+ var readBlocked=['permission_error','no_read_token','unreadable'].indexOf(health)>=0 || a.read_token_ok===false;
  var readOk=a.read_token_ok===true||manageOk||linked.some(function(t){return ['manage','operate','user'].indexOf(t.type)>=0&&isActive(t);});
  if(!readOk&&a.token_alias&&a.token_status==='active')readOk=true;
- return {manageOk:manageOk,operateOk:operateOk,writeOk:writeOk,operateTotal:operateTotal,primaryInvalid:primaryInvalid,readOk:readOk,health:a.token_health||''};
+ if(readBlocked)readOk=false;
+ return {manageOk:manageOk,operateOk:operateOk,writeOk:writeOk,operateTotal:operateTotal,primaryInvalid:primaryInvalid,readOk:readOk,health:health};
 }
 
 function renderAccountTokenStatusBadge(a){
  var h=getAccountTokenHealth(a);
  var reasons=Array.isArray(a.token_issue_reasons)?a.token_issue_reasons.join('；'):'';
  if(!h.readOk){
-  return '<span class="badge bg-er" title="'+escHtml(reasons||'没有可用于读取、巡检或关停的有效 Token')+'">Token不可用</span>';
+  var label=h.health==='permission_error'?'读权限不可用':(h.health==='no_read_token'?'无读取Token':'Token不可用');
+  return '<span class="badge bg-er" title="'+escHtml(reasons||'没有可用于读取、巡检或关停的有效 Token')+'">'+label+'</span>';
  }
  if(!h.writeOk){
   return '<span class="badge bg-wa" title="'+escHtml(reasons||'读取、巡检、关停可继续；创建广告、预算、限额需要有效的 System User 操作号')+'">写操作不可用</span>';

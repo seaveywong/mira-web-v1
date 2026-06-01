@@ -12,6 +12,7 @@ from typing import Optional, Tuple
 import requests
 
 from core.database import get_conn, decrypt_token
+from core.account_access import note_account_read_failure, note_account_read_success
 
 logger = logging.getLogger("mira.guard")
 
@@ -975,6 +976,7 @@ class GuardEngine:
         act_id = account["act_id"]
         token = _get_token_for_account(account)
         if not token:
+            note_account_read_failure(act_id, "no_read_token", status="no_read_token")
             logger.warning(f"账户 {act_id} 无有效Token，跳过巡检")
             return
 
@@ -987,6 +989,7 @@ class GuardEngine:
             )
         except Exception as e:
             logger.error(f"拉取广告列表失败 {act_id}: {e}")
+            note_account_read_failure(act_id, e)
             _log_action(act_id, "account", act_id, account.get("name", ""),
                         "inspect", "system", f"API拉取失败: {e}",
                         status="failed", error_msg=str(e))
@@ -1000,6 +1003,7 @@ class GuardEngine:
             return
 
         ads = data.get("data", [])
+        note_account_read_success(act_id)
         logger.info(f"账户 {act_id} 活跃广告数: {len(ads)}")
 
         # ── 镜像模式：暂停不在白名单中的未授权广告 ──────────────────────────────
@@ -1975,7 +1979,9 @@ def sentinel_patrol() -> dict:
                 paginate=True
             )
             campaigns = data.get("data", [])
+            note_account_read_success(act_id)
         except Exception as e:
+            note_account_read_failure(act_id, e)
             logger.warning(f"[Sentinel] 获取系列失败 {act_id}: {e}")
             continue
         for camp in campaigns:

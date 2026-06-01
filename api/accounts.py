@@ -12,6 +12,7 @@ from typing import Optional, List
 
 from core.auth import get_current_user, normalize_user_claims
 from core.database import get_conn, encrypt_token, decrypt_token
+from core.account_access import ensure_account_access_columns, is_read_blocking_status
 from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
 from services.token_manager import (
     ALLOWED_TOKEN_SOURCES,
@@ -215,6 +216,7 @@ def _ensure_account_read_columns(conn) -> None:
         changed = True
     if changed:
         conn.commit()
+    ensure_account_access_columns(conn)
 
 
 def _normalize_account_info(act_id: str, raw: dict) -> dict:
@@ -1670,6 +1672,7 @@ def list_accounts(user=Depends(get_current_user)):
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
                a.team_id,
                a.balance, a.account_status, a.spend_cap, a.amount_spent, a.spending_limit,
+               a.read_permission_status, a.read_permission_error, a.read_permission_checked_at,
                COALESCE(a.mirror_enabled, 0) as mirror_enabled,
                COALESCE(a.warmup_state, '') as warmup_state,
                a.warmup_triggered_at, a.warmup_campaign_id,
@@ -1783,21 +1786,34 @@ def list_accounts(user=Depends(get_current_user)):
             d.get("token_alias") and d.get("token_status") and d.get("token_status") != "active"
         )
         primary_token_active = bool(d.get("token_alias") and d.get("token_status") == "active")
+        read_permission_status = d.get("read_permission_status") or ""
+        read_permission_blocked = is_read_blocking_status(read_permission_status)
         d['read_token_ok'] = d['manage_token_ok'] or any(
             t.get("type") in ("manage", "operate", "user") for t in active_linked_tokens
         ) or primary_token_active
+        if read_permission_blocked:
+            d['read_token_ok'] = False
         d['pause_token_ok'] = d['write_token_ok'] or d['manage_token_ok']
+        if read_permission_blocked and not d['write_token_ok']:
+            d['pause_token_ok'] = False
         d['create_token_ok'] = d['write_token_ok']
         d['update_token_ok'] = d['write_token_ok']
         token_issue_reasons = []
-        if not d['read_token_ok']:
+        if read_permission_blocked:
+            err = d.get("read_permission_error") or "管理号/读取 Token 对该广告账户没有 ads_read 或 ads_management 访问权限"
+            checked_at = d.get("read_permission_checked_at") or ""
+            suffix = f"（检测时间 {checked_at}）" if checked_at else ""
+            token_issue_reasons.append(f"读权限不可用：{err}{suffix}")
+        elif not d['read_token_ok']:
             token_issue_reasons.append("没有可读取账户信息或关停兜底的活动 Token")
         if d['read_token_ok'] and not d['write_token_ok']:
             token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 操作号")
         if d['legacy_operate_token_total']:
             token_issue_reasons.append("旧版个人操作号只参与读取展示，不参与写操作")
         d['token_issue_reasons'] = token_issue_reasons
-        if not d['read_token_ok']:
+        if read_permission_blocked:
+            d['token_health'] = read_permission_status
+        elif not d['read_token_ok']:
             d['token_health'] = "unreadable"
         elif not d['write_token_ok']:
             d['token_health'] = "write_unavailable"

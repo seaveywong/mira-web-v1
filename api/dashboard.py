@@ -9,6 +9,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
+from core.account_access import is_read_blocking_status, note_account_read_failure, note_account_read_success
 from core.tenancy import apply_team_scope, assert_row_access
 from datetime import date, timedelta, datetime
 import requests as req
@@ -761,18 +762,12 @@ def get_ads_live(
                     meta["manage_token_ok"] = True
         except Exception:
             pass
-        try:
-            global_manage = conn.execute(
-                "SELECT 1 FROM fb_tokens WHERE status='active' AND token_type='manage' LIMIT 1"
-            ).fetchone()
-            if global_manage:
-                for meta in cap_map.values():
-                    meta["read_token_ok"] = True
-                    meta["manage_token_ok"] = True
-        except Exception:
-            pass
     for acc in accs:
         meta = cap_map.setdefault(acc["act_id"], {})
+        if is_read_blocking_status(acc.get("read_permission_status")):
+            meta["read_token_ok"] = False
+            if not meta.get("write_token_ok"):
+                meta["manage_token_ok"] = False
         writeable_account = _account_writeable_status(acc)
         meta["pause_token_ok"] = bool(meta.get("write_token_ok") or meta.get("manage_token_ok"))
         meta["update_token_ok"] = bool(meta.get("write_token_ok") and writeable_account)
@@ -811,7 +806,9 @@ def get_ads_live(
                 fallback_fields = f'id,name,status,effective_status,adset_id,campaign_id,{insights_field}'
                 ads, err = _fb_ads_paginated(acc["act_id"], token, fallback_fields)
             if err:
+                note_account_read_failure(acc["act_id"], err)
                 continue
+            note_account_read_success(acc["act_id"])
             acc_caps = cap_map.get(acc["act_id"], {})
             automation_warnings = []
             if settings_map.get("mirror_enabled") == "1" or int(acc.get("mirror_enabled") or 0) == 1:
