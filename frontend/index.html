@@ -1005,7 +1005,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
     <div class="page" id="page-ads">
      <div class="ph">
       <div><h2>广告列表</h2><p>广告成效查询（默认近 7 天，广告暂停期间今日消耗为 $0.00 属正常）</p></div>
-      <button class="btn btn-g btn-sm" onclick="loadAds()">刷新</button>
+      <button class="btn btn-g btn-sm" onclick="loadAds({force:true})">刷新</button>
      </div>
      <div class="fb" style="flex-wrap:wrap;gap:8px">
       <select class="fc" id="adsAct" onchange="loadAds()" style="min-width:160px"><option value="">全部账户</option></select>
@@ -1032,6 +1032,8 @@ tr:hover td{background:rgba(255,255,255,.025)}
        <option value="no_kpi">未设KPI</option>
       </select>
       <input class="fc" id="adsQ" placeholder="搜索广告名称..." oninput="filterAds()" style="min-width:180px">
+      <button class="btn btn-g btn-sm" onclick="expandAdsTree()">展开全部</button>
+      <button class="btn btn-g btn-sm" onclick="collapseAdsTree()">收起全部</button>
      </div>
      <div id="adsBulkBar" class="fb" style="gap:8px;margin-top:8px;display:none">
       <span id="adsSelectedCount" style="font-size:12px;color:var(--t3)">已选 0 条</span>
@@ -3960,14 +3962,15 @@ async function loadAds(opts){
   params.push('date_to='+dateTo);
   var cacheKey=params.join('&');
   var now=Date.now();
-  if(opts.auto&&_adsCache.key===cacheKey&&_adsCache.data&&(now-_adsCache.ts)<ADS_CACHE_MS){
+  if(!opts.force&&opts.auto&&_adsCache.key===cacheKey&&_adsCache.data&&(now-_adsCache.ts)<ADS_CACHE_MS){
    allAds=_adsCache.data.slice();
    selectedAds=new Set(Array.from(selectedAds).filter(function(id){return allAds.some(function(x){return x.ad_id===id})}));
    filterAds();
    return allAds;
   }
   var seq=++_adsLoadSeq;
-  document.getElementById('adsBody').innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--t3);padding:40px"><div class="spin" style="margin:0 auto"></div></td></tr>';
+  document.getElementById('adsBody').innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--t3);padding:40px"><div class="spin" style="margin:0 auto 10px"></div>正在从 Meta 拉取广告层级...</td></tr>';
+  document.getElementById('adsCount').textContent='加载中...';
   var data=await api('GET','/dashboard/ads-live?'+cacheKey)||[];
   if(seq!==_adsLoadSeq)return allAds;
   allAds=data;
@@ -3982,6 +3985,12 @@ async function loadAds(opts){
 }
 function _adsJs(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,' ');}
 function _adsMoney(v,c){return v!==null&&v!==undefined&&!isNaN(Number(v))?(c+' '+Number(v).toFixed(2)):'--';}
+function _adsDataTime(){
+ if(!_adsCache.ts)return '';
+ var d=new Date(_adsCache.ts);
+ var pad=function(n){return String(n).padStart(2,'0')};
+ return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+}
 function _adsReasonText(r){
  var m={
   no_pause_token:'没有可用暂停 Token',
@@ -4042,10 +4051,18 @@ function _adsBudgetHtml(a){
 }
 function _adsBudgetCell(a,level){
  var html=_adsBudgetHtml(a);
+ if(level==='campaign'){
+  var canCampaign=!!(a.update_token_ok&&a.campaign_id&&a.campaign_daily_budget!==null&&a.campaign_daily_budget!==undefined);
+  var cReason=a.update_token_ok?'当前系列没有可编辑的日预算':'没有可写操作号';
+  if(canCampaign){
+   return '<button class="fb-budget-edit" title="点击修改广告系列日预算" onclick="event.stopPropagation();editDailyBudget(\''+_adsJs(a.ad_id)+'\',\'campaign\',this)">'+html+'</button>';
+  }
+  return '<span class="fb-budget-readonly" title="'+escHtml(cReason)+'">'+html+'</span>';
+ }
  if(level==='adset'||level==='ad'){
   var reason=a.can_edit_budget?'':_adsReasonText(a.budget_block_reason);
   if(a.can_edit_budget){
-   return '<button class="fb-budget-edit" title="点击修改广告组日预算" onclick="event.stopPropagation();editAdsetBudget(\''+_adsJs(a.ad_id)+'\',this)">'+html+'</button>';
+   return '<button class="fb-budget-edit" title="点击修改广告组日预算" onclick="event.stopPropagation();editDailyBudget(\''+_adsJs(a.ad_id)+'\',\'adset\',this)">'+html+'</button>';
   }
   return '<span class="fb-budget-readonly" title="'+escHtml(reason||'当前预算不可编辑')+'">'+html+'</span>';
  }
@@ -4069,6 +4086,16 @@ function _adsFind(id){return (allAds||[]).find(function(a){return a.ad_id===id})
 function _adsTreeDefault(type){return false;}
 function _adsTreeIsOpen(type,key,def){var m=_adsTreeOpen[type]||{};return Object.prototype.hasOwnProperty.call(m,key)?m[key]:def;}
 function toggleAdsTree(type,key){if(!_adsTreeOpen[type])_adsTreeOpen[type]={};_adsTreeOpen[type][key]=!_adsTreeIsOpen(type,key,_adsTreeDefault(type));filterAds();}
+function expandAdsTree(){
+ _adsTreeOpen={accounts:{},campaigns:{},adsets:{}};
+ (window._lastFilteredAds||allAds||[]).forEach(function(a){
+  if(a.act_id)_adsTreeOpen.accounts[a.act_id]=true;
+  if(a.campaign_id)_adsTreeOpen.campaigns[a.campaign_id]=true;
+  if(a.adset_id)_adsTreeOpen.adsets[a.adset_id]=true;
+ });
+ filterAds();
+}
+function collapseAdsTree(){_adsTreeOpen={accounts:{},campaigns:{},adsets:{}};filterAds();}
 function _adsCampaignRowsForAccount(actKey){
  var seen={},list=[];
  (allAds||[]).forEach(function(a){
@@ -4173,7 +4200,7 @@ function renderAdsTree(rows, forceOpen){
   var campGroup=_adsGroupBy(accRows,function(a){return a.campaign_id||('__camp_'+a.ad_id);});
   campGroup.keys.forEach(function(campKey){
    var campRows=campGroup.map[campKey],campRep=campRows[0],campM=_adsSum(campRows),campOpen=forceOpen||_adsTreeIsOpen('campaigns',campKey,false);
-   html.push('<tr style="background:var(--bg1);cursor:pointer" onclick="toggleAdsTree(\'campaigns\',\''+_adsJs(campKey)+'\')"><td>'+_adsSwitchButton(campRep,'campaign')+'</td><td></td><td>'+_adsNameCell('campaigns',campKey,campOpen,1,campRep.campaign_name||campKey,campKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td><td>'+_adsBudgetCell({currency:campRep.currency,campaign_daily_budget:campRep.campaign_daily_budget,campaign_lifetime_budget:campRep.campaign_lifetime_budget},'campaign')+'</td>'+_adsMetricCells(campM,null)+'<td><span class="badge bg-mu">'+campM.count+' 条</span></td><td>'+_adsMoreActions(campRep,'campaign')+'</td></tr>');
+   html.push('<tr style="background:var(--bg1);cursor:pointer" onclick="toggleAdsTree(\'campaigns\',\''+_adsJs(campKey)+'\')"><td>'+_adsSwitchButton(campRep,'campaign')+'</td><td></td><td>'+_adsNameCell('campaigns',campKey,campOpen,1,campRep.campaign_name||campKey,campKey)+'</td><td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td><td>'+_adsBudgetCell(campRep,'campaign')+'</td>'+_adsMetricCells(campM,null)+'<td><span class="badge bg-mu">'+campM.count+' 条</span></td><td>'+_adsMoreActions(campRep,'campaign')+'</td></tr>');
    if(!campOpen)return;
    var adsetGroup=_adsGroupBy(campRows,function(a){return a.adset_id||('__adset_'+a.ad_id);});
    adsetGroup.keys.forEach(function(adsetKey){
@@ -4189,7 +4216,7 @@ function renderAdsTree(rows, forceOpen){
   });
  });
  tb.innerHTML=html.join('');
- document.getElementById('adsCount').textContent='共 '+rows.length+' 条（总 '+allAds.length+' 条）';
+ document.getElementById('adsCount').textContent='共 '+rows.length+' 条（总 '+allAds.length+' 条）'+(_adsCache.ts?' · 数据时间 '+_adsDataTime():'');
  updateAdsBulkBar();
 }
 function filterAds(){
@@ -4244,18 +4271,29 @@ async function runAdStatusOp(adId,level,desired,btn){
   if(btn){btn.disabled=false;if(isSwitch)btn.removeAttribute('aria-busy');else btn.textContent=oldText;}
  }
 }
-async function editAdsetBudget(adId,btn){
+async function editDailyBudget(adId,level,btn){
  var a=_adsFind(adId);
  if(!a){toast('广告数据已过期，请刷新','wa');return;}
- if(!a.can_edit_budget){toast(_adsReasonText(a.budget_block_reason)||'当前不能调整预算','wa');return;}
- var cur=a.adset_daily_budget!==null&&a.adset_daily_budget!==undefined?Number(a.adset_daily_budget).toFixed(2):'';
- var val=await promptAsync('调整广告组日预算','新日预算（'+(a.currency||'USD')+'）',cur,'例如 5');
+ level=level||'adset';
+ var isCampaign=level==='campaign';
+ var targetId=isCampaign?a.campaign_id:a.adset_id;
+ var targetName=isCampaign?(a.campaign_name||a.campaign_id):(a.adset_name||a.adset_id);
+ var currentBudget=isCampaign?a.campaign_daily_budget:a.adset_daily_budget;
+ if(isCampaign){
+  if(!a.update_token_ok){toast('没有可写操作号，不能调整系列预算','wa');return;}
+  if(!targetId||currentBudget===null||currentBudget===undefined){toast('当前系列没有可编辑的日预算','wa');return;}
+ }else if(!a.can_edit_budget){
+  toast(_adsReasonText(a.budget_block_reason)||'当前不能调整预算','wa');return;
+ }
+ var levelLabel=isCampaign?'广告系列':'广告组';
+ var cur=currentBudget!==null&&currentBudget!==undefined?Number(currentBudget).toFixed(2):'';
+ var val=await promptAsync('调整'+levelLabel+'日预算','新日预算（'+(a.currency||'USD')+'）',cur,'例如 5');
  if(val===null)return;
  var num=Number(String(val).replace(/,/g,'').trim());
  if(!num||num<=0){toast('请输入大于 0 的预算','wa');return;}
- var html='<div><strong>调整广告组日预算</strong></div>'+
-  '<div style="margin-top:8px;color:var(--t2)">广告组：'+escHtml(a.adset_name||a.adset_id)+'</div>'+
-  '<div style="font-size:12px;color:var(--t3);margin-top:4px">当前：'+_adsMoney(a.adset_daily_budget,a.currency||'USD')+' → 新预算：'+_adsMoney(num,a.currency||'USD')+'</div>'+
+ var html='<div><strong>调整'+levelLabel+'日预算</strong></div>'+
+  '<div style="margin-top:8px;color:var(--t2)">'+levelLabel+'：'+escHtml(targetName)+'</div>'+
+  '<div style="font-size:12px;color:var(--t3);margin-top:4px">当前：'+_adsMoney(currentBudget,a.currency||'USD')+' → 新预算：'+_adsMoney(num,a.currency||'USD')+'</div>'+
   '<div style="margin-top:10px;color:var(--t3);font-size:12px">提交后会读取 FB 返回的实际预算确认。</div>';
  var ok=await confirmAsync(html,'确认调整','取消','预算调整确认');
  if(!ok)return;
@@ -4263,15 +4301,16 @@ async function editAdsetBudget(adId,btn){
  var isInline=btn&&btn.classList&&btn.classList.contains('fb-budget-edit');
  if(btn){btn.disabled=true;if(isInline)btn.setAttribute('aria-busy','true');else btn.textContent='处理中';}
  try{
-  var r=await api('POST','/ad-ops/adset-budget',{act_id:a.act_id,adset_id:a.adset_id,target_name:a.adset_name||a.ad_name||a.adset_id,daily_budget:num});
+  var r=await api('POST','/ad-ops/budget',{act_id:a.act_id,level:level,target_id:targetId,target_name:targetName,daily_budget:num});
   toast('预算已更新：'+_adsMoney(r.daily_budget,r.currency||a.currency||'USD'),'ok');
-  await loadAds();
+  await loadAds({force:true});
  }catch(e){
   toast('预算调整失败：'+e.message,'er');
  }finally{
   if(btn){btn.disabled=false;if(isInline)btn.removeAttribute('aria-busy');else btn.textContent=oldText;}
  }
 }
+async function editAdsetBudget(adId,btn){return editDailyBudget(adId,'adset',btn);}
 async function runAccountPauseCampaigns(actKey,btn){
  var plan=_adsAccountPausePlan(actKey);
  if(!plan.items.length){

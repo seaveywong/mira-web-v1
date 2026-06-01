@@ -319,14 +319,18 @@ def set_status(
     }
 
 
-def set_adset_budget(
+def set_daily_budget(
     act_id: str,
-    adset_id: str,
+    level: str,
+    target_id: str,
     daily_budget: Optional[float] = None,
     daily_budget_usd: Optional[float] = None,
     target_name: str = "",
     operator: str = "manual",
 ) -> dict:
+    level = (level or "").lower().strip()
+    if level not in {"adset", "campaign"}:
+        raise AdOpsError("Budget update only supports campaign or adset")
     account = _get_account(act_id)
     if int(account.get("account_status") or 1) != 1:
         raise AdOpsError(f"Account is not writable: status={account.get('account_status')}")
@@ -340,13 +344,15 @@ def set_adset_budget(
         raise AdOpsError("Budget is too small")
 
     candidates = _pick_candidates(act_id, ACTION_UPDATE)
-    lock_key = f"budget:adset:{adset_id}"
+    lock_key = f"budget:{level}:{target_id}"
     with _target_lock(lock_key):
         def _do(token, candidate):
-            before = _read_target("adset", adset_id, token)
-            _fb_post(adset_id, token, {"daily_budget": str(minor)})
+            before = _read_target(level, target_id, token)
+            if before.get("lifetime_budget") and not before.get("daily_budget"):
+                raise AdOpsError("Target uses lifetime_budget and has no daily_budget to update")
+            _fb_post(target_id, token, {"daily_budget": str(minor)})
             time.sleep(0.8)
-            after = _read_target("adset", adset_id, token)
+            after = _read_target(level, target_id, token)
             return {"before": before, "after": after}
 
         result, used = _try_candidates(candidates, _do)
@@ -360,9 +366,9 @@ def set_adset_budget(
     warning = "" if verified else f"FB readback daily_budget is {actual_minor or 'empty'}"
     _log_action(
         act_id,
-        "adset",
-        adset_id,
-        target_name or before.get("name") or after.get("name") or adset_id,
+        level,
+        target_id,
+        target_name or before.get("name") or after.get("name") or target_id,
         "manual_budget",
         f"Manual daily_budget update via {used.get('label') or used.get('alias') or used.get('source')}",
         old_value={"daily_budget": before.get("daily_budget"), "amount": old_amount, "currency": currency},
@@ -376,8 +382,8 @@ def set_adset_budget(
     return {
         "status": "ok",
         "act_id": act_id,
-        "level": "adset",
-        "target_id": adset_id,
+        "level": level,
+        "target_id": target_id,
         "currency": currency,
         "daily_budget_minor": minor,
         "daily_budget": new_amount,
@@ -388,3 +394,22 @@ def set_adset_budget(
         "before": before,
         "after": after,
     }
+
+
+def set_adset_budget(
+    act_id: str,
+    adset_id: str,
+    daily_budget: Optional[float] = None,
+    daily_budget_usd: Optional[float] = None,
+    target_name: str = "",
+    operator: str = "manual",
+) -> dict:
+    return set_daily_budget(
+        act_id=act_id,
+        level="adset",
+        target_id=adset_id,
+        daily_budget=daily_budget,
+        daily_budget_usd=daily_budget_usd,
+        target_name=target_name,
+        operator=operator,
+    )

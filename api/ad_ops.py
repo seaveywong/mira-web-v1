@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from core.auth import get_current_user
 from core.database import get_conn
 from core.tenancy import assert_row_access
-from services.ad_ops import AdOpsError, set_adset_budget, set_status
+from services.ad_ops import AdOpsError, set_adset_budget, set_daily_budget, set_status
 
 
 router = APIRouter()
@@ -45,7 +45,9 @@ class BulkStatusRequest(BaseModel):
 
 class BudgetRequest(BaseModel):
     act_id: str
-    adset_id: str
+    adset_id: Optional[str] = None
+    level: Optional[str] = None
+    target_id: Optional[str] = None
     daily_budget: Optional[float] = None
     daily_budget_usd: Optional[float] = None
     target_name: Optional[str] = None
@@ -123,10 +125,38 @@ def bulk_update_status(body: BulkStatusRequest, user=Depends(get_current_user)):
 def update_adset_budget(body: BudgetRequest, user=Depends(get_current_user)):
     _require_operator_user(user)
     _assert_account_access(body.act_id, user)
+    if not body.adset_id:
+        raise HTTPException(status_code=400, detail="adset_id is required")
     try:
         return set_adset_budget(
             act_id=body.act_id,
             adset_id=body.adset_id,
+            daily_budget=body.daily_budget,
+            daily_budget_usd=body.daily_budget_usd,
+            target_name=body.target_name or "",
+            operator=_operator_name(user),
+        )
+    except AdOpsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/budget")
+def update_budget(body: BudgetRequest, user=Depends(get_current_user)):
+    _require_operator_user(user)
+    _assert_account_access(body.act_id, user)
+    level = (body.level or "").lower().strip()
+    target_id = body.target_id or body.adset_id or ""
+    if level not in {"campaign", "adset"}:
+        raise HTTPException(status_code=400, detail="level must be campaign or adset")
+    if not target_id:
+        raise HTTPException(status_code=400, detail="target_id is required")
+    try:
+        return set_daily_budget(
+            act_id=body.act_id,
+            level=level,
+            target_id=target_id,
             daily_budget=body.daily_budget,
             daily_budget_usd=body.daily_budget_usd,
             target_name=body.target_name or "",
