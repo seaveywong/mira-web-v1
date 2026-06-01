@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Depends, UploadFile
 from pydantic import BaseModel
 from typing import Optional, List
 
-from core.auth import get_current_user
+from core.auth import get_current_user, normalize_user_claims
 from core.database import get_conn, encrypt_token, decrypt_token
 from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
 from services.token_manager import (
@@ -23,6 +23,11 @@ from services.token_manager import (
 )
 
 router = APIRouter()
+
+
+def _require_operator_user(user) -> None:
+    if not isinstance(user, dict) or user.get("role") not in ("superadmin", "admin", "operator"):
+        raise HTTPException(status_code=403, detail="Operator permission required")
 
 _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
 _UNLIMITED_SPEND_CAP_USD = 1_000_000.0
@@ -2013,10 +2018,14 @@ def sync_all_accounts_status(user=Depends(get_current_user)):
     """批量从 FB API 同步所有账户的真实状态（并发执行）"""
     conn = get_conn()
     _ensure_account_read_columns(conn)
-    rows = conn.execute("""
+    where, params = [], []
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name
         FROM accounts a
-    """).fetchall()
+        {clause}
+    """, params).fetchall()
     # 对 name=act_id 的账户，尝试从 account_op_tokens 中找到可用的操作号 token 补充
     conn.close()
 
@@ -2114,6 +2123,9 @@ def get_fb_pages(act_id: str, user=Depends(get_current_user)):
     """
     import requests as _req
     from services.token_manager import ACTION_CREATE, get_exec_token_candidates
+    conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    conn.close()
 
     def _probe_lead_form_capability(token_: str, page_id_: str):
         try:
@@ -2241,6 +2253,9 @@ def diagnose_lead_form(
     """无副作用诊断 Lead Form 权限和区域声明，不创建真实表单。"""
     import requests as _req
     from services.token_manager import ACTION_CREATE, ACTION_READ, get_exec_token_candidates
+    conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    conn.close()
 
     page_id = str(page_id or "").strip()
     if not page_id:
@@ -2394,6 +2409,9 @@ def get_fb_pixels(act_id: str, user=Depends(get_current_user)):
     """
     import requests as _req
     from services.token_manager import get_exec_token, ACTION_READ
+    conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    conn.close()
     token = get_exec_token(act_id, ACTION_READ)
     if not token:
         raise HTTPException(400, "该账户无可用 Token，无法拉取像素列表")
@@ -2802,6 +2820,7 @@ def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_cu
     token_alias = None
 
     if token_id:
+        assert_row_access(conn, "fb_tokens", token_id, user)
         # 使用指定 Token
         row = conn.execute(
             "SELECT access_token_enc, token_alias FROM fb_tokens WHERE id=? AND status='active'",
@@ -2813,8 +2832,11 @@ def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_cu
 
     if not token_plain:
         # 回退：用任意有效 Token
+        token_where, token_params = ["status='active'"], []
+        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=True)
         op_rows = conn.execute(
-            "SELECT access_token_enc, token_alias FROM fb_tokens WHERE status='active' ORDER BY id LIMIT 10"
+            "SELECT access_token_enc, token_alias FROM fb_tokens WHERE " + " AND ".join(token_where) + " ORDER BY id LIMIT 10",
+            token_params,
         ).fetchall()
         for row in op_rows:
             plain = decrypt_token(row["access_token_enc"])
@@ -2834,8 +2856,11 @@ def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_cu
         found_token_alias = token_alias
 
         conn2 = get_conn()
+        all_where, all_params = ["status='active'"], []
+        apply_team_scope(all_where, all_params, user, "team_id", include_unassigned=True)
         all_tokens = conn2.execute(
-            "SELECT id, access_token_enc, token_alias FROM fb_tokens WHERE status='active' ORDER BY id"
+            "SELECT id, access_token_enc, token_alias FROM fb_tokens WHERE " + " AND ".join(all_where) + " ORDER BY id",
+            all_params,
         ).fetchall()
         conn2.close()
 
@@ -3403,6 +3428,7 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
     """
     import requests as _req
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
     _ensure_tw_page_status_columns(conn)
     try:
         from services.token_manager import get_matrix_id_for_account
@@ -3410,13 +3436,16 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
     except Exception:
         account_matrix_id = None
 
+    count_where, count_params = [], []
     if account_matrix_id is not None:
-        all_pages_count = conn.execute(
-            "SELECT COUNT(*) FROM tw_certified_pages WHERE matrix_id=?",
-            (account_matrix_id,),
-        ).fetchone()[0]
-    else:
-        all_pages_count = 0
+        count_where.append("matrix_id=?")
+        count_params.append(account_matrix_id)
+    apply_team_scope(count_where, count_params, user, "team_id", include_unassigned=True)
+    count_clause = ("WHERE " + " AND ".join(count_where)) if count_where else ""
+    all_pages_count = conn.execute(
+        f"SELECT COUNT(*) FROM tw_certified_pages {count_clause}",
+        count_params,
+    ).fetchone()[0]
 
     # 仅返回已填写 Verified ID 的主页库记录
     certified_sql = """
@@ -3436,6 +3465,11 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
     if account_matrix_id is not None:
         certified_sql += " AND p.matrix_id=?"
         certified_params.append(account_matrix_id)
+    cert_scope_where, cert_scope_params = [], []
+    apply_team_scope(cert_scope_where, cert_scope_params, user, "p.team_id", include_unassigned=True)
+    if cert_scope_where:
+        certified_sql += " AND " + " AND ".join(cert_scope_where)
+        certified_params.extend(cert_scope_params)
     certified = conn.execute(certified_sql, tuple(certified_params)).fetchall()
     certified_ids = {
         r["page_id"]: {
@@ -3480,8 +3514,11 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
         ).fetchone()
         if not mgr:
             # 回退：用 fb_tokens 表中任意 active 的 user token
+            fallback_where, fallback_params = ["status='active'"], []
+            apply_team_scope(fallback_where, fallback_params, user, "team_id", include_unassigned=True)
             mgr = conn.execute(
-                "SELECT access_token_enc FROM fb_tokens WHERE status='active' LIMIT 1"
+                "SELECT access_token_enc FROM fb_tokens WHERE " + " AND ".join(fallback_where) + " LIMIT 1",
+                fallback_params,
             ).fetchone()
         if mgr:
             token_row = mgr
@@ -3562,6 +3599,9 @@ def check_page_messaging(act_id: str, page_id: str, user=Depends(get_current_use
     返回：{messaging_enabled: bool, page_name: str, error: str|null}
     """
     import requests as _req
+    conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    conn.close()
 
     def _get_probe_tokens(act_id_: str, page_id_: str) -> list[str]:
         """获取消息能力探测用 Token，优先 page token，再回退用户 token。"""
@@ -3709,6 +3749,7 @@ async def batch_config_accounts(
     payload: BatchConfigPayload,
     current_user=Depends(get_current_user)
 ):
+    _require_operator_user(current_user)
     """批量修改多个账户的投放配置"""
     conn = get_conn()
     try:
@@ -3718,6 +3759,7 @@ async def batch_config_accounts(
             if not row:
                 continue
             acc_id = row[0]
+            assert_row_access(conn, "accounts", acc_id, current_user)
             fields = []
             vals = []
             if payload.target_countries is not None:
@@ -3759,15 +3801,20 @@ async def export_account_config(
             current_user = decode_token(token)
         except Exception:
             raise HTTPException(status_code=401, detail="Invalid token")
+    current_user = normalize_user_claims(current_user)
     """导出所有账户配置为 CSV"""
     import csv, io
     from fastapi.responses import StreamingResponse
 
     conn = get_conn()
     try:
+        where, params = [], []
+        apply_team_scope(where, params, current_user, "team_id", include_unassigned=True)
+        where_clause = (" WHERE " + " AND ".join(where)) if where else ""
         rows = conn.execute(
             "SELECT act_id, name, target_countries, target_age_min, target_age_max, "
-            "target_gender, target_placements, target_objective_type, landing_url FROM accounts"
+            "target_gender, target_placements, target_objective_type, landing_url FROM accounts" + where_clause,
+            params,
         ).fetchall()
     finally:
         conn.close()
@@ -3792,6 +3839,7 @@ async def import_account_config(
     file: UploadFile = File(...),
     current_user=Depends(get_current_user)
 ):
+    _require_operator_user(current_user)
     """从 CSV 文件批量导入账户配置"""
     import csv, io
     raw = await file.read()
@@ -3810,6 +3858,7 @@ async def import_account_config(
                 errors.append(f"账户 {act_id} 不存在")
                 continue
             try:
+                assert_row_access(conn, "accounts", acc[0], current_user)
                 fields = []
                 vals = []
                 if row.get("target_countries"):
@@ -3846,9 +3895,11 @@ async def rescan_account_assets(
     act_id: str,
     current_user=Depends(get_current_user)
 ):
+    _require_operator_user(current_user)
     """重新扫描账户素材（将所有素材状态重置为待扫描）"""
     conn = get_conn()
     try:
+        assert_row_access(conn, "accounts", act_id, current_user, id_column="act_id")
         try:
             result = conn.execute(
                 "UPDATE assets SET scan_status='pending', last_scanned_at=NULL WHERE act_id=?",
@@ -3870,11 +3921,14 @@ async def rescan_account_assets(
 @router.patch("/{token_id}/value")
 async def update_token_value(token_id: int, body: dict, current_user=Depends(get_current_user)):
     """Update the access token value and re-verify with Facebook"""
+    _require_operator_user(current_user)
     import requests as req_lib
+    conn = get_conn()
+    assert_row_access(conn, "fb_tokens", token_id, current_user)
     new_token = (body.get("access_token") or "").strip()
     if not new_token or len(new_token) < 20:
+        conn.close()
         raise HTTPException(status_code=400, detail="Token value is invalid")
-    conn = get_conn()
     try:
         row = conn.execute(
             "SELECT id, token_alias FROM fb_tokens WHERE id=?", (token_id,)
@@ -3927,6 +3981,7 @@ def get_ai_decisions(act_id: str = None, limit: int = 100, current_user=Depends(
         return []
     try:
         if act_id:
+            assert_row_access(conn, "accounts", act_id, current_user, id_column="act_id")
             rows = conn.execute(
                 "SELECT d.*, a.name as account_name FROM ai_decisions d "
                 "LEFT JOIN accounts a ON d.act_id = a.act_id "
@@ -3934,11 +3989,14 @@ def get_ai_decisions(act_id: str = None, limit: int = 100, current_user=Depends(
                 (act_id, limit)
             ).fetchall()
         else:
+            where, params = [], []
+            apply_team_scope(where, params, current_user, "a.team_id", include_unassigned=True)
+            where_clause = ("WHERE " + " AND ".join(where)) if where else ""
             rows = conn.execute(
                 "SELECT d.*, a.name as account_name FROM ai_decisions d "
                 "LEFT JOIN accounts a ON d.act_id = a.act_id "
-                "ORDER BY d.created_at DESC LIMIT ?",
-                (limit,)
+                f"{where_clause} ORDER BY d.created_at DESC LIMIT ?",
+                params + [limit]
             ).fetchall()
     finally:
         conn.close()
@@ -3953,24 +4011,24 @@ def get_matrices(current_user=Depends(get_current_user)):
     has_tw_pages = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tw_certified_pages'"
     ).fetchone()
+    matrix_ids = set()
+    token_where, token_params = ["matrix_id IS NOT NULL"], []
+    apply_team_scope(token_where, token_params, current_user, "team_id", include_unassigned=True)
+    token_rows = conn.execute(
+        "SELECT DISTINCT matrix_id FROM fb_tokens WHERE " + " AND ".join(token_where),
+        token_params,
+    ).fetchall()
+    matrix_ids.update(r["matrix_id"] for r in token_rows if r["matrix_id"] is not None)
     if has_tw_pages:
-        rows = conn.execute(
-            """
-            SELECT DISTINCT matrix_id
-            FROM (
-                SELECT matrix_id FROM fb_tokens WHERE matrix_id IS NOT NULL
-                UNION
-                SELECT matrix_id FROM tw_certified_pages WHERE matrix_id IS NOT NULL
-            )
-            ORDER BY matrix_id
-            """
+        page_where, page_params = ["matrix_id IS NOT NULL"], []
+        apply_team_scope(page_where, page_params, current_user, "team_id", include_unassigned=True)
+        page_rows = conn.execute(
+            "SELECT DISTINCT matrix_id FROM tw_certified_pages WHERE " + " AND ".join(page_where),
+            page_params,
         ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT DISTINCT matrix_id FROM fb_tokens WHERE matrix_id IS NOT NULL ORDER BY matrix_id"
-        ).fetchall()
+        matrix_ids.update(r["matrix_id"] for r in page_rows if r["matrix_id"] is not None)
     conn.close()
-    return {"matrices": [r["matrix_id"] for r in rows]}
+    return {"matrices": sorted(matrix_ids)}
 
 
 # ── 消费上限设置 ──────────────────────────────────────────────────────────────
@@ -3981,8 +4039,10 @@ class SetSpendCapBody(BaseModel):
 
 @router.post("/{act_id}/set-spend-cap")
 def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_current_user)):
+    _require_operator_user(current_user)
     """设置账户消费上限 - API 只负责设置明确限额；移除上限请在 Meta UI 人工操作"""
     conn = get_conn()
+    assert_row_access(conn, "accounts", act_id, current_user, id_column="act_id")
     acc = conn.execute(
         "SELECT act_id, name, currency FROM accounts WHERE act_id=?",
         (act_id,)

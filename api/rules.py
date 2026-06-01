@@ -737,6 +737,8 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
 # ---- cooling reset ------
 @router.post("/guard/reset-cooldown")
 def reset_cooldown(user=Depends(get_current_user)):
+    if not is_superadmin(user):
+        raise HTTPException(403, "Superadmin only")
     from services.guard_engine import _action_cooldown
     _action_cooldown.clear()
     logger.info("cooldown manually reset")

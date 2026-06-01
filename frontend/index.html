@@ -764,7 +764,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
     <!-- 铺放中心暂时停用 v3.0.7 -->
     <div class="nav-sec-title">规则与策略</div>
     <div class="nav-item" onclick="showPage('kpi')"><span class="nav-icon"></span>KPI 配置</div>
-    <div class="nav-item" onclick="showPage('kpi_mapping')"><span class="nav-icon"></span>KPI 映射</div>
+    <div class="nav-item role-superadmin-only" onclick="showPage('kpi_mapping')"><span class="nav-icon"></span>KPI 映射</div>
     <div class="nav-item" onclick="showPage('rules')"><span class="nav-icon"></span>规则引擎</div>
     <div class="nav-sec-title">系统</div>
     <div class="nav-item" onclick="showPage('twpages')"><span class="nav-icon"></span>主页库</div>
@@ -872,7 +872,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
         <span style="color:var(--t3);font-size:12px">—</span>
         <input type="date" class="fc" id="dashDt" style="width:120px;padding:5px 8px;font-size:12px" onchange="setDashCustom()">
        </div>
-       <button class="btn btn-g btn-sm" onclick="loadDash()">刷新</button><button class="btn btn-sm" onclick="showPage('kpi_mapping')" style="padding:5px 10px;font-size:12px">KPI 映射</button>
+      <button class="btn btn-g btn-sm" onclick="loadDash()">刷新</button><button class="btn btn-sm role-superadmin-only" onclick="showPage('kpi_mapping')" style="padding:5px 10px;font-size:12px">KPI 映射</button>
        <span style="font-size:11px;color:var(--t3)" id="lastTime">加载中...</span>
       </div>
      </div>
@@ -2724,7 +2724,7 @@ function _validateLandingUrl(input) {
 
 // ── 权限控制 ──────────────────────────────────────────────────────────────────
 var ROLE_LEVELS = {superadmin:100, admin:80, operator:50, viewer:10};
-var PAGE_MIN_ROLES = {settings:'superadmin'};
+var PAGE_MIN_ROLES = {settings:'superadmin', kpi_mapping:'superadmin'};
 function getCurrentRole(){return localStorage.getItem('mira_role')||'viewer';}
 function hasRole(minRole){return (ROLE_LEVELS[getCurrentRole()]||0)>=(ROLE_LEVELS[minRole]||0);}
 function canOpenPage(name){

@@ -22,6 +22,11 @@ def _require_operator_user(user):
         raise HTTPException(status_code=403, detail="Operator permission required")
 
 
+def _require_superadmin_user(user):
+    if not is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+
 def _assert_account_or_global_access(conn, act_id: str, user):
     if act_id == "*":
         if not is_superadmin(user):
@@ -933,6 +938,7 @@ def get_kpi_targets(act_id: str, level: str, user=Depends(get_current_user)):
 
 @router.get("/mapping")
 def get_kpi_mapping(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """获取全量 kpi_alias_map（按 KPI 类型分组）"""
     conn = get_conn()
     rows = conn.execute(
@@ -969,6 +975,7 @@ class MappingAddIn(BaseModel):
 
 @router.post("/mapping/add")
 def add_kpi_mapping(body: MappingAddIn, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """用户添加 action_type → KPI 类型映射"""
     conn = get_conn()
     existing = conn.execute(
@@ -994,6 +1001,7 @@ def add_kpi_mapping(body: MappingAddIn, user=Depends(get_current_user)):
 
 @router.post("/mapping/remove")
 def remove_kpi_mapping(body: MappingAddIn, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """用户移除 action_type → KPI 类型映射"""
     conn = get_conn()
     conn.execute(
@@ -1012,6 +1020,7 @@ def remove_kpi_mapping(body: MappingAddIn, user=Depends(get_current_user)):
 
 @router.post("/mapping/update")
 def update_kpi_mapping(body: MappingUpdateIn, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     conn = get_conn()
     updates = []
     params = []
@@ -1034,6 +1043,7 @@ def update_kpi_mapping(body: MappingUpdateIn, user=Depends(get_current_user)):
 
 @router.get("/unknown-types")
 def get_unknown_types(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """返回系统自动发现的未知 action_types"""
     conn = get_conn()
     rows = conn.execute(
@@ -1052,6 +1062,7 @@ class UnknownTypeMapIn(BaseModel):
 
 @router.post("/unknown-types/map")
 def map_unknown_type(body: UnknownTypeMapIn, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """用户确认未知 action_type 归属的 KPI 类型"""
     conn = get_conn()
 
@@ -1107,6 +1118,19 @@ def get_kpi_trace(ad_id: str, user=Depends(get_current_user)):
            ORDER BY created_at DESC LIMIT 20""",
         (ad_id,)
     ).fetchall()
+
+    trace_act_id = None
+    if kpi_config and "act_id" in kpi_config.keys():
+        trace_act_id = kpi_config["act_id"]
+    elif snapshot and "act_id" in snapshot.keys():
+        trace_act_id = snapshot["act_id"]
+    elif actions_log and "act_id" in actions_log[0].keys():
+        trace_act_id = actions_log[0]["act_id"]
+    if trace_act_id:
+        assert_row_access(conn, "accounts", trace_act_id, user, id_column="act_id")
+    elif not is_superadmin(user):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Trace is not linked to an accessible account")
 
     conn.close()
 
@@ -1195,6 +1219,7 @@ def _ai_analyze_unknown_type(action_type: str, sample_ads: list) -> dict:
 
 @router.post("/unknown-types/ai-auto-map")
 def ai_auto_map_unknown_types(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """AI 自动分析所有未审核的未知 action_type，高置信度自动映射"""
     conn = get_conn()
     rows = conn.execute(
