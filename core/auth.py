@@ -155,6 +155,7 @@ def build_user_claims(username: str, role: str, uid: int | None) -> dict:
             "is_superadmin": True,
             "team_id": None,
             "team_name": None,
+            "team_status": None,
         }
 
     claims = {
@@ -164,12 +165,13 @@ def build_user_claims(username: str, role: str, uid: int | None) -> dict:
         "is_superadmin": False,
         "team_id": None,
         "team_name": None,
+        "team_status": None,
     }
     try:
         conn = _get_db_conn()
         row = conn.execute(
             """SELECT u.id, u.username, u.role, u.team_id, u.group_name,
-                      t.name AS team_name
+                      t.name AS team_name, t.status AS team_status
                FROM users u
                LEFT JOIN teams t ON t.id = u.team_id
                WHERE u.id=?""",
@@ -181,6 +183,7 @@ def build_user_claims(username: str, role: str, uid: int | None) -> dict:
             claims["role"] = row["role"] or role
             claims["team_id"] = row["team_id"]
             claims["team_name"] = row["team_name"] or row["group_name"]
+            claims["team_status"] = (row["team_status"] or "active") if row["team_id"] else None
     except Exception:
         pass
     return claims
@@ -197,6 +200,7 @@ def normalize_user_claims(payload: dict) -> dict:
     payload["is_superadmin"] = role == "superadmin" or uid == 0
     payload.setdefault("team_id", None)
     payload.setdefault("team_name", None)
+    payload.setdefault("team_status", None)
     return payload
 
 

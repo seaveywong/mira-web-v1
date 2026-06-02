@@ -56,6 +56,7 @@ def login(req: LoginReq, request: Request):
         "role_label": ROLE_LABELS.get(claims.get("role", role), role),
         "team_id": claims.get("team_id"),
         "team_name": claims.get("team_name"),
+        "team_status": claims.get("team_status"),
         "is_superadmin": claims.get("is_superadmin", False),
     }
 
@@ -75,7 +76,7 @@ def get_me(request: Request):
                 conn = get_db()
                 row = conn.execute(
                     """SELECT u.username, u.display_name, u.team_id, u.group_name,
-                              t.name AS team_name
+                              t.name AS team_name, t.status AS team_status
                        FROM users u
                        LEFT JOIN teams t ON t.id = u.team_id
                        WHERE u.id=?""",
@@ -90,8 +91,20 @@ def get_me(request: Request):
                         "role_label": ROLE_LABELS.get(role, role),
                         "team_id": row["team_id"],
                         "team_name": row["team_name"] or row["group_name"],
+                        "team_status": (row["team_status"] or "active") if row["team_id"] else None,
                         "is_superadmin": False,
                     }
+            if not payload.get("is_superadmin"):
+                return {
+                    "username": payload.get("username") or ADMIN_USERNAME,
+                    "display_name": None,
+                    "role": role,
+                    "role_label": ROLE_LABELS.get(role, role),
+                    "team_id": payload.get("team_id"),
+                    "team_name": payload.get("team_name"),
+                    "team_status": payload.get("team_status"),
+                    "is_superadmin": False,
+                }
             return {
                 "username": ADMIN_USERNAME,
                 "display_name": None,
@@ -99,6 +112,7 @@ def get_me(request: Request):
                 "role_label": "超级管理员",
                 "team_id": None,
                 "team_name": None,
+                "team_status": None,
                 "is_superadmin": True,
             }
         except Exception:
@@ -110,5 +124,6 @@ def get_me(request: Request):
         "role_label": "超级管理员",
         "team_id": None,
         "team_name": None,
+        "team_status": None,
         "is_superadmin": True,
     }

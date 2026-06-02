@@ -205,6 +205,12 @@ body.role-viewer .fb-row-check,
 body.role-viewer #adsBulkBar{display:none!important}
 body.role-viewer .fb-switch,
 body.role-viewer .fb-budget-edit{pointer-events:none!important;opacity:.45}
+body.team-paused .role-hide-viewer,
+body.team-paused .role-operator-only{display:none!important}
+body.team-paused .fb-row-check,
+body.team-paused #adsBulkBar{display:none!important}
+body.team-paused .fb-switch,
+body.team-paused .fb-budget-edit{pointer-events:none!important;opacity:.45}
 .sb-foot{padding:12px 10px;border-top:1px solid var(--bd)}
 .btn-emg{width:100%;padding:10px;background:var(--erg);border:1px solid rgba(239,68,68,.3);border-radius:var(--rs);color:var(--er);font-size:13px;font-weight:600;transition:var(--tr);display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
 .btn-emg:hover{background:rgba(239,68,68,.2)}
@@ -220,6 +226,9 @@ body.role-viewer .fb-budget-edit{pointer-events:none!important;opacity:.45}
 .btn-inspect:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(59,130,246,.4)}
 .btn-inspect:disabled{opacity:.6;cursor:not-allowed;transform:none}
 .tb-user{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--ac),var(--pu));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:pointer}
+.team-status-badge{display:none;font-size:11px;color:#fbbf24;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.36);border-radius:999px;padding:2px 8px;white-space:nowrap}
+.team-paused-banner{display:none;margin-bottom:14px;padding:10px 12px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#fcd34d;border-radius:8px;font-size:13px;align-items:center;gap:8px}
+body.team-paused .team-paused-banner{display:flex!important}
 .ai-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}.ai-on{background:rgba(0,200,100,.15);color:#00c864;border:1px solid rgba(0,200,100,.3)}.ai-off{background:rgba(100,100,100,.15);color:var(--t3);border:1px solid rgba(100,100,100,.2)}.ai-err{background:rgba(255,80,80,.15);color:#ff5050;border:1px solid rgba(255,80,80,.3);cursor:pointer}
 .ai-on{background:var(--pug);color:var(--pu)}
 .ai-off{background:rgba(255,255,255,.05);color:var(--t3)}
@@ -875,10 +884,12 @@ tr:hover td{background:rgba(255,255,255,.025)}
      <div style="display:flex;align-items:center;gap:6px">
      <div class="tb-user" title="退出登录" id="tbUser" onclick="logout()">A</div>
      <span id="tbRoleLabel" style="font-size:11px;color:var(--t3);white-space:nowrap"></span>
+     <span id="teamStatusBadge" class="team-status-badge">团队已暂停</span>
     </div>
     </div>
    </header>
    <main class="content">
+    <div id="teamPausedBanner" class="team-paused-banner">当前团队已暂停，写入操作已禁用。请联系超级管理员恢复团队。</div>
     <!-- Dashboard -->
     <div class="page active" id="page-dashboard">
      <div class="ph" style="align-items:center">
@@ -2525,10 +2536,16 @@ var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',t
 // ── API ──
 async function api(m,p,b){
  m=(m||'GET').toUpperCase();
- if(['POST','PUT','PATCH','DELETE'].indexOf(m)>=0 && typeof canWrite==='function' && !canWrite()){
+ var isWriteMethod=['POST','PUT','PATCH','DELETE'].indexOf(m)>=0;
+ if(isWriteMethod && typeof canWrite==='function' && !canWrite()){
   var readOnlyMsg='当前账号为只读角色，不能执行写入操作';
   toast(readOnlyMsg,'wa');
   throw new Error(readOnlyMsg);
+ }
+ if(isWriteMethod && typeof isTeamPaused==='function' && isTeamPaused()){
+  var teamPausedMsg='当前团队已暂停，写入操作已禁用。请联系超级管理员恢复团队。';
+  toast(teamPausedMsg,'wa');
+  throw new Error(teamPausedMsg);
  }
  var o={method:m,headers:{'Content-Type':'application/json','Authorization':'Bearer '+token}};
  if(b)o.body=JSON.stringify(b);
@@ -2786,6 +2803,8 @@ var PAGE_MIN_ROLES = {settings:'superadmin', kpi_mapping:'superadmin', team_admi
 function getCurrentRole(){return localStorage.getItem('mira_role')||'viewer';}
 function hasRole(minRole){return (ROLE_LEVELS[getCurrentRole()]||0)>=(ROLE_LEVELS[minRole]||0);}
 function canWrite(){return hasRole('operator');}
+function getTeamStatus(){return localStorage.getItem('mira_team_status')||'';}
+function isTeamPaused(){return getTeamStatus()==='paused'&&!hasRole('superadmin');}
 function canOpenPage(name){
  var minRole=PAGE_MIN_ROLES[name];
  return !minRole || hasRole(minRole);
@@ -2794,8 +2813,25 @@ function roleDisplayText(me){
  me=me||{};
  var role=me.role_label||localStorage.getItem('mira_role_label')||me.role||getCurrentRole();
  var team=me.team_name||localStorage.getItem('mira_team_name')||'';
+ var status=(me.team_status!==undefined&&me.team_status!==null)?me.team_status:getTeamStatus();
  if((me.role||getCurrentRole())==='superadmin')return role||'超级管理员';
- return (team?('团队：'+team+' · '):'')+(role||'团队成员');
+ return (team?('团队：'+team+(status==='paused'?'（暂停）':'')+' · '):'')+(role||'团队成员');
+}
+
+function syncTeamStatus(me){
+ if(!me||!Object.prototype.hasOwnProperty.call(me,'team_status'))return;
+ if(me.team_status)localStorage.setItem('mira_team_status',me.team_status);
+ else localStorage.removeItem('mira_team_status');
+}
+
+function applyTeamStatus(me){
+ syncTeamStatus(me);
+ var paused=isTeamPaused();
+ if(document.body)document.body.classList.toggle('team-paused',paused);
+ var badge=document.getElementById('teamStatusBadge');
+ if(badge)badge.style.display=paused?'inline-flex':'none';
+ var banner=document.getElementById('teamPausedBanner');
+ if(banner)banner.style.display=paused?'flex':'none';
 }
 
 function applyRolePermissions(role){
@@ -3359,12 +3395,17 @@ async function doLogin(){
   if(d.username)localStorage.setItem('mira_user',d.username);
   if(d.role)localStorage.setItem('mira_role',d.role);
   if(d.role_label)localStorage.setItem('mira_role_label',d.role_label);
-  if(d.team_id!==undefined&&d.team_id!==null)localStorage.setItem('mira_team_id',d.team_id);
-  if(d.team_name)localStorage.setItem('mira_team_name',d.team_name);
+  if(d.team_id!==undefined&&d.team_id!==null)localStorage.setItem('mira_team_id',d.team_id);else localStorage.removeItem('mira_team_id');
+  if(d.team_name)localStorage.setItem('mira_team_name',d.team_name);else localStorage.removeItem('mira_team_name');
+  syncTeamStatus(d);
   document.getElementById('login-page').style.display='none';
   document.getElementById('app').style.display='block';
   var u=d.username||localStorage.getItem('mira_user')||'A';
   document.getElementById('tbUser').textContent=u[0].toUpperCase();
+  applyRolePermissions(d.role);
+  applyTeamStatus(d);
+  var rl=document.getElementById('tbRoleLabel');
+  if(rl)rl.textContent=roleDisplayText(d);
   initApp();
  }catch(e){
   document.getElementById('loginErr').textContent='网络错误，请重试';
@@ -3375,7 +3416,8 @@ async function doLogin(){
 function logout(){
  token='';localStorage.removeItem('mira_token');localStorage.removeItem('mira_user');
  localStorage.removeItem('mira_role');localStorage.removeItem('mira_role_label');
- localStorage.removeItem('mira_team_id');localStorage.removeItem('mira_team_name');
+ localStorage.removeItem('mira_team_id');localStorage.removeItem('mira_team_name');localStorage.removeItem('mira_team_status');
+ if(document.body)document.body.classList.remove('team-paused');
  document.getElementById('app').style.display='none';
  document.getElementById('login-page').style.display='flex';
  document.getElementById('loginUser').value='';
@@ -3391,11 +3433,13 @@ async function initApp(){
    localStorage.setItem('mira_user',me.username);
    if(me.role)localStorage.setItem('mira_role',me.role);
    if(me.role_label)localStorage.setItem('mira_role_label',me.role_label);
-   if(me.team_id!==undefined&&me.team_id!==null)localStorage.setItem('mira_team_id',me.team_id);
-   if(me.team_name)localStorage.setItem('mira_team_name',me.team_name);
+   if(me.team_id!==undefined&&me.team_id!==null)localStorage.setItem('mira_team_id',me.team_id);else localStorage.removeItem('mira_team_id');
+   if(me.team_name)localStorage.setItem('mira_team_name',me.team_name);else localStorage.removeItem('mira_team_name');
+   syncTeamStatus(me);
     var rl=document.getElementById('tbRoleLabel');
     if(rl)rl.textContent=roleDisplayText(me);
     applyRolePermissions(me.role);
+    applyTeamStatus(me);
    if(hasRole('admin')) loadActivityUsernames();
   }
  }catch(e){}
@@ -11585,6 +11629,10 @@ function _tryAutoLogin(){
   if(tbEl)tbEl.textContent=u[0].toUpperCase();
   if(lpEl)lpEl.style.display='none';
   if(apEl){apEl.style.display='flex';}
+  applyRolePermissions(localStorage.getItem('mira_role')||'viewer');
+  applyTeamStatus();
+  var rl=document.getElementById('tbRoleLabel');
+  if(rl)rl.textContent=roleDisplayText();
   initApp();
  }
 }
