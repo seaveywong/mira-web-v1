@@ -248,6 +248,7 @@ def _read_token_candidates_for_account(
     preferred_token_id: Optional[int] = None,
     preferred_token_plain: Optional[str] = None,
     prefer_manage: bool = False,
+    team_id: Optional[int] = None,
 ) -> List[dict]:
     candidates = []
     seen = set()
@@ -291,46 +292,69 @@ def _read_token_candidates_for_account(
     conn = get_conn()
     try:
         ensure_token_source_columns(conn)
+        account_team_id = team_id
+        if account_team_id is None:
+            account_row = conn.execute("SELECT team_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
+            if account_row:
+                account_team_id = account_row["team_id"]
+
+        def token_team_sql(alias: str = "t") -> tuple[str, list]:
+            if account_team_id is None:
+                return f" AND {alias}.team_id IS NULL", []
+            return f" AND {alias}.team_id=?", [account_team_id]
+
         if prefer_manage:
+            team_sql, team_params = token_team_sql("fb_tokens")
             for row in conn.execute(
-                """
+                f"""
                 SELECT id, access_token_enc, token_alias, token_type, token_source
                 FROM fb_tokens
                 WHERE status='active'
                   AND token_type='manage'
                   AND access_token_enc IS NOT NULL
+                  {team_sql}
                 ORDER BY id ASC
-                """
+                """,
+                team_params,
             ).fetchall():
                 add_row(row, "manage_pool")
 
         if preferred_token_id:
+            team_sql, team_params = token_team_sql("fb_tokens")
             row = conn.execute(
-                """
+                f"""
                 SELECT id, access_token_enc, token_alias, token_type, token_source
                 FROM fb_tokens
                 WHERE id=? AND status='active' AND access_token_enc IS NOT NULL
+                  {team_sql}
                 """,
-                (preferred_token_id,),
+                [preferred_token_id] + team_params,
             ).fetchone()
             add_row(row, "preferred")
         add_plain(preferred_token_plain, "preferred_plain")
 
+        team_sql, team_params = token_team_sql("t")
         for row in conn.execute(
-            """
+            f"""
             SELECT t.id, t.access_token_enc, t.token_alias, t.token_type, t.token_source,
                    aot.priority
             FROM account_op_tokens aot
             JOIN fb_tokens t ON t.id = aot.token_id
+            JOIN accounts a ON a.act_id = aot.act_id
             WHERE aot.act_id = ?
               AND aot.status = 'active'
               AND t.status = 'active'
               AND t.access_token_enc IS NOT NULL
+              {team_sql}
+              AND (
+                (a.team_id IS NULL AND t.team_id IS NULL)
+                OR (a.team_id IS NOT NULL AND t.team_id=a.team_id)
+              )
             ORDER BY CASE t.token_type WHEN 'operate' THEN 0 WHEN 'manage' THEN 1 ELSE 2 END,
                      aot.priority DESC,
                      t.id ASC
             """,
-            (act_id,),
+            [act_id] + team_params,
         ).fetchall():
             add_row(row, "linked")
 
@@ -342,6 +366,10 @@ def _read_token_candidates_for_account(
             WHERE a.act_id = ?
               AND t.status = 'active'
               AND t.access_token_enc IS NOT NULL
+              AND (
+                (a.team_id IS NULL AND t.team_id IS NULL)
+                OR (a.team_id IS NOT NULL AND t.team_id=a.team_id)
+              )
             LIMIT 1
             """,
             (act_id,),
@@ -349,15 +377,18 @@ def _read_token_candidates_for_account(
         add_row(row, "primary")
 
         if not prefer_manage:
+            team_sql, team_params = token_team_sql("fb_tokens")
             for row in conn.execute(
-                """
+                f"""
                 SELECT id, access_token_enc, token_alias, token_type, token_source
                 FROM fb_tokens
                 WHERE status='active'
                   AND token_type='manage'
                   AND access_token_enc IS NOT NULL
+                  {team_sql}
                 ORDER BY id ASC
-                """
+                """,
+                team_params,
             ).fetchall():
                 add_row(row, "manage_pool")
     finally:
@@ -372,6 +403,7 @@ def _resolve_account_info(
     preferred_token_id: Optional[int] = None,
     preferred_token_plain: Optional[str] = None,
     require_manage_read: bool = False,
+    team_id: Optional[int] = None,
 ) -> dict:
     normalized_act_id = _normalize_act_id(act_id)
     candidates = _read_token_candidates_for_account(
@@ -379,6 +411,7 @@ def _resolve_account_info(
         preferred_token_id=preferred_token_id,
         preferred_token_plain=preferred_token_plain,
         prefer_manage=require_manage_read,
+        team_id=team_id,
     )
     errors = []
     for candidate in candidates:
@@ -444,12 +477,14 @@ def _auto_link_tokens_for_accounts(
         ]
         token_params = [TOKEN_SOURCE_SYSTEM_USER]
         if team_id is not None:
-            token_where.append("(team_id=? OR team_id IS NULL)")
+            token_where.append("team_id=?")
             token_params.append(team_id)
         elif not normalize_user_claims(user).get("is_superadmin"):
             user_team_id = team_id_for_create(user)
-            token_where.append("(team_id=? OR team_id IS NULL)")
+            token_where.append("team_id=?")
             token_params.append(user_team_id)
+        else:
+            token_where.append("team_id IS NULL")
         token_rows = conn.execute(
             f"""
             SELECT id, token_alias, token_type, token_source, matrix_id, access_token_enc
@@ -1390,6 +1425,9 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
     if token_type == "operate":
         _validate_token_role_source(token_type, row["token_source"])
     token = decrypt_token(row["access_token_enc"])
+    resource_team_id = row["team_id"]
+    if resource_team_id is None and not normalize_user_claims(user).get("is_superadmin"):
+        resource_team_id = team_id_for_create(user)
 
     # 调用FB API（不持有数据库连接）
     try:
@@ -1417,7 +1455,11 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
         _conn_mgr = get_conn()
         mgr_where = ["token_type='manage'", "status='active'"]
         mgr_params = []
-        apply_team_scope(mgr_where, mgr_params, user, "team_id", include_unassigned=True)
+        if resource_team_id is None:
+            mgr_where.append("team_id IS NULL")
+        else:
+            mgr_where.append("team_id=?")
+            mgr_params.append(resource_team_id)
         _mgr_tokens = _conn_mgr.execute(
             f"SELECT id, access_token_enc, status, token_alias FROM fb_tokens WHERE {' AND '.join(mgr_where)}",
             mgr_params,
@@ -1561,16 +1603,27 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
         "SELECT access_token_enc, status, token_type, token_source, team_id FROM fb_tokens WHERE id=?",
         (token_id,),
     ).fetchone()
-    conn.close()
 
     if not row:
+        conn.close()
         raise HTTPException(404, "Token不存在")
     if row["status"] != "active":
+        conn.close()
         raise HTTPException(400, "Token已失效，请先更新 Token")
+    claimed_token_team_id = None
+    if row["team_id"] is None:
+        claimed_token_team_id = claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
+        if claimed_token_team_id is not None:
+            conn.commit()
+    conn.close()
 
     token = decrypt_token(row["access_token_enc"])
     token_type_import = row["token_type"]
-    resource_team_id = row["team_id"] if row["team_id"] is not None else team_id_for_create(user)
+    resource_team_id = (
+        row["team_id"]
+        if row["team_id"] is not None
+        else (claimed_token_team_id if claimed_token_team_id is not None else team_id_for_create(user))
+    )
     if token_type_import == "operate":
         _validate_token_role_source(token_type_import, row["token_source"])
 
@@ -1587,6 +1640,7 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                 preferred_token_id=token_id,
                 preferred_token_plain=token,
                 require_manage_read=(token_type_import == "operate"),
+                team_id=resource_team_id,
             ): act_id
             for act_id in act_ids
         }
@@ -1852,7 +1906,12 @@ def list_accounts(user=Depends(get_current_user)):
                t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
+        JOIN accounts acc ON acc.act_id = aot.act_id
         WHERE {' AND '.join(token_where)}
+          AND (
+            (acc.team_id IS NULL AND t.team_id IS NULL)
+            OR (acc.team_id IS NOT NULL AND t.team_id=acc.team_id)
+          )
         ORDER BY
             CASE WHEN aot.status = 'active' AND t.status = 'active' THEN 0 ELSE 1 END,
             CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
@@ -2318,8 +2377,8 @@ def diagnose_account_permission(act_id: str, user=Depends(get_current_user)):
 
     def _team_sql(alias: str) -> tuple[str, list]:
         if account_team_id is None:
-            return "", []
-        return f" AND ({alias}.team_id=? OR {alias}.team_id IS NULL)", [account_team_id]
+            return f" AND {alias}.team_id IS NULL", []
+        return f" AND {alias}.team_id=?", [account_team_id]
 
     def _token_public(row: dict, origin: str, bind_status: str = "", priority=None) -> dict:
         token_type = str(row.get("token_type") or "").strip().lower()

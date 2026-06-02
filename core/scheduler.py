@@ -371,6 +371,12 @@ def run_token_account_discovery():
             seen_next.add(next_url)
             params = {}
         return ids
+    def _team_key(value):
+        return int(value) if value is not None else None
+    def _account_team_filter(alias: str, team_id):
+        if team_id is None:
+            return f"{alias}.team_id IS NULL", []
+        return f"{alias}.team_id=?", [team_id]
     logger.info("[TokenDiscover] 开始全局 Token-账户自动发现扫描...")
     try:
         c = get_conn()
@@ -378,7 +384,7 @@ def run_token_account_discovery():
         # 获取所有活跃 Token；操作号仅允许 system user 参与自动发现
         all_tokens = c.execute(
             """
-            SELECT id, token_alias, token_type, token_source, access_token_enc
+            SELECT id, token_alias, token_type, token_source, access_token_enc, team_id
             FROM fb_tokens
             WHERE status='active'
               AND (
@@ -389,29 +395,40 @@ def run_token_account_discovery():
             (TOKEN_SOURCE_SYSTEM_USER,),
         ).fetchall()
         # 获取所有已导入账户
-        all_accounts = c.execute("SELECT id, act_id, name FROM accounts").fetchall()
+        all_accounts = c.execute("SELECT id, act_id, name, team_id FROM accounts").fetchall()
         c.close()
         if not all_tokens or not all_accounts:
             logger.info("[TokenDiscover] 无 Token 或无账户，跳过")
             return
-        all_act_ids = {a["act_id"] for a in all_accounts}
+        act_ids_by_team = {}
+        for account in all_accounts:
+            act_ids_by_team.setdefault(_team_key(account["team_id"]), set()).add(account["act_id"])
         total_new = 0
         total_removed = 0
         for tk in all_tokens:
             token_id = tk["id"]
             token_alias = tk["token_alias"]
+            token_team_id = _team_key(tk["team_id"])
+            candidate_act_ids = act_ids_by_team.get(token_team_id, set())
+            if not candidate_act_ids:
+                continue
             try:
                 plain = _decrypt_token(tk["access_token_enc"])
                 if not plain:
                     continue
                 fb_act_ids = _fetch_all_adaccount_ids(plain)
-                # 与系统已导入账户取交集
-                matched_act_ids = all_act_ids & fb_act_ids
+                # 只与同团队账户取交集；无团队 Token 只匹配无团队账户。
+                matched_act_ids = candidate_act_ids & fb_act_ids
                 c2 = get_conn()
                 try:
+                    account_team_sql, account_team_params = _account_team_filter("a", token_team_id)
                     # 获取该 Token 当前已关联的账户
                     existing_rows = c2.execute(
-                        "SELECT act_id, status, note FROM account_op_tokens WHERE token_id=?", (token_id,)
+                        f"""SELECT aot.act_id, aot.status, aot.note
+                            FROM account_op_tokens aot
+                            JOIN accounts a ON a.act_id=aot.act_id
+                            WHERE aot.token_id=? AND {account_team_sql}""",
+                        [token_id] + account_team_params,
                     ).fetchall()
                     existing_links = {r["act_id"] for r in existing_rows}
                     existing_status = {

@@ -122,8 +122,8 @@ def _account_team_id(conn, act_id: str) -> Optional[int]:
 
 def _token_team_clause(account_team_id: Optional[int], alias: str = "t") -> tuple[str, list]:
     if account_team_id is None:
-        return "", []
-    return f" AND ({alias}.team_id=? OR {alias}.team_id IS NULL)", [account_team_id]
+        return f" AND {alias}.team_id IS NULL", []
+    return f" AND {alias}.team_id=?", [account_team_id]
 
 # ── 操作类型常量 ──────────────────────────────────────────────────────────────
 ACTION_PAUSE  = "PAUSE"   # 关闭广告（管理号可兜底）
@@ -234,7 +234,10 @@ def _get_manage_token(act_id: str) -> Optional[str]:
             JOIN fb_tokens t ON t.id = a.token_id
             WHERE a.act_id = ?
               AND t.status = 'active'
-              AND (a.team_id IS NULL OR t.team_id IS NULL OR t.team_id=a.team_id)
+              AND (
+                (a.team_id IS NULL AND t.team_id IS NULL)
+                OR (a.team_id IS NOT NULL AND t.team_id=a.team_id)
+              )
             LIMIT 1
             """,
             (act_id,),
@@ -559,9 +562,11 @@ def get_op_token_status(act_id: str) -> dict:
     """
     conn = get_conn()
     ensure_token_source_columns(conn)
+    account_team_id = _account_team_id(conn, act_id)
+    token_team_sql, token_team_params = _token_team_clause(account_team_id, "t")
 
     # 1. 操作号：来自 account_op_tokens 表手动绑定的 Token
-    op_rows = conn.execute("""
+    op_rows = conn.execute(f"""
         SELECT t.id as token_id, t.access_token_enc, t.status as token_status,
                aot.status as bind_status, aot.priority, t.token_source
         FROM account_op_tokens aot
@@ -569,10 +574,11 @@ def get_op_token_status(act_id: str) -> dict:
         WHERE aot.act_id = ?
           AND t.token_type = 'operate'
           AND t.token_source = ?
+          {token_team_sql}
         ORDER BY aot.priority DESC
-    """, (act_id, TOKEN_SOURCE_SYSTEM_USER)).fetchall()
+    """, [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params).fetchall()
 
-    legacy_rows = conn.execute("""
+    legacy_rows = conn.execute(f"""
         SELECT t.id as token_id, t.status as token_status,
                aot.status as bind_status, aot.priority, t.token_source
         FROM account_op_tokens aot
@@ -580,18 +586,20 @@ def get_op_token_status(act_id: str) -> dict:
         WHERE aot.act_id = ?
           AND t.token_type = 'operate'
           AND COALESCE(t.token_source, '') != ?
+          {token_team_sql}
         ORDER BY aot.priority DESC
-    """, (act_id, TOKEN_SOURCE_SYSTEM_USER)).fetchall()
+    """, [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params).fetchall()
 
     # 2. 管理号：从 account_op_tokens 查（按 token_type=manage 过滤，与动态发现机制一致）
-    mg_rows = conn.execute("""
+    mg_rows = conn.execute(f"""
         SELECT t.id as token_id, t.access_token_enc, t.status as token_status,
                aot.status as bind_status, aot.priority, t.token_alias
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
         WHERE aot.act_id = ? AND t.token_type = 'manage'
+          {token_team_sql}
         ORDER BY aot.priority DESC
-    """, (act_id,)).fetchall()
+    """, [act_id] + token_team_params).fetchall()
     conn.close()
 
     def _count_rows(rows, has_bind_status=True):
@@ -751,30 +759,36 @@ def get_matrix_tokens(act_id: str) -> list[dict]:
         ensure_token_source_columns(conn)
         # 获取该账户绑定的 token_id 和 matrix_id
         acc_row = conn.execute(
-            "SELECT token_id FROM accounts WHERE act_id=?", (act_id,)
+            "SELECT token_id, team_id FROM accounts WHERE act_id=?", (act_id,)
         ).fetchone()
         if not acc_row or not acc_row["token_id"]:
             conn.close()
             return []
         current_token_id = acc_row["token_id"]
+        account_team_id = acc_row["team_id"] if acc_row["team_id"] is not None else None
 
         # 获取该 token 所属的 matrix_id
         token_row = conn.execute(
-            "SELECT matrix_id FROM fb_tokens WHERE id=?", (current_token_id,)
+            "SELECT matrix_id, team_id FROM fb_tokens WHERE id=?", (current_token_id,)
         ).fetchone()
         if not token_row or not token_row["matrix_id"]:
+            conn.close()
+            return []
+        if token_row["team_id"] != account_team_id:
             conn.close()
             return []
         matrix_id = token_row["matrix_id"]
 
         # 获取同矩阵内所有 active operate Token（排除当前账户绑定的）
+        token_team_sql, token_team_params = _token_team_clause(account_team_id, "t")
         rows = conn.execute(
-            """SELECT id as token_id, token_alias, access_token_enc
-               FROM fb_tokens
+            f"""SELECT id as token_id, token_alias, access_token_enc
+               FROM fb_tokens t
                WHERE matrix_id=? AND token_type='operate' AND token_source=? AND status='active'
                AND id != ?
+               {token_team_sql}
                ORDER BY id ASC""",
-            (matrix_id, TOKEN_SOURCE_SYSTEM_USER, current_token_id)
+            [matrix_id, TOKEN_SOURCE_SYSTEM_USER, current_token_id] + token_team_params,
         ).fetchall()
         conn.close()
 
@@ -827,9 +841,10 @@ def get_matrix_id_for_account(act_id: str) -> Optional[int]:
         if not acc_row or not acc_row["token_id"]:
             conn.close()
             return None
+        fallback_team_sql, fallback_team_params = _token_team_clause(account_team_id, "fb_tokens")
         token_row = conn.execute(
-            "SELECT matrix_id FROM fb_tokens WHERE id=? AND (? IS NULL OR team_id=? OR team_id IS NULL)",
-            (acc_row["token_id"], account_team_id, account_team_id),
+            f"SELECT matrix_id FROM fb_tokens WHERE id=? {fallback_team_sql}",
+            [acc_row["token_id"]] + fallback_team_params,
         ).fetchone()
         conn.close()
         return token_row["matrix_id"] if token_row else None

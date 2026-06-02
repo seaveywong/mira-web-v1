@@ -110,18 +110,28 @@ def _get_token_for_account(acc: dict) -> Optional[str]:
         pass
     conn = get_conn()
     token = None
+    account_team_id = acc.get("team_id")
     if acc.get('token_id'):
+        if account_team_id is None:
+            team_sql, team_params = "AND team_id IS NULL", []
+        else:
+            team_sql, team_params = "AND team_id=?", [account_team_id]
         tk = conn.execute(
-            'SELECT access_token_enc, status FROM fb_tokens WHERE id=? AND status="active"',
-            (acc['token_id'],)
+            f'SELECT access_token_enc, status FROM fb_tokens WHERE id=? AND status="active" {team_sql}',
+            [acc['token_id']] + team_params,
         ).fetchone()
         if tk:
             token = decrypt_token(tk['access_token_enc'])
     if not token:
         token = acc.get('access_token') or ''
     if not token:
+        if account_team_id is None:
+            team_sql, team_params = "AND team_id IS NULL", []
+        else:
+            team_sql, team_params = "AND team_id=?", [account_team_id]
         tk = conn.execute(
-            'SELECT access_token_enc FROM fb_tokens WHERE status="active" LIMIT 1'
+            f'SELECT access_token_enc FROM fb_tokens WHERE status="active" {team_sql} LIMIT 1',
+            team_params,
         ).fetchone()
         if tk:
             token = decrypt_token(tk['access_token_enc'])
@@ -723,7 +733,12 @@ def get_ads_live(
                           t.status as token_status, aot.status as bind_status
                    FROM account_op_tokens aot
                    JOIN fb_tokens t ON t.id = aot.token_id
-                   WHERE aot.act_id IN ({placeholders})""",
+                   JOIN accounts a ON a.act_id = aot.act_id
+                   WHERE aot.act_id IN ({placeholders})
+                     AND (
+                       (a.team_id IS NULL AND t.team_id IS NULL)
+                       OR (a.team_id IS NOT NULL AND t.team_id=a.team_id)
+                     )""",
                 act_ids,
             ).fetchall()
             for row in token_rows:
