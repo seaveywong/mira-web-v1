@@ -210,7 +210,8 @@ def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
 
 
 def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
-                         act_id: str = "", ad_name: str = "") -> Tuple[bool, str, float, float]:
+                         act_id: str = "", ad_name: str = "",
+                         max_budget: Optional[float] = None) -> Tuple[bool, str, float, float]:
     """
     调整广告组日预算。
     delta_pct: 正数=增加，负数=减少（如 0.2 = +20%，-0.2 = -20%）
@@ -233,6 +234,13 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
         # 最高预算保护：增加时不超过原预算的 3 倍
         if delta_pct > 0:
             new_budget = min(new_budget, cur_budget * 3)
+            if max_budget and float(max_budget) > 0:
+                max_budget_major = float(max_budget)
+                max_budget_api = max_budget_major if _is_no_decimal else max_budget_major * 100
+                if cur_budget >= max_budget_api:
+                    old_display = cur_budget if _is_no_decimal else cur_budget / 100
+                    return False, "budget_cap_reached", old_display, old_display
+                new_budget = min(new_budget, max_budget_api)
         new_budget_int = int(new_budget)
         ok, err = _fb_post(adset_id, token, {"daily_budget": new_budget_int})
         if ok:
@@ -1235,6 +1243,12 @@ class GuardEngine:
         global_rules = conn.execute(
             "SELECT * FROM guard_rules WHERE act_id='__global__' AND enabled=1"
         ).fetchall()
+        acc_scale_rules = conn.execute(
+            "SELECT * FROM scale_rules WHERE act_id=? AND enabled=1", (act_id,)
+        ).fetchall()
+        global_scale_rules = conn.execute(
+            "SELECT * FROM scale_rules WHERE act_id='__global__' AND enabled=1"
+        ).fetchall()
         conn.close()
         # 合并：账户级规则覆盖同类型全局规则
         acc_rule_types = {r["rule_type"] for r in acc_rules}
@@ -1245,15 +1259,22 @@ class GuardEngine:
                 gr_dict["_is_global"] = True
                 merged_rules.append(gr_dict)
         rules = merged_rules
+        acc_scale_types = {r["rule_type"] for r in acc_scale_rules}
+        scale_rules = [dict(r) for r in acc_scale_rules]
+        for sr in global_scale_rules:
+            if sr["rule_type"] not in acc_scale_types:
+                sr_dict = dict(sr)
+                sr_dict["_is_global"] = True
+                scale_rules.append(sr_dict)
 
         for ad in ads:
             try:
-                self._inspect_ad(account, ad, token, rules)
+                self._inspect_ad(account, ad, token, rules, scale_rules)
             except Exception as e:
                 logger.error(f"广告 {ad.get('id')} 巡检异常: {e}")
 
     
-    def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list):
+    def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None):
             from services.kpi_resolver import get_kpi_for_ad
 
             act_id = account["act_id"]
@@ -1393,6 +1414,24 @@ class GuardEngine:
                     account_currency=account_currency, spend_raw=spend_raw,
                     broader_conv=broader_conv
                 )
+
+            for rule in (scale_rules or []):
+                if not adset_id:
+                    continue
+                cooldown_key = adset_id or ad_id
+                rule_key = f"scale:{rule.get('id', rule.get('rule_type', 'unknown'))}"
+                if _check_cooldown(cooldown_key, rule_key, cooldown_min=1440):
+                    continue
+                if (self._has_recent_action(act_id, cooldown_key, "increase_budget", hours=24)
+                        or self._has_recent_action(act_id, cooldown_key, "increase_budget_skipped", hours=24)):
+                    continue
+                if self._check_scale_rule(
+                    rule, account, token,
+                    ad_id, adset_id, campaign_id, ad_name,
+                    spend, conversions, cpa, roas,
+                    target_cpa, kpi_label
+                ):
+                    break
 
     def _mirror_patrol(self, account: dict):
         """仅执行镜像检查，不做KPI/规则巡检。用于enabled=0但需镜像保护的账户"""
@@ -1761,6 +1800,109 @@ class GuardEngine:
                         f"错误：{err_b}"
                     )
 
+    def _check_scale_rule(self, rule: dict, account: dict, token: str,
+                          ad_id: str, adset_id: str, campaign_id: str, ad_name: str,
+                          spend: float, conversions: float,
+                          cpa: Optional[float], roas: Optional[float],
+                          target_cpa: Optional[float], kpi_label: str) -> bool:
+        act_id = account["act_id"]
+        rule_type = rule.get("rule_type") or "slow_scale"
+        min_conv = max(0, int(rule.get("min_conversions") or 3))
+        if float(conversions or 0) < min_conv:
+            return False
+
+        try:
+            cpa_ratio = float(rule.get("cpa_ratio") or 0.8)
+        except Exception:
+            cpa_ratio = 0.8
+        cpa_ratio = max(0.1, min(cpa_ratio, 2.0))
+
+        roas_threshold = None
+        if rule_type == "roas_scale":
+            roas_threshold = float(rule.get("roas_threshold") or 3.0)
+
+        if target_cpa:
+            if cpa is None or cpa > target_cpa * cpa_ratio:
+                return False
+        elif not roas_threshold:
+            return False
+
+        if roas_threshold and (roas is None or roas < roas_threshold):
+            return False
+
+        days = max(1, int(rule.get("consecutive_days") or 1))
+        if days > 1 and not self._check_consecutive_good(
+            act_id, ad_id, target_cpa, cpa_ratio, roas_threshold, min_conv, days
+        ):
+            return False
+
+        try:
+            scale_pct = float(rule.get("scale_pct") or 0.15)
+        except Exception:
+            scale_pct = 0.15
+        scale_pct = max(0.01, min(scale_pct, 1.0))
+
+        max_budget = rule.get("max_budget")
+        try:
+            max_budget = float(max_budget) if max_budget not in (None, "") else None
+        except Exception:
+            max_budget = None
+
+        reason_parts = [f"{kpi_label} {float(conversions or 0):.0f} >= {min_conv}"]
+        if target_cpa:
+            reason_parts.append(f"CPA ${cpa:.2f} <= ${target_cpa * cpa_ratio:.2f}")
+        if roas_threshold:
+            reason_parts.append(f"ROAS {roas:.2f} >= {roas_threshold:.2f}")
+        if days > 1:
+            reason_parts.append(f"{days} days passed")
+        reason = " | ".join(reason_parts)
+        cooldown_key = adset_id or ad_id
+        rule_key = f"scale:{rule.get('id', rule_type)}"
+        _set_cooldown(cooldown_key, rule_key)
+
+        if self.dry_run:
+            _log_action(act_id, "adset", adset_id, ad_name, "increase_budget",
+                        rule_type, f"[DryRun] {reason} | +{scale_pct*100:.0f}%",
+                        status="success", operator="system")
+            return True
+
+        ok_b, err_b, old_b, new_b = _update_adset_budget(
+            adset_id, token, scale_pct, act_id, ad_name, max_budget=max_budget
+        )
+        if ok_b:
+            _log_action(act_id, "adset", adset_id, ad_name, "increase_budget",
+                        rule_type,
+                        f"{reason} | budget ${old_b:.2f} -> ${new_b:.2f} (+{scale_pct*100:.0f}%)",
+                        old_value={"daily_budget": old_b},
+                        new_value={"daily_budget": new_b},
+                        status="success", operator="system")
+            _send_tg(
+                f"<b>Mira 已拉量</b>\n"
+                f"账户：{account.get('name', act_id)}\n"
+                f"广告：<code>{ad_name}</code>\n"
+                f"原因：{reason}\n"
+                f"预算：${old_b:.2f} -> ${new_b:.2f}"
+            )
+            return True
+
+        if err_b == "budget_cap_reached":
+            _log_action(act_id, "adset", adset_id, ad_name, "increase_budget_skipped",
+                        rule_type,
+                        f"{reason} | budget cap reached ${old_b:.2f}",
+                        status="success", operator="system")
+            return True
+
+        _log_action(act_id, "adset", adset_id, ad_name, "increase_budget_failed",
+                    rule_type, f"{reason} | {err_b}",
+                    status="failed", error_msg=err_b, operator="system")
+        _send_tg(
+            f"<b>Mira 拉量失败</b>\n"
+            f"账户：{account.get('name', act_id)}\n"
+            f"广告：<code>{ad_name}</code>\n"
+            f"错误：{err_b}"
+        )
+        return True
+
     def _get_target_cpa(self, act_id, ad_id, adset_id, campaign_id) -> Optional[float]:
         conn = get_conn()
         for tid in [ad_id, adset_id, campaign_id, act_id]:
@@ -1788,6 +1930,42 @@ class GuardEngine:
         if len(rows) < days:
             return False
         return all(r["cpa"] and r["cpa"] > target_cpa * ratio for r in rows)
+
+    def _check_consecutive_good(self, act_id, ad_id, target_cpa, ratio,
+                                roas_threshold, min_conversions, days) -> bool:
+        conn = get_conn()
+        rows = conn.execute(
+            """SELECT cpa, conversions, roas FROM perf_snapshots
+               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', '+8 hours', ?)
+               ORDER BY snapshot_date DESC LIMIT ?""",
+            (act_id, ad_id, f"-{days} days", days)
+        ).fetchall()
+        conn.close()
+        if len(rows) < days:
+            return False
+        for r in rows:
+            if float(r["conversions"] or 0) < min_conversions:
+                return False
+            if target_cpa and (not r["cpa"] or float(r["cpa"]) > target_cpa * ratio):
+                return False
+            if roas_threshold and (not r["roas"] or float(r["roas"]) < roas_threshold):
+                return False
+        return True
+
+    def _has_recent_action(self, act_id, target_id, action_type, hours: int = 24) -> bool:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                """SELECT 1 FROM action_logs
+                   WHERE act_id=? AND target_id=? AND action_type=?
+                     AND status='success'
+                     AND datetime(created_at) >= datetime('now', '+8 hours', ?)
+                   LIMIT 1""",
+                (act_id, target_id, action_type, f"-{hours} hours")
+            ).fetchone()
+            return bool(row)
+        finally:
+            conn.close()
 
     def _save_snapshot(self, act_id, ad_id, adset_id, campaign_id, ad_name,
                        spend, impressions, clicks, conversions, cpa, roas,

@@ -51,6 +51,13 @@ def _guard_rule_row_or_404(conn, rule_id: int):
     return row
 
 
+def _scale_rule_row_or_404(conn, rule_id: int):
+    row = conn.execute("SELECT id, act_id FROM scale_rules WHERE id=?", (rule_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "拉量策略不存在")
+    return row
+
+
 class GuardRuleIn(BaseModel):
     act_id: str
     rule_name: Optional[str] = None
@@ -69,6 +76,21 @@ class GuardRuleIn(BaseModel):
     silent_end: Optional[str] = None
     note: Optional[str] = None
     kpi_filter: Optional[str] = None   # KPI类型筛选
+
+
+class ScaleRuleIn(BaseModel):
+    act_id: str
+    rule_name: Optional[str] = None
+    rule_type: str = "slow_scale"
+    cpa_ratio: Optional[float] = 0.8
+    min_conversions: Optional[int] = 3
+    consecutive_days: Optional[int] = 2
+    scale_pct: Optional[float] = 0.15
+    max_budget: Optional[float] = None
+    roas_threshold: Optional[float] = None
+    target_regions: Optional[str] = None
+    enabled: int = 1
+    note: Optional[str] = None
 
 
 
@@ -283,13 +305,129 @@ def get_rule_types(user=Depends(get_current_user)):
         {"value": "pause_campaign", "label": "暂停广告系列"},
     ]
 
-    return {"guard_types": guard_types, "scale_types": [], "actions": actions}
+    scale_types = [
+        {
+            "value": "slow_scale",
+            "label": "稳健拉量",
+            "desc": "CPA 达标且有稳定转化后，按较小比例提升广告组日预算。",
+            "defaults": {"cpa_ratio": 0.8, "min_conversions": 3, "consecutive_days": 2, "scale_pct": 0.15}
+        },
+        {
+            "value": "fast_scale",
+            "label": "快速拉量",
+            "desc": "适合已验证素材和受众，转化充足时用更高比例加预算。",
+            "defaults": {"cpa_ratio": 0.7, "min_conversions": 5, "consecutive_days": 1, "scale_pct": 0.25}
+        },
+        {
+            "value": "roas_scale",
+            "label": "ROAS 拉量",
+            "desc": "ROAS 达到阈值且转化充足时加预算，适合购物类广告。",
+            "defaults": {"cpa_ratio": 0.9, "min_conversions": 3, "consecutive_days": 1, "scale_pct": 0.2, "roas_threshold": 3.0}
+        },
+    ]
+
+    return {"guard_types": guard_types, "scale_types": scale_types, "actions": actions}
 
 
 @router.get("/scale")
-def list_scale_rules_removed(user=Depends(get_current_user)):
-    """旧拉量策略已移除，保留空响应避免旧前端缓存拖垮规则页。"""
-    return []
+def list_scale_rules(act_id: Optional[str] = None, user=Depends(get_current_user)):
+    conn = get_conn()
+    if act_id and act_id != GLOBAL_ACT_ID:
+        _assert_rule_target_access(conn, act_id, user)
+        global_rows = conn.execute(
+            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (GLOBAL_ACT_ID,)
+        ).fetchall()
+        acc_rows = conn.execute(
+            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (act_id,)
+        ).fetchall()
+        rows = list(global_rows) + list(acc_rows)
+    elif act_id == GLOBAL_ACT_ID:
+        rows = conn.execute(
+            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (GLOBAL_ACT_ID,)
+        ).fetchall()
+    else:
+        global_rows = conn.execute(
+            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (GLOBAL_ACT_ID,)
+        ).fetchall()
+        account_ids = _team_account_act_ids(conn, user)
+        if account_ids:
+            placeholders = ",".join("?" for _ in account_ids)
+            other_rows = conn.execute(
+                f"SELECT * FROM scale_rules WHERE act_id!=? AND act_id IN ({placeholders}) ORDER BY id DESC",
+                [GLOBAL_ACT_ID] + account_ids,
+            ).fetchall()
+        else:
+            other_rows = []
+        rows = list(global_rows) + list(other_rows)
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@router.post("/scale")
+def add_scale_rule(body: ScaleRuleIn, user=Depends(get_current_user)):
+    conn = get_conn()
+    _assert_rule_target_access(conn, body.act_id, user)
+    cur = conn.execute(
+        """INSERT INTO scale_rules
+           (act_id, rule_name, rule_type, cpa_ratio, min_conversions,
+            consecutive_days, scale_pct, max_budget, roas_threshold,
+            target_regions, enabled, note)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (body.act_id, body.rule_name, body.rule_type, body.cpa_ratio,
+         body.min_conversions, body.consecutive_days, body.scale_pct,
+         body.max_budget, body.roas_threshold, body.target_regions,
+         body.enabled, body.note)
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"success": True, "id": new_id, "message": "拉量策略添加成功"}
+
+
+@router.put("/scale/{rule_id}")
+def update_scale_rule(rule_id: int, body: ScaleRuleIn, user=Depends(get_current_user)):
+    conn = get_conn()
+    old = _scale_rule_row_or_404(conn, rule_id)
+    _assert_rule_target_access(conn, old["act_id"], user)
+    _assert_rule_target_access(conn, body.act_id, user)
+    conn.execute(
+        """UPDATE scale_rules SET
+           act_id=?, rule_name=?, rule_type=?, cpa_ratio=?,
+           min_conversions=?, consecutive_days=?, scale_pct=?,
+           max_budget=?, roas_threshold=?, target_regions=?,
+           enabled=?, note=?
+           WHERE id=?""",
+        (body.act_id, body.rule_name, body.rule_type, body.cpa_ratio,
+         body.min_conversions, body.consecutive_days, body.scale_pct,
+         body.max_budget, body.roas_threshold, body.target_regions,
+         body.enabled, body.note, rule_id)
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "拉量策略更新成功"}
+
+
+@router.patch("/scale/{rule_id}/toggle")
+def toggle_scale_rule(rule_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    row = _scale_rule_row_or_404(conn, rule_id)
+    _assert_rule_target_access(conn, row["act_id"], user)
+    conn.execute("UPDATE scale_rules SET enabled = 1 - enabled WHERE id=?", (rule_id,))
+    row = conn.execute("SELECT enabled FROM scale_rules WHERE id=?", (rule_id,)).fetchone()
+    conn.commit()
+    conn.close()
+    return {"success": True, "enabled": row["enabled"] if row else None}
+
+
+@router.delete("/scale/{rule_id}")
+def delete_scale_rule(rule_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    row = _scale_rule_row_or_404(conn, rule_id)
+    _assert_rule_target_access(conn, row["act_id"], user)
+    conn.execute("DELETE FROM scale_rules WHERE id=?", (rule_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True}
 
 
 # ─── 规则模板 API ────────────────────────────────────────────────────────

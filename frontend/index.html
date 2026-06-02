@@ -1710,12 +1710,19 @@ tr:hover td{background:#151e29}
      </div>
      <div class="rtabs">
       <button class="rtab active" data-tab="guard" onclick="switchTab('guard')"> 止损规则</button>
+      <button class="rtab" data-tab="scale" onclick="switchTab('scale')">拉量策略</button>
      </div>
      <div id="guardPanel">
       <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
        <button class="btn btn-p role-hide-viewer" onclick="showAddRule('guard')">+ 添加止损规则</button>
       </div>
       <div id="guardList"></div>
+     </div>
+     <div id="scalePanel" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+       <button class="btn btn-p role-hide-viewer" onclick="showAddRule('scale')">+ 添加拉量策略</button>
+      </div>
+      <div id="scaleList"></div>
      </div>
     </div>
     <!-- Ad Templates 广告模版库 -->
@@ -2540,6 +2547,21 @@ tr:hover td{background:#151e29}
     <div class="fr">
      <div class="fg"><label class="fl">静默开始时间</label><input class="fc" id="silStart" type="time"><div class="fh">静默时段内不执行此规则</div></div>
      <div class="fg"><label class="fl">静默结束时间</label><input class="fc" id="silEnd" type="time"></div>
+    </div>
+   </div>
+   <div id="scaleFields" style="display:none">
+    <div class="fg"><label class="fl">策略类型 <span class="req">*</span></label><select class="fc" id="scaleType" onchange="onScaleType()"></select><div class="rtd" id="scaleDesc"></div></div>
+    <div class="fr">
+     <div class="fg"><label class="fl">CPA 达标比例</label><input class="fc" id="sp_cpa_ratio" type="number" step="0.05" min="0.1" max="2" value="0.8"><div class="fh">实际 CPA ≤ 目标 CPA × 此比例才拉量，例如 0.8 表示低于目标 80%</div></div>
+     <div class="fg"><label class="fl">最低转化数</label><input class="fc" id="sp_min_conversions" type="number" min="1" step="1" value="3"><div class="fh">当天转化至少达到此数量</div></div>
+    </div>
+    <div class="fr">
+     <div class="fg"><label class="fl">连续达标天数</label><input class="fc" id="sp_consecutive_days" type="number" min="1" step="1" value="2"><div class="fh">设置 1 表示只看当天</div></div>
+     <div class="fg"><label class="fl">加预算比例</label><input class="fc" id="sp_scale_pct" type="number" step="0.01" min="0.01" max="1" value="0.15"><div class="fh">0.15 = 每次加 15%，系统有冷却防重复触发</div></div>
+    </div>
+    <div class="fr">
+     <div class="fg"><label class="fl">广告组预算上限</label><input class="fc" id="sp_max_budget" type="number" step="0.01" min="0" placeholder="可选"><div class="fh">达到上限后不再继续拉量，按账户货币计算</div></div>
+     <div class="fg"><label class="fl">ROAS 阈值</label><input class="fc" id="sp_roas_threshold" type="number" step="0.1" min="0" placeholder="可选"><div class="fh">填写后需同时满足 ROAS ≥ 此值</div></div>
     </div>
    </div>
    <div class="fg"><label class="fl">备注</label><input class="fc" id="ruleNote" placeholder="可选"></div>
@@ -9689,8 +9711,12 @@ async function loadRules(){
   var q=a?'?act_id='+a:'';
   var meta=await api('GET','/rules/meta/types');
   if(meta){rulesMeta=meta;populateGuardTypes();}
-  var guard=await api('GET','/rules/guard'+q);
+  populateScaleTypes();
+  var results=await Promise.all([api('GET','/rules/guard'+q),api('GET','/rules/scale'+q)]);
+  var guard=results[0]||[];
+  var scale=results[1]||[];
   renderGuard(guard||[]);
+  renderScale(scale||[]);
   populateRulesKpiFilter();
  }catch(e){}
 }
@@ -9709,9 +9735,20 @@ function populateGuardTypes(){
  sel.innerHTML=rulesMeta.guard_types.map(function(t){return'<option value="'+t.value+'">'+t.label+'</option>'}).join('');
  onGuardType();
 }
+function populateScaleTypes(){
+ var sel=document.getElementById('scaleType');if(!sel)return;
+ var types=(rulesMeta.scale_types&&rulesMeta.scale_types.length)?rulesMeta.scale_types:[
+  {value:'slow_scale',label:'稳健拉量',desc:'CPA 达标且稳定后小幅加预算',defaults:{cpa_ratio:0.8,min_conversions:3,consecutive_days:2,scale_pct:0.15}},
+  {value:'fast_scale',label:'快速拉量',desc:'转化充足时更积极加预算',defaults:{cpa_ratio:0.7,min_conversions:5,consecutive_days:1,scale_pct:0.25}},
+  {value:'roas_scale',label:'ROAS 拉量',desc:'ROAS 达标后加预算',defaults:{cpa_ratio:0.9,min_conversions:3,consecutive_days:1,scale_pct:0.2,roas_threshold:3.0}}
+ ];
+ sel.innerHTML=types.map(function(t){return'<option value="'+t.value+'">'+t.label+'</option>'}).join('');
+ onScaleType();
+}
 function switchTab(tab){
  document.querySelectorAll('.rtab').forEach(function(t){t.classList.toggle('active',t.dataset.tab===tab)});
  document.getElementById('guardPanel').style.display=tab==='guard'?'block':'none';
+ var sp=document.getElementById('scalePanel');if(sp)sp.style.display=tab==='scale'?'block':'none';
 }
 function renderGuard(rules){
  window._guardRules=rules;
@@ -9740,14 +9777,49 @@ function renderGuard(rules){
  html+=accRules.map(ruleCard).join('');
  el.innerHTML=html;
 }
+function renderScale(rules){
+ window._scaleRules=rules;
+ var el=document.getElementById('scaleList');
+ if(!el)return;
+ if(!rules.length){el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>还没有拉量策略<br>点击「添加拉量策略」开始</p></div>';return}
+ var tl={slow_scale:'稳健拉量',fast_scale:'快速拉量',roas_scale:'ROAS 拉量'};
+ function pct(v){return ((parseFloat(v||0)*100).toFixed(0))+'%'}
+ function card(r){
+  var isGlobal=r.act_id==='__global__';
+  var parts=[];
+  parts.push('CPA ≤ 目标×'+pct(r.cpa_ratio||0.8));
+  parts.push('转化 ≥ '+(r.min_conversions||3));
+  parts.push('连续 '+(r.consecutive_days||1)+' 天');
+  parts.push('加预算 '+pct(r.scale_pct||0.15));
+  if(r.max_budget)parts.push('上限 '+r.max_budget);
+  if(r.roas_threshold)parts.push('ROAS ≥ '+r.roas_threshold);
+  var actBadge=isGlobal?'<span class="badge" style="background:rgba(139,92,246,.2);color:#a78bfa;border:1px solid rgba(139,92,246,.3)">全局</span>':'<span class="badge bg-mu">'+r.act_id+'</span>';
+  var cardStyle=isGlobal?'border-left:3px solid rgba(36,168,120,.65);':'';
+  return '<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body">'+
+   '<div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div>'+
+   '<div class="rc-desc">'+parts.join(' · ')+'</div>'+
+   '<div class="rc-meta"><span class="badge bg-ok">加预算</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div>'+
+   '</div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleS('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑策略" onclick="editS('+r.id+')">编</button><button class="btn-ic d" title="删除策略" onclick="delS('+r.id+')">删</button></div></div>';
+ }
+ var globalRules=rules.filter(function(r){return r.act_id==='__global__'});
+ var accRules=rules.filter(function(r){return r.act_id!=='__global__'});
+ var html='';
+ if(globalRules.length){
+  html+='<div style="font-size:11px;font-weight:600;color:rgba(36,168,120,.9);margin:0 0 8px 4px;letter-spacing:.5px">全局拉量（对所有账户生效）</div>';
+  html+=globalRules.map(card).join('');
+  if(accRules.length)html+='<div style="font-size:11px;font-weight:600;color:var(--t3);margin:16px 0 8px 4px;letter-spacing:.5px">账户级拉量</div>';
+ }
+ html+=accRules.map(card).join('');
+ el.innerHTML=html;
+}
 function showAddRule(mode, opts){
  opts=opts||{};
- if(mode!=='guard'){toast('拉量策略已移除，请使用止损规则保护核心投放逻辑','wa');return;}
  ruleMode=mode;
  if(!opts.keepEditing)_editingRuleId=null;
  document.getElementById('ruleMTitle').textContent=mode==='guard'?'添加止损规则':'添加拉量策略';
  document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent=mode==='guard'?'添加止损规则':'添加拉量策略');
  document.getElementById('guardFields').style.display=mode==='guard'?'block':'none';
+ document.getElementById('scaleFields').style.display=mode==='scale'?'block':'none';
  // 重置KPI筛选
  var kf=document.getElementById('gp_kpi_filter');if(kf){kf.value='';populateRulesKpiFilter();}
  ['ruleName','ruleNote','silStart','silEnd'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
@@ -9759,6 +9831,7 @@ function showAddRule(mode, opts){
  if(mode==='guard' && rulesMeta && rulesMeta.guard_types){
   populateGuardTypes();
  }
+ if(mode==='scale')populateScaleTypes();
  openModal('moAddRule');
 }
 async function onRuleActChange(){
@@ -9799,12 +9872,27 @@ function onGuardType(){
  if(!d||!d.params){pf.innerHTML='';return}
  pf.innerHTML=d.params.map(function(p){return'<div class="fg"><label class="fl">'+p.label+(p.required?'<span class="req">*</span>':'')+'</label><input class="fc" id="gp_'+p.key+'" type="'+(p.type||'text')+'" step="any" value="'+(p.default||'')+'" placeholder="'+(p.default||'')+'"></div>'}).join('');
 }
+function onScaleType(){
+ var type=document.getElementById('scaleType')&&document.getElementById('scaleType').value;
+ var d=rulesMeta.scale_types&&rulesMeta.scale_types.find(function(t){return t.value===type});
+ var de=document.getElementById('scaleDesc');
+ if(d){de.textContent=d.desc||'';de.classList.add('show')}else if(de){de.classList.remove('show')}
+ var defs=(d&&d.defaults)||{};
+ function set(id,val){
+  var el=document.getElementById(id);
+  if(el&&val!==undefined&&val!==null)el.value=val;
+ }
+ set('sp_cpa_ratio',defs.cpa_ratio);
+ set('sp_min_conversions',defs.min_conversions);
+ set('sp_consecutive_days',defs.consecutive_days);
+ set('sp_scale_pct',defs.scale_pct);
+ set('sp_roas_threshold',defs.roas_threshold||'');
+}
 var _editingRuleId=null;
 async function submitRule(){
  var actId=document.getElementById('ruleAct').value;if(!actId){toast('请选择账户','er');return}
  // 全局规则：act_id = __global__，对所有账户生效
  try{
-  if(ruleMode!=='guard'){toast('拉量策略已移除','wa');return;}
   if(ruleMode==='guard'){
    var type=document.getElementById('guardType').value;
    var d=rulesMeta.guard_types&&rulesMeta.guard_types.find(function(t){return t.value===type});
@@ -9813,12 +9901,31 @@ async function submitRule(){
    if(d&&d.params)d.params.forEach(function(p){var v=document.getElementById('gp_'+p.key)&&document.getElementById('gp_'+p.key).value;if(v!==undefined&&v!=='')body[p.key]=parseFloat(v)||v});
    if(_editingRuleId){await api('PUT','/rules/guard/'+_editingRuleId,body);}
    else{await api('POST','/rules/guard',body);}
+  }else{
+   var sbody={
+    act_id:actId,
+    rule_name:document.getElementById('ruleName').value.trim()||null,
+    rule_type:document.getElementById('scaleType').value,
+    cpa_ratio:parseFloat(document.getElementById('sp_cpa_ratio').value||'0.8'),
+    min_conversions:parseInt(document.getElementById('sp_min_conversions').value||'3',10),
+    consecutive_days:parseInt(document.getElementById('sp_consecutive_days').value||'1',10),
+    scale_pct:parseFloat(document.getElementById('sp_scale_pct').value||'0.15'),
+    max_budget:document.getElementById('sp_max_budget').value?parseFloat(document.getElementById('sp_max_budget').value):null,
+    roas_threshold:document.getElementById('sp_roas_threshold').value?parseFloat(document.getElementById('sp_roas_threshold').value):null,
+    note:document.getElementById('ruleNote').value.trim()||null
+   };
+   if(!sbody.cpa_ratio||sbody.cpa_ratio<=0){toast('CPA 达标比例必须大于 0','er');return}
+   if(!sbody.scale_pct||sbody.scale_pct<=0){toast('加预算比例必须大于 0','er');return}
+   if(_editingRuleId){await api('PUT','/rules/scale/'+_editingRuleId,sbody);}
+   else{await api('POST','/rules/scale',sbody);}
   }
   toast(_editingRuleId?'规则更新成功':'规则添加成功','ok');_editingRuleId=null;closeModal('moAddRule');loadRules();
  }catch(e){toast((_editingRuleId?'更新':'添加')+'失败：'+(e.message||JSON.stringify(e)),'er')}
 }
 async function toggleG(id){try{await api('PATCH','/rules/guard/'+id+'/toggle');loadRules()}catch(e){toast('切换失败：'+e.message,'er');loadRules()}}
 async function delG(id){showConfirm('确认删除？', async function(){try{await api('DELETE','/rules/guard/'+id);toast('已删除','ok');loadRules()}catch(e){toast('删除失败：'+e.message,'er');loadRules()}});}
+async function toggleS(id){try{await api('PATCH','/rules/scale/'+id+'/toggle');loadRules()}catch(e){toast('切换失败：'+e.message,'er');loadRules()}}
+async function delS(id){showConfirm('确认删除该拉量策略？', async function(){try{await api('DELETE','/rules/scale/'+id);toast('已删除','ok');loadRules()}catch(e){toast('删除失败：'+e.message,'er');loadRules()}});}
 async function editG(id){
  // 从已加载的规则列表中找到该规则
  var allRules=(window._guardRules||[]);
@@ -9845,7 +9952,29 @@ async function editG(id){
   // 回填动态参数字段
   if(r.param_value!=null){var pv=document.getElementById('gp_param_value');if(pv)pv.value=r.param_value;}
   if(r.param_ratio!=null){var pr=document.getElementById('gp_param_ratio');if(pr)pr.value=r.param_ratio;}
-  if(r.param_days!=null){var pd=document.getElementById('gp_param_days');if(pd)pd.value=r.param_days;}
+ if(r.param_days!=null){var pd=document.getElementById('gp_param_days');if(pd)pd.value=r.param_days;}
+ },100);
+}
+async function editS(id){
+ var r=(window._scaleRules||[]).find(function(x){return x.id===id});
+ if(!r){toast('未找到拉量策略数据','er');return;}
+ showAddRule('scale',{keepEditing:true});
+ _editingRuleId=id;
+ document.getElementById('ruleMTitle').textContent='编辑拉量策略';
+ document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent='保存修改');
+ var actSel=document.getElementById('ruleAct');
+ if(actSel){actSel.value=r.act_id;if(actSel.value!==r.act_id){var opt=document.createElement('option');opt.value=r.act_id;opt.textContent=r.act_id==='__global__'?' 全部账户（全局规则）':r.act_id;actSel.prepend(opt);actSel.value=r.act_id;}}
+ var typeSel=document.getElementById('scaleType');
+ if(typeSel){typeSel.value=r.rule_type||'slow_scale';onScaleType();}
+ setTimeout(function(){
+  document.getElementById('ruleName')&&(document.getElementById('ruleName').value=r.rule_name||'');
+  document.getElementById('ruleNote')&&(document.getElementById('ruleNote').value=r.note||'');
+  document.getElementById('sp_cpa_ratio')&&(document.getElementById('sp_cpa_ratio').value=r.cpa_ratio||0.8);
+  document.getElementById('sp_min_conversions')&&(document.getElementById('sp_min_conversions').value=r.min_conversions||3);
+  document.getElementById('sp_consecutive_days')&&(document.getElementById('sp_consecutive_days').value=r.consecutive_days||1);
+  document.getElementById('sp_scale_pct')&&(document.getElementById('sp_scale_pct').value=r.scale_pct||0.15);
+  document.getElementById('sp_max_budget')&&(document.getElementById('sp_max_budget').value=r.max_budget||'');
+  document.getElementById('sp_roas_threshold')&&(document.getElementById('sp_roas_threshold').value=r.roas_threshold||'');
  },100);
 }
 // ── Template dropdown ──
