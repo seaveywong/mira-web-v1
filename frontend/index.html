@@ -906,6 +906,19 @@ tr:hover td{background:#151e29}
 .modal,.toast{box-shadow:0 10px 28px rgba(0,0,0,.28)}
 .toast{animation:none}
 .topbar .ai-badge{display:none}
+.nav-sec{margin-bottom:6px}
+.nav-sec-toggle{
+ width:100%;height:30px;display:flex;align-items:center;justify-content:space-between;gap:8px;
+ padding:0 10px;background:transparent;border:1px solid transparent;border-radius:5px;color:#7b8a9c;
+ font-size:11px;font-weight:750;cursor:pointer;text-align:left
+}
+.nav-sec-toggle:hover{background:#141d28;color:#b8c5d3;border-color:#243244}
+.nav-sec-toggle span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-sec-caret{font-size:11px;color:#758598;transition:transform .15s ease}
+.nav-sec.collapsed .nav-sec-caret{transform:rotate(-90deg)}
+.nav-sec-body{display:flex;flex-direction:column;gap:2px}
+.nav-sec.collapsed .nav-sec-body{display:none}
+.nav-sec .nav-item{margin-bottom:0}
 
 /* Page completion UI pass: align remaining admin pages without changing behavior. */
 .page .ss{margin-bottom:12px}
@@ -989,6 +1002,29 @@ tr:hover td{background:#151e29}
 #twPagesList [style*="background:#dc2626"]{background:#b84e4e!important;border-radius:5px!important}
 #page-twpages .ss>div[style*="grid-template-columns"]{
  grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important;gap:10px!important
+}
+#twPagesList2 .tw-matrix-group{margin-bottom:12px}
+#twPagesList2 .tw-matrix-head{
+ display:flex;align-items:center;gap:8px;padding:8px 10px;background:#101720;border:1px solid #263545;
+ border-radius:6px;cursor:pointer;margin-bottom:6px
+}
+#twPagesList2 .tw-matrix-head:hover{background:#141d28;border-color:#344557}
+#twPagesList2 .tw-matrix-title{font-size:13px;font-weight:750;min-width:86px}
+#twPagesList2 .tw-matrix-count{font-size:11px;color:#8797aa}
+#twPagesList2 .tw-matrix-table-wrap{overflow:auto;border:1px solid #263545;border-radius:6px;background:#101720}
+#twPagesList2 .tw-page-table{min-width:1160px;table-layout:fixed;border-collapse:collapse!important}
+#twPagesList2 .tw-page-table th,#twPagesList2 .tw-page-table td{vertical-align:top}
+#twPagesList2 .tw-page-table th:nth-child(1),#twPagesList2 .tw-page-table td:nth-child(1){width:135px}
+#twPagesList2 .tw-page-table th:nth-child(2),#twPagesList2 .tw-page-table td:nth-child(2){width:170px}
+#twPagesList2 .tw-page-table th:nth-child(3),#twPagesList2 .tw-page-table td:nth-child(3){width:125px}
+#twPagesList2 .tw-page-table th:nth-child(4),#twPagesList2 .tw-page-table td:nth-child(4){width:110px}
+#twPagesList2 .tw-page-table th:nth-child(5),#twPagesList2 .tw-page-table td:nth-child(5){width:92px}
+#twPagesList2 .tw-page-table th:nth-child(6),#twPagesList2 .tw-page-table td:nth-child(6){width:150px}
+#twPagesList2 .tw-page-table th:nth-child(7),#twPagesList2 .tw-page-table td:nth-child(7){width:185px}
+#twPagesList2 .tw-page-table th:nth-child(8),#twPagesList2 .tw-page-table td:nth-child(8){width:160px}
+#twPagesList2 .tw-page-table th:nth-child(9),#twPagesList2 .tw-page-table td:nth-child(9){width:88px}
+#twPagesList2 .tw-page-table td:nth-child(2),#twPagesList2 .tw-page-table td:nth-child(6),#twPagesList2 .tw-page-table td:nth-child(8){
+ overflow:hidden;text-overflow:ellipsis
 }
 #page-twpages .ss .fg{
  background:#0f151d;border:1px solid #263545;border-radius:5px;padding:10px;margin:0!important
@@ -3729,6 +3765,7 @@ function logout(){
 
 // ── Init ──
 async function initApp(){
+ initSidebarGroups();
  try{
   var me=await api('GET','/auth/me');
   if(me&&me.username){
@@ -3755,9 +3792,8 @@ async function initApp(){
   if(pg&&pg.id==='page-dashboard')loadDash();
  },60000);
  // 恢复上次所在页面，否则默认显示看板
- var lastPage=localStorage.getItem('mira_last_page')||'dashboard';
- var validPages=['dashboard','ads','logs','tokens','accounts','kpi','rules','settings','assets','templates','kpi_mapping','twpages','landing_urls'];
-  if(validPages.indexOf(lastPage)>=0&&lastPage!=='dashboard'&&canOpenPage(lastPage)){
+ var lastPage=pageFromHash()||localStorage.getItem('mira_last_page')||'dashboard';
+  if(APP_PAGES.indexOf(lastPage)>=0&&lastPage!=='dashboard'&&canOpenPage(lastPage)){
    showPage(lastPage);
  } else {
   showPage('dashboard');
@@ -3944,7 +3980,66 @@ function renderBalanceCardFromAccounts(list){
 }
 
 // ── Page Navigation ──
-var pageTitles={dashboard:'数据看板',ads:'广告列表',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:' 主页库',landing_urls:' 投放链接管理'};
+var APP_PAGES=['dashboard','ads','logs','tokens','accounts','assets','templates','landing_urls','kpi','kpi_mapping','rules','twpages','team_admin','settings'];
+var pageTitles={dashboard:'数据看板',ads:'广告列表',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',kpi_mapping:'KPI 映射',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:'主页库',landing_urls:'投放链接管理'};
+function pageFromHash(){
+ var h=decodeURIComponent((location.hash||'').replace(/^#\/?/,'')).replace(/^page-/,'').trim();
+ return APP_PAGES.indexOf(h)>=0?h:'';
+}
+function getNavCollapseState(){
+ try{return JSON.parse(localStorage.getItem('mira_nav_collapsed')||'{}')||{};}catch(e){return {}}
+}
+function saveNavCollapseState(state){
+ localStorage.setItem('mira_nav_collapsed',JSON.stringify(state||{}));
+}
+function initSidebarGroups(){
+ var nav=document.querySelector('.sb-nav');
+ if(!nav||nav.dataset.grouped==='1')return;
+ var nodes=Array.prototype.slice.call(nav.children);
+ var frag=document.createDocumentFragment();
+ var state=getNavCollapseState();
+ var current=null;
+ nodes.forEach(function(node){
+  if(node.classList&&node.classList.contains('nav-sec-title')){
+   var title=(node.textContent||'').trim();
+   var sec=document.createElement('div');
+   sec.className='nav-sec';
+   sec.dataset.navSec=title;
+   var btn=document.createElement('button');
+   btn.type='button';
+   btn.className='nav-sec-toggle';
+   btn.innerHTML='<span>'+escHtml(title)+'</span><span class="nav-sec-caret">▾</span>';
+   var body=document.createElement('div');
+   body.className='nav-sec-body';
+   sec.appendChild(btn);
+   sec.appendChild(body);
+   if(state[title])sec.classList.add('collapsed');
+   btn.onclick=function(){
+    sec.classList.toggle('collapsed');
+    var next=getNavCollapseState();
+    next[title]=sec.classList.contains('collapsed');
+    saveNavCollapseState(next);
+   };
+   frag.appendChild(sec);
+   current={sec:sec,body:body};
+  }else if(current&&node.classList&&node.classList.contains('nav-item')){
+   current.body.appendChild(node);
+  }else{
+   current=null;
+   frag.appendChild(node);
+  }
+ });
+ nav.textContent='';
+ nav.appendChild(frag);
+ nav.dataset.grouped='1';
+ revealActiveNavGroup();
+}
+function revealActiveNavGroup(){
+ var active=document.querySelector('.sb-nav .nav-item.active');
+ if(!active)return;
+ var sec=active.closest('.nav-sec');
+ if(sec)sec.classList.remove('collapsed');
+}
 function _val(id){var e=document.getElementById(id);return e?e.value||'':'';}
 function _pageAutoKey(name){
  if(name==='dashboard')return [_val('dashAct'),dashDateFrom||'',dashDateTo||''].join('|');
@@ -3969,6 +4064,7 @@ function markPageStale(name){
  if(!name||name==='ads')_adsCache={key:'',ts:0,data:null};
 }
 function showPage(name){
+  if(APP_PAGES.indexOf(name)<0)name='dashboard';
   if(!canOpenPage(name)){
    toast('当前账号没有权限打开该页面','wa');
    name='dashboard';
@@ -3979,9 +4075,11 @@ function showPage(name){
  document.querySelectorAll('.nav-item').forEach(function(n){
   if(n.getAttribute('onclick')&&n.getAttribute('onclick').includes("'"+name+"'"))n.classList.add('active');
  });
+ revealActiveNavGroup();
  document.getElementById('tbTitle').textContent=pageTitles[name]||name;
  // 记住当前页，刷新后恢复
  localStorage.setItem('mira_last_page', name);
+ if(location.hash!=='#'+name)history.replaceState(null,'','#'+name);
  if(name==='dashboard'){
   if(!dashDateFrom)setDashRange('today');
   else autoLoadPage('dashboard',loadDash,15000);
@@ -11032,7 +11130,7 @@ async function loadTwCertPages2() {
     if(!_twGroups[key])_twGroups[key]=[];
     _twGroups[key].push(p);
    });
-   var _twOrder=Object.keys(_twGroups).filter(function(k){return k!=='none';}).sort();
+   var _twOrder=Object.keys(_twGroups).filter(function(k){return k!=='none';}).sort(function(a,b){return parseInt(a.slice(1),10)-parseInt(b.slice(1),10);});
    if(_twGroups['none'])_twOrder.push('none');
    var _twHtml='';
    _twOrder.forEach(function(gk){
@@ -11041,13 +11139,14 @@ async function loadTwCertPages2() {
     var glabel=mid?('矩阵 '+mid):'未分配矩阵';
     var ggid='twGroup_'+gk;
     var gcnt=_twGroups[gk].length;
-    _twHtml+='<div style="margin-bottom:14px">';
-    _twHtml+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg2);border-radius:8px;cursor:pointer;border-left:4px solid '+gc+';margin-bottom:6px" data-gid="'+ggid+'" onclick="toggleTwGroup(this.getAttribute(\'data-gid\'))">';
-    _twHtml+='<span style="font-size:13px;font-weight:700;color:'+gc+'">'+glabel+'</span>';
-    _twHtml+='<span style="font-size:11px;color:var(--t3)">'+gcnt+' 个主页</span>';
+    _twHtml+='<div class="tw-matrix-group">';
+    _twHtml+='<div class="tw-matrix-head" style="border-left:4px solid '+gc+'" data-gid="'+ggid+'" onclick="toggleTwGroup(this.getAttribute(\'data-gid\'))">';
+    _twHtml+='<span class="tw-matrix-title" style="color:'+gc+'">'+glabel+'</span>';
+    _twHtml+='<span class="tw-matrix-count">'+gcnt+' 个主页</span>';
     _twHtml+='<span style="margin-left:auto;font-size:12px;color:var(--t3)" id="'+ggid+'_icon">▼</span>';
     _twHtml+='</div>';
-    _twHtml+='<div id="'+ggid+'"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">';
+    _twHtml+='<div id="'+ggid+'"><div class="tw-matrix-table-wrap"><table class="tw-page-table" style="width:100%;border-collapse:collapse;font-size:13px">';
+    _twHtml+='<colgroup><col><col><col><col><col><col><col><col><col></colgroup>';
     _twHtml+='<thead><tr style="border-bottom:1px solid var(--bd)">';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页 ID</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页名称</th>';
@@ -11968,6 +12067,10 @@ function toggleMobileMoreMenu(){
  if(!menu)return;
  menu.classList.toggle('open');
 }
+window.addEventListener('hashchange',function(){
+ var p=pageFromHash();
+ if(p&&localStorage.getItem('mira_token'))showPage(p);
+});
 // Close mobile more menu on overlay click handled by onclick above
 // Close sidebar on nav item click (mobile)
 document.querySelectorAll('.nav-item').forEach(function(el){
