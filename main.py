@@ -7,7 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from core.app_meta import APP_VERSION, get_allowed_origins
 from core.database import init_db, get_conn
-from core.auth import SECRET_KEY, ALGORITHM, normalize_user_claims
+from core.auth import SECRET_KEY, ALGORITHM, ROLE_LEVELS, normalize_user_claims
 from core.tenancy import team_write_block_reason
 from api.auth import router as auth_router
 from api.accounts import router as accounts_router
@@ -122,6 +122,12 @@ class TeamWriteGuardMiddleware(BaseHTTPMiddleware):
             user = normalize_user_claims(payload)
         except Exception:
             return await call_next(request)
+
+        if ROLE_LEVELS.get(user.get("role", "viewer"), 0) < ROLE_LEVELS["operator"]:
+            return JSONResponse(
+                {"detail": "当前账号为只读角色，不能执行写入操作", "code": "role_read_only"},
+                status_code=403,
+            )
 
         conn = None
         try:
