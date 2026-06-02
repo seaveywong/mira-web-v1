@@ -806,6 +806,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
     <div class="nav-item" onclick="showPage('rules')"><span class="nav-icon"></span>规则引擎</div>
     <div class="nav-sec-title">系统</div>
     <div class="nav-item" onclick="showPage('twpages')"><span class="nav-icon"></span>主页库</div>
+    <div class="nav-item role-admin-only" onclick="showPage('team_admin')"><span class="nav-icon"></span>团队管理</div>
     <div class="nav-item role-superadmin-only" onclick="showPage('settings')"><span class="nav-icon"></span>系统设置</div>
    </nav>
    <div class="sb-foot">
@@ -1492,6 +1493,13 @@ tr:hover td{background:rgba(255,255,255,.025)}
 </div>
 
 
+    <div class="page" id="page-team_admin">
+     <div class="ph">
+      <div><h2>团队管理</h2><p>管理团队成员和角色权限；资源归属由团队用户创建或维护时自动绑定</p></div>
+     </div>
+     <div id="teamAdminContent"></div>
+    </div>
+
     <div class="page" id="page-settings">
      <div class="ph">
       <div><h2>系统设置</h2><p>所有配置项可视化修改，无需改代码</p></div>
@@ -1529,7 +1537,8 @@ tr:hover td{background:rgba(255,255,255,.025)}
    <button class="mobile-more-item" onclick="showPage('assets');setMobileNav('');toggleMobileMoreMenu()"><span></span>素材库</button>
    <button class="mobile-more-item" onclick="showPage('logs');setMobileNav('');toggleMobileMoreMenu()"><span></span>操作日志</button>
    <button class="mobile-more-item" onclick="showPage('tokens');setMobileNav('');toggleMobileMoreMenu()"><span></span>Token 管理</button>
-    <button class="mobile-more-item role-superadmin-only" onclick="showPage('settings');setMobileNav('settings');toggleMobileMoreMenu()"><span></span>系统设置</button>
+   <button class="mobile-more-item role-admin-only" onclick="showPage('team_admin');setMobileNav('');toggleMobileMoreMenu()"><span></span>团队管理</button>
+   <button class="mobile-more-item role-superadmin-only" onclick="showPage('settings');setMobileNav('settings');toggleMobileMoreMenu()"><span></span>系统设置</button>
    <button class="mobile-more-item" onclick="toggleMobileMoreMenu()" style="color:var(--t3)"><span>✕</span>取消</button>
   </div>
  </div>
@@ -2773,7 +2782,7 @@ function _validateLandingUrl(input) {
 
 // ── 权限控制 ──────────────────────────────────────────────────────────────────
 var ROLE_LEVELS = {superadmin:100, admin:80, operator:50, viewer:10};
-var PAGE_MIN_ROLES = {settings:'superadmin', kpi_mapping:'superadmin'};
+var PAGE_MIN_ROLES = {settings:'superadmin', kpi_mapping:'superadmin', team_admin:'admin'};
 function getCurrentRole(){return localStorage.getItem('mira_role')||'viewer';}
 function hasRole(minRole){return (ROLE_LEVELS[getCurrentRole()]||0)>=(ROLE_LEVELS[minRole]||0);}
 function canWrite(){return hasRole('operator');}
@@ -2815,8 +2824,9 @@ function applyRolePermissions(role){
 var _usersData = [];
 
 function renderUserManageSection(){
- if(!hasRole('superadmin')) return '';
- return '<div class="ss role-superadmin-only"><div class="ss-title">用户管理 <span style="font-size:12px;font-weight:400;color:var(--t3)">授权团队成员访问系统</span></div>' +
+ if(!hasRole('admin')) return '';
+ var sub = hasRole('superadmin') ? '授权团队成员访问系统' : '管理本团队运营和只读成员';
+ return '<div class="ss role-admin-only"><div class="ss-title">用户管理 <span style="font-size:12px;font-weight:400;color:var(--t3)">'+sub+'</span></div>' +
   '<div class="sg">' +
   '<div style="display:flex;gap:8px;margin-bottom:12px">' +
   '<button class="btn btn-p" onclick="showAddUserModal()">\uff0b \u65b0\u589e\u7528\u6237</button>' +
@@ -2826,26 +2836,37 @@ function renderUserManageSection(){
 }
 
 function renderPermissionMatrixSection(){
- if(!hasRole('superadmin')) return '';
+ if(!hasRole('admin')) return '';
  var rows=[
   ['超级管理员','系统设置、团队/用户、全局守护、全部资产','最终兜底账号，保留完整权限'],
   ['团队管理员','本团队资产、Token、账户、素材、主页、规则、KPI','不能修改系统设置和全局守护开关'],
   ['运营','本团队投放操作、广告开关、预算、KPI、规则','用于日常投放执行'],
   ['只读观察者','本团队数据、日志、账户状态','不允许写入和变更投放']
  ];
- return '<div class="ss role-superadmin-only">' +
+ var foot = hasRole('superadmin')
+  ? '团队用户默认只处理自己团队创建或归属的资源；历史未分配资源仍作为兼容兜底可见，建议逐步在「团队资源分配」中补齐归属。'
+  : '团队管理员只能管理本团队用户；本团队创建、导入、编辑的资产会自动归队，系统设置和全局守护由超级管理员维护。';
+ return '<div class="ss role-admin-only">' +
   '<div class="ss-title">团队权限矩阵 <span style="font-size:12px;font-weight:400;color:var(--t3)">按团队隔离资产，超级管理员保留全局视角</span></div>' +
   '<div class="table-wrap"><table><thead><tr><th>角色</th><th>可用范围</th><th>备注</th></tr></thead><tbody>' +
   rows.map(function(r){return '<tr><td style="font-weight:700;color:var(--t1)">'+r[0]+'</td><td>'+r[1]+'</td><td style="color:var(--t3)">'+r[2]+'</td></tr>';}).join('') +
   '</tbody></table></div>' +
-  '<div class="fh" style="margin-top:8px">团队用户默认只处理自己团队创建或归属的资源；历史未分配资源仍作为兼容兜底可见，建议逐步在「团队资源分配」中补齐归属。</div>' +
+  '<div class="fh" style="margin-top:8px">'+foot+'</div>' +
   '</div>';
 }
 
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function resourceTeamBadge(item){
+ item=item||{};
+ var name=item.team_name||item.group_name||'';
+ var id=item.team_id;
+ if(!name && (id===undefined||id===null||id===''))return '';
+ var label=name||('团队 '+id);
+ return '<span class="badge" style="background:rgba(20,184,166,.12);color:#0f766e;border:1px solid rgba(20,184,166,.22)" title="资源归属团队">'+escHtml(label)+'</span>';
+}
 
 async function loadUserList(filterGroup){
- if(!hasRole('superadmin')) return;
+ if(!hasRole('admin')) return;
  try{
   var r = await api('GET','/users');
   _usersData = r.users||[];
@@ -2854,13 +2875,18 @@ async function loadUserList(filterGroup){
   _usersData.forEach(function(u){ if(u.group_name && groups.indexOf(u.group_name)<0) groups.push(u.group_name); });
   groups.sort();
   // 分组筛选栏
-  var filterHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">' +
-   '<span style="color:var(--t3);font-size:12px">分组筛选：</span>' +
-   '<button class="btn '+((!filterGroup||filterGroup==='all')?'btn-p':'')+'" style="padding:2px 10px;font-size:12px" onclick="loadUserList(this.dataset.g)" data-g="all">全部</button>';
-  groups.forEach(function(g){
-   filterHtml += '<button class="btn '+(filterGroup===g?'btn-p':'')+'" style="padding:2px 10px;font-size:12px" onclick="loadUserList(this.dataset.g)" data-g="'+escHtml(g)+'">'+escHtml(g)+'</button>';
-  });
-  filterHtml += '</div>';
+  var filterHtml = '';
+  if(hasRole('superadmin')){
+   filterHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">' +
+    '<span style="color:var(--t3);font-size:12px">团队筛选：</span>' +
+    '<button class="btn '+((!filterGroup||filterGroup==='all')?'btn-p':'')+'" style="padding:2px 10px;font-size:12px" onclick="loadUserList(this.dataset.g)" data-g="all">全部</button>';
+   groups.forEach(function(g){
+    filterHtml += '<button class="btn '+(filterGroup===g?'btn-p':'')+'" style="padding:2px 10px;font-size:12px" onclick="loadUserList(this.dataset.g)" data-g="'+escHtml(g)+'">'+escHtml(g)+'</button>';
+   });
+   filterHtml += '</div>';
+  }else{
+   filterHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center"><span class="badge bg-ac">当前团队：'+escHtml(localStorage.getItem('mira_team_name')||groups[0]||'--')+'</span></div>';
+  }
   // 过滤用户
   var displayUsers = _usersData;
   if(filterGroup && filterGroup !== 'all'){
@@ -2879,6 +2905,11 @@ async function loadUserList(filterGroup){
    '</tr></thead><tbody>';
   displayUsers.forEach(function(u){
    var roleColor = {admin:'var(--ac)',operator:'#22c55e',viewer:'var(--t3)'}[u.role]||'var(--t2)';
+   var canManageRow = hasRole('superadmin') || u.role !== 'admin';
+   var rowActions = canManageRow
+    ? '<button class="btn btn-g" style="padding:3px 8px;font-size:12px;margin-right:4px" data-uid="'+u.id+'" onclick="showEditUserModal(this.dataset.uid)">\u7f16\u8f91</button>' +
+      '<button class="btn" style="padding:3px 8px;font-size:12px;background:var(--er);color:#fff" data-uid="'+u.id+'" data-uname="'+escHtml(u.username)+'" onclick="deleteUser(this.dataset.uid,this.dataset.uname)">\u5220\u9664</button>'
+    : '<span style="font-size:12px;color:var(--t3)">团队管理员</span>';
    html += '<tr style="border-bottom:1px solid var(--bd)">' +
     '<td style="padding:8px 4px"><strong>'+escHtml(u.username)+'</strong></td>' +
     '<td style="padding:8px 4px;color:var(--t2)">'+(u.display_name?escHtml(u.display_name):'-')+'</td>' +
@@ -2887,10 +2918,7 @@ async function loadUserList(filterGroup){
     '<td style="padding:8px 4px">'+(u.is_active?'<span style="color:#22c55e">\u25cf&nbsp;\u542f\u7528</span>':'<span style="color:var(--er)">\u25cb&nbsp;\u7981\u7528</span>')+'</td>' +
     '<td style="padding:8px 4px;color:var(--t3);font-size:12px">'+(u.last_login_at?u.last_login_at.substring(0,16):'-')+'</td>' +
     '<td style="padding:8px 4px;color:var(--t3)">'+(u.note?escHtml(u.note):'-')+'</td>' +
-    '<td style="padding:8px 4px;text-align:right">' +
-    '<button class="btn btn-g" style="padding:3px 8px;font-size:12px;margin-right:4px" data-uid="'+u.id+'" onclick="showEditUserModal(this.dataset.uid)">\u7f16\u8f91</button>' +
-    '<button class="btn" style="padding:3px 8px;font-size:12px;background:var(--er);color:#fff" data-uid="'+u.id+'" data-uname="'+escHtml(u.username)+'" onclick="deleteUser(this.dataset.uid,this.dataset.uname)">\u5220\u9664</button>' +
-    '</td></tr>';
+    '<td style="padding:8px 4px;text-align:right">'+rowActions+'</td></tr>';
   });
   if(displayUsers.length===0) html += '<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--t3)">暂无用户</td></tr>';
   html += '</tbody></table>';
@@ -2903,6 +2931,7 @@ async function loadUserList(filterGroup){
 }
 
 function showAddUserModal(){
+ if(!hasRole('admin')){toast('当前账号没有权限管理用户','wa');return;}
  var mo = document.getElementById('moUserForm');
  if(!mo){
   mo = document.createElement('div');
@@ -2910,19 +2939,23 @@ function showAddUserModal(){
   mo.className = 'mo';
   document.body.appendChild(mo);
  }
+ var roleOptions = (hasRole('superadmin')?'<option value="admin">\u7ba1\u7406\u5458</option>':'') +
+  '<option value="operator" selected>\u8fd0\u8425</option>' +
+  '<option value="viewer">\u53ea\u8bfb\u89c2\u5bdf\u8005</option>';
+ var teamInput = hasRole('superadmin')
+  ? '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="uf_group_name" placeholder="\uff08\u53ef\u9009\uff09\u5982\uff1a\u53f0\u6e7e\u7ec4\u3001\u4e1c\u5357\u4e9a\u7ec4"></div>'
+  : '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="uf_group_name" value="'+escHtml(localStorage.getItem('mira_team_name')||'当前团队')+'" disabled></div>';
  mo.innerHTML = '<div class="modal"><div class="mh"><h3>\u65b0\u589e\u7528\u6237</h3><button class="mc" onclick="closeModal(\'moUserForm\')">\u2715</button></div>' +
   '<div class="mb">' +
   '<div class="fg"><label class="fl">\u7528\u6237\u540d <span class="req">*</span></label><input class="fc" id="uf_username" placeholder="\u767b\u5f55\u8d26\u53f7"></div>' +
   '<div class="fg"><label class="fl">\u5bc6\u7801 <span class="req">*</span></label><input class="fc" type="password" id="uf_password" placeholder="\u767b\u5f55\u5bc6\u7801"></div>' +
   '<div class="fg"><label class="fl">\u89d2\u8272 <span class="req">*</span></label>' +
   '<select class="fc" id="uf_role">' +
-  '<option value="admin">\u7ba1\u7406\u5458</option>' +
-  '<option value="operator" selected>\u8fd0\u8425</option>' +
-  '<option value="viewer">\u53ea\u8bfb\u89c2\u5bdf\u8005</option>' +
-  '</select></div>' +
+  roleOptions +
+  '</select><div style="font-size:11px;color:var(--t3);margin-top:4px">团队管理员只能创建运营或只读成员</div></div>' +
   '<div class="fg"><label class="fl">\u663e\u793a\u540d</label><input class="fc" id="uf_display_name" placeholder="\uff08\u53ef\u9009\uff09\u5bf9\u5916\u5c55\u793a\u7684\u540d\u5b57"></div>' +
   '<div class="fg"><label class="fl">\u5907\u6ce8</label><input class="fc" id="uf_note" placeholder="\uff08\u53ef\u9009\uff09"></div>' +
-  '<div class="fg"><label class="fl">\u5206\u7ec4</label><input class="fc" id="uf_group_name" placeholder="\uff08\u53ef\u9009\uff09\u5982\uff1a\u53f0\u6e7e\u7ec4\u3001\u4e1c\u5357\u4e9a\u7ec4"></div>' +
+  teamInput +
   '</div>' +
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moUserForm\')">\u53d6\u6d88</button><button class="btn btn-p" onclick="submitAddUser()">\u521b\u5efa\u7528\u6237</button></div>' +
   '</div>';
@@ -2948,6 +2981,7 @@ async function submitAddUser(){
 function showEditUserModal(uid){
  var u = _usersData.find(function(x){return String(x.id)==String(uid);});
  if(!u) return;
+ if(!hasRole('superadmin') && u.role === 'admin'){toast('团队管理员不能编辑管理员账号','wa');return;}
  var mo = document.getElementById('moUserForm');
  if(!mo){
   mo = document.createElement('div');
@@ -2955,18 +2989,22 @@ function showEditUserModal(uid){
   mo.className = 'mo';
   document.body.appendChild(mo);
  }
+ var roleOptions = (hasRole('superadmin')?'<option value="admin"'+(u.role==='admin'?' selected':'')+'>\u7ba1\u7406\u5458</option>':'') +
+  '<option value="operator"'+(u.role==='operator'?' selected':'')+'>\u8fd0\u8425</option>' +
+  '<option value="viewer"'+(u.role==='viewer'?' selected':'')+'>\u53ea\u8bfb\u89c2\u5bdf\u8005</option>';
+ var teamInput = hasRole('superadmin')
+  ? '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="ef_group_name" value="'+(u.group_name?escHtml(u.group_name):'')+'"></div>'
+  : '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="ef_group_name" value="'+(u.group_name?escHtml(u.group_name):(escHtml(localStorage.getItem('mira_team_name')||'')))+'" disabled></div>';
  mo.innerHTML = '<div class="modal"><div class="mh"><h3>\u7f16\u8f91\u7528\u6237\uff1a'+escHtml(u.username)+'</h3><button class="mc" onclick="closeModal(\'moUserForm\')">\u2715</button></div>' +
   '<div class="mb">' +
   '<div class="fg"><label class="fl">\u65b0\u5bc6\u7801</label><input class="fc" type="password" id="ef_password" placeholder="\u7559\u7a7a\u5219\u4e0d\u4fee\u6539\u5bc6\u7801"></div>' +
   '<div class="fg"><label class="fl">\u89d2\u8272</label>' +
   '<select class="fc" id="ef_role">' +
-  '<option value="admin"'+(u.role==='admin'?' selected':'')+'>\u7ba1\u7406\u5458</option>' +
-  '<option value="operator"'+(u.role==='operator'?' selected':'')+'>\u8fd0\u8425</option>' +
-  '<option value="viewer"'+(u.role==='viewer'?' selected':'')+'>\u53ea\u8bfb\u89c2\u5bdf\u8005</option>' +
+  roleOptions +
   '</select></div>' +
   '<div class="fg"><label class="fl">\u663e\u793a\u540d</label><input class="fc" id="ef_display_name" value="'+(u.display_name?escHtml(u.display_name):'')+'"></div>' +
   '<div class="fg"><label class="fl">\u5907\u6ce8</label><input class="fc" id="ef_note" value="'+(u.note?escHtml(u.note):'')+'"></div>' +
-  '<div class="fg"><label class="fl">\u5206\u7ec4</label><input class="fc" id="ef_group_name" value="'+(u.group_name?escHtml(u.group_name):'')+'"></div>' +
+  teamInput +
   '<div class="fg"><label class="fl">\u72b6\u6001</label>' +
   '<select class="fc" id="ef_active">' +
   '<option value="1"'+(u.is_active?' selected':'')+'>启用</option>' +
@@ -3003,6 +3041,17 @@ async function deleteUser(uid, username){
    loadUserList();
   }catch(e){toast('\u5220\u9664\u5931\u8d25\uff1a'+(e.message||e),'er');}
  });
+}
+
+async function loadTeamAdminPage(){
+ var el=document.getElementById('teamAdminContent');
+ if(!el)return;
+ if(!hasRole('admin')){
+  el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>当前账号没有团队管理权限</p></div>';
+  return;
+ }
+ el.innerHTML=renderPermissionMatrixSection()+renderUserManageSection();
+ await loadUserList();
 }
 
 
@@ -3496,7 +3545,7 @@ function renderBalanceCardFromAccounts(list){
 }
 
 // ── Page Navigation ──
-var pageTitles={dashboard:'数据看板',ads:'广告列表',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',rules:'规则引擎',settings:'系统设置',assets:'素材库',templates:'广告模版库',twpages:' 主页库',landing_urls:' 投放链接管理'};
+var pageTitles={dashboard:'数据看板',ads:'广告列表',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:' 主页库',landing_urls:' 投放链接管理'};
 function _val(id){var e=document.getElementById(id);return e?e.value||'':'';}
 function _pageAutoKey(name){
  if(name==='dashboard')return [_val('dashAct'),dashDateFrom||'',dashDateTo||''].join('|');
@@ -3544,6 +3593,7 @@ function showPage(name){
  else if(name==='accounts')autoLoadPage('accounts',loadAccsPage,30000);
  else if(name==='kpi')autoLoadPage('kpi',loadKpi,30000);
  else if(name==='rules')autoLoadPage('rules',loadRules,30000);
+ else if(name==='team_admin')autoLoadPage('team_admin',loadTeamAdminPage,30000);
  else if(name==='settings')autoLoadPage('settings',loadSettings,30000);
  else if(name==='assets')autoLoadPage('assets',function(){return loadAssets();},30000);
  else if(name==='templates')autoLoadPage('templates',loadTemplatesPage,60000);
@@ -5171,13 +5221,14 @@ function renderTokensView(){
    var matrixLabel=t.matrix_id?'矩阵'+t.matrix_id:'';
    var matrixColor=t.matrix_id?(matrixColors[(t.matrix_id-1)%matrixColors.length]):'transparent';
    var matrixBadge=t.matrix_id?('<span style="background:'+matrixColor+';color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px">'+matrixLabel+'</span>'):'<span style="background:#374151;color:#9ca3af;border-radius:4px;padding:1px 7px;font-size:11px">未分配</span>';
+   var teamBadge=resourceTeamBadge(t);
    var checkedAt=_fmtActionLogTime(t.permission_checked_at||t.last_verified_at||'');
    var permissionBadges=buildTokenPermissionBadges(t);
    var permissionSummary=buildTokenPermissionSummary(t);
    var aliasText=escHtml(t.token_alias||'');
    var noteText=t.note?(' · '+escHtml(t.note)):'';
    var rematchBtn=t.token_type==='operate'?'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();rematchOpToken('+t.id+',this)" title="重新匹配已导入账户">重新匹配</button>':'';
-    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic role-hide-viewer" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d role-hide-viewer" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
+    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+teamBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic role-hide-viewer" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d role-hide-viewer" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
   }).join('');
   html+='</div></div>';
  });
@@ -5680,13 +5731,14 @@ function renderAccCard(a,idx){
  }).join('');
  var pageBadge=a.page_id?'<span class="badge bg-mu">主页 '+a.page_id+'</span>':'';
  var warmupBadge=renderWarmupBadge(a);
+ var teamBadge=resourceTeamBadge(a);
  return'<div class="'+cardClass+'" id="acc-card-'+idx+'" onclick="toggleAccCard('+idx+')" data-idx="'+idx+'">'+
   '<div class="acc-header">'+
   '<div class="acc-icon"></div>'+
   '<div class="acc-main">'+
   '<div class="acc-name">'+a.name+'</div>'+
   '<div class="acc-id">'+(a.act_id||'').replace(/^act_/,'')+'</div>'+
-  '<div class="acc-meta">'+statusBadge+enabledBadge+tokenStatusBadge+matrixBadges+'<span class="badge bg-ac">'+cur+'</span>'+pageBadge+warmupBadge+(tzStr?'<span class="badge bg-mu">'+tzStr+(tzOff?' ('+tzOff+')':'')+'</span>':'')+'</div>'+
+  '<div class="acc-meta">'+statusBadge+enabledBadge+tokenStatusBadge+matrixBadges+teamBadge+'<span class="badge bg-ac">'+cur+'</span>'+pageBadge+warmupBadge+(tzStr?'<span class="badge bg-mu">'+tzStr+(tzOff?' ('+tzOff+')':'')+'</span>':'')+'</div>'+
   '</div>'+
   balHtml+
   '<div style="color:var(--t3);font-size:18px;transition:var(--tr)" id="acc-arrow-'+idx+'">▸</div>'+
@@ -5696,6 +5748,7 @@ function renderAccCard(a,idx){
   '<div class="acc-detail-item"><div class="acc-detail-label">账户 ID</div><div class="acc-detail-val" style="font-family:monospace">'+(a.act_id||'').replace(/^act_/,'')+'</div></div>'+
   '<div class="acc-detail-item"><div class="acc-detail-label">账户名称</div><div class="acc-detail-val">'+a.name+'</div></div>'+
   '<div class="acc-detail-item"><div class="acc-detail-label">账户状态</div><div class="acc-detail-val">'+getAccStatusBadge(a)+'</div></div>'+
+  (teamBadge?'<div class="acc-detail-item"><div class="acc-detail-label">归属团队</div><div class="acc-detail-val">'+teamBadge+'</div></div>':'')+
   '<div class="acc-detail-item"><div class="acc-detail-label">货币</div><div class="acc-detail-val">'+cur+'</div></div>'+
   (matrixIds.length?'<div class="acc-detail-item"><div class="acc-detail-label">矩阵归属</div><div class="acc-detail-val" style="display:flex;flex-wrap:wrap;gap:4px">'+matrixBadges+'</div></div>':'')+
   (a.page_id?'<div class="acc-detail-item"><div class="acc-detail-label">主页 ID</div><div class="acc-detail-val" style="font-family:monospace">'+a.page_id+'</div>'+(a.page_name?'<div class="acc-detail-sub" style="color:var(--t3)">'+a.page_name+'</div>':'')+'</div>':'')+
@@ -6489,6 +6542,7 @@ function _renderAssetCard(a){
  var folderBadge='<span class="badge" style="background:rgba(59,130,246,.12);color:#2563eb;border:1px solid rgba(59,130,246,.18)">'+escHtml(getAssetFolderLabel(a))+'</span>';
  var warmupBadge=warmupAsset?'<span class="badge" style="background:rgba(16,185,129,.14);color:#047857;border:1px solid rgba(16,185,129,.22)" title="预热只会使用 YE 开头图片">预热素材</span>':'';
  var archivedBadge=archived?'<span class="badge" style="background:rgba(107,114,128,.12);color:#4b5563;border:1px solid rgba(107,114,128,.2)">已归档</span>':'';
+ var teamBadge=resourceTeamBadge(a);
  var tagBadges=tags.slice(0,4).map(function(t){return'<span class="badge" style="background:var(--bg3);color:var(--t2);border:1px solid var(--bd)">#'+escHtml(t)+'</span>';}).join('');
  var batchCode=getAssetBatchCode(a);
  var batchBadge=batchCode?'<span class="badge" style="background:rgba(16,185,129,.12);color:#047857;border:1px solid rgba(16,185,129,.18)">'+escHtml(_formatAssetBatchLabel(batchCode))+'</span>':'';
@@ -6519,7 +6573,7 @@ function _renderAssetCard(a){
     (a.asset_code?'<div style="font-size:10px;color:var(--t3);font-family:monospace;margin-top:1px">'+a.asset_code+'</div>':'')+
     '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+(a.file_size?(a.file_size/1024/1024).toFixed(1)+'MB':'')+(a.act_id?' · '+a.act_id:'')+adCountHtml+campCountHtml+'</div>'+
     countriesHtml+
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+folderBadge+batchBadge+warmupBadge+archivedBadge+tagBadges+'</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+folderBadge+batchBadge+teamBadge+warmupBadge+archivedBadge+tagBadges+'</div>'+
    '</div>'+
   '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'+statusBadge+scoreHtml+'</div>'+
   '</div>'+
@@ -10599,6 +10653,7 @@ async function loadTwCertPages2() {
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页 ID</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页名称</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页状态</th>';
+    _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">团队</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">归属矩阵</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">对应 Token</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">受益者 / Verified ID</th>';
@@ -10627,9 +10682,10 @@ async function loadTwCertPages2() {
       : '<span style="color:var(--t3);font-size:11px">未绑定</span>';
      return '<tr style="border-bottom:1px solid var(--bd)">' +
       '<td style="padding:6px 8px;font-family:monospace;font-size:11px">' + p.page_id + '</td>' +
-      '<td style="padding:6px 8px;font-weight:600">' + p.page_name + '</td>' +
-      '<td style="padding:6px 8px">' + renderTwPageStatus(p) + '</td>' +
-      '<td style="padding:6px 8px">' + matrixBadge + '</td>' +
+     '<td style="padding:6px 8px;font-weight:600">' + p.page_name + '</td>' +
+     '<td style="padding:6px 8px">' + renderTwPageStatus(p) + '</td>' +
+     '<td style="padding:6px 8px">' + (resourceTeamBadge(p) || '<span style="color:var(--t3);font-size:11px">未分配</span>') + '</td>' +
+     '<td style="padding:6px 8px">' + matrixBadge + '</td>' +
       '<td style="padding:6px 8px">' + tokenBadge + '</td>' +
       '<td style="padding:6px 8px">' + vidDisplay +
        ' <button class="btn btn-g" style="font-size:10px;padding:2px 6px" onclick="editTwVerifiedId(' + p.id + ',\'' + vid + '\')">\u270F</button></td>' +

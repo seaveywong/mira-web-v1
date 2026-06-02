@@ -509,9 +509,12 @@ def list_assets(
     total = conn.execute(f"SELECT COUNT(*) FROM ad_assets a {clause}", params).fetchone()[0]
     rows = conn.execute(
         f"""SELECT a.*,
+                  tm.name AS team_name,
                   (SELECT COUNT(*) FROM auto_campaigns ac WHERE ac.asset_id=a.id) AS campaign_count,
                   (SELECT COUNT(*) FROM auto_campaign_ads aca WHERE aca.asset_id=a.id AND COALESCE(aca.fb_ad_id,'')!='') AS ad_count
-           FROM ad_assets a {clause} ORDER BY {order_by} LIMIT ? OFFSET ?""",
+           FROM ad_assets a
+           LEFT JOIN teams tm ON tm.id=a.team_id
+           {clause} ORDER BY {order_by} LIMIT ? OFFSET ?""",
         params + [limit, offset]
     ).fetchall()
     conn.close()

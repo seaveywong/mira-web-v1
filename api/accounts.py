@@ -896,11 +896,12 @@ def list_tokens(user=Depends(get_current_user)):
     rows = conn.execute(f"""
         SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
                t.last_verified_at, t.note, t.created_at, t.matrix_id,
-               t.team_id,
+               t.team_id, tm.name AS team_name,
                t.permission_snapshot, t.permission_checked_at,
                (SELECT COUNT(*) FROM account_op_tokens aot WHERE aot.token_id = t.id AND aot.status = 'active') as account_count
         FROM fb_tokens t
         LEFT JOIN accounts a ON a.token_id = t.id
+        LEFT JOIN teams tm ON tm.id = t.team_id
         WHERE {' AND '.join(where)}
         GROUP BY t.id
         ORDER BY t.created_at DESC
@@ -1823,7 +1824,7 @@ def list_accounts(user=Depends(get_current_user)):
     rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name, a.currency, a.timezone, a.timezone_name, a.timezone_offset_hours_utc,
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
-               a.team_id,
+               a.team_id, tm.name AS team_name,
                a.balance, a.account_status, a.spend_cap, a.amount_spent, a.spending_limit,
                a.read_permission_status, a.read_permission_error, a.read_permission_checked_at,
                COALESCE(a.mirror_enabled, 0) as mirror_enabled,
@@ -1838,6 +1839,7 @@ def list_accounts(user=Depends(get_current_user)):
         FROM accounts a
         LEFT JOIN fb_tokens t ON t.id = a.token_id
         LEFT JOIN tw_certified_pages tp ON tp.page_id = a.page_id
+        LEFT JOIN teams tm ON tm.id = a.team_id
         WHERE {' AND '.join(where)}
         ORDER BY a.created_at DESC
     """, params).fetchall()
@@ -3589,13 +3591,14 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
     rows = conn.execute(
         f"""
         SELECT p.id, p.page_id, p.page_name, p.verified_identity_id, p.verified_source, p.note, p.created_at,
-               p.matrix_id, p.token_id, p.team_id,
+               p.matrix_id, p.token_id, p.team_id, tm.name AS team_name,
                p.page_category, p.page_is_published, p.page_verification_status, p.page_tasks,
                p.page_can_advertise, p.page_lead_form_status, p.page_status, p.page_status_hint,
                p.page_status_checked_at,
                ft.token_alias
         FROM tw_certified_pages p
         LEFT JOIN fb_tokens ft ON ft.id = p.token_id
+        LEFT JOIN teams tm ON tm.id = p.team_id
         WHERE {' AND '.join(where)}
         ORDER BY p.id
         """,
