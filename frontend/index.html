@@ -4080,6 +4080,72 @@ function _adsOpAllowed(a,level,desired){
  if(t.status==='ACTIVE'&&t.effective!=='ACTIVE')return {ok:false,reason:'self_active_parent_paused'};
  return {ok:true,reason:''};
 }
+function _adsPlainStatus(st){
+ st=String(st||'').toUpperCase();
+ var map={ACTIVE:'投放中',PAUSED:'已暂停',ADSET_PAUSED:'组暂停',CAMPAIGN_PAUSED:'系列暂停',DISAPPROVED:'审核拒绝',WITH_ISSUES:'有问题',PENDING_REVIEW:'审核中',IN_PROCESS:'处理中',ARCHIVED:'已归档',DELETED:'已删除'};
+ return map[st]||st||'未知';
+}
+function _adsDiagLine(label,value,kind){
+ var color=kind==='bad'?'var(--er)':kind==='warn'?'var(--wa)':kind==='ok'?'var(--ok)':'var(--t2)';
+ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span style="color:var(--t3)">'+escHtml(label)+'</span><span style="color:'+color+';text-align:right">'+escHtml(value||'--')+'</span></div>';
+}
+function _adsDiagNotice(text,kind){
+ var color=kind==='bad'?'var(--er)':kind==='warn'?'var(--wa)':'var(--t2)';
+ return '<div style="margin-top:8px;color:'+color+';font-size:12px;line-height:1.55">'+escHtml(text)+'</div>';
+}
+function _adsAutomationNames(a){
+ return (a.automation_warnings||[]).map(function(x){return {mirror_enabled:'镜像模式',sentinel_enabled:'哨兵模式',heartbeat_enabled:'心跳模式'}[x]||x;});
+}
+function _adsParentDiagnostics(a,level,desired){
+ var notes=[];
+ var campStatus=String(a.campaign_status||'').toUpperCase(),campEff=String(a.campaign_effective_status||'').toUpperCase();
+ var setStatus=String(a.adset_status||'').toUpperCase(),setEff=String(a.adset_effective_status||'').toUpperCase();
+ if(level==='ad'||level==='adset'){
+  if(campStatus&&campStatus!=='ACTIVE')notes.push('上级广告系列当前是 '+_adsPlainStatus(campStatus)+'。');
+  else if(campEff&&campEff!=='ACTIVE')notes.push('上级广告系列有效状态是 '+_adsPlainStatus(campEff)+'。');
+ }
+ if(level==='ad'){
+  if(setStatus&&setStatus!=='ACTIVE')notes.push('上级广告组当前是 '+_adsPlainStatus(setStatus)+'。');
+  else if(setEff&&setEff!=='ACTIVE')notes.push('上级广告组有效状态是 '+_adsPlainStatus(setEff)+'。');
+ }
+ if(desired==='ACTIVE'&&notes.length)notes.push('开启当前层级后，若上级仍未开启，广告仍不会实际投放。');
+ return notes;
+}
+function _adsStatusDiagnosisHtml(a,level,desired){
+ var t=_adsLevelStatus(a,level);
+ var actionLabel=desired==='PAUSED'?'暂停':'开启';
+ var lines='';
+ lines+=_adsDiagLine('当前层级',_adsSelectionLabel(level),'');
+ lines+=_adsDiagLine('对象状态',_adsPlainStatus(t.status),'');
+ lines+=_adsDiagLine('有效状态',_adsPlainStatus(t.effective),'');
+ lines+=_adsDiagLine('暂停 Token',a.pause_token_ok?'可用':'不可用',a.pause_token_ok?'ok':'bad');
+ lines+=_adsDiagLine('写操作 Token',a.update_token_ok?'可用':'不可用',a.update_token_ok?'ok':'warn');
+ lines+=_adsDiagLine('账户写入',a.account_writeable===false?'不可写':'可写',a.account_writeable===false?'bad':'ok');
+ var notes=_adsParentDiagnostics(a,level,desired);
+ var warnings=_adsAutomationNames(a);
+ var html='<div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid var(--bd);border-radius:6px">'+
+  '<div style="font-size:12px;color:var(--t2);font-weight:650;margin-bottom:6px">操作前诊断</div>'+lines+'</div>';
+ notes.forEach(function(n){html+=_adsDiagNotice(n,'warn');});
+ if(warnings.length)html+=_adsDiagNotice('该账户正在运行 '+warnings.join(' / ')+'，手动'+actionLabel+'后仍可能被自动守护再次处理。','warn');
+ if(desired==='PAUSED'&&a.pause_token_ok&&!a.update_token_ok)html+=_adsDiagNotice('当前可暂停但不可开启：有管理/暂停能力，但缺少可写操作号或账户不可写。','warn');
+ return html;
+}
+function _adsBudgetDiagnosisHtml(a,level,currentBudget,num){
+ var isCampaign=level==='campaign';
+ var lifetime=isCampaign?a.campaign_lifetime_budget:a.adset_lifetime_budget;
+ var budgetLabel=isCampaign?'广告系列':'广告组';
+ var lines='';
+ lines+=_adsDiagLine('预算层级',budgetLabel,'');
+ lines+=_adsDiagLine('当前日预算',_adsMoney(currentBudget,a.currency||'USD'),'');
+ lines+=_adsDiagLine('目标日预算',_adsMoney(num,a.currency||'USD'),'');
+ lines+=_adsDiagLine('写操作 Token',a.update_token_ok?'可用':'不可用',a.update_token_ok?'ok':'bad');
+ lines+=_adsDiagLine('账户写入',a.account_writeable===false?'不可写':'可写',a.account_writeable===false?'bad':'ok');
+ if(lifetime)lines+=_adsDiagLine('总预算',_adsMoney(lifetime,a.currency||'USD'),'warn');
+ var html='<div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid var(--bd);border-radius:6px">'+
+  '<div style="font-size:12px;color:var(--t2);font-weight:650;margin-bottom:6px">预算调整诊断</div>'+lines+'</div>';
+ if(lifetime)html+=_adsDiagNotice('该对象存在总预算。若 Meta 判定为 lifetime budget 且没有 daily_budget，系统会阻止写入。','warn');
+ return html;
+}
 function _adsBudgetHtml(a){
  var c=a.currency||'USD';
  var main=a.adset_daily_budget!==null&&a.adset_daily_budget!==undefined?_adsMoney(a.adset_daily_budget,c)+'<div style="font-size:10px;color:var(--t3)">广告组日预算</div>':(a.campaign_daily_budget!==null&&a.campaign_daily_budget!==undefined?_adsMoney(a.campaign_daily_budget,c)+'<div style="font-size:10px;color:var(--t3)">系列日预算</div>':'<span style="color:var(--t3)">--</span>');
@@ -4423,13 +4489,10 @@ async function runAdStatusOp(adId,level,desired,btn){
  }
  var levelLabel={ad:'广告',adset:'广告组',campaign:'广告系列'}[level]||level;
  var actionLabel=desired==='PAUSED'?'暂停':'开启';
- var warnings=(a.automation_warnings||[]).map(function(x){return {mirror_enabled:'镜像模式',sentinel_enabled:'哨兵模式',heartbeat_enabled:'心跳模式'}[x]||x;});
  var html='<div><strong>'+actionLabel+' '+levelLabel+'</strong></div>'+
-  '<div style="margin-top:8px;color:var(--t2)">对象：'+escHtml(t.name||t.id)+'</div>'+
+ '<div style="margin-top:8px;color:var(--t2)">对象：'+escHtml(t.name||t.id)+'</div>'+
   '<div style="font-size:12px;color:var(--t3);margin-top:4px">账户：'+escHtml(a.account_name||a.act_id)+' · '+escHtml(a.act_id||'')+'</div>';
- if(warnings.length){
-  html+='<div style="margin-top:10px;color:var(--wa);font-size:12px">该账户正在运行 '+warnings.join(' / ')+'，手动开启后仍可能被自动守护关闭。</div>';
- }
+ html+=_adsStatusDiagnosisHtml(a,level,desired);
  html+='<div style="margin-top:10px;color:var(--t3);font-size:12px">写入后会立即从 FB 读回状态校验。</div>';
  var ok=await confirmAsync(html, '确认'+actionLabel, '取消', '广告操作确认');
  if(!ok)return;
@@ -4483,8 +4546,9 @@ async function editDailyBudget(adId,level,btn){
  var num=Number(String(val).replace(/,/g,'').trim());
  if(!num||num<=0){toast('请输入大于 0 的预算','wa');return;}
  var html='<div><strong>调整'+levelLabel+'日预算</strong></div>'+
-  '<div style="margin-top:8px;color:var(--t2)">'+levelLabel+'：'+escHtml(targetName)+'</div>'+
+ '<div style="margin-top:8px;color:var(--t2)">'+levelLabel+'：'+escHtml(targetName)+'</div>'+
   '<div style="font-size:12px;color:var(--t3);margin-top:4px">当前：'+_adsMoney(currentBudget,a.currency||'USD')+' → 新预算：'+_adsMoney(num,a.currency||'USD')+'</div>'+
+  _adsBudgetDiagnosisHtml(a,level,currentBudget,num)+
   '<div style="margin-top:10px;color:var(--t3);font-size:12px">提交后会读取 FB 返回的实际预算确认。</div>';
  var ok=await confirmAsync(html,'确认调整','取消','预算调整确认');
  if(!ok)return;
@@ -4518,7 +4582,13 @@ async function runAccountPauseCampaigns(actKey,btn){
  }
  var html='<div><strong>暂停账户下所有广告</strong></div>'+
   '<div style="margin-top:8px;color:var(--t2)">账户：'+escHtml(accountName)+' · '+escHtml(actKey)+'</div>'+
-  '<div style="font-size:12px;color:var(--t3);margin-top:4px">将暂停 '+plan.items.length+' 个广告系列；只操作广告系列层级，不直接改广告组/广告。</div>';
+  '<div style="font-size:12px;color:var(--t3);margin-top:4px">将暂停 '+plan.items.length+' 个广告系列；只操作广告系列层级，不直接改广告组/广告。</div>'+
+  '<div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid var(--bd);border-radius:6px">'+
+  '<div style="font-size:12px;color:var(--t2);font-weight:650;margin-bottom:6px">账户级诊断</div>'+
+  _adsDiagLine('暂停 Token',rep.pause_token_ok?'可用':'不可用',rep.pause_token_ok?'ok':'bad')+
+  _adsDiagLine('写操作 Token',rep.update_token_ok?'可用':'不可用',rep.update_token_ok?'ok':'warn')+
+  _adsDiagLine('账户写入',rep.account_writeable===false?'不可写':'可写',rep.account_writeable===false?'bad':'ok')+
+  _adsDiagLine('已暂停系列',String(plan.already||0),'')+'</div>';
  if(plan.skipped.length){
   html+='<div style="margin-top:10px;color:var(--wa);font-size:12px">将跳过 '+plan.skipped.length+' 个不可暂停系列。</div>';
  }
@@ -4552,7 +4622,35 @@ async function runAccountPauseCampaigns(actKey,btn){
   if(btn){btn.disabled=false;btn.removeAttribute('aria-busy');}
  }
 }
-function _adsPushBulkItem(items,seen,skipped,a,level,desired){
+function _adsSkipLabel(reason){
+ var key=String(reason||'other');
+ if(key.indexOf('account_status=')===0)return '账户不可写';
+ return {
+  no_pause_token:'无暂停 Token',
+  no_update_token:'无写操作号',
+  no_system_user_operate_token:'无 System User 操作号',
+  target_archived_or_deleted:'已归档/删除',
+  already_paused:'已经暂停',
+  already_active:'已经开启',
+  self_active_parent_paused:'上级暂停',
+  account_bulk_open_blocked:'账户级开启保护',
+  stale:'数据过期',
+  no_campaigns:'无可暂停系列',
+  account_campaign_skipped:'账户下系列不可操作'
+ }[key]||_adsReasonText(key)||key;
+}
+function _adsAddSkipStat(stats,reason){
+ if(!stats)return;
+ var label=_adsSkipLabel(reason);
+ stats[label]=(stats[label]||0)+1;
+}
+function _adsBulkSkipSummaryHtml(stats){
+ var keys=Object.keys(stats||{});
+ if(!keys.length)return '';
+ keys.sort(function(a,b){return (stats[b]||0)-(stats[a]||0);});
+ return '<div style="margin-top:8px;color:var(--t3);font-size:12px">跳过原因：'+keys.map(function(k){return escHtml(k)+' '+stats[k]+' 个';}).join(' / ')+'</div>';
+}
+function _adsPushBulkItem(items,seen,skipped,a,level,desired,skipStats){
  var al=_adsOpAllowed(a,level,desired);
  var t=_adsLevelStatus(a,level);
  var label=_adsSelectionLabel(level);
@@ -4562,20 +4660,22 @@ function _adsPushBulkItem(items,seen,skipped,a,level,desired){
   if(!seen[key]){
    seen[key]=1;
    items.push({act_id:a.act_id,level:level,target_id:t.id,target_name:name,status:desired});
-  }
+ }
  }else{
   skipped.push(label+' '+name+'：'+_adsReasonText(al.reason));
+  _adsAddSkipStat(skipStats,al.reason);
  }
 }
 function _adsBuildBulkPlan(desired){
- var items=[],skipped=[],seen={};
+ var items=[],skipped=[],seen={},skipStats={};
  Array.from(selectedAds).forEach(function(key){
   var p=_adsSplitSelKey(key);
   var a=_adsFindByLevel(p.level,p.id);
-  if(!a){skipped.push(_adsSelectionLabel(p.level)+' '+p.id+'：数据已过期');return;}
+  if(!a){skipped.push(_adsSelectionLabel(p.level)+' '+p.id+'：数据已过期');_adsAddSkipStat(skipStats,'stale');return;}
   if(p.level==='account'){
    if(desired!=='PAUSED'){
     skipped.push('账户 '+(a.account_name||p.id)+'：账户级批量仅支持暂停系列，避免误开启整户');
+    _adsAddSkipStat(skipStats,'account_bulk_open_blocked');
     return;
    }
    var plan=_adsAccountPausePlan(p.id);
@@ -4583,24 +4683,24 @@ function _adsBuildBulkPlan(desired){
     var k=item.level+':'+item.target_id;
     if(!seen[k]){seen[k]=1;items.push(item);}
    });
-   (plan.skipped||[]).forEach(function(s){skipped.push('账户 '+(a.account_name||p.id)+'：'+s);});
-   if(!(plan.items||[]).length&&!(plan.skipped||[]).length)skipped.push('账户 '+(a.account_name||p.id)+'：没有可暂停的广告系列');
+   (plan.skipped||[]).forEach(function(s){skipped.push('账户 '+(a.account_name||p.id)+'：'+s);_adsAddSkipStat(skipStats,'account_campaign_skipped');});
+   if(!(plan.items||[]).length&&!(plan.skipped||[]).length){skipped.push('账户 '+(a.account_name||p.id)+'：没有可暂停的广告系列');_adsAddSkipStat(skipStats,'no_campaigns');}
    return;
   }
-  _adsPushBulkItem(items,seen,skipped,a,p.level,desired);
+  _adsPushBulkItem(items,seen,skipped,a,p.level,desired,skipStats);
  });
- return {items:items,skipped:skipped};
+ return {items:items,skipped:skipped,skipStats:skipStats};
 }
 async function bulkAdStatus(desired){
  if(!selectedAds.size){toast('请先选择账户、系列、广告组或广告','wa');return;}
  var plan=_adsBuildBulkPlan(desired);
  var items=plan.items,skipped=plan.skipped;
- if(!items.length){showInfo(skipped.slice(0,12).map(escHtml).join('<br>')+(skipped.length>12?'<br>...':'') ,'全部不可操作');return;}
+ if(!items.length){showInfo(_adsBulkSkipSummaryHtml(plan.skipStats)+skipped.slice(0,12).map(escHtml).join('<br>')+(skipped.length>12?'<br>...':''),'全部不可操作');return;}
  var actionLabel=desired==='PAUSED'?'暂停':'开启';
  var stats=_adsSelectedStats();
  var html='<div>确认'+actionLabel+'选中的 <strong>'+items.length+'</strong> 个可操作对象？</div>'+
   '<div style="font-size:12px;color:var(--t3);margin-top:6px">当前选择：'+escHtml(stats.parts.join(' / ')||stats.total+' 项')+'</div>';
- if(skipped.length){html+='<div style="margin-top:10px;color:var(--wa);font-size:12px">将跳过 '+skipped.length+' 个不可操作对象。</div>';}
+ if(skipped.length){html+='<div style="margin-top:10px;color:var(--wa);font-size:12px">将跳过 '+skipped.length+' 个不可操作对象。</div>'+_adsBulkSkipSummaryHtml(plan.skipStats);}
  var ok=await confirmAsync(html,'确认'+actionLabel,'取消','批量操作确认');
  if(!ok)return;
  try{
