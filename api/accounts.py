@@ -19,7 +19,7 @@ from core.account_access import (
     mark_account_read_failure,
     mark_account_read_success,
 )
-from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
+from core.tenancy import apply_team_scope, assert_row_access, claim_row_for_team, team_id_for_create
 from services.token_manager import (
     ALLOWED_TOKEN_SOURCES,
     TOKEN_SOURCE_SYSTEM_USER,
@@ -1087,6 +1087,7 @@ def update_token(token_id: int, body: TokenUpdate, user=Depends(get_current_user
         updates.append("matrix_id=NULL")
     params.append(token_id)
     conn.execute(f"UPDATE fb_tokens SET {', '.join(updates)} WHERE id=?", params)
+    claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
     conn.execute("UPDATE accounts SET enabled=1 WHERE token_id=?", (token_id,))
     conn.commit()
     conn.close()
@@ -1129,6 +1130,7 @@ def update_token_type(token_id: int, body: TokenTypeUpdate, user=Depends(get_cur
             "UPDATE fb_tokens SET token_type=?, token_source=?, matrix_id=NULL WHERE id=?",
             (body.token_type, resolved_source, token_id),
         )
+    claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
     conn.commit()
     conn.close()
     return {"success": True, "token_type": body.token_type, "token_source": resolved_source}
@@ -1149,6 +1151,7 @@ def update_token_source(token_id: int, body: TokenSourceUpdate, user=Depends(get
         raise HTTPException(404, "Token 不存在")
     resolved_source = _validate_token_role_source(row["token_type"], body.token_source)
     conn.execute("UPDATE fb_tokens SET token_source=? WHERE id=?", (resolved_source, token_id))
+    claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
     conn.commit()
     conn.close()
     return {"success": True, "token_source": resolved_source}
@@ -1184,6 +1187,7 @@ def update_token_matrix(token_id: int, body: dict, user=Depends(get_current_user
     else:
         _validate_token_role_source(row["token_type"], row["token_source"])
         conn.execute("UPDATE fb_tokens SET matrix_id=? WHERE id=?", (matrix_id, token_id))
+    claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
     conn.commit()
     conn.close()
     return {"success": True, "matrix_id": matrix_id}
@@ -1191,7 +1195,7 @@ def update_token_matrix(token_id: int, body: dict, user=Depends(get_current_user
 def delete_token(token_id: int, user=Depends(get_current_user)):
     """删除Token（仅检查启用状态账户，disabled账户不阻止删除）"""
     conn = get_conn()
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     # 只统计 enabled=1 的活跃账户，disabled 账户不阻止删除
     count = conn.execute(
         "SELECT COUNT(*) as c FROM accounts WHERE token_id=? AND enabled=1",
@@ -1243,18 +1247,31 @@ def verify_token_now(token_id: int, user=Depends(get_current_user)):
            WHERE id=?""",
         (status, permission_snapshot_json, token_id)
     )
+    claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
+    account_where, account_params = ["token_id=?"], [token_id]
+    apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=True)
+    op_scope_where, op_scope_params = ["a.act_id=account_op_tokens.act_id"], []
+    apply_team_scope(op_scope_where, op_scope_params, user, "a.team_id", include_unassigned=True)
+    op_scope_sql = (
+        "token_id=? AND EXISTS ("
+        f"SELECT 1 FROM accounts a WHERE {' AND '.join(op_scope_where)}"
+        ")"
+    )
     if not ok:
-        conn.execute("UPDATE accounts SET enabled=0 WHERE token_id=?", (token_id,))
+        conn.execute(
+            f"UPDATE accounts SET enabled=0 WHERE {' AND '.join(account_where)}",
+            account_params,
+        )
         # Token 失效时实时标记 account_op_tokens 为 disabled
         conn.execute(
-            "UPDATE account_op_tokens SET status='disabled' WHERE token_id=?",
-            (token_id,)
+            f"UPDATE account_op_tokens SET status='disabled' WHERE {op_scope_sql}",
+            [token_id] + op_scope_params,
         )
     else:
         # Token 验证成功时恢复 account_op_tokens 为 active
         conn.execute(
-            "UPDATE account_op_tokens SET status='active' WHERE token_id=?",
-            (token_id,)
+            f"UPDATE account_op_tokens SET status='active' WHERE {op_scope_sql}",
+            [token_id] + op_scope_params,
         )
     conn.commit()
     conn.close()
@@ -1283,9 +1300,13 @@ def rematch_op_token_accounts(token_id: int, user=Depends(get_current_user)):
         "SELECT id, token_type, token_source, access_token_enc, status, team_id FROM fb_tokens WHERE id=?",
         (token_id,)
     ).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         raise HTTPException(404, "Token不存在")
+    resource_team_id = _matching_team_id(user, row["team_id"])
+    claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
+    conn.commit()
+    conn.close()
     if row["token_type"] == "operate":
         _validate_token_role_source(row["token_type"], row["token_source"])
     token = decrypt_token(row["access_token_enc"])
@@ -1302,12 +1323,12 @@ def rematch_op_token_accounts(token_id: int, user=Depends(get_current_user)):
     # 与系统已导入账户做交集匹配
     conn = get_conn()
     try:
-        if row["team_id"] is None:
+        if resource_team_id is None:
             imported = conn.execute("SELECT id, act_id, account_status FROM accounts").fetchall()
         else:
             imported = conn.execute(
                 "SELECT id, act_id, account_status FROM accounts WHERE team_id=?",
-                (row["team_id"],),
+                (resource_team_id,),
             ).fetchall()
         matched = 0
         already = 0
@@ -2035,6 +2056,7 @@ def update_account(account_id: int, body: AccountUpdate, user=Depends(get_curren
     updates.append("updated_at=datetime('now')")
     params.append(account_id)
     conn.execute(f"UPDATE accounts SET {', '.join(updates)} WHERE id=?", params)
+    claim_row_for_team(conn, "accounts", "id", account_id, user)
     conn.commit()
     conn.close()
     return {"success": True}
@@ -2087,6 +2109,7 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
     updates.append("updated_at=datetime('now')")
     params.append(account_id)
     conn.execute(f"UPDATE accounts SET {', '.join(updates)} WHERE id=?", params)
+    claim_row_for_team(conn, "accounts", "id", account_id, user)
     conn.commit()
     conn.close()
     return {"success": True, "act_id": act_id_str}
@@ -2095,7 +2118,7 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
 def delete_account(account_id: int, user=Depends(get_current_user)):
     """删除账户（不删除Token）"""
     conn = get_conn()
-    assert_row_access(conn, "accounts", account_id, user)
+    assert_row_access(conn, "accounts", account_id, user, allow_unassigned=False)
     conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
     conn.commit()
     conn.close()
@@ -4546,6 +4569,7 @@ async def update_token_value(token_id: int, body: dict, current_user=Depends(get
             "UPDATE fb_tokens SET access_token_enc=?, status='active', last_verified_at=datetime('now','+8 hours') WHERE id=?",
             (enc, token_id)
         )
+        claim_row_for_team(conn, "fb_tokens", "id", token_id, current_user)
         conn.commit()
         return {
             "success": True,

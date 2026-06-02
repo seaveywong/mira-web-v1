@@ -32,6 +32,31 @@ def team_write_block_reason(conn, user: dict) -> str | None:
     return None
 
 
+def team_id_for_claim(user: dict) -> int | None:
+    """Return the team id used when a team user writes an unassigned row."""
+    if is_superadmin(user):
+        return None
+    team_id = user.get("team_id") if isinstance(user, dict) else None
+    if not team_id:
+        return None
+    try:
+        return int(team_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def claim_row_for_team(conn, table: str, id_column: str, row_id, user: dict, team_column: str = "team_id") -> int | None:
+    """Stamp team_id on legacy unassigned rows when a team user writes them."""
+    team_id = team_id_for_claim(user)
+    if team_id is None:
+        return None
+    conn.execute(
+        f"UPDATE {table} SET {team_column}=COALESCE({team_column}, ?) WHERE {id_column}=?",
+        (team_id, row_id),
+    )
+    return team_id
+
+
 def team_id_for_create(user: dict) -> int | None:
     """Return the team id to stamp on newly-created resources."""
     if is_superadmin(user):

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user
 from core.database import get_conn
-from core.tenancy import assert_row_access
+from core.tenancy import assert_row_access, claim_row_for_team
 from services.token_manager import (
     ensure_token_source_columns,
     get_op_token_status,
@@ -129,6 +129,7 @@ def bind_op_token(act_id: str, body: BindOpToken, user=Depends(get_current_user)
             """,
             (act_id, body.token_id, body.priority or 0, body.note),
         )
+        claim_row_for_team(conn, "fb_tokens", "id", body.token_id, user)
         conn.commit()
     except Exception as exc:
         conn.rollback()
