@@ -194,6 +194,17 @@ html,body{height:100%;width:100%;font-family:-apple-system,BlinkMacSystemFont,'S
 .nav-item:hover{background:var(--bgh);color:var(--t1)}
 .nav-item.active{background:var(--acg);color:var(--ac);border-color:rgba(59,130,246,.2)}
 .nav-icon{width:18px;text-align:center;font-size:15px;flex-shrink:0}
+body.role-viewer .role-hide-viewer,
+body.role-viewer .role-operator-only{display:none!important}
+body.role-viewer .role-admin-only,
+body.role-operator .role-admin-only{display:none!important}
+body.role-viewer .role-superadmin-only,
+body.role-operator .role-superadmin-only,
+body.role-admin .role-superadmin-only{display:none!important}
+body.role-viewer .fb-row-check,
+body.role-viewer #adsBulkBar{display:none!important}
+body.role-viewer .fb-switch,
+body.role-viewer .fb-budget-edit{pointer-events:none!important;opacity:.45}
 .sb-foot{padding:12px 10px;border-top:1px solid var(--bd)}
 .btn-emg{width:100%;padding:10px;background:var(--erg);border:1px solid rgba(239,68,68,.3);border-radius:var(--rs);color:var(--er);font-size:13px;font-weight:600;transition:var(--tr);display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
 .btn-emg:hover{background:rgba(239,68,68,.2)}
@@ -1159,7 +1170,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
     <div class="page" id="page-tokens">
      <div class="ph">
       <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
-      <button class="btn btn-p" onclick="openModal('moAddToken')">+ 添加 Token</button>
+      <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
      </div>
      <div id="tokensList"></div>
     </div>
@@ -1228,11 +1239,11 @@ tr:hover td{background:rgba(255,255,255,.025)}
        </select>
        <button class="btn btn-g btn-sm" onclick="loadAssets(true)">刷新</button>
        <button class="btn btn-g btn-sm" onclick="openAssetDuplicates()">查重复</button>
-       <button class="btn btn-p" onclick="openUploadAsset()">+ 上传素材</button>
+       <button class="btn btn-p role-hide-viewer" onclick="openUploadAsset()">+ 上传素材</button>
       </div>
      </div>
      <!-- 上传拖放区域 -->
-     <div id="assetDropZone" style="border:2px dashed var(--bd2);border-radius:var(--r);padding:28px;text-align:center;margin-bottom:16px;cursor:pointer;transition:var(--tr);background:var(--bg2)" onclick="_showCountrySelectThenPick()" ondragover="event.preventDefault();this.style.borderColor='var(--ac)'" ondragleave="this.style.borderColor='var(--bd2)'" ondrop="handleAssetDrop(event)">
+     <div id="assetDropZone" class="role-hide-viewer" style="border:2px dashed var(--bd2);border-radius:var(--r);padding:28px;text-align:center;margin-bottom:16px;cursor:pointer;transition:var(--tr);background:var(--bg2)" onclick="_showCountrySelectThenPick()" ondragover="event.preventDefault();this.style.borderColor='var(--ac)'" ondragleave="this.style.borderColor='var(--bd2)'" ondrop="handleAssetDrop(event)">
       <div style="font-size:32px;margin-bottom:8px"></div>
       <div style="color:var(--t1);font-weight:600;margin-bottom:4px">点击或拖放素材到此处</div>
       <div style="color:var(--t3);font-size:12px">支持 JPG / PNG / GIF / MP4 / MOV · 图片最大 30MB · 视频最大 500MB</div>
@@ -1260,8 +1271,8 @@ tr:hover td{background:rgba(255,255,255,.025)}
         <option value="all">全部矩阵</option>
        </select>
        <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
-       <button class="btn btn-g btn-sm" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
-       <button class="btn" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
+       <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
+       <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
       </div>
      </div>
      <!-- 账户汇总卡片 -->
@@ -1275,10 +1286,10 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <div><h2>KPI 配置</h2><p>广告级精细化指标（广告级 >广告组级 >Campaign级 >账户级）</p></div>
       <div class="ph-acts">
        <select class="fc" id="kpiAct" style="width:200px" onchange="loadKpi()"><option value="">全部账户</option></select>
-       <button class="btn btn-g" onclick="openModal('moAutoScan')">自动扫描预设</button>
-       <button class="btn" style="background:var(--bg2);border:1px solid var(--bd);color:var(--t1)" onclick="openBatchCpa()">批量设置 CPA</button>
-       <button class="btn btn-p" onclick="showAddKpi()">+ 手动添加</button>
-       <button id="btnAiAnalyze" class="btn" style="background:var(--bg2);border:1px solid var(--pu);color:var(--pu)" onclick="runAiAnalyze()">AI 重新分析</button>
+       <button class="btn btn-g role-hide-viewer" onclick="openModal('moAutoScan')">自动扫描预设</button>
+       <button class="btn role-hide-viewer" style="background:var(--bg2);border:1px solid var(--bd);color:var(--t1)" onclick="openBatchCpa()">批量设置 CPA</button>
+       <button class="btn btn-p role-hide-viewer" onclick="showAddKpi()">+ 手动添加</button>
+       <button id="btnAiAnalyze" class="btn role-hide-viewer" style="background:var(--bg2);border:1px solid var(--pu);color:var(--pu)" onclick="runAiAnalyze()">AI 重新分析</button>
       </div>
      </div>
      <!-- KPI 层级说明 -->
@@ -1297,7 +1308,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <span class="badge bg-pu">AI分析</span>
      </div>
      <!-- KPI 批量操作工具栏（选中后显示）-->
-     <div id="kpiBatchBar" style="display:none;padding:10px 14px;background:var(--bg2);border:1px solid var(--ac);border-radius:var(--rs);margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap">
+     <div id="kpiBatchBar" class="role-hide-viewer" style="display:none;padding:10px 14px;background:var(--bg2);border:1px solid var(--ac);border-radius:var(--rs);margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap">
       <span id="kpiBatchCount" style="font-size:13px;font-weight:600;color:var(--ac)">已选 0 条</span>
       <button class="btn btn-sm" style="background:var(--bg3);border:1px solid var(--bd);color:var(--t1);padding:4px 10px;font-size:12px" onclick="batchSetCpaSelected()">设置 CPA</button>
       <button class="btn btn-sm" style="background:var(--erg);border:1px solid var(--er);color:var(--er);padding:4px 10px;font-size:12px" onclick="batchDeleteSelected()"> 批量删除</button>
@@ -1337,7 +1348,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
       <div style="display:flex;gap:8px;align-items:center">
        <select class="fc" id="rulesAct" style="width:180px" onchange="loadRules()"><option value="">全部账户</option></select>
        <div style="position:relative" id="tplMenuWrap">
-        <button class="btn btn-ok" onclick="toggleTplMenu()">模板管理 ▾</button>
+        <button class="btn btn-ok role-hide-viewer" onclick="toggleTplMenu()">模板管理 ▾</button>
         <div id="tplDropMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;min-width:180px;z-index:100;box-shadow:var(--sh)">
          <div onclick="openTemplateModal();toggleTplMenu()" style="padding:10px 16px;cursor:pointer;font-size:13px;color:var(--t1);border-bottom:1px solid var(--bd)" onmouseover="this.style.background='var(--bgh)'" onmouseout="this.style.background=''">套用推荐模板</div>
          <div onclick="openCustomTplModal();toggleTplMenu()" style="padding:10px 16px;cursor:pointer;font-size:13px;color:var(--t1);border-bottom:1px solid var(--bd)" onmouseover="this.style.background='var(--bgh)'" onmouseout="this.style.background=''">自定义模板管理</div>
@@ -1351,7 +1362,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
      </div>
      <div id="guardPanel">
       <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-       <button class="btn btn-p" onclick="showAddRule('guard')">+ 添加止损规则</button>
+       <button class="btn btn-p role-hide-viewer" onclick="showAddRule('guard')">+ 添加止损规则</button>
       </div>
       <div id="guardList"></div>
      </div>
@@ -1371,7 +1382,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
      <div id="tplPanelMsg">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
        <div style="color:var(--t2);font-size:13px">欢迎消息模版库，选择消息类转化目的时可直接选用。系统会自动将模版转为 FB 标准格式。</div>
-       <button class="btn btn-p" onclick="openMsgTemplateModal()">新建消息模版</button>
+       <button class="btn btn-p role-hide-viewer" onclick="openMsgTemplateModal()">新建消息模版</button>
       </div>
       <div id="msgTemplateList"><div style="text-align:center;color:var(--t3);padding:40px">加载中...</div></div>
      </div>
@@ -1380,7 +1391,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
      <div id="tplPanelForm" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
        <div style="color:var(--t2);font-size:13px">表单模版库，铺广告时选用模版，系统自动在目标主页创建 Lead Form（需 pages_manage_ads 权限）。</div>
-       <button class="btn btn-p" onclick="openLeadFormTemplateModal()">新建表单模版</button>
+       <button class="btn btn-p role-hide-viewer" onclick="openLeadFormTemplateModal()">新建表单模版</button>
       </div>
       <div id="leadFormTemplateList"><div style="text-align:center;color:var(--t3);padding:40px">加载中...</div></div>
      </div>
@@ -1391,7 +1402,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
      <div class="ph">
       <div><h2>主页库</h2><p>管理已接入系统的 Facebook 主页；扫描时自动探测 Verified ID 候选，也可手动填写</p></div>
       <div style="display:flex;gap:8px;align-items:center">
-       <button class="btn btn-p" id="btnScanTwPages" onclick="scanTwCertPages()">自动扫描所有 Token 主页</button>
+       <button class="btn btn-p role-hide-viewer" id="btnScanTwPages" onclick="scanTwCertPages()">自动扫描所有 Token 主页</button>
       </div>
      </div>
      <div class="ss" style="margin-bottom:14px">
@@ -1438,7 +1449,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
         <input class="fc" id="twNewPageNote2" placeholder="如：陈燕认证">
        </div>
        <div style="display:flex;align-items:flex-end;padding-bottom:2px">
-        <button class="btn btn-p" style="width:100%" onclick="addTwCertPage2()">添加</button>
+        <button class="btn btn-p role-hide-viewer" style="width:100%" onclick="addTwCertPage2()">添加</button>
        </div>
       </div>
      </div>
@@ -1455,7 +1466,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
     <option value="all">全部矩阵</option>
    </select>
    <button class="btn btn-g" onclick="exportLandingUrlsCsv()">导出 CSV</button>
-   <button class="btn btn-g" onclick="document.getElementById('importLandingCsv').click()">导入 CSV</button>
+   <button class="btn btn-g role-hide-viewer" onclick="document.getElementById('importLandingCsv').click()">导入 CSV</button>
    <input type="file" id="importLandingCsv" accept=".csv" style="display:none" onchange="importLandingUrlsCsv(this)">
   </div>
  </div>
@@ -2504,6 +2515,12 @@ var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',t
 
 // ── API ──
 async function api(m,p,b){
+ m=(m||'GET').toUpperCase();
+ if(['POST','PUT','PATCH','DELETE'].indexOf(m)>=0 && typeof canWrite==='function' && !canWrite()){
+  var readOnlyMsg='当前账号为只读角色，不能执行写入操作';
+  toast(readOnlyMsg,'wa');
+  throw new Error(readOnlyMsg);
+ }
  var o={method:m,headers:{'Content-Type':'application/json','Authorization':'Bearer '+token}};
  if(b)o.body=JSON.stringify(b);
  var r=await fetch('/api'+p,o);
@@ -2759,6 +2776,7 @@ var ROLE_LEVELS = {superadmin:100, admin:80, operator:50, viewer:10};
 var PAGE_MIN_ROLES = {settings:'superadmin', kpi_mapping:'superadmin'};
 function getCurrentRole(){return localStorage.getItem('mira_role')||'viewer';}
 function hasRole(minRole){return (ROLE_LEVELS[getCurrentRole()]||0)>=(ROLE_LEVELS[minRole]||0);}
+function canWrite(){return hasRole('operator');}
 function canOpenPage(name){
  var minRole=PAGE_MIN_ROLES[name];
  return !minRole || hasRole(minRole);
@@ -2772,7 +2790,12 @@ function roleDisplayText(me){
 }
 
 function applyRolePermissions(role){
+ role=role||getCurrentRole();
  var level = ROLE_LEVELS[role]||10;
+ if(document.body){
+  document.body.classList.remove('role-superadmin','role-admin','role-operator','role-viewer');
+  document.body.classList.add('role-'+role);
+ }
  document.querySelectorAll('.role-hide-viewer').forEach(function(el){
   el.style.display = level<=10 ? 'none' : '';
  });
@@ -5153,8 +5176,8 @@ function renderTokensView(){
    var permissionSummary=buildTokenPermissionSummary(t);
    var aliasText=escHtml(t.token_alias||'');
    var noteText=t.note?(' · '+escHtml(t.note)):'';
-   var rematchBtn=t.token_type==='operate'?'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();rematchOpToken('+t.id+',this)" title="重新匹配已导入账户">重新匹配</button>':'';
-    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
+   var rematchBtn=t.token_type==='operate'?'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();rematchOpToken('+t.id+',this)" title="重新匹配已导入账户">重新匹配</button>':'';
+    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic role-hide-viewer" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d role-hide-viewer" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
   }).join('');
   html+='</div></div>';
  });
@@ -5727,7 +5750,7 @@ function renderAccCard(a,idx){
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openOpPoolModal(\''+a.act_id+'\')">操作号配置</button>'+
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openPagePixelModal(\''+a.act_id+'\')">主页/像素</button>'+
   '<button class="btn btn-g btn-sm" style="'+(a.balance_type==='unlimited'?'color:var(--ac);font-weight:600':'')+'" onclick="event.stopPropagation();openSpendCapModal(\''+a.act_id+'\','+(spendCapUsd||0)+',\''+(a.name||a.act_id).replace(/'/g,'\\\x27')+'\',\''+(a.currency||'USD')+'\','+(a.balance_type==='unlimited'?'true':'false')+')">消费上限'+spendCapLabel+'</button>'+
-  '<button class="btn btn-r btn-sm" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
+  '<button class="btn btn-r btn-sm role-hide-viewer" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm role-superadmin-only" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle role-hide-viewer" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
   '</div>'+
   '</div>'+
   '</div>';
@@ -5835,7 +5858,7 @@ function _renderAccountPermissionDiagnostic(data){
  h+='<div style="font-size:12px;color:var(--t3);margin-bottom:4px">建议处理</div>';
  h+='<div style="font-size:13px;line-height:1.6">'+escHtml(s.recommended_action||'已完成检测')+'</div>';
  if(hasRole('operator')){
-  h+='<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="repairAccountPermissionDiagnostic(\''+escHtml(data.act_id||'')+'\')">一键重新匹配 Token</button><span style="font-size:12px;color:var(--t3);align-self:center">会扫描同团队/同矩阵可用 Token，并补齐可见账户的绑定关系</span></div>';
+  h+='<div class="role-hide-viewer" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="repairAccountPermissionDiagnostic(\''+escHtml(data.act_id||'')+'\')">一键重新匹配 Token</button><span style="font-size:12px;color:var(--t3);align-self:center">会扫描同团队/同矩阵可用 Token，并补齐可见账户的绑定关系</span></div>';
  }
  h+='</div>';
  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-bottom:14px">';
@@ -6503,17 +6526,17 @@ function _renderAssetCard(a){
   collapsibleDetail+
   '<div style="display:flex;gap:5px;align-items:center;margin-top:2px">'+
    (aiDone
-    ?'<button class="btn btn-p btn-sm" onclick="openLaunchModal('+a.id+')" style="flex:1;min-width:0">&#x1F680; 铺广告</button>'+
-     '<button class="btn-ic" title="重新分析（可更换目的/语言）" onclick="triggerAssetAI('+a.id+')">&#x1F504;</button>'
+    ?'<button class="btn btn-p btn-sm role-hide-viewer" onclick="openLaunchModal('+a.id+')" style="flex:1;min-width:0">&#x1F680; 铺广告</button>'+
+     '<button class="btn-ic role-hide-viewer" title="重新分析（可更换目的/语言）" onclick="triggerAssetAI('+a.id+')">&#x1F504;</button>'
     :(a.upload_status==='ai_error'
-     ?'<button class="btn btn-sm" onclick="triggerAssetAI('+a.id+')" style="flex:1;min-width:0;background:var(--wa);border:1px solid var(--wa);color:#fff">&#x1F916; 重新分析</button>'
-     :'<button class="btn btn-g btn-sm" onclick="triggerAssetAI('+a.id+')" style="flex:1;min-width:0">&#x1F916; AI 分析</button>'))+
+     ?'<button class="btn btn-sm role-hide-viewer" onclick="triggerAssetAI('+a.id+')" style="flex:1;min-width:0;background:var(--wa);border:1px solid var(--wa);color:#fff">&#x1F916; 重新分析</button>'
+     :'<button class="btn btn-g btn-sm role-hide-viewer" onclick="triggerAssetAI('+a.id+')" style="flex:1;min-width:0">&#x1F916; AI 分析</button>'))+
    '<button class="btn-ic" title="详情" onclick="openAssetDetail('+a.id+')">&#x1F4CB;</button>'+
-   '<button class="btn-ic" title="重命名" onclick="quickRenameAsset('+a.id+')">&#x270F;</button>'+
+   '<button class="btn-ic role-hide-viewer" title="重命名" onclick="quickRenameAsset('+a.id+')">&#x270F;</button>'+
    (archived
-    ?'<button class="btn-ic" title="恢复素材" onclick="restoreAsset('+a.id+')">&#x21BA;</button>'
-    :'<button class="btn-ic" title="归档素材" onclick="archiveAsset('+a.id+')">&#x1F5C4;</button>')+
-   '<button class="btn-ic d" title="删除" onclick="deleteAsset('+a.id+')">&#x1F5D1;</button>'+
+    ?'<button class="btn-ic role-hide-viewer" title="恢复素材" onclick="restoreAsset('+a.id+')">&#x21BA;</button>'
+    :'<button class="btn-ic role-hide-viewer" title="归档素材" onclick="archiveAsset('+a.id+')">&#x1F5C4;</button>')+
+   '<button class="btn-ic d role-hide-viewer" title="删除" onclick="deleteAsset('+a.id+')">&#x1F5D1;</button>'+
   '</div>'+
  '</div>';
 }
@@ -6713,10 +6736,12 @@ function renderAssetsList(assets){
 // 待上传的文件暂存
 var _pendingUploadFiles=null;
 async function openUploadAsset(){
+ if(!canWrite()){toast('当前账号为只读角色，不能上传素材','wa');return;}
  // 先弹出国家选择弹窗，选完后再打开文件选择框
  _showCountrySelectThenPick();
 }
 function _showCountrySelectThenPick(){
+ if(!canWrite()){toast('当前账号为只读角色，不能上传素材','wa');return;}
  var existingModal=document.getElementById('moCountrySelectPick');
  if(existingModal)existingModal.remove();
  var modal=document.createElement('div');
@@ -6758,6 +6783,7 @@ function _pickCountryAndUpload(country){
 }
 // 文件选择后的回调（替代 onchange 内联逻辑，避免重复弹窗）
 function _onAssetFileSelected(files){
+ if(!canWrite()){toast('当前账号为只读角色，不能上传素材','wa');return;}
  if(!files||!files.length)return;
  if(window._uploadCountrySet){
   // 国家已通过 _pickCountryAndUpload 设置，直接上传
@@ -6776,6 +6802,7 @@ function _onAssetFileSelected(files){
 }
 function handleAssetDrop(e){
  e.preventDefault();
+ if(!canWrite()){toast('当前账号为只读角色，不能上传素材','wa');return;}
  document.getElementById('assetDropZone').style.borderColor='var(--bd2)';
  _showCountrySelectModal(e.dataTransfer.files);
 }
@@ -6820,6 +6847,7 @@ function _toggleCountry(btn,code){
  btn.classList.toggle('btn-g');
 }
 function _confirmUploadWithCountries(){
+ if(!canWrite()){toast('当前账号为只读角色，不能上传素材','wa');return;}
  var selected=[];
  document.querySelectorAll('#countryBtnGroup button.btn-p').forEach(function(b){selected.push(b.getAttribute('data-code'));});
  var custom=document.getElementById('customCountryInput').value.trim();
@@ -7328,7 +7356,7 @@ async function openAssetDetail(assetId){
   // 底部按钮
   var footHtml='<button class="btn btn-g" onclick="closeModal(\'moAssetDetail\')">关闭</button>';
   if(a.upload_status==='ai_done'){
-   footHtml+='<button class="btn btn-p" onclick="closeModal(\'moAssetDetail\');openLaunchModal('+assetId+')">一键铺广告</button>';
+   footHtml+='<button class="btn btn-p role-hide-viewer" onclick="closeModal(\'moAssetDetail\');openLaunchModal('+assetId+')">一键铺广告</button>';
   }
   document.getElementById('assetDetailFoot').innerHTML=footHtml;
  }catch(e){
@@ -8823,7 +8851,7 @@ function renderKpiList(){
  el.innerHTML=data.map(function(k){
   var lv=lvMap[k.level]||{label:k.level,cls:'bg-mu'};
   var actName=(window._kpiActMap&&window._kpiActMap[k.act_id])||k.act_id||'';
-  return'<div class="kc" data-id="'+k.id+'"><div style="display:flex;align-items:center;padding:0 8px 0 4px"><input type="checkbox" class="kpi-chk" value="'+k.id+'" onchange="onKpiCheck()" style="width:14px;height:14px;cursor:pointer"></div><div class="kc-lv"><span class="badge '+lv.cls+'">'+lv.label+'</span></div>'+
+  return'<div class="kc" data-id="'+k.id+'"><div class="role-hide-viewer" style="display:flex;align-items:center;padding:0 8px 0 4px"><input type="checkbox" class="kpi-chk" value="'+k.id+'" onchange="onKpiCheck()" style="width:14px;height:14px;cursor:pointer"></div><div class="kc-lv"><span class="badge '+lv.cls+'">'+lv.label+'</span></div>'+
    '<div class="kc-info">'+
    '<div class="kc-name" title="'+(k.target_name||k.target_id)+'">'+(k.target_name||k.target_id)+'</div>'+
    '<div class="kc-id">'+k.target_id+'</div>'+
@@ -8840,8 +8868,8 @@ function renderKpiList(){
    '</div>'+
    '<div class="kc-cpa">'+(k.target_cpa?'$'+parseFloat(k.target_cpa).toFixed(2):'<span style="color:var(--t3);font-size:12px">未设CPA</span>')+'</div>'+
    '<div class="td-acts">'+
-    '<button class="btn-ic" title="编辑" onclick="editKpi('+k.id+')">编</button>'+
-    '<button class="btn-ic d" title="删除" onclick="delKpi('+k.id+')">删</button>'+
+    '<button class="btn-ic role-hide-viewer" title="编辑" onclick="editKpi('+k.id+')">编</button>'+
+    '<button class="btn-ic d role-hide-viewer" title="删除" onclick="delKpi('+k.id+')">删</button>'+
    '</div>'+
    '</div>';
  }).join('');
@@ -9148,7 +9176,7 @@ function renderGuard(rules){
   var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+(kpiFilterLabel[r.kpi_filter]||r.kpi_filter)+'</span>':'';
   var actBadge=isGlobal?'<span class="badge" style="background:rgba(139,92,246,.2);color:#a78bfa;border:1px solid rgba(139,92,246,.3)">全局</span>'+kfiBadge:'<span class="badge bg-mu">'+r.act_id+'</span>';
   var cardStyle=isGlobal?'border-left:3px solid rgba(139,92,246,.6);':'';
-   return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div></div><div class="rc-acts"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
+   return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
  }
  var globalRules=rules.filter(function(r){return r.act_id==='__global__'});
  var accRules=rules.filter(function(r){return r.act_id!=='__global__'});
@@ -9366,7 +9394,7 @@ async function openCustomTplModal(){
   var custom=(resp&&resp.custom)||[];
   var html='<div style="margin-bottom:16px;font-size:13px;color:var(--t2)">自定义模板可以保存当前规则配置，方便将来一键应用到其他账户。</div>';
   if(!custom.length){html+='<div style="text-align:center;color:var(--t3);padding:24px">暂无自定义模板</div>';}
-  else{html+='<div class="table-wrap"><table><thead><tr><th>模板名称</th><th>描述</th><th>止损</th><th>操作</th></tr></thead><tbody>';custom.forEach(function(t){html+='<tr><td><strong>'+t.name+'</strong></td><td style="font-size:12px;color:var(--t3)">'+(t.description||'')+'</td><td>'+(t.guard_rules||[]).length+'</td><td><button class="btn btn-er btn-sm" onclick="delCustomTpl('+t.id+')"> 删除</button></td></tr>';});html+='</tbody></table></div>';}
+  else{html+='<div class="table-wrap"><table><thead><tr><th>模板名称</th><th>描述</th><th>止损</th><th>操作</th></tr></thead><tbody>';custom.forEach(function(t){html+='<tr><td><strong>'+t.name+'</strong></td><td style="font-size:12px;color:var(--t3)">'+(t.description||'')+'</td><td>'+(t.guard_rules||[]).length+'</td><td><button class="btn btn-er btn-sm role-hide-viewer" onclick="delCustomTpl('+t.id+')"> 删除</button></td></tr>';});html+='</tbody></table></div>';}
   document.getElementById('customTplContent').innerHTML=html;
   openModal('moCustomTpl');
  }catch(e){toast('加载失败: '+e.message,'er')}
@@ -9423,8 +9451,8 @@ async function loadMsgTemplates(){
     '<div style="font-size:12px;color:var(--t3);margin-top:2px">'+t.destination+' &nbsp;·&nbsp; 创建于 '+t.created_at.slice(0,10)+'</div>'+
     '</div>'+
     '<div style="display:flex;gap:6px">'+
-    '<button class="btn btn-g" style="font-size:12px;padding:4px 10px" onclick="editMsgTemplate('+t.id+')">编辑</button>'+
-    '<button class="btn" style="font-size:12px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5" onclick="deleteMsgTemplate('+t.id+',\''+escH(t.name)+'\')"> 删除</button>'+
+    '<button class="btn btn-g role-hide-viewer" style="font-size:12px;padding:4px 10px" onclick="editMsgTemplate('+t.id+')">编辑</button>'+
+    '<button class="btn role-hide-viewer" style="font-size:12px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5" onclick="deleteMsgTemplate('+t.id+',\''+escH(t.name)+'\')"> 删除</button>'+
     '</div></div>'+
     '<div style="margin-top:10px;font-size:13px;color:var(--t2);background:var(--bg3);border-radius:6px;padding:8px 10px">'+(t.greeting?escH(t.greeting):'<span style="color:var(--t3)">无欢迎语</span>')+'</div>'+
     (btns.length?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'+btns.map(function(b){return '<span style="background:var(--acg);color:var(--ac);border:1px solid rgba(59,130,246,.2);border-radius:20px;padding:3px 10px;font-size:12px">'+(b.title||b)+'</span>';}).join('')+'</div>':'')+
@@ -9556,8 +9584,8 @@ async function loadLeadFormTemplates(){
     '<div style="font-size:12px;color:var(--t3);margin-top:2px">表单模版 &nbsp;·&nbsp; '+t.locale+' &nbsp;·&nbsp; 创建于 '+t.created_at.slice(0,10)+'</div>'+
     '</div>'+
     '<div style="display:flex;gap:6px">'+
-    '<button class="btn btn-g" style="font-size:12px;padding:4px 10px" onclick="editLeadFormTemplate('+t.id+')">编辑</button>'+
-    '<button class="btn" style="font-size:12px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5" onclick="deleteLeadFormTemplate('+t.id+',\''+escH(t.name)+'\')"> 删除</button>'+
+    '<button class="btn btn-g role-hide-viewer" style="font-size:12px;padding:4px 10px" onclick="editLeadFormTemplate('+t.id+')">编辑</button>'+
+    '<button class="btn role-hide-viewer" style="font-size:12px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5" onclick="deleteLeadFormTemplate('+t.id+',\''+escH(t.name)+'\')"> 删除</button>'+
     '</div></div>'+
     '<div style="margin-top:10px;font-size:13px;color:var(--t2)"><strong>标题：</strong>'+escH(t.headline||'')+'</div>'+
     (qs.length?'<div style="margin-top:6px;font-size:12px;color:var(--t3)">收集字段：'+qs.map(function(q){return q.key||q.type;}).join(' / ')+'</div>':'')+
