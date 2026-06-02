@@ -3,6 +3,35 @@ from fastapi import HTTPException
 from core.auth import is_superadmin
 
 
+def _row_get(row, key: str, index: int = 0):
+    try:
+        return row[key]
+    except Exception:
+        return row[index]
+
+
+def team_write_block_reason(conn, user: dict) -> str | None:
+    """Return a user-facing reason when this user's team cannot write."""
+    if is_superadmin(user):
+        return None
+    team_id = user.get("team_id") if isinstance(user, dict) else None
+    if not team_id:
+        return None
+    try:
+        team_id = int(team_id)
+    except (TypeError, ValueError):
+        return "当前用户团队信息异常，写入操作已禁用，请重新登录或联系超级管理员"
+
+    row = conn.execute("SELECT status FROM teams WHERE id=?", (team_id,)).fetchone()
+    if not row:
+        return "当前用户所属团队不存在，写入操作已禁用，请联系超级管理员"
+
+    status = (_row_get(row, "status") or "active").strip().lower()
+    if status != "active":
+        return "当前团队已暂停，写入操作已禁用，请联系超级管理员"
+    return None
+
+
 def team_id_for_create(user: dict) -> int | None:
     """Return the team id to stamp on newly-created resources."""
     if is_superadmin(user):
@@ -45,4 +74,3 @@ def assert_row_access(conn, table: str, row_id: int, user: dict, id_column: str 
     if row_team_id == team_id or (allow_unassigned and row_team_id is None):
         return row
     raise HTTPException(status_code=403, detail="Resource belongs to another team")
-

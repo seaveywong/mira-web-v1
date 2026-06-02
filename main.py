@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os, time, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from core.app_meta import APP_VERSION, get_allowed_origins
 from core.database import init_db, get_conn
-from core.auth import get_current_user, SECRET_KEY, ALGORITHM
+from core.auth import SECRET_KEY, ALGORITHM, normalize_user_claims
+from core.tenancy import team_write_block_reason
 from api.auth import router as auth_router
 from api.accounts import router as accounts_router
 from api.rules import router as rules_router
@@ -102,6 +103,45 @@ class ActivityAuditMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class TeamWriteGuardMiddleware(BaseHTTPMiddleware):
+    WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if not path.startswith("/api/") or request.method.upper() not in self.WRITE_METHODS:
+            return await call_next(request)
+        if path == "/api/auth/login":
+            return await call_next(request)
+
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return await call_next(request)
+
+        try:
+            payload = jwt.decode(auth_header[7:], SECRET_KEY, algorithms=[ALGORITHM])
+            user = normalize_user_claims(payload)
+        except Exception:
+            return await call_next(request)
+
+        conn = None
+        try:
+            conn = get_conn()
+            reason = team_write_block_reason(conn, user)
+        except Exception as exc:
+            logging.getLogger("mira").warning(f"team write guard warning: {exc}")
+            return await call_next(request)
+        finally:
+            if conn:
+                conn.close()
+
+        if reason:
+            return JSONResponse(
+                {"detail": reason, "code": "team_write_disabled"},
+                status_code=403,
+            )
+        return await call_next(request)
+
+
 app = FastAPI(title="Mira Ads Guard", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
@@ -110,6 +150,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TimingMiddleware)
+app.add_middleware(TeamWriteGuardMiddleware)
 app.add_middleware(ActivityAuditMiddleware)
 
 
