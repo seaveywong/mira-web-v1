@@ -297,7 +297,7 @@ def list_kpi_configs(act_id: Optional[str] = None, level: Optional[str] = None,
         query += " AND k.level=?"
         params.append(level)
     scope_where, scope_params = [], []
-    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=False)
     if scope_where:
         query += " AND " + " AND ".join(scope_where)
         params.extend(scope_params)
@@ -321,7 +321,7 @@ def get_kpi_summary(act_id: Optional[str] = None, user=Depends(get_current_user)
         where += " AND k.act_id=?"
         params.append(act_id)
     scope_where, scope_params = [], []
-    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=False)
     if scope_where:
         where += " AND " + " AND ".join(scope_where)
         params.extend(scope_params)
@@ -874,7 +874,7 @@ def get_kpi_targets(act_id: str, level: str, user=Depends(get_current_user)):
     if not token:
         conn3 = get_conn()
         token_where, token_params = ["status='active'"], []
-        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=True)
+        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=False)
         any_tk = conn3.execute(
             "SELECT access_token_enc FROM fb_tokens WHERE " + " AND ".join(token_where) + " LIMIT 1",
             token_params,

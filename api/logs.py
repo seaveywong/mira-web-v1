@@ -24,7 +24,7 @@ def get_logs(
         team_id = team_id_for_create(user)
         where.append(
             "((l.act_id IS NULL OR l.act_id='' OR l.act_id='__global__') "
-            "OR (a.act_id IS NOT NULL AND (a.team_id=? OR a.team_id IS NULL)))"
+            "OR (a.act_id IS NOT NULL AND a.team_id=?))"
         )
         params.append(team_id)
     if act_id:

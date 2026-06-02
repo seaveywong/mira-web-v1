@@ -927,7 +927,7 @@ def list_tokens(user=Depends(get_current_user)):
     ensure_token_source_columns(conn)
     _ensure_fb_token_permission_columns(conn)
     where, params = ["1=1"], []
-    apply_team_scope(where, params, user, "t.team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "t.team_id", include_unassigned=False)
     rows = conn.execute(f"""
         SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
                t.last_verified_at, t.note, t.created_at, t.matrix_id,
@@ -1090,7 +1090,7 @@ def update_token(token_id: int, body: TokenUpdate, user=Depends(get_current_user
     conn = get_conn()
     ensure_token_source_columns(conn)
     _ensure_fb_token_permission_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     token_row = conn.execute(
         "SELECT id, token_type, token_source FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -1147,7 +1147,7 @@ def update_token_type(token_id: int, body: TokenTypeUpdate, user=Depends(get_cur
         raise HTTPException(400, f"token_type 必须是 {sorted(allowed)} 之一")
     conn = get_conn()
     ensure_token_source_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     row = conn.execute(
         "SELECT id, token_source FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -1177,7 +1177,7 @@ def update_token_source(token_id: int, body: TokenSourceUpdate, user=Depends(get
     """单独修改 Token 来源。"""
     conn = get_conn()
     ensure_token_source_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     row = conn.execute(
         "SELECT id, token_type FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -1207,7 +1207,7 @@ def update_token_matrix(token_id: int, body: dict, user=Depends(get_current_user
         matrix_id = None
     conn = get_conn()
     ensure_token_source_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     row = conn.execute(
         "SELECT id, token_type, token_source FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -1255,7 +1255,7 @@ def verify_token_now(token_id: int, user=Depends(get_current_user)):
     """立即验证Token有效性"""
     conn = get_conn()
     ensure_token_source_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     row = conn.execute("SELECT access_token_enc, token_type FROM fb_tokens WHERE id=?", (token_id,)).fetchone()
     conn.close()
     if not row:
@@ -1285,9 +1285,9 @@ def verify_token_now(token_id: int, user=Depends(get_current_user)):
     )
     claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
     account_where, account_params = ["token_id=?"], [token_id]
-    apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=True)
+    apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=False)
     op_scope_where, op_scope_params = ["a.act_id=account_op_tokens.act_id"], []
-    apply_team_scope(op_scope_where, op_scope_params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(op_scope_where, op_scope_params, user, "a.team_id", include_unassigned=False)
     op_scope_sql = (
         "token_id=? AND EXISTS ("
         f"SELECT 1 FROM accounts a WHERE {' AND '.join(op_scope_where)}"
@@ -1331,7 +1331,7 @@ def rematch_op_token_accounts(token_id: int, user=Depends(get_current_user)):
     """手动触发操作号重新匹配已导入账户（用于操作号添加后匹配失败的情况）"""
     conn = get_conn()
     ensure_token_source_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     row = conn.execute(
         "SELECT id, token_type, token_source, access_token_enc, status, team_id FROM fb_tokens WHERE id=?",
         (token_id,)
@@ -1409,7 +1409,7 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
     # 先读取token，立即关闭连接
     conn = get_conn()
     ensure_token_source_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     row = conn.execute(
         "SELECT access_token_enc, status, token_type, token_source, team_id FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -1442,7 +1442,7 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
     # FB API调用完毕后，再开数据库连接
     conn = get_conn()
     imported_where, imported_params = [], []
-    apply_team_scope(imported_where, imported_params, user, "team_id", include_unassigned=True)
+    apply_team_scope(imported_where, imported_params, user, "team_id", include_unassigned=False)
     imported_clause = ("WHERE " + " AND ".join(imported_where)) if imported_where else ""
     imported = {
         r["act_id"]
@@ -1598,7 +1598,7 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
     # Step 1: 读取token，立即关闭连接
     conn = get_conn()
     ensure_token_source_columns(conn)
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     row = conn.execute(
         "SELECT access_token_enc, status, token_type, token_source, team_id FROM fb_tokens WHERE id=?",
         (token_id,),
@@ -1874,7 +1874,7 @@ def list_accounts(user=Depends(get_current_user)):
     ensure_token_source_columns(conn)
     _ensure_account_read_columns(conn)
     where, params = ["1=1"], []
-    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
     rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name, a.currency, a.timezone, a.timezone_name, a.timezone_offset_hours_utc,
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
@@ -1900,7 +1900,7 @@ def list_accounts(user=Depends(get_current_user)):
     # 查询每个账户关联的所有 Token（来自 account_op_tokens，管理号+操作号，动态发现）
     all_tokens_map = {}
     token_where, token_params = ["1=1"], []
-    apply_team_scope(token_where, token_params, user, "t.team_id", include_unassigned=True)
+    apply_team_scope(token_where, token_params, user, "t.team_id", include_unassigned=False)
     all_token_rows = conn.execute(f"""
         SELECT aot.act_id, t.id as token_id, t.token_alias, t.token_type, t.token_source,
                t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
@@ -2048,7 +2048,7 @@ def list_accounts(user=Depends(get_current_user)):
 def update_account(account_id: int, body: AccountUpdate, user=Depends(get_current_user)):
     """更新账户信息"""
     conn = get_conn()
-    assert_row_access(conn, "accounts", account_id, user)
+    assert_row_access(conn, "accounts", account_id, user, allow_unassigned=False)
     updates = []
     params = []
     if body.name is not None:
@@ -2133,7 +2133,7 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
         conn.close()
         raise HTTPException(status_code=404, detail=f"账户 {act_id_str} 不存在")
     account_id = row[0]
-    assert_row_access(conn, "accounts", account_id, user)
+    assert_row_access(conn, "accounts", account_id, user, allow_unassigned=False)
     updates = []
     params = []
     if body.name is not None:
@@ -2190,7 +2190,7 @@ def delete_account(account_id: int, user=Depends(get_current_user)):
 def sync_account_status(account_id: int, user=Depends(get_current_user)):
     """从 FB API 同步单个账户的真实状态（account_status、balance、spend_cap）"""
     conn = get_conn()
-    assert_row_access(conn, "accounts", account_id, user)
+    assert_row_access(conn, "accounts", account_id, user, allow_unassigned=False)
     row = conn.execute("""
         SELECT a.act_id, a.name
         FROM accounts a
@@ -2251,7 +2251,7 @@ def sync_all_accounts_status(user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_account_read_columns(conn)
     where, params = [], []
-    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name
@@ -3150,7 +3150,7 @@ def list_tw_advertisers(user=Depends(get_current_user)):
     """列出所有台湾广告认证身份"""
     conn = get_conn()
     where, params = ["1=1"], []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     rows = conn.execute(
         f"SELECT id, name, fb_user_id, beneficiary, payer, note, verified, created_at, team_id FROM tw_advertisers WHERE {' AND '.join(where)} ORDER BY id",
         params,
@@ -3176,7 +3176,7 @@ def create_tw_advertiser(body: TwAdvertiserCreate, user=Depends(get_current_user
 def update_tw_advertiser(adv_id: int, body: TwAdvertiserUpdate, user=Depends(get_current_user)):
     """更新台湾广告认证身份"""
     conn = get_conn()
-    assert_row_access(conn, "tw_advertisers", adv_id, user)
+    assert_row_access(conn, "tw_advertisers", adv_id, user, allow_unassigned=False)
     updates, params = [], []
     if body.name is not None:
         updates.append("name=?"); params.append(body.name)
@@ -3201,7 +3201,7 @@ def update_tw_advertiser(adv_id: int, body: TwAdvertiserUpdate, user=Depends(get
 def delete_tw_advertiser(adv_id: int, user=Depends(get_current_user)):
     """删除台湾广告认证身份"""
     conn = get_conn()
-    assert_row_access(conn, "tw_advertisers", adv_id, user)
+    assert_row_access(conn, "tw_advertisers", adv_id, user, allow_unassigned=False)
     conn.execute("DELETE FROM tw_advertisers WHERE id=?", (adv_id,))
     conn.commit()
     conn.close()
@@ -3493,7 +3493,7 @@ def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_cu
     token_alias = None
 
     if token_id:
-        assert_row_access(conn, "fb_tokens", token_id, user)
+        assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
         # 使用指定 Token
         row = conn.execute(
             "SELECT access_token_enc, token_alias FROM fb_tokens WHERE id=? AND status='active'",
@@ -3506,7 +3506,7 @@ def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_cu
     if not token_plain:
         # 回退：用任意有效 Token
         token_where, token_params = ["status='active'"], []
-        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=True)
+        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=False)
         op_rows = conn.execute(
             "SELECT access_token_enc, token_alias FROM fb_tokens WHERE " + " AND ".join(token_where) + " ORDER BY id LIMIT 10",
             token_params,
@@ -3530,7 +3530,7 @@ def resolve_tw_page_name(page_id: str, token_id: int = None, user=Depends(get_cu
 
         conn2 = get_conn()
         all_where, all_params = ["status='active'"], []
-        apply_team_scope(all_where, all_params, user, "team_id", include_unassigned=True)
+        apply_team_scope(all_where, all_params, user, "team_id", include_unassigned=False)
         all_tokens = conn2.execute(
             "SELECT id, access_token_enc, token_alias FROM fb_tokens WHERE " + " AND ".join(all_where) + " ORDER BY id",
             all_params,
@@ -3646,7 +3646,7 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
     _cleanup_bad_verified_identity_rows(conn)
     conn.commit()
     where, params = ["1=1"], []
-    apply_team_scope(where, params, user, "p.team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "p.team_id", include_unassigned=False)
     rows = conn.execute(
         f"""
         SELECT p.id, p.page_id, p.page_name, p.verified_identity_id, p.verified_source, p.note, p.created_at,
@@ -3692,14 +3692,14 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
     # 自动获取主页名称（优先用指定 token_id，否则用任意有效 Token）
     conn_tmp = get_conn()
     if token_id:
-        assert_row_access(conn_tmp, "fb_tokens", int(token_id), user)
+        assert_row_access(conn_tmp, "fb_tokens", int(token_id), user, allow_unassigned=False)
         token_rows = conn_tmp.execute(
             "SELECT access_token_enc FROM fb_tokens WHERE id=? AND status='active'",
             (token_id,)
         ).fetchall()
     else:
         token_where, token_params = ["status='active'"], []
-        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=True)
+        apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=False)
         token_rows = conn_tmp.execute(
             f"SELECT access_token_enc FROM fb_tokens WHERE {' AND '.join(token_where)} ORDER BY id LIMIT 10",
             token_params,
@@ -3761,7 +3761,7 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
 def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_current_user)):
     """更新台湾认证主页（支持更新 matrix_id、token_id、verified_identity_id 等字段）"""
     conn = get_conn()
-    assert_row_access(conn, "tw_certified_pages", page_db_id, user)
+    assert_row_access(conn, "tw_certified_pages", page_db_id, user, allow_unassigned=False)
     updates, params = [], []
     if "page_name" in body:
         updates.append("page_name=?"); params.append(body["page_name"])
@@ -3791,7 +3791,7 @@ def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_curre
 def delete_tw_certified_page(page_db_id: int, user=Depends(get_current_user)):
     """删除台湾认证主页"""
     conn = get_conn()
-    assert_row_access(conn, "tw_certified_pages", page_db_id, user)
+    assert_row_access(conn, "tw_certified_pages", page_db_id, user, allow_unassigned=False)
     conn.execute("DELETE FROM tw_certified_pages WHERE id=?", (page_db_id,))
     conn.commit()
     conn.close()
@@ -3827,7 +3827,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
 
     # 获取所有 active Token（含矩阵归属）
     token_where, token_params = ["ft.status = 'active'"], []
-    apply_team_scope(token_where, token_params, user, "ft.team_id", include_unassigned=True)
+    apply_team_scope(token_where, token_params, user, "ft.team_id", include_unassigned=False)
     token_rows = conn.execute(
         f"""
         SELECT ft.id, ft.access_token_enc, ft.token_alias, ft.matrix_id
@@ -3840,7 +3840,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
 
     # 获取已存在的主页记录，重扫时刷新主页名/矩阵/Token 绑定
     existing_where, existing_params = ["1=1"], []
-    apply_team_scope(existing_where, existing_params, user, "team_id", include_unassigned=True)
+    apply_team_scope(existing_where, existing_params, user, "team_id", include_unassigned=False)
     existing_rows = {
         r["page_id"]: dict(r)
         for r in conn.execute(
@@ -4114,7 +4114,7 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
     if account_matrix_id is not None:
         count_where.append("matrix_id=?")
         count_params.append(account_matrix_id)
-    apply_team_scope(count_where, count_params, user, "team_id", include_unassigned=True)
+    apply_team_scope(count_where, count_params, user, "team_id", include_unassigned=False)
     count_clause = ("WHERE " + " AND ".join(count_where)) if count_where else ""
     all_pages_count = conn.execute(
         f"SELECT COUNT(*) FROM tw_certified_pages {count_clause}",
@@ -4140,7 +4140,7 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
         certified_sql += " AND p.matrix_id=?"
         certified_params.append(account_matrix_id)
     cert_scope_where, cert_scope_params = [], []
-    apply_team_scope(cert_scope_where, cert_scope_params, user, "p.team_id", include_unassigned=True)
+    apply_team_scope(cert_scope_where, cert_scope_params, user, "p.team_id", include_unassigned=False)
     if cert_scope_where:
         certified_sql += " AND " + " AND ".join(cert_scope_where)
         certified_params.extend(cert_scope_params)
@@ -4189,7 +4189,7 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
         if not mgr:
             # 回退：用 fb_tokens 表中任意 active 的 user token
             fallback_where, fallback_params = ["status='active'"], []
-            apply_team_scope(fallback_where, fallback_params, user, "team_id", include_unassigned=True)
+            apply_team_scope(fallback_where, fallback_params, user, "team_id", include_unassigned=False)
             mgr = conn.execute(
                 "SELECT access_token_enc FROM fb_tokens WHERE " + " AND ".join(fallback_where) + " LIMIT 1",
                 fallback_params,
@@ -4433,7 +4433,7 @@ async def batch_config_accounts(
             if not row:
                 continue
             acc_id = row[0]
-            assert_row_access(conn, "accounts", acc_id, current_user)
+            assert_row_access(conn, "accounts", acc_id, current_user, allow_unassigned=False)
             fields = []
             vals = []
             if payload.target_countries is not None:
@@ -4483,7 +4483,7 @@ async def export_account_config(
     conn = get_conn()
     try:
         where, params = [], []
-        apply_team_scope(where, params, current_user, "team_id", include_unassigned=True)
+        apply_team_scope(where, params, current_user, "team_id", include_unassigned=False)
         where_clause = (" WHERE " + " AND ".join(where)) if where else ""
         rows = conn.execute(
             "SELECT act_id, name, target_countries, target_age_min, target_age_max, "
@@ -4532,7 +4532,7 @@ async def import_account_config(
                 errors.append(f"账户 {act_id} 不存在")
                 continue
             try:
-                assert_row_access(conn, "accounts", acc[0], current_user)
+                assert_row_access(conn, "accounts", acc[0], current_user, allow_unassigned=False)
                 fields = []
                 vals = []
                 if row.get("target_countries"):
@@ -4598,7 +4598,7 @@ async def update_token_value(token_id: int, body: dict, current_user=Depends(get
     _require_operator_user(current_user)
     import requests as req_lib
     conn = get_conn()
-    assert_row_access(conn, "fb_tokens", token_id, current_user)
+    assert_row_access(conn, "fb_tokens", token_id, current_user, allow_unassigned=False)
     new_token = (body.get("access_token") or "").strip()
     if not new_token or len(new_token) < 20:
         conn.close()
@@ -4665,7 +4665,7 @@ def get_ai_decisions(act_id: str = None, limit: int = 100, current_user=Depends(
             ).fetchall()
         else:
             where, params = [], []
-            apply_team_scope(where, params, current_user, "a.team_id", include_unassigned=True)
+            apply_team_scope(where, params, current_user, "a.team_id", include_unassigned=False)
             where_clause = ("WHERE " + " AND ".join(where)) if where else ""
             rows = conn.execute(
                 "SELECT d.*, a.name as account_name FROM ai_decisions d "
@@ -4688,7 +4688,7 @@ def get_matrices(current_user=Depends(get_current_user)):
     ).fetchone()
     matrix_ids = set()
     token_where, token_params = ["matrix_id IS NOT NULL"], []
-    apply_team_scope(token_where, token_params, current_user, "team_id", include_unassigned=True)
+    apply_team_scope(token_where, token_params, current_user, "team_id", include_unassigned=False)
     token_rows = conn.execute(
         "SELECT DISTINCT matrix_id FROM fb_tokens WHERE " + " AND ".join(token_where),
         token_params,
@@ -4696,7 +4696,7 @@ def get_matrices(current_user=Depends(get_current_user)):
     matrix_ids.update(r["matrix_id"] for r in token_rows if r["matrix_id"] is not None)
     if has_tw_pages:
         page_where, page_params = ["matrix_id IS NOT NULL"], []
-        apply_team_scope(page_where, page_params, current_user, "team_id", include_unassigned=True)
+        apply_team_scope(page_where, page_params, current_user, "team_id", include_unassigned=False)
         page_rows = conn.execute(
             "SELECT DISTINCT matrix_id FROM tw_certified_pages WHERE " + " AND ".join(page_where),
             page_params,

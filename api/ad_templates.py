@@ -165,7 +165,7 @@ def _get_page_token(page_id: str, preferred_token: str = "", team_id: int | None
     conn = get_conn()
     where, params = ["status='active'"], []
     if team_id is not None:
-        where.append("(team_id=? OR team_id IS NULL)")
+        where.append("team_id=?")
         params.append(team_id)
     tokens = conn.execute(
         f"SELECT id, access_token_enc FROM fb_tokens WHERE {' AND '.join(where)}",
@@ -565,7 +565,7 @@ class MsgTemplateBody(BaseModel):
 def list_msg_templates(user=Depends(get_current_user)):
     conn = get_conn()
     where, params = [], []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         f"SELECT * FROM msg_templates {clause} ORDER BY updated_at DESC",
@@ -603,7 +603,7 @@ def create_msg_template(body: MsgTemplateBody, user=Depends(get_current_user)):
 @router.get("/message/{tid}")
 def get_msg_template(tid: int, user=Depends(get_current_user)):
     conn = get_conn()
-    assert_row_access(conn, "msg_templates", tid, user)
+    assert_row_access(conn, "msg_templates", tid, user, allow_unassigned=False)
     row = conn.execute("SELECT * FROM msg_templates WHERE id=?", (tid,)).fetchone()
     conn.close()
     if not row:
@@ -620,7 +620,7 @@ def get_msg_template(tid: int, user=Depends(get_current_user)):
 def update_msg_template(tid: int, body: MsgTemplateBody, user=Depends(get_current_user)):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_conn()
-    assert_row_access(conn, "msg_templates", tid, user)
+    assert_row_access(conn, "msg_templates", tid, user, allow_unassigned=False)
     owner_team_id = team_id_for_create(user)
     conn.execute(
         """UPDATE msg_templates SET name=?, greeting=?, buttons=?, destination=?, note=?, team_id=COALESCE(team_id, ?), updated_at=?
@@ -668,7 +668,7 @@ class LeadFormTemplateBody(BaseModel):
 def list_lead_form_templates(user=Depends(get_current_user)):
     conn = get_conn()
     where, params = [], []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         f"SELECT * FROM lead_form_templates {clause} ORDER BY updated_at DESC",
@@ -714,7 +714,7 @@ def create_lead_form_template(body: LeadFormTemplateBody, user=Depends(get_curre
 @router.get("/lead-form/{tid}")
 def get_lead_form_template(tid: int, user=Depends(get_current_user)):
     conn = get_conn()
-    assert_row_access(conn, "lead_form_templates", tid, user)
+    assert_row_access(conn, "lead_form_templates", tid, user, allow_unassigned=False)
     row = conn.execute("SELECT * FROM lead_form_templates WHERE id=?", (tid,)).fetchone()
     conn.close()
     if not row:
@@ -734,7 +734,7 @@ def update_lead_form_template(tid: int, body: LeadFormTemplateBody, user=Depends
     if not normalized_questions:
         raise HTTPException(400, "请至少保留一个有效的表单字段")
     conn = get_conn()
-    assert_row_access(conn, "lead_form_templates", tid, user)
+    assert_row_access(conn, "lead_form_templates", tid, user, allow_unassigned=False)
     owner_team_id = team_id_for_create(user)
     conn.execute(
         """UPDATE lead_form_templates
@@ -874,7 +874,7 @@ def preview_msg_template(tid: int, user=Depends(get_current_user)):
     """返回该消息模板的 FB 格式预览"""
     conn = get_conn()
     try:
-        assert_row_access(conn, "msg_templates", tid, user)
+        assert_row_access(conn, "msg_templates", tid, user, allow_unassigned=False)
     finally:
         conn.close()
     fb_fmt = get_msg_template_fb_format(tid)
@@ -891,7 +891,7 @@ def create_form_on_page(tid: int, page_id: str, user=Depends(get_current_user)):
     """
     conn = get_conn()
     try:
-        assert_row_access(conn, "lead_form_templates", tid, user)
+        assert_row_access(conn, "lead_form_templates", tid, user, allow_unassigned=False)
     finally:
         conn.close()
     try:

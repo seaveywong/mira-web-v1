@@ -51,7 +51,7 @@ def warmup_status(user=Depends(get_current_user)):
     """查看所有有预热记录的账户状态"""
     conn = get_conn()
     where, params = ["warmup_state IS NOT NULL"], []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     rows = conn.execute(f"""
         SELECT act_id, name, warmup_state, warmup_triggered_at,
                warmup_campaign_id,

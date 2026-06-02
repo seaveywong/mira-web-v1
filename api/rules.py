@@ -38,7 +38,7 @@ def _assert_rule_target_access(conn, act_id: str, user) -> None:
 
 def _team_account_act_ids(conn, user) -> list[str]:
     where, params = [], []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(f"SELECT act_id FROM accounts {clause}", params).fetchall()
     return [r["act_id"] for r in rows if r["act_id"]]
@@ -536,7 +536,7 @@ def list_rule_templates_v2(user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_rule_team_columns(conn)
     where, params = [], []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     custom_rows = conn.execute(
         f"SELECT * FROM custom_rule_templates {clause} ORDER BY created_at DESC",
@@ -693,7 +693,7 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
                 template_db_id = int(body.template_id)
             except (TypeError, ValueError):
                 raise HTTPException(404, f'模板 {body.template_id} 不存在')
-            assert_row_access(conn, "custom_rule_templates", template_db_id, user)
+            assert_row_access(conn, "custom_rule_templates", template_db_id, user, allow_unassigned=False)
             row = conn.execute('SELECT * FROM custom_rule_templates WHERE id=?', (template_db_id,)).fetchone()
         finally:
             conn.close()

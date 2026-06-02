@@ -161,7 +161,7 @@ def mirror_status(act_id: str = "", user=Depends(get_current_user)):
         }
     else:
         where, params = ["enabled=1"], []
-        apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+        apply_team_scope(where, params, user, "team_id", include_unassigned=False)
         rows = conn.execute(
             f"SELECT act_id, name, mirror_enabled FROM accounts WHERE {' AND '.join(where)} ORDER BY name",
             params,
@@ -277,7 +277,7 @@ def mirror_enable_all(user=Depends(get_current_user)):
     from services.guard_engine import _get_token_for_account
     conn = get_conn()
     where, params = ["account_status NOT IN (3,7,9,100)"], []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     accounts = conn.execute(
         f"SELECT * FROM accounts WHERE {' AND '.join(where)}",
         params,

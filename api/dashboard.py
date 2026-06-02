@@ -37,7 +37,7 @@ def _fetch_visible_accounts(conn, user, act_id: Optional[str] = None):
     if act_id:
         where.append("act_id=?")
         params.append(act_id)
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     sql = "SELECT * FROM accounts"
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -1114,7 +1114,7 @@ def get_ads(act_id: Optional[str] = None, date_from: Optional[str] = None, date_
     date_range = (df, dt) if df != dt else (df,)
     where_date = "p.snapshot_date BETWEEN ? AND ?" if df != dt else "p.snapshot_date = ?"
     scope_where, scope_params = [], []
-    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=False)
     if act_id:
         assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
         rows = conn.execute(
@@ -1153,7 +1153,7 @@ def trigger_inspect(user=Depends(get_current_user)):
 def get_stats(user=Depends(get_current_user)):
     conn = get_conn()
     where, params = [], []
-    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
     scope_sql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         f"""SELECT p.* FROM perf_snapshots p
@@ -1349,7 +1349,7 @@ def get_default_cpa(act_id: Optional[str] = None, user=Depends(get_current_user)
         ).fetchall()
     else:
         where, params = [], []
-        apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+        apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
         scope_sql = (" AND " + " AND ".join(where)) if where else ""
         rows = conn.execute(
             f"""SELECT k.* FROM kpi_configs k

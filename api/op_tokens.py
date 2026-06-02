@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user
 from core.database import get_conn
-from core.tenancy import assert_row_access, claim_row_for_team
+from core.tenancy import assert_row_access
 from services.token_manager import (
     ensure_token_source_columns,
     get_op_token_status,
@@ -39,7 +39,7 @@ def _teams_compatible(account_team_id, token_team_id) -> bool:
 
 
 def _require_system_operate_token(conn, token_id: int, user, account_team_id=None):
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     token_row = conn.execute(
         """
         SELECT id, token_alias, token_type, token_source, status, team_id
@@ -55,10 +55,6 @@ def _require_system_operate_token(conn, token_id: int, user, account_team_id=Non
     if not is_operate_token_eligible(token_row["token_type"], token_row["token_source"]):
         raise HTTPException(400, "只有来源为 System User 的操作号 Token 才能加入操作号池")
     token_team_id = token_row["team_id"]
-    if token_team_id is None and account_team_id is not None:
-        claimed_team_id = claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
-        if claimed_team_id is not None:
-            token_team_id = claimed_team_id
     if not _teams_compatible(account_team_id, token_team_id):
         raise HTTPException(403, "该 Token 与账户不属于同一团队，不能加入操作号池")
     return token_row
@@ -162,14 +158,10 @@ def update_op_token(act_id: str, token_id: int, body: UpdateOpToken, user=Depend
     conn = get_conn()
     ensure_token_source_columns(conn)
     assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     acc = conn.execute("SELECT team_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
     token = conn.execute("SELECT team_id FROM fb_tokens WHERE id=?", (token_id,)).fetchone()
     token_team_id = token["team_id"] if token else None
-    if token and token_team_id is None and acc and acc["team_id"] is not None:
-        claimed_team_id = claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
-        if claimed_team_id is not None:
-            token_team_id = claimed_team_id
     if not acc or not token or not _teams_compatible(acc["team_id"], token_team_id):
         conn.close()
         raise HTTPException(403, "该 Token 与账户不属于同一团队，不能修改绑定")
@@ -216,14 +208,10 @@ def update_op_token(act_id: str, token_id: int, body: UpdateOpToken, user=Depend
 def unbind_op_token(act_id: str, token_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
-    assert_row_access(conn, "fb_tokens", token_id, user)
+    assert_row_access(conn, "fb_tokens", token_id, user, allow_unassigned=False)
     acc = conn.execute("SELECT team_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
     token = conn.execute("SELECT team_id FROM fb_tokens WHERE id=?", (token_id,)).fetchone()
     token_team_id = token["team_id"] if token else None
-    if token and token_team_id is None and acc and acc["team_id"] is not None:
-        claimed_team_id = claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
-        if claimed_team_id is not None:
-            token_team_id = claimed_team_id
     if not acc or not token or not _teams_compatible(acc["team_id"], token_team_id):
         conn.close()
         raise HTTPException(403, "该 Token 与账户不属于同一团队，不能解绑")

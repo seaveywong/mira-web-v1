@@ -495,7 +495,7 @@ def list_assets(
             "COALESCE(tags,'') LIKE ?)"
         )
         params.extend([kw, kw, kw, kw, kw, kw, kw])
-    apply_team_scope(where, params, user, "a.team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     sort_map = {
         "created_desc": "a.created_at DESC, a.id DESC",
@@ -560,7 +560,7 @@ def serve_asset_thumb_v2(asset_id: int):
 @router.get("/{asset_id:int}")
 def get_asset(asset_id: int, user=Depends(get_current_user)):
     conn = get_conn()
-    assert_row_access(conn, "ad_assets", asset_id, user)
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     conn.close()
     if not row:
@@ -693,7 +693,7 @@ def duplicate_assets(limit: int = Query(100, ge=1, le=500), user=Depends(get_cur
     _ensure_asset_library_columns(conn)
     where = ["COALESCE(file_hash,'')!=''", "COALESCE(asset_status,'active')!='deleted'"]
     params = []
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     clause = " AND ".join(where)
     rows = conn.execute(
         f"""
@@ -711,7 +711,7 @@ def duplicate_assets(limit: int = Query(100, ge=1, le=500), user=Depends(get_cur
     for row in rows:
         item_where = ["file_hash=?"]
         item_params = [row["file_hash"]]
-        apply_team_scope(item_where, item_params, user, "team_id", include_unassigned=True)
+        apply_team_scope(item_where, item_params, user, "team_id", include_unassigned=False)
         items = conn.execute(
             f"""SELECT id, file_name, display_name, folder_name, batch_code, asset_status, created_at
                FROM ad_assets WHERE {' AND '.join(item_where)} ORDER BY created_at ASC, id ASC""",
@@ -731,7 +731,7 @@ def duplicate_assets(limit: int = Query(100, ge=1, le=500), user=Depends(get_cur
 def asset_usage(asset_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_asset_library_columns(conn)
-    assert_row_access(conn, "ad_assets", asset_id, user)
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     asset = conn.execute("SELECT id FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not asset:
         conn.close()
@@ -813,7 +813,7 @@ async def upload_asset(
     _ensure_asset_library_columns(conn)
     resource_team_id = team_id_for_create(user)
     existing_where, existing_params = ["file_hash=?"], [file_hash]
-    apply_team_scope(existing_where, existing_params, user, "team_id", include_unassigned=True)
+    apply_team_scope(existing_where, existing_params, user, "team_id", include_unassigned=False)
     existing = conn.execute(
         f"SELECT id, file_name FROM ad_assets WHERE {' AND '.join(existing_where)}",
         existing_params,
@@ -1340,7 +1340,7 @@ def trigger_ai_analyze(asset_id: int, body: AiAnalyzeBody = None, user=Depends(g
     if body is None:
         body = AiAnalyzeBody()
     conn = get_conn()
-    assert_row_access(conn, "ad_assets", asset_id, user)
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     row = conn.execute("SELECT id, file_type FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     conn.close()
     if not row:
@@ -1443,7 +1443,7 @@ def rename_asset(asset_id: int, body: RenameBody, user=Depends(get_current_user)
     if not name:
         raise HTTPException(400, "名称不能为空")
     conn = get_conn()
-    assert_row_access(conn, "ad_assets", asset_id, user)
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     owner_team_id = team_id_for_create(user)
     row = conn.execute("SELECT id FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not row:
@@ -1480,7 +1480,7 @@ class AssetUpdate(BaseModel):
 def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user)):
     conn = get_conn()
     _ensure_asset_library_columns(conn)
-    assert_row_access(conn, "ad_assets", asset_id, user)
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     row = conn.execute("SELECT id FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not row:
         conn.close()
@@ -1757,7 +1757,7 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
         ]
         account_params = list(act_ids)
         if user is not None:
-            apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=True)
+            apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=False)
         rows = conn.execute(
             f"SELECT act_id,name,enabled,account_status,page_id,pixel_id,landing_url FROM accounts WHERE {' AND '.join(account_where)}",
             account_params,
@@ -1993,7 +1993,7 @@ def launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_cu
         raise HTTPException(400, block_msg)
 
     conn = get_conn()
-    assert_row_access(conn, "ad_assets", asset_id, user)
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     asset_row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
     if not asset_row:
         conn.close()
@@ -2030,7 +2030,7 @@ def batch_launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(
 @router.get("/{asset_id:int}/campaigns/{campaign_id:int}/status")
 def get_launch_campaign_status(asset_id: int, campaign_id: int, user=Depends(get_current_user)):
     conn = get_conn()
-    assert_row_access(conn, "ad_assets", asset_id, user)
+    assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     row = conn.execute(
         """SELECT c.id, c.status, c.progress_step, c.progress_msg,
                   c.fb_campaign_id, c.total_adsets, c.total_ads,
@@ -2081,7 +2081,7 @@ def get_asset_breakdown(
 
     guard_conn = get_conn()
     try:
-        assert_row_access(guard_conn, "ad_assets", asset_id, user)
+        assert_row_access(guard_conn, "ad_assets", asset_id, user, allow_unassigned=False)
     finally:
         guard_conn.close()
 
@@ -2202,7 +2202,7 @@ def search_accounts(
         "CAST(COALESCE(account_status, 1) AS INTEGER)=1",
     ]
     params = [keyword, keyword]
-    apply_team_scope(where, params, user, "team_id", include_unassigned=True)
+    apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     rows = conn.execute(
         f"""SELECT act_id, name, currency, account_status, balance, timezone
            FROM accounts
