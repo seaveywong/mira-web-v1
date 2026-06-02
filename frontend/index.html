@@ -2974,6 +2974,8 @@ async function submitAddUser(){
   await api('POST','/users',{username:username,password:password,role:role,display_name:display_name,note:note,group_name:group_name||null});
   showToast('\u7528\u6237\u521b\u5efa\u6210\u529f','ok');
   closeModal('moUserForm');
+  markPageStale('team_admin');
+  if(document.getElementById('page-team_admin')&&document.getElementById('page-team_admin').classList.contains('active')){loadTeamAdminPage();return;}
   loadUserList();
  }catch(e){showToast('\u521b\u5efa\u5931\u8d25\uff1a'+(e.message||e),'er');}
 }
@@ -3029,6 +3031,8 @@ async function submitEditUser(uid){
   await api('PATCH','/users/'+uid,body);
   showToast('\u4fdd\u5b58\u6210\u529f','ok');
   closeModal('moUserForm');
+  markPageStale('team_admin');
+  if(document.getElementById('page-team_admin')&&document.getElementById('page-team_admin').classList.contains('active')){loadTeamAdminPage();return;}
   loadUserList();
  }catch(e){showToast('\u4fdd\u5b58\u5931\u8d25\uff1a'+(e.message||e),'er');}
 }
@@ -3038,6 +3042,8 @@ async function deleteUser(uid, username){
   try{
    await api('DELETE','/users/'+uid);
    toast('\u7528\u6237\u5df2\u5220\u9664','ok');
+   markPageStale('team_admin');
+   if(document.getElementById('page-team_admin')&&document.getElementById('page-team_admin').classList.contains('active')){loadTeamAdminPage();return;}
    loadUserList();
   }catch(e){toast('\u5220\u9664\u5931\u8d25\uff1a'+(e.message||e),'er');}
  });
@@ -3050,8 +3056,54 @@ async function loadTeamAdminPage(){
   el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>当前账号没有团队管理权限</p></div>';
   return;
  }
- el.innerHTML=renderPermissionMatrixSection()+renderUserManageSection();
- await loadUserList();
+ el.innerHTML='<div style="color:var(--t3);font-size:13px;padding:12px"><span class="spin"></span> 加载团队信息...</div>';
+ try{
+  var r=await api('GET','/teams');
+  var teams=(r&&r.teams)||[];
+  el.innerHTML=renderTeamOverviewSection(teams)+renderPermissionMatrixSection()+renderUserManageSection();
+  await loadUserList();
+ }catch(e){
+  el.innerHTML='<div style="padding:28px;text-align:center;color:var(--er)">团队管理加载失败：'+escHtml(e.message||e)+'</div>';
+ }
+}
+
+function renderTeamOverviewSection(teams){
+ teams=teams||[];
+ if(!hasRole('admin'))return '';
+ var visibleTeams=hasRole('superadmin')?teams:teams.slice(0,1);
+ var cards=visibleTeams.map(function(t){
+  var paused=(t.status||'active')!=='active';
+  var status=paused
+   ?'<span class="badge bg-wa">已暂停</span>'
+   :'<span class="badge bg-ok">正常</span>';
+  var counts=[
+   ['用户',t.user_count||0],
+   ['账户',t.account_count||0],
+   ['Token',t.token_count||0],
+   ['素材',t.asset_count||0],
+   ['主页',t.page_count||0],
+   ['模板',(t.msg_template_count||0)+(t.lead_form_count||0)]
+  ];
+  return '<div style="background:var(--bg2);border:1px solid '+(paused?'rgba(245,158,11,.5)':'var(--bd)')+';border-radius:8px;padding:14px 16px;min-width:260px;flex:1">'+
+   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
+    '<div style="font-size:15px;font-weight:700;color:var(--t1);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.name||('团队 '+t.id))+'</div>'+
+    '<div style="margin-left:auto">'+status+'</div>'+
+   '</div>'+
+   (t.note?'<div style="font-size:12px;color:var(--t3);margin-bottom:10px">'+escHtml(t.note)+'</div>':'')+
+   '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">'+counts.map(function(c){
+    return '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:6px;padding:8px">'+
+     '<div style="font-size:17px;font-weight:700;color:var(--t1)">'+c[1]+'</div>'+
+     '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+c[0]+'</div>'+
+    '</div>';
+   }).join('')+'</div>'+
+   (paused?'<div style="margin-top:10px;font-size:12px;color:var(--wa)">团队已暂停：成员仍可查看数据，但所有写入操作会被后端拦截。</div>':'')+
+  '</div>';
+ }).join('');
+ if(!cards)cards='<div style="padding:18px;text-align:center;color:var(--t3);border:1px solid var(--bd);border-radius:8px">暂无团队信息</div>';
+ return '<div class="ss role-admin-only">'+
+  '<div class="ss-title">团队概览 <span style="font-size:12px;font-weight:400;color:var(--t3)">状态和资产数量</span></div>'+
+  '<div style="display:flex;gap:12px;flex-wrap:wrap">'+cards+'</div>'+
+ '</div>';
 }
 
 

@@ -104,6 +104,9 @@ def _team_payload(conn, row) -> dict:
         "account_count": _count(conn, "accounts", team_id),
         "token_count": _count(conn, "fb_tokens", team_id),
         "asset_count": _count(conn, "ad_assets", team_id),
+        "page_count": _count(conn, "tw_certified_pages", team_id),
+        "msg_template_count": _count(conn, "msg_templates", team_id),
+        "lead_form_count": _count(conn, "lead_form_templates", team_id),
     }
 
 
