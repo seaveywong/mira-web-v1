@@ -1898,6 +1898,18 @@ def list_accounts(user=Depends(get_current_user)):
         ORDER BY a.created_at DESC
     """, params).fetchall()
     # 查询每个账户关联的所有 Token（来自 account_op_tokens，管理号+操作号，动态发现）
+    recent_spend_map = {}
+    recent_where, recent_params = [], []
+    apply_team_scope(recent_where, recent_params, user, "a.team_id", include_unassigned=False)
+    recent_scope_sql = (" AND " + " AND ".join(recent_where)) if recent_where else ""
+    for sr in conn.execute(f"""
+        SELECT p.act_id, SUM(COALESCE(p.spend, 0)) AS recent_spend
+        FROM perf_snapshots p
+        JOIN accounts a ON a.act_id = p.act_id
+        WHERE p.snapshot_date >= date('now','+8 hours','-3 days'){recent_scope_sql}
+        GROUP BY p.act_id
+    """, recent_params).fetchall():
+        recent_spend_map[sr["act_id"]] = float(sr["recent_spend"] or 0)
     all_tokens_map = {}
     token_where, token_params = ["1=1"], []
     apply_team_scope(token_where, token_params, user, "t.team_id", include_unassigned=False)
@@ -1973,6 +1985,7 @@ def list_accounts(user=Depends(get_current_user)):
         if not d.get('timezone_name'):
             d['timezone_name'] = d.get('timezone', '')
         # 附带关联的所有 Token（来自 account_op_tokens，动态发现，管理号+操作号）
+        d['recent_3d_snapshot_spend'] = recent_spend_map.get(d.get('act_id'), 0.0)
         d['linked_tokens'] = all_tokens_map.get(d.get('act_id'), [])
         active_linked_tokens = [
             t for t in d['linked_tokens']
@@ -2042,6 +2055,52 @@ def list_accounts(user=Depends(get_current_user)):
         )
         result.append(d)
     return result
+
+
+@router.get("/spent-ids")
+def list_spent_account_ids(date: str, user=Depends(get_current_user)):
+    """Return visible account IDs that have local snapshot spend on the specified date."""
+    from datetime import date as _date
+    try:
+        target_date = _date.fromisoformat(str(date or "").strip()).isoformat()
+    except Exception:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    conn = get_conn()
+    where, params = ["p.snapshot_date = ?"], [target_date]
+    apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
+    rows = conn.execute(f"""
+        SELECT a.act_id, a.name, a.currency,
+               SUM(COALESCE(p.spend, 0)) AS spend,
+               SUM(COALESCE(p.conversions, 0)) AS conversions
+        FROM perf_snapshots p
+        JOIN accounts a ON a.act_id = p.act_id
+        WHERE {' AND '.join(where)}
+        GROUP BY a.act_id, a.name, a.currency
+        HAVING SUM(COALESCE(p.spend, 0)) > 0
+        ORDER BY spend DESC, a.name ASC
+    """, params).fetchall()
+    conn.close()
+
+    items = []
+    for r in rows:
+        act_id = r["act_id"] or ""
+        account_id = act_id[4:] if act_id.startswith("act_") else act_id
+        items.append({
+            "act_id": act_id,
+            "account_id": account_id,
+            "name": r["name"] or act_id,
+            "currency": r["currency"] or "USD",
+            "spend": float(r["spend"] or 0),
+            "conversions": float(r["conversions"] or 0),
+        })
+    return {
+        "date": target_date,
+        "count": len(items),
+        "account_ids": [i["account_id"] for i in items],
+        "act_ids": [i["act_id"] for i in items],
+        "items": items,
+    }
 
 
 @router.put("/{account_id}")
