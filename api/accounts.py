@@ -2364,6 +2364,20 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         HAVING SUM(COALESCE(p.spend, 0)) > 0
         ORDER BY spend DESC, a.name ASC
     """, params).fetchall()
+    orphan_rows = []
+    if is_superadmin(user):
+        orphan_rows = conn.execute(
+            """SELECT p.act_id,
+                      SUM(COALESCE(p.spend, 0)) AS spend,
+                      SUM(COALESCE(p.conversions, 0)) AS conversions
+               FROM perf_snapshots p
+               LEFT JOIN accounts a ON a.act_id = p.act_id
+               WHERE p.snapshot_date=? AND a.act_id IS NULL
+               GROUP BY p.act_id
+               HAVING SUM(COALESCE(p.spend, 0)) > 0
+               ORDER BY spend DESC, p.act_id ASC""",
+            (target_date,),
+        ).fetchall()
     retention_where, retention_params = ["r.snapshot_date = ?"], [target_date]
     if not is_superadmin(user):
         retention_where.append("r.team_id=?")
@@ -2424,6 +2438,21 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
             "source": "removed_account_retention",
         })
         local_positive.add(act_id)
+    for r in orphan_rows:
+        act_id = r["act_id"] or ""
+        if not act_id or act_id in local_positive:
+            continue
+        account_id = act_id[4:] if act_id.startswith("act_") else act_id
+        items.append({
+            "act_id": act_id,
+            "account_id": account_id,
+            "name": act_id,
+            "currency": "USD",
+            "spend": float(r["spend"] or 0),
+            "conversions": float(r["conversions"] or 0),
+            "source": "orphan_perf_snapshots",
+        })
+        local_positive.add(act_id)
     local_source_count = len(items)
     api_candidates = [
         dict(acc)
@@ -2457,10 +2486,12 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         source = "mixed"
     elif api_results:
         source = "fb_insights_api"
-    elif retention_rows and rows:
+    elif (retention_rows or orphan_rows) and rows:
         source = "local_perf_snapshots+retention"
     elif retention_rows:
         source = "removed_account_retention"
+    elif orphan_rows:
+        source = "orphan_perf_snapshots"
     else:
         source = "local_perf_snapshots"
     return {
@@ -2473,6 +2504,7 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         "retention_rows": int(retention_meta["retention_rows"] or 0) if retention_meta else 0,
         "retention_accounts": int(retention_meta["retention_accounts"] or 0) if retention_meta else 0,
         "retention_total_spend": float(retention_meta["retention_total_spend"] or 0) if retention_meta else 0,
+        "orphan_snapshot_accounts": len(orphan_rows),
         "visible_accounts": len(visible_accounts),
         "api_checked": len(api_results),
         "api_error_count": len(api_errors),
