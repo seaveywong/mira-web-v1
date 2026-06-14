@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import Tuple, Optional
 from core.database import get_conn, decrypt_token
+from services.guard_engine import _local_per_usd_rate
 from services.token_manager import get_exec_token, ACTION_CREATE, ACTION_READ, ACTION_UPDATE
 from services.notifier import notify_account, notify_global, notify_team
 
@@ -399,6 +400,12 @@ def _usd_to_minor_units(usd_amount: float, currency: str) -> int:
     rate = _FX.get(cur, 1.0)
     amount = usd_amount / rate if rate > 0 else usd_amount
     return _to_minor_units(amount, cur)
+
+
+def _usd_to_minor_units(usd_amount: float, currency: str) -> int:
+    cur = (currency or "USD").upper()
+    amount_in_currency = float(usd_amount) * _local_per_usd_rate(cur)
+    return _to_minor_units(amount_in_currency, cur)
 
 
 def _usd5_to_minor_units(currency: str) -> int:

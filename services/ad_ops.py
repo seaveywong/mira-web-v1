@@ -8,6 +8,7 @@ from typing import Dict, Iterable, Optional, Tuple
 import requests
 
 from core.database import get_conn
+from services.guard_engine import _local_per_usd_rate
 from services.token_manager import (
     ACTION_PAUSE,
     ACTION_UPDATE,
@@ -111,19 +112,7 @@ def _get_account(act_id: str) -> dict:
 
 
 def _get_rate(currency: str) -> float:
-    if not currency or currency.upper() == "USD":
-        return 1.0
-    conn = get_conn()
-    try:
-        row = conn.execute(
-            "SELECT rate FROM currency_rates WHERE currency=? ORDER BY updated_at DESC LIMIT 1",
-            (currency.upper(),),
-        ).fetchone()
-        return float(row["rate"]) if row and row["rate"] else 1.0
-    except Exception:
-        return 1.0
-    finally:
-        conn.close()
+    return _local_per_usd_rate(currency)
 
 
 def _amount_to_minor(amount: float, currency: str) -> int:

@@ -23,7 +23,7 @@ FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
     "campaign{objective},"
     "adset{optimization_goal,destination_type},"
-    "insights.date_preset(today){spend,impressions,clicks,actions,action_values,cpc,cpm}"
+    "insights.date_preset(today){spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}"
 )
 MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
 
@@ -133,6 +133,62 @@ def _to_usd_guard(amount: float, currency: str) -> float:
     # 备用静态表
     rate = _FX_RATES.get(cur, 1.0)
     return float(amount) * rate
+
+
+def _db_rate_to_usd_multiplier(currency: str, raw_rate) -> Optional[float]:
+    """Return USD-per-one-local-unit from either supported DB rate direction."""
+    try:
+        rate = float(raw_rate)
+    except (TypeError, ValueError):
+        return None
+    if rate <= 0:
+        return None
+    cur = (currency or "USD").upper().strip()
+    static = _FX_RATES.get(cur)
+    candidates = [rate, 1.0 / rate]
+    if static and static > 0:
+        return min(candidates, key=lambda x: abs(x - static) / static)
+    if rate > 10:
+        return 1.0 / rate
+    if rate < 0.1:
+        return rate
+    return 1.0 / rate
+
+
+def _currency_to_usd_multiplier(currency: str) -> float:
+    """Return USD-per-one-local-unit with DB-first and static fallback."""
+    cur = (currency or "USD").upper().strip()
+    if cur == "USD":
+        return 1.0
+    try:
+        _conn = get_conn()
+        _row = _conn.execute(
+            "SELECT rate FROM currency_rates WHERE currency=? ORDER BY updated_at DESC LIMIT 1",
+            (cur,),
+        ).fetchone()
+        _conn.close()
+        if _row and _row["rate"]:
+            multiplier = _db_rate_to_usd_multiplier(cur, _row["rate"])
+            if multiplier:
+                return multiplier
+    except Exception as exc:
+        logger.warning("currency rate lookup failed for %s: %s", cur, exc)
+    if cur in _FX_RATES:
+        return _FX_RATES[cur]
+    logger.warning("missing currency rate for %s; fallback to 1:1 USD", cur)
+    return 1.0
+
+
+def _local_per_usd_rate(currency: str) -> float:
+    multiplier = _currency_to_usd_multiplier(currency)
+    return (1.0 / multiplier) if multiplier > 0 else 1.0
+
+
+def _to_usd_guard(amount: float, currency: str) -> float:
+    """Convert local currency amount to USD. Handles DB rates in either direction."""
+    if amount is None:
+        return 0.0
+    return float(amount) * _currency_to_usd_multiplier(currency)
 
 
 def _is_dry_run() -> bool:
@@ -1487,11 +1543,299 @@ class GuardEngine:
         ]
         conn.close()
 
+        account_rules, object_rules = self._split_guard_rules(act_id, rules)
+        ad_metrics = []
         for ad in ads:
             try:
-                self._inspect_ad(account, ad, token, rules, scale_rules)
+                metrics = self._inspect_ad(account, ad, token, object_rules, scale_rules)
+                if metrics:
+                    ad_metrics.append(metrics)
             except Exception as e:
                 logger.error(f"广告 {ad.get('id')} 巡检异常: {e}")
+
+        self._inspect_account_rules(account, token, account_rules, ad_metrics)
+
+    def _default_account_bleed_rule(self, act_id: str) -> dict:
+        return {
+            "id": "default_account_bleed",
+            "act_id": act_id,
+            "rule_name": "默认账户空成效止血",
+            "level": "account",
+            "target_id": act_id,
+            "rule_type": "bleed_abs",
+            "param_value": self.default_bleed_abs,
+            "param_ratio": None,
+            "param_days": None,
+            "action": "pause",
+            "action_value": None,
+            "enabled": 1,
+            "silent_start": None,
+            "silent_end": None,
+            "note": "系统兜底：账户未配置账户级止损时自动保护",
+            "kpi_filter": None,
+        }
+
+    def _split_guard_rules(self, act_id: str, rules: list) -> tuple[list, list]:
+        account_rules, object_rules = [], []
+        for rule in rules or []:
+            target = str(rule.get("target_id") or "")
+            level = str(rule.get("level") or "").lower()
+            if level == "account" or target in ("", "__global__", act_id):
+                account_rules.append(rule)
+            else:
+                object_rules.append(rule)
+        if _get_setting("default_account_bleed_enabled", "1") == "1":
+            has_bleed = any(str(r.get("rule_type")) == "bleed_abs" for r in account_rules)
+            if not has_bleed:
+                account_rules.append(self._default_account_bleed_rule(act_id))
+        return account_rules, object_rules
+
+    def _metric_matches_rule_filter(self, act_id: str, metric: dict, kpi_filter: str | None) -> bool:
+        if not kpi_filter:
+            return True
+        try:
+            meta = _get_ad_kpi_meta(act_id, metric.get("ad_id", ""))
+            if _match_kpi_filter(kpi_filter, meta):
+                return True
+        except Exception:
+            pass
+        field = str(metric.get("kpi_field") or "").lower()
+        value = str(kpi_filter or "").lower()
+        if value in ("purchase", "purchases"):
+            return "purchase" in field
+        if value in ("lead", "leads"):
+            return "lead" in field
+        if value in ("messenger", "messaging"):
+            return any(t in field for t in ("messaging", "messenger", "conversation"))
+        if value in ("engagement",):
+            return "engagement" in field or "like" in field
+        if value in ("traffic",):
+            return "click" in field or "landing_page_view" in field
+        if value in ("contact",):
+            return "contact" in field
+        return True
+
+    def _aggregate_account_metrics(self, metrics: list[dict]) -> dict:
+        spend = sum(float(m.get("spend") or 0) for m in metrics)
+        spend_raw = sum(float(m.get("spend_raw") or 0) for m in metrics)
+        conversions = sum(float(m.get("conversions") or 0) for m in metrics)
+        broader_conv = sum(float(m.get("broader_conv") or 0) for m in metrics)
+        impressions = sum(int(m.get("impressions") or 0) for m in metrics)
+        reach = sum(int(m.get("reach") or 0) for m in metrics)
+        clicks = sum(int(m.get("clicks") or 0) for m in metrics)
+        unique_clicks = sum(int(m.get("unique_clicks") or 0) for m in metrics)
+        ctr = (clicks / impressions * 100) if impressions > 0 else 0.0
+        cpa = (spend / conversions) if conversions > 0 else None
+        campaigns = []
+        adsets = []
+        ads = []
+        for m in sorted(metrics, key=lambda x: float(x.get("spend") or 0), reverse=True):
+            if m.get("campaign_id") and m["campaign_id"] not in campaigns:
+                campaigns.append(m["campaign_id"])
+            if m.get("adset_id") and m["adset_id"] not in adsets:
+                adsets.append(m["adset_id"])
+            if m.get("ad_id") and m["ad_id"] not in ads:
+                ads.append(m["ad_id"])
+        return {
+            "spend": spend,
+            "spend_raw": spend_raw,
+            "conversions": conversions,
+            "broader_conv": broader_conv,
+            "impressions": impressions,
+            "reach": reach,
+            "clicks": clicks,
+            "unique_clicks": unique_clicks,
+            "ctr": ctr,
+            "cpa": cpa,
+            "campaign_ids": campaigns,
+            "adset_ids": adsets,
+            "ad_ids": ads,
+        }
+
+    def _inspect_account_rules(self, account: dict, token: str, rules: list, ad_metrics: list[dict]) -> None:
+        if not rules or not ad_metrics:
+            return
+        act_id = account["act_id"]
+        currency = (account.get("currency") or "USD").upper().strip()
+        for rule in rules:
+            if rule.get("enabled", 1) == 0:
+                continue
+            target = str(rule.get("target_id") or "")
+            if target not in ("", "__global__", act_id) and str(rule.get("level") or "").lower() != "account":
+                continue
+            if _is_silent(rule.get("silent_start"), rule.get("silent_end")):
+                continue
+            rule_type = str(rule.get("rule_type") or "")
+            cooldown_key = f"{act_id}:account"
+            if _check_cooldown(cooldown_key, rule_type):
+                continue
+            selected = [m for m in ad_metrics if self._metric_matches_rule_filter(act_id, m, rule.get("kpi_filter"))]
+            if not selected:
+                continue
+            agg = self._aggregate_account_metrics(selected)
+            triggered, reason = self._account_rule_triggered(rule, account, agg, currency)
+            if not triggered:
+                continue
+            _set_cooldown(cooldown_key, rule_type)
+            self._execute_account_rule(account, token, rule, agg, reason)
+
+    def _account_rule_triggered(self, rule: dict, account: dict, agg: dict, currency: str) -> tuple[bool, str]:
+        rule_type = str(rule.get("rule_type") or "")
+        spend = float(agg.get("spend") or 0)
+        spend_raw = float(agg.get("spend_raw") or 0)
+        conversions = float(agg.get("conversions") or 0)
+        broader_conv = float(agg.get("broader_conv") or 0)
+        clicks = int(agg.get("clicks") or 0)
+        reach = int(agg.get("reach") or 0)
+        impressions = int(agg.get("impressions") or 0)
+        ctr = float(agg.get("ctr") or 0)
+        cur_note = ""
+        if currency != "USD":
+            cur_note = f" (original {currency} {spend_raw:.2f}, converted to USD)"
+
+        if rule_type == "bleed_abs":
+            threshold = float(rule.get("param_value") or self.default_bleed_abs)
+            if spend >= threshold and conversions == 0:
+                if broader_conv > 0:
+                    _log_action(account["act_id"], "account", account["act_id"], account.get("name", account["act_id"]),
+                                "bleed_abort", "bleed_abs",
+                                f"account KPI conversions=0 but broad conversions={broader_conv}; skip account stop")
+                    return False, ""
+                return True, f"账户今日消耗 ${spend:.2f}{cur_note} 已超过空成效止血线 ${threshold:.2f}，KPI 转化=0"
+
+        elif rule_type == "cpa_exceed":
+            cpa = agg.get("cpa")
+            if cpa:
+                ratio = float(rule.get("param_ratio") or self.default_cpa_ratio)
+                target = rule.get("param_value")
+                if target and float(target) > 0 and cpa > float(target) * ratio:
+                    return True, f"账户 CPA ${cpa:.2f} 超过 ${float(target):.2f} x {ratio:.2f}"
+
+        elif rule_type == "click_no_conv":
+            threshold_clicks = int(rule.get("param_value") or 100)
+            if clicks >= threshold_clicks and conversions == 0:
+                return True, f"账户点击 {clicks} 已超过 {threshold_clicks}，KPI 转化=0"
+
+        elif rule_type == "low_ctr_no_conv":
+            min_spend = float(rule.get("param_value") or 10.0)
+            max_ctr = float(rule.get("param_ratio") or 0.5)
+            if spend >= min_spend and impressions >= 100 and conversions == 0 and float(ctr or 0) <= max_ctr:
+                return True, f"账户消耗 ${spend:.2f} 且 CTR {float(ctr or 0):.2f}% <= {max_ctr:.2f}%，KPI 转化=0"
+                triggered = True
+                reason = (f"CTR {float(ctr or 0):.2f}% <= {max_ctr:.2f}% 且消耗 ${spend:.2f}，"
+                          f"{kpi_label} = 0（点击 {clicks}，唯一点击 {unique_clicks}）")
+
+        elif rule_type == "reach_no_conv":
+            threshold_reach = int(rule.get("param_value") or 1000)
+            min_spend = float(rule.get("param_ratio") or 10.0)
+            if int(reach or 0) >= threshold_reach and spend >= min_spend and conversions == 0:
+                return True, f"账户覆盖 {int(reach or 0)} 且消耗 ${spend:.2f}，KPI 转化=0"
+                triggered = True
+                reason = f"覆盖 {int(reach or 0)} >= {threshold_reach} 且消耗 ${spend:.2f}，{kpi_label} = 0"
+
+        elif rule_type == "budget_burn_fast":
+            threshold_abs = float(rule.get("param_value") or 20.0)
+            cache_id = f"{account['act_id']}:account"
+            try:
+                _conn = get_conn()
+                cache_row = _conn.execute(
+                    "SELECT data FROM inspect_cache WHERE act_id=? AND ad_id=?",
+                    (account["act_id"], cache_id),
+                ).fetchone()
+                last_spend = 0.0
+                if cache_row:
+                    last_spend = float(json.loads(cache_row["data"]).get("spend", 0))
+                _conn.execute(
+                    "INSERT OR REPLACE INTO inspect_cache (act_id, ad_id, data, updated_at) VALUES (?,?,?,datetime('now'))",
+                    (account["act_id"], cache_id, json.dumps({"spend": spend})),
+                )
+                _conn.commit()
+                _conn.close()
+                delta = spend - last_spend
+                if delta > 0 and delta >= threshold_abs:
+                    return True, f"账户单次巡检消耗增加 ${delta:.2f}，超过 ${threshold_abs:.2f}"
+            except Exception as exc:
+                logger.warning("account budget_burn_fast cache failed: %s", exc)
+
+        elif rule_type == "low_ctr_no_conv":
+            min_spend = float(rule.get("param_value") or 10.0)
+            max_ctr = float(rule.get("param_ratio") or 0.5)
+            if spend >= min_spend and impressions >= 100 and conversions == 0 and ctr <= max_ctr:
+                return True, f"账户消耗 ${spend:.2f} 且 CTR {ctr:.2f}% <= {max_ctr:.2f}%，KPI 转化=0"
+
+        elif rule_type == "reach_no_conv":
+            reach_threshold = int(rule.get("param_value") or 1000)
+            min_spend = float(rule.get("param_ratio") or 10.0)
+            if reach >= reach_threshold and spend >= min_spend and conversions == 0:
+                return True, f"账户覆盖 {reach} 且消耗 ${spend:.2f}，KPI 转化=0"
+
+        return False, ""
+
+    def _execute_account_rule(self, account: dict, token: str, rule: dict, agg: dict, reason: str) -> None:
+        act_id = account["act_id"]
+        account_name = account.get("name", act_id)
+        action = str(rule.get("action") or "pause")
+        rule_type = str(rule.get("rule_type") or "")
+        if action == "alert_only":
+            _log_action(act_id, "account", act_id, account_name, "alert", rule_type, reason, operator="system")
+            _send_tg(
+                f"⚠️ <b>Mira 账户级预警</b>\n"
+                f"账户：{_tg_escape(account_name)} ({_tg_code(act_id)})\n"
+                f"原因：{_tg_escape(reason)}",
+                act_id=act_id,
+                event_type="guard",
+            )
+            return
+
+        if action == "pause_adset":
+            level, ids = "adset", agg.get("adset_ids") or []
+        elif action in ("pause", "pause_campaign"):
+            level, ids = "campaign", agg.get("campaign_ids") or []
+        else:
+            level, ids = "campaign", agg.get("campaign_ids") or []
+        if not ids:
+            level, ids = "ad", agg.get("ad_ids") or []
+
+        successes, failures = [], []
+        for target_id in ids:
+            if self.dry_run:
+                ok, err_msg, verified = True, "", True
+            else:
+                ok, err_msg = _fb_post(target_id, token, {"status": "PAUSED"})
+                verified = False
+                if ok:
+                    time.sleep(2)
+                    verified = _verify_status(target_id, token, "PAUSED")
+                    if not verified:
+                        err_msg = f"{level} status verification failed"
+            status = "success" if (ok and verified) else "failed"
+            _log_action(
+                act_id, level, target_id, f"[账户止损] {account_name}",
+                "pause", rule_type, reason,
+                old_value={"status": "ACTIVE"},
+                new_value={"status": "PAUSED"},
+                status=status,
+                error_msg=err_msg if status == "failed" else None,
+                operator="system",
+            )
+            if status == "success":
+                successes.append(target_id)
+            else:
+                failures.append(f"{target_id}: {err_msg}")
+
+        status_line = f"已关闭 {len(successes)} 个{level}"
+        if failures:
+            status_line += f"，失败 {len(failures)} 个"
+        _send_tg(
+            f"🚨 <b>Mira 账户级止损</b>\n"
+            f"账户：{_tg_escape(account_name)} ({_tg_code(act_id)})\n"
+            f"原因：{_tg_escape(reason)}\n"
+            f"消耗：${float(agg.get('spend') or 0):.2f} | 转化：{float(agg.get('conversions') or 0):.0f} | 点击：{int(agg.get('clicks') or 0)} | CTR：{float(agg.get('ctr') or 0):.2f}%\n"
+            f"{_tg_escape(status_line)}"
+            + (f"\n失败：{_tg_escape('; '.join(failures[:3]))}" if failures else ""),
+            act_id=act_id,
+            event_type="guard",
+        )
 
     
     def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None):
@@ -1517,7 +1861,15 @@ class GuardEngine:
             ins = insights[0]
             spend_raw = float(ins.get("spend", 0))  # 账户原始货币金额
             impressions = int(ins.get("impressions", 0))
+            reach = int(float(ins.get("reach", 0) or 0))
             clicks = int(ins.get("clicks", 0))
+            unique_clicks = int(float(ins.get("unique_clicks", 0) or 0))
+            try:
+                ctr = float(ins.get("ctr", 0) or 0)
+            except (TypeError, ValueError):
+                ctr = 0.0
+            if not ctr and impressions > 0:
+                ctr = (clicks / impressions) * 100
             actions_raw = ins.get("actions", [])
             action_values = ins.get("action_values", [])
 
@@ -1632,6 +1984,7 @@ class GuardEngine:
                     ad_id, adset_id, campaign_id, ad_name,
                     spend, conversions, clicks, cpa, roas,
                     target_cpa, kpi_label, impressions,
+                    reach=reach, ctr=ctr, unique_clicks=unique_clicks,
                     account_currency=account_currency, spend_raw=spend_raw,
                     broader_conv=broader_conv
                 )
@@ -1653,6 +2006,28 @@ class GuardEngine:
                     target_cpa, kpi_label
                 ):
                     break
+
+            return {
+                "ad_id": ad_id,
+                "ad_name": ad_name,
+                "adset_id": adset_id,
+                "campaign_id": campaign_id,
+                "spend": float(spend or 0),
+                "spend_raw": float(spend_raw or 0),
+                "impressions": int(impressions or 0),
+                "reach": int(reach or 0),
+                "clicks": int(clicks or 0),
+                "unique_clicks": int(unique_clicks or 0),
+                "ctr": float(ctr or 0),
+                "conversions": float(conversions or 0),
+                "broader_conv": float(broader_conv or 0),
+                "cpa": cpa,
+                "roas": roas,
+                "kpi_label": kpi_label,
+                "kpi_field": kpi_field,
+                "target_cpa": target_cpa,
+                "account_currency": account_currency,
+            }
 
     def _mirror_patrol(self, account: dict):
         """仅执行镜像检查，不做KPI/规则巡检。用于enabled=0但需镜像保护的账户"""
@@ -1840,6 +2215,7 @@ class GuardEngine:
                     spend: float, conversions: float, clicks: int,
                     cpa: Optional[float], roas: Optional[float],
                     target_cpa: Optional[float], kpi_label: str, impressions: int,
+                    reach: int = 0, ctr: float = 0.0, unique_clicks: int = 0,
                     account_currency: str = "USD", spend_raw: float = None,
                     broader_conv: float = 0.0):
         """
@@ -1957,6 +2333,21 @@ class GuardEngine:
             except Exception as _burn_err:
                 logger.warning(f"budget_burn_fast 缓存读取失败: {_burn_err}")
 
+        if rule_type == "low_ctr_no_conv":
+            min_spend = float(rule.get("param_value") or 10.0)
+            max_ctr = float(rule.get("param_ratio") or 0.5)
+            if spend >= min_spend and impressions >= 100 and conversions == 0 and float(ctr or 0) <= max_ctr:
+                triggered = True
+                reason = (f"CTR {float(ctr or 0):.2f}% <= {max_ctr:.2f}% 且消耗 ${spend:.2f}，"
+                          f"{kpi_label} = 0（点击 {clicks}，唯一点击 {unique_clicks}）")
+
+        elif rule_type == "reach_no_conv":
+            threshold_reach = int(rule.get("param_value") or 1000)
+            min_spend = float(rule.get("param_ratio") or 10.0)
+            if int(reach or 0) >= threshold_reach and spend >= min_spend and conversions == 0:
+                triggered = True
+                reason = f"覆盖 {int(reach or 0)} >= {threshold_reach} 且消耗 ${spend:.2f}，{kpi_label} = 0"
+
         if not triggered:
             return
 
@@ -1995,6 +2386,50 @@ class GuardEngine:
                     event_type="guard",
                 )
                 # 止损后实时触发素材评分
+
+        elif action in ("pause_adset", "pause_campaign"):
+            target_level = "adset" if action == "pause_adset" else "campaign"
+            target_id = adset_id if action == "pause_adset" else campaign_id
+            target_label = "广告组" if action == "pause_adset" else "系列"
+            if not target_id:
+                _log_action(act_id, target_level, f"missing:{ad_id}", ad_name, "pause",
+                            rule_type, reason, status="failed",
+                            error_msg=f"缺少{target_label}ID，无法执行直接暂停", operator="system")
+                _send_tg(
+                    f"⚠️ <b>Mira 暂停失败</b>\n"
+                    f"账户：{_tg_escape(account.get('name', act_id))} ({_tg_code(act_id)})\n"
+                    f"广告：{_tg_code(ad_name)}\n"
+                    f"原因：缺少{_tg_escape(target_label)}ID，无法执行直接暂停",
+                    act_id=act_id,
+                    event_type="guard",
+                )
+                return
+            if self.dry_run:
+                ok, err_msg, verified = True, "", True
+            else:
+                ok, err_msg = _fb_post(target_id, token, {"status": "PAUSED"})
+                verified = False
+                if ok:
+                    time.sleep(2)
+                    verified = _verify_status(target_id, token, "PAUSED")
+                    if not verified:
+                        err_msg = f"{target_label}状态校验失败"
+            action_status = "success" if (ok and verified) else "failed"
+            _log_action(act_id, target_level, target_id, f"[规则暂停] {ad_name}", "pause",
+                        rule_type, reason,
+                        old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
+                        status=action_status, error_msg=err_msg if action_status == "failed" else None,
+                        operator="system")
+            _send_tg(
+                f"{'🚨' if action_status == 'success' else '⚠️'} <b>Mira 规则{target_label}暂停</b>\n"
+                f"账户：{_tg_escape(account.get('name', act_id))} ({_tg_code(act_id)})\n"
+                f"{target_label}ID：{_tg_code(target_id)}\n"
+                f"广告：{_tg_code(ad_name)}\n"
+                f"原因：{_tg_escape(reason)}"
+                + (f"\n错误：{_tg_escape(err_msg)}" if action_status == "failed" else ""),
+                act_id=act_id,
+                event_type="guard",
+            )
 
         elif action == "reduce_budget":
             pct = float(rule.get("action_value") or 0.2)

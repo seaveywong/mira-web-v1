@@ -16,6 +16,7 @@ import requests as req
 import time
 from api.accounts import _calc_available_balance
 from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token
+from services.guard_engine import _local_per_usd_rate
 
 router = APIRouter()
 _SUMMARY_CACHE = {}
@@ -180,16 +181,7 @@ def _get_token_for_account(acc: dict) -> Optional[str]:
 
 
 def _get_rate(currency: str, conn) -> float:
-    if not currency or currency.upper() == "USD":
-        return 1.0
-    try:
-        row = conn.execute(
-            "SELECT rate FROM currency_rates WHERE currency=? ORDER BY updated_at DESC LIMIT 1",
-            (currency.upper(),)
-        ).fetchone()
-        return float(row["rate"]) if row else 1.0
-    except Exception:
-        return 1.0
+    return _local_per_usd_rate(currency)
 
 
 _ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}

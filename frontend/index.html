@@ -1566,6 +1566,15 @@ input.fc,select.fc,textarea.fc,.fc{
 }
 textarea.fc{height:auto!important;min-height:86px!important;padding:10px 12px!important;line-height:1.55!important}
 select.fc{padding-right:34px!important;text-overflow:ellipsis!important}
+input.fc,select.fc,textarea.fc,.fc,.lc-input,.ss-wrap .ss-input,#kpiMappingTables input,#kpiMappingTables select,#unknownTypesSection input,#unknownTypesSection select{
+ appearance:none!important;-webkit-appearance:none!important;background-clip:padding-box!important;
+ border:1px solid #d2d2d7!important;border-bottom-color:#d2d2d7!important;box-shadow:none!important;text-decoration:none!important
+}
+select.fc,#kpiMappingTables select,#unknownTypesSection select{
+ background-image:linear-gradient(45deg,transparent 50%,#6e6e73 50%),linear-gradient(135deg,#6e6e73 50%,transparent 50%)!important;
+ background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%!important;
+ background-size:5px 5px,5px 5px!important;background-repeat:no-repeat!important
+}
 .btn,.btn-p,.btn-g,.btn-ok,.btn-er,.btn-r,.btn-inspect{
  min-height:var(--ops-toolbar-h)!important;height:var(--ops-toolbar-h)!important;padding:0 15px!important;border-radius:999px!important;white-space:nowrap!important
 }
@@ -10965,10 +10974,10 @@ function renderGuard(rules){
  window._guardRules=rules;
  var el=document.getElementById('guardList');
  if(!rules.length){el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>还没有止损规则<br>点击「添加止损规则」开始</p></div>';return}
- var tl={bleed_abs:'空成效止血',cpa_exceed:'CPA超标止损',trend_drop:'ROAS趋势熔断',consecutive_bad:'连续恶化止损',click_no_conv:'高频点击无转化',budget_burn_fast:'预算消耗过快'};
+ var tl={bleed_abs:'空成效止血',cpa_exceed:'CPA超标止损',trend_drop:'ROAS趋势熔断',consecutive_bad:'连续恶化止损',click_no_conv:'高频点击无转化',low_ctr_no_conv:'低CTR空转止损',reach_no_conv:'高覆盖无转化',budget_burn_fast:'预算消耗过快'};
  var al={pause:'暂停广告',reduce_budget:'降低预算',alert_only:'仅预警',pause_adset:'暂停广告组',pause_campaign:'暂停系列'};
  function ruleCard(r){
-  var descStr=r.rule_type==='bleed_abs'?'止血线: $'+(r.param_value||20):r.rule_type==='cpa_exceed'?'目标CPA >$'+(r.param_value??'')+(r.param_ratio&&r.param_ratio!=1.0?' · 倍率×'+((r.param_ratio*100).toFixed(0)+'%'):''):r.rule_type==='trend_drop'?'跌幅阈值: '+(r.param_value||40)+'%':r.rule_type==='consecutive_bad'?'连续 '+(r.param_days||2)+' 天超标 '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='click_no_conv'?'点击阈值: '+(r.param_value||100):r.rule_type==='budget_burn_fast'?'消耗比例: '+(r.param_value||80)+'%':'';
+   var descStr=r.rule_type==='bleed_abs'?'止血线: $'+(r.param_value||20):r.rule_type==='cpa_exceed'?'目标CPA >$'+(r.param_value??'')+(r.param_ratio&&r.param_ratio!=1.0?' · 倍率×'+((r.param_ratio*100).toFixed(0)+'%'):''):r.rule_type==='trend_drop'?'跌幅阈值: '+(r.param_value||40)+'%':r.rule_type==='consecutive_bad'?'连续 '+(r.param_days||2)+' 天超标 '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='click_no_conv'?'点击阈值: '+(r.param_value||100):r.rule_type==='low_ctr_no_conv'?'消耗 ≥ $'+(r.param_value||10)+' · CTR ≤ '+(r.param_ratio||0.5)+'%':r.rule_type==='reach_no_conv'?'覆盖 ≥ '+(r.param_value||1000)+' · 消耗 ≥ $'+(r.param_ratio||10):r.rule_type==='budget_burn_fast'?'单周期增加: $'+(r.param_value||20):'';
   var silStr=r.silent_start?' · 静默 '+r.silent_start+'-'+r.silent_end:'';
  var kpiFilterLabel={'dt:MESSENGER':'对话类','dt:WEBSITE':'网站转化','dt:FACEBOOK_PAGE':'主页互动','dt:INSTAGRAM_PROFILE':'IG主页','dt:UNDEFINED':'未定义','obj:OUTCOME_SALES':'销售','obj:OUTCOME_LEADS':'线索','obj:OUTCOME_ENGAGEMENT':'互动','obj:OUTCOME_TRAFFIC':'流量','obj:PAGE_LIKES':'主页赞','purchase':'购买转化','leads':'线索收集','messenger':'私信对话','engagement':'帖子互动','traffic':'流量点击','contact':'联系转化','other':'其他'};
   var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+(kpiFilterLabel[r.kpi_filter]||r.kpi_filter)+'</span>':'';

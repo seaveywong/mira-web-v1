@@ -30,6 +30,7 @@ from services.token_manager import (
     normalize_token_source,
 )
 from services.notifier import ensure_notification_schema
+from services.guard_engine import _local_per_usd_rate, _to_usd_guard
 
 router = APIRouter()
 
@@ -2105,6 +2106,12 @@ def _to_usd(amount, currency: str) -> float:
         pass
     rate = _DEFAULT_RATES.get(cur, 1.0)
     return round(float(amount) * rate, 2)
+
+
+def _to_usd(amount, currency: str) -> float:
+    if amount is None:
+        return 0.0
+    return round(_to_usd_guard(amount, currency), 2)
 
 
 @router.get("")
@@ -5277,26 +5284,7 @@ def set_spend_cap(act_id: str, body: SetSpendCapBody, current_user=Depends(get_c
         "UAH": 0.027, "KZT": 0.0022, "GEL": 0.37,
     }
 
-    if currency == "USD":
-        local_amount = cap_usd
-    else:
-        rate = None
-        db_rate = False
-        try:
-            rrow = conn.execute(
-                "SELECT rate FROM currency_rates WHERE currency=?", (currency,)
-            ).fetchone()
-            if rrow:
-                rate = rrow["rate"]
-                db_rate = True
-        except Exception:
-            pass
-        if rate is None:
-            rate = _DEFAULT_RATES.get(currency, 1.0)
-        if db_rate:
-            local_amount = round(cap_usd * float(rate), 2) if float(rate) > 0 else cap_usd
-        else:
-            local_amount = round(cap_usd / float(rate), 2) if float(rate) > 0 else cap_usd
+    local_amount = round(cap_usd * _local_per_usd_rate(currency), 2)
 
     fb_value = _to_minor_units(local_amount, currency)
     db_value = fb_value

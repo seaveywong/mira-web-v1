@@ -62,7 +62,8 @@ class GuardRuleIn(BaseModel):
     level: str = "account"
     target_id: str = "__global__"
     rule_type: str
-    # rule_type: bleed_abs / cpa_exceed / trend_drop / consecutive_bad / click_no_conv / budget_burn_fast / budget_cap
+    # rule_type: bleed_abs / cpa_exceed / trend_drop / consecutive_bad / click_no_conv
+    # / low_ctr_no_conv / reach_no_conv / budget_burn_fast / budget_cap
     param_value: Optional[float] = None
     param_ratio: Optional[float] = 1.2
     param_days: Optional[int] = 2
@@ -270,6 +271,24 @@ def get_rule_types(user=Depends(get_current_user)):
             "desc": "点击数超过X且KPI转化=0，发送预警通知（不自动暂停）。",
             "params": [
                 {"key": "param_value", "label": "点击数阈值", "type": "number", "default": 100, "required": True}
+            ]
+        },
+        {
+            "value": "low_ctr_no_conv",
+            "label": "低CTR空转止损",
+            "desc": "消耗达到阈值后，如果CTR过低且KPI转化为0，则触发预警或暂停。适合识别素材/受众不匹配。",
+            "params": [
+                {"key": "param_value", "label": "最低消耗(USD)", "type": "number", "default": 10, "required": True},
+                {"key": "param_ratio", "label": "最高CTR(%)", "type": "number", "default": 0.5, "required": True}
+            ]
+        },
+        {
+            "value": "reach_no_conv",
+            "label": "高覆盖无转化止损",
+            "desc": "覆盖人数达到阈值且已有一定消耗，但KPI转化仍为0时触发。适合识别放量后无反馈的广告。",
+            "params": [
+                {"key": "param_value", "label": "覆盖人数阈值", "type": "number", "default": 1000, "required": True},
+                {"key": "param_ratio", "label": "最低消耗(USD)", "type": "number", "default": 10, "required": True}
             ]
         },
         {
