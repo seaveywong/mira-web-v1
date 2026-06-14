@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, HTTPException, Depends, UploadFile
 from pydantic import BaseModel
 from typing import Optional, List
 
-from core.auth import get_current_user, normalize_user_claims
+from core.auth import get_current_user, is_superadmin, normalize_user_claims
 from core.database import get_conn, encrypt_token, decrypt_token
 from core.account_access import (
     classify_read_failure,
@@ -129,6 +129,69 @@ logger = logging.getLogger("mira.api.accounts")
 
 FB_API_BASE = "https://graph.facebook.com/v25.0"
 _SPEND_API_CACHE = {}
+
+
+def _ensure_spend_retention_schema(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS account_spend_retention (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           snapshot_date TEXT NOT NULL,
+           act_id TEXT NOT NULL,
+           account_id TEXT,
+           account_name TEXT,
+           currency TEXT DEFAULT 'USD',
+           team_id INTEGER,
+           spend REAL DEFAULT 0,
+           conversions REAL DEFAULT 0,
+           removed_at TEXT DEFAULT (datetime('now','+8 hours')),
+           source TEXT DEFAULT 'account_delete',
+           UNIQUE(snapshot_date, act_id)
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_spend_retention_date ON account_spend_retention(snapshot_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_spend_retention_team_date ON account_spend_retention(team_id, snapshot_date)")
+    conn.execute(
+        """INSERT OR IGNORE INTO settings(key,value,label,description,category,sort_order)
+           VALUES ('spend_retention_days','180','消耗历史留存天数',
+                   '账户移除后保留指定天数的本地消耗归档，用于复制有消耗账户 ID 和追溯账单',
+                   'storage',30)"""
+    )
+    conn.commit()
+
+
+def _archive_account_spend_history(conn, account_id: int) -> None:
+    _ensure_spend_retention_schema(conn)
+    row = conn.execute(
+        "SELECT id, act_id, name, currency, team_id FROM accounts WHERE id=?",
+        (account_id,),
+    ).fetchone()
+    if not row:
+        return
+    act_id = row["act_id"]
+    plain_id = act_id[4:] if str(act_id or "").startswith("act_") else act_id
+    conn.execute(
+        """INSERT INTO account_spend_retention
+           (snapshot_date, act_id, account_id, account_name, currency, team_id,
+            spend, conversions, removed_at, source)
+           SELECT p.snapshot_date, p.act_id, ?, ?, ?, ?,
+                  SUM(COALESCE(p.spend, 0)),
+                  SUM(COALESCE(p.conversions, 0)),
+                  datetime('now','+8 hours'),
+                  'account_delete'
+           FROM perf_snapshots p
+           WHERE p.act_id=?
+           GROUP BY p.snapshot_date, p.act_id
+           ON CONFLICT(snapshot_date, act_id) DO UPDATE SET
+             account_id=excluded.account_id,
+             account_name=excluded.account_name,
+             currency=excluded.currency,
+             team_id=excluded.team_id,
+             spend=excluded.spend,
+             conversions=excluded.conversions,
+             removed_at=excluded.removed_at,
+             source=excluded.source""",
+        (plain_id, row["name"] or act_id, row["currency"] or "USD", row["team_id"], act_id),
+    )
 _SPEND_API_CACHE_TTL_SECONDS = 120
 
 
@@ -2279,6 +2342,7 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
 
     conn = get_conn()
+    _ensure_spend_retention_schema(conn)
     where, params = ["p.snapshot_date = ?"], [target_date]
     apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
     snapshot_meta = conn.execute(f"""
@@ -2300,6 +2364,27 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         HAVING SUM(COALESCE(p.spend, 0)) > 0
         ORDER BY spend DESC, a.name ASC
     """, params).fetchall()
+    retention_where, retention_params = ["r.snapshot_date = ?"], [target_date]
+    if not is_superadmin(user):
+        retention_where.append("r.team_id=?")
+        retention_params.append(team_id_for_create(user))
+    retention_meta = conn.execute(f"""
+        SELECT COUNT(*) AS retention_rows,
+               COUNT(DISTINCT r.act_id) AS retention_accounts,
+               SUM(COALESCE(r.spend, 0)) AS retention_total_spend
+        FROM account_spend_retention r
+        WHERE {' AND '.join(retention_where)}
+    """, retention_params).fetchone()
+    retention_rows = conn.execute(f"""
+        SELECT r.act_id, r.account_id, r.account_name AS name, r.currency,
+               SUM(COALESCE(r.spend, 0)) AS spend,
+               SUM(COALESCE(r.conversions, 0)) AS conversions
+        FROM account_spend_retention r
+        WHERE {' AND '.join(retention_where)}
+        GROUP BY r.act_id, r.account_id, r.account_name, r.currency
+        HAVING SUM(COALESCE(r.spend, 0)) > 0
+        ORDER BY spend DESC, r.account_name ASC
+    """, retention_params).fetchall()
     account_where, account_params = ["1=1"], []
     apply_team_scope(account_where, account_params, user, "a.team_id", include_unassigned=False)
     visible_accounts = conn.execute(f"""
@@ -2321,8 +2406,25 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
             "currency": r["currency"] or "USD",
             "spend": float(r["spend"] or 0),
             "conversions": float(r["conversions"] or 0),
+            "source": "local_perf_snapshots",
         })
     local_positive = {i["act_id"] for i in items}
+    for r in retention_rows:
+        act_id = r["act_id"] or ""
+        if not act_id or act_id in local_positive:
+            continue
+        account_id = r["account_id"] or (act_id[4:] if act_id.startswith("act_") else act_id)
+        items.append({
+            "act_id": act_id,
+            "account_id": account_id,
+            "name": r["name"] or act_id,
+            "currency": r["currency"] or "USD",
+            "spend": float(r["spend"] or 0),
+            "conversions": float(r["conversions"] or 0),
+            "source": "removed_account_retention",
+        })
+        local_positive.add(act_id)
+    local_source_count = len(items)
     api_candidates = [
         dict(acc)
         for acc in visible_accounts
@@ -2351,10 +2453,14 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
             })
 
     items.sort(key=lambda x: (-float(x.get("spend") or 0), x.get("name") or ""))
-    if api_results and rows:
+    if api_results and local_source_count:
         source = "mixed"
     elif api_results:
         source = "fb_insights_api"
+    elif retention_rows and rows:
+        source = "local_perf_snapshots+retention"
+    elif retention_rows:
+        source = "removed_account_retention"
     else:
         source = "local_perf_snapshots"
     return {
@@ -2364,6 +2470,9 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         "snapshot_rows": int(snapshot_meta["snapshot_rows"] or 0) if snapshot_meta else 0,
         "snapshot_accounts": int(snapshot_meta["snapshot_accounts"] or 0) if snapshot_meta else 0,
         "snapshot_total_spend": float(snapshot_meta["snapshot_total_spend"] or 0) if snapshot_meta else 0,
+        "retention_rows": int(retention_meta["retention_rows"] or 0) if retention_meta else 0,
+        "retention_accounts": int(retention_meta["retention_accounts"] or 0) if retention_meta else 0,
+        "retention_total_spend": float(retention_meta["retention_total_spend"] or 0) if retention_meta else 0,
         "visible_accounts": len(visible_accounts),
         "api_checked": len(api_results),
         "api_error_count": len(api_errors),
@@ -2371,6 +2480,39 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         "account_ids": [i["account_id"] for i in items],
         "act_ids": [i["act_id"] for i in items],
         "items": items,
+    }
+
+
+@router.post("/spent-retention/cleanup")
+def cleanup_spend_retention(days: int = 180, user=Depends(get_current_user)):
+    """Prune archived spend records for accounts that were removed from the account list."""
+    if not is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin required")
+    days = max(30, min(int(days or 180), 1095))
+    conn = get_conn()
+    _ensure_spend_retention_schema(conn)
+    row = conn.execute("SELECT COUNT(*) AS c FROM account_spend_retention").fetchone()
+    before = int(row["c"] or 0)
+    cur = conn.execute(
+        "DELETE FROM account_spend_retention WHERE date(snapshot_date) < date('now','+8 hours', ?)",
+        (f"-{days} days",),
+    )
+    conn.execute(
+        """INSERT OR REPLACE INTO settings(key,value,label,description,category,sort_order)
+           VALUES ('spend_retention_days', ?, '消耗历史留存天数',
+                   '账户移除后保留指定天数的本地消耗归档，用于复制有消耗账户 ID 和追溯账单',
+                   'storage',30)""",
+        (str(days),),
+    )
+    conn.commit()
+    row = conn.execute("SELECT COUNT(*) AS c FROM account_spend_retention").fetchone()
+    after = int(row["c"] or 0)
+    conn.close()
+    return {
+        "success": True,
+        "days": days,
+        "deleted": int(cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else max(0, before - after)),
+        "remaining": after,
     }
 
 
@@ -2522,6 +2664,7 @@ def delete_account(account_id: int, user=Depends(get_current_user)):
     """删除账户（不删除Token）"""
     conn = get_conn()
     assert_row_access(conn, "accounts", account_id, user, allow_unassigned=False)
+    _archive_account_spend_history(conn, account_id)
     conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
     conn.commit()
     conn.close()

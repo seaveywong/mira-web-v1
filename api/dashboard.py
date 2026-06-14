@@ -603,7 +603,7 @@ def get_summary(
 
     # 按消耗降序排序
     account_details.sort(key=lambda x: x['spend_usd'], reverse=True)
-    avg_cpa = round(sum(cpa_list) / len(cpa_list), 2) if cpa_list else None
+    avg_cpa = round(total_spend / total_conversions, 2) if total_conversions > 0 else None
     avg_roas = round(sum(roas_list) / len(roas_list), 2) if roas_list else None
 
     result = {
@@ -809,6 +809,7 @@ def get_ads_live(
         settings_map = {}
 
     team_guard_map = {}
+    owner_guard_map = {}
     try:
         team_ids = sorted({int(a.get("team_id")) for a in accs if a.get("team_id")})
         if team_ids:
@@ -824,6 +825,21 @@ def get_ads_live(
             team_guard_map = {int(r["id"]): dict(r) for r in rows}
     except Exception:
         team_guard_map = {}
+    try:
+        owner_ids = sorted({int(a.get("owner_user_id")) for a in accs if a.get("owner_user_id")})
+        if owner_ids:
+            placeholders = ",".join("?" for _ in owner_ids)
+            rows = conn.execute(
+                f"""SELECT id,
+                          COALESCE(mirror_enabled, 0) AS mirror_enabled,
+                          COALESCE(sentinel_enabled, 0) AS sentinel_enabled,
+                          COALESCE(heartbeat_enabled, 0) AS heartbeat_enabled
+                   FROM users WHERE id IN ({placeholders}) AND COALESCE(is_active, 1)=1""",
+                owner_ids,
+            ).fetchall()
+            owner_guard_map = {int(r["id"]): dict(r) for r in rows}
+    except Exception:
+        owner_guard_map = {}
 
     cap_map = {a["act_id"]: {
         "manage_token_ok": False,
@@ -934,11 +950,12 @@ def get_ads_live(
             acc_caps = cap_map.get(acc["act_id"], {})
             automation_warnings = []
             team_guard = team_guard_map.get(int(acc.get("team_id") or 0), {})
-            if settings_map.get("mirror_enabled") == "1" or int(acc.get("mirror_enabled") or 0) == 1 or int(team_guard.get("mirror_enabled") or 0) == 1:
+            owner_guard = owner_guard_map.get(int(acc.get("owner_user_id") or 0), {})
+            if settings_map.get("mirror_enabled") == "1" or int(acc.get("mirror_enabled") or 0) == 1 or int(team_guard.get("mirror_enabled") or 0) == 1 or int(owner_guard.get("mirror_enabled") or 0) == 1:
                 automation_warnings.append("mirror_enabled")
-            if settings_map.get("sentinel_enabled") == "1" or int(acc.get("sentinel_enabled") or 0) == 1 or int(team_guard.get("sentinel_enabled") or 0) == 1:
+            if settings_map.get("sentinel_enabled") == "1" or int(acc.get("sentinel_enabled") or 0) == 1 or int(team_guard.get("sentinel_enabled") or 0) == 1 or int(owner_guard.get("sentinel_enabled") or 0) == 1:
                 automation_warnings.append("sentinel_enabled")
-            if settings_map.get("heartbeat_enabled") == "1" or int(team_guard.get("heartbeat_enabled") or 0) == 1:
+            if settings_map.get("heartbeat_enabled") == "1" or int(team_guard.get("heartbeat_enabled") or 0) == 1 or int(owner_guard.get("heartbeat_enabled") or 0) == 1:
                 automation_warnings.append("heartbeat_enabled")
             for ad in ads:
                 ins_data = ad.get('insights', {})
@@ -1200,7 +1217,7 @@ def spend_query(
             continue
 
     result_rows.sort(key=lambda x: x['date'], reverse=True)
-    avg_cpa = round(sum(total_cpa_list) / len(total_cpa_list), 2) if total_cpa_list else 0
+    avg_cpa = round(total_usd / total_conversions, 2) if total_conversions > 0 else 0
     avg_roas = round(sum(total_roas_list) / len(total_roas_list), 2) if total_roas_list else 0
     return {
         "total_usd": round(total_usd, 2),

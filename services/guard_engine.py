@@ -371,6 +371,7 @@ def _ensure_sentinel_schema():
 
 
 TEAM_GUARD_KEYS = ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled")
+USER_GUARD_KEYS = TEAM_GUARD_KEYS
 
 
 def _ensure_team_guard_schema():
@@ -380,6 +381,18 @@ def _ensure_team_guard_schema():
         for key in TEAM_GUARD_KEYS:
             if key not in cols:
                 conn.execute(f"ALTER TABLE teams ADD COLUMN {key} INTEGER DEFAULT 0")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ensure_user_guard_schema():
+    conn = get_conn()
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        for key in USER_GUARD_KEYS:
+            if key not in cols:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {key} INTEGER DEFAULT 0")
         conn.commit()
     finally:
         conn.close()
@@ -402,11 +415,44 @@ def _account_team_guard_enabled(account: dict, key: str) -> bool:
         return False
 
 
+def _account_owner_guard_enabled(account: dict, key: str) -> bool:
+    alias = f"owner_{key}"
+    if alias in account:
+        return int(account.get(alias) or 0) == 1
+    owner_user_id = account.get("owner_user_id")
+    if not owner_user_id:
+        return False
+    try:
+        _ensure_user_guard_schema()
+        conn = get_conn()
+        row = conn.execute(
+            f"SELECT COALESCE({key}, 0) AS enabled FROM users WHERE id=? AND COALESCE(is_active, 1)=1",
+            (owner_user_id,),
+        ).fetchone()
+        conn.close()
+        return bool(row and row["enabled"])
+    except Exception:
+        return False
+
+
 def _any_team_guard_enabled(key: str) -> bool:
     try:
         _ensure_team_guard_schema()
         conn = get_conn()
         row = conn.execute(f"SELECT 1 FROM teams WHERE COALESCE({key}, 0)=1 LIMIT 1").fetchone()
+        conn.close()
+        return bool(row)
+    except Exception:
+        return False
+
+
+def _any_owner_guard_enabled(key: str) -> bool:
+    try:
+        _ensure_user_guard_schema()
+        conn = get_conn()
+        row = conn.execute(
+            f"SELECT 1 FROM users WHERE COALESCE({key}, 0)=1 AND COALESCE(is_active, 1)=1 LIMIT 1"
+        ).fetchone()
         conn.close()
         return bool(row)
     except Exception:
@@ -1090,6 +1136,7 @@ class GuardEngine:
 
     def run_all(self):
         _ensure_team_guard_schema()
+        _ensure_user_guard_schema()
         if _get_setting("inspect_enabled", "1") != "1":
             logger.info("自动巡检已关闭（inspect_enabled=0），跳过")
         else:
@@ -1099,9 +1146,14 @@ class GuardEngine:
                           COALESCE(tm.mirror_enabled, 0) AS team_mirror_enabled,
                           COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled,
                           COALESCE(tm.heartbeat_enabled, 0) AS team_heartbeat_enabled,
-                          COALESCE(tm.warmup_enabled, 0) AS team_warmup_enabled
+                          COALESCE(tm.warmup_enabled, 0) AS team_warmup_enabled,
+                          COALESCE(ou.mirror_enabled, 0) AS owner_mirror_enabled,
+                          COALESCE(ou.sentinel_enabled, 0) AS owner_sentinel_enabled,
+                          COALESCE(ou.heartbeat_enabled, 0) AS owner_heartbeat_enabled,
+                          COALESCE(ou.warmup_enabled, 0) AS owner_warmup_enabled
                    FROM accounts a
                    LEFT JOIN teams tm ON tm.id=a.team_id
+                   LEFT JOIN users ou ON ou.id=a.owner_user_id AND COALESCE(ou.is_active, 1)=1
                    WHERE a.enabled=1 AND a.account_status NOT IN (3, 7, 9)"""
             ).fetchall()
             conn.close()
@@ -1114,16 +1166,19 @@ class GuardEngine:
         # ── 镜像巡逻：保护未开启巡检但存活(enabled=0)的账户 ──────────────────────
         global_mirror = _get_setting("mirror_enabled", "0")
         has_team_mirror = _any_team_guard_enabled("mirror_enabled")
-        if global_mirror == "1" or has_team_mirror:
+        has_owner_mirror = _any_owner_guard_enabled("mirror_enabled")
+        if global_mirror == "1" or has_team_mirror or has_owner_mirror:
             conn = get_conn()
             mirror_only = conn.execute(
                 """SELECT a.*,
-                          COALESCE(tm.mirror_enabled, 0) AS team_mirror_enabled
+                          COALESCE(tm.mirror_enabled, 0) AS team_mirror_enabled,
+                          COALESCE(ou.mirror_enabled, 0) AS owner_mirror_enabled
                    FROM accounts a
                    LEFT JOIN teams tm ON tm.id=a.team_id
+                   LEFT JOIN users ou ON ou.id=a.owner_user_id AND COALESCE(ou.is_active, 1)=1
                    WHERE a.enabled=0
                      AND a.account_status NOT IN (3, 7, 9)
-                     AND (?='1' OR COALESCE(a.mirror_enabled, 0)=1 OR COALESCE(tm.mirror_enabled, 0)=1)""",
+                     AND (?='1' OR COALESCE(a.mirror_enabled, 0)=1 OR COALESCE(tm.mirror_enabled, 0)=1 OR COALESCE(ou.mirror_enabled, 0)=1)""",
                 (global_mirror,)
             ).fetchall()
             conn.close()
@@ -1199,7 +1254,8 @@ class GuardEngine:
         global_mirror = _get_setting("mirror_enabled", "0")
         account_mirror = account.get("mirror_enabled", 0)
         team_mirror = _account_team_guard_enabled(account, "mirror_enabled")
-        if global_mirror == "1" or account_mirror == 1 or team_mirror:
+        owner_mirror = _account_owner_guard_enabled(account, "mirror_enabled")
+        if global_mirror == "1" or account_mirror == 1 or team_mirror or owner_mirror:
             mirror_events = []  # Collect for aggregated TG notification per account
             mirrored_ids = _load_mirror_snapshot(act_id)
             if mirrored_ids:
@@ -2179,14 +2235,21 @@ class GuardEngine:
 
 
 
-def emergency_pause_all(operator: str = "user", level: str = "campaign", team_id: Optional[int] = None) -> dict:
+def emergency_pause_all(
+    operator: str = "user",
+    level: str = "campaign",
+    team_id: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
+) -> dict:
     """
     一键紧急暂停所有账户的所有活跃广告（按层级）
     level: campaign（系列级）| adset（广告组级）| ad（广告级）
     返回: {total, success, failed, failed_list, manual_required, level, level_label}
     """
     conn = get_conn()
-    if team_id is not None:
+    if owner_user_id is not None:
+        accounts = conn.execute("SELECT * FROM accounts WHERE owner_user_id=?", (owner_user_id,)).fetchall()
+    elif team_id is not None:
         accounts = conn.execute("SELECT * FROM accounts WHERE team_id=?", (team_id,)).fetchall()
     else:
         accounts = conn.execute("SELECT * FROM accounts").fetchall()  # 紧急暂停不受巡检开关限制
@@ -2271,7 +2334,7 @@ def emergency_pause_all(operator: str = "user", level: str = "campaign", team_id
             msg_parts.append(f"• [{lbl}] {item['name']} ({iid}): {item['reason']}")
         if len(manual_required) > 8:
             msg_parts.append(f"...及其他 {len(manual_required)-8} 项，请登录后台查看操作日志")
-    _send_tg("\n".join(msg_parts), team_id=team_id)
+    _send_tg("\n".join(msg_parts), team_id=team_id, include_owner=owner_user_id is None)
 
     return {
         "total": total,
@@ -2309,6 +2372,7 @@ def sentinel_patrol() -> dict:
     """
     _ensure_sentinel_schema()
     _ensure_team_guard_schema()
+    _ensure_user_guard_schema()
     enabled = _get_setting("sentinel_enabled", "0")
     global_enabled = enabled == "1"
     dry_run = _is_dry_run()
@@ -2320,19 +2384,23 @@ def sentinel_patrol() -> dict:
     if global_enabled:
         accounts = conn.execute(
             """SELECT a.*,
-                      COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled
+                      COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled,
+                      COALESCE(ou.sentinel_enabled, 0) AS owner_sentinel_enabled
                FROM accounts a
                LEFT JOIN teams tm ON tm.id=a.team_id
+               LEFT JOIN users ou ON ou.id=a.owner_user_id AND COALESCE(ou.is_active, 1)=1
                WHERE a.account_status NOT IN (3, 7, 9, 100)"""
         ).fetchall()
         mode = "global"
     else:
         accounts = conn.execute(
             """SELECT a.*,
-                      COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled
+                      COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled,
+                      COALESCE(ou.sentinel_enabled, 0) AS owner_sentinel_enabled
                FROM accounts a
                LEFT JOIN teams tm ON tm.id=a.team_id
-               WHERE (COALESCE(a.sentinel_enabled, 0)=1 OR COALESCE(tm.sentinel_enabled, 0)=1)
+               LEFT JOIN users ou ON ou.id=a.owner_user_id AND COALESCE(ou.is_active, 1)=1
+               WHERE (COALESCE(a.sentinel_enabled, 0)=1 OR COALESCE(tm.sentinel_enabled, 0)=1 OR COALESCE(ou.sentinel_enabled, 0)=1)
                  AND a.account_status NOT IN (3, 7, 9, 100)"""
         ).fetchall()
         mode = "team/account"
@@ -2435,6 +2503,7 @@ def heartbeat_check() -> dict:
     若超时则触发 campaign 级别的紧急全停。
     """
     _ensure_team_guard_schema()
+    _ensure_user_guard_schema()
     enabled = _get_setting("heartbeat_enabled", "0")
     global_enabled = enabled == "1"
     conn = get_conn()
@@ -2445,8 +2514,17 @@ def heartbeat_check() -> dict:
            WHERE COALESCE(t.heartbeat_enabled, 0)=1 AND COALESCE(t.status, 'active')='active'
            GROUP BY t.id, t.name"""
     ).fetchall()
+    user_rows = conn.execute(
+        """SELECT u.id, COALESCE(NULLIF(u.display_name, ''), u.username) AS name,
+                  u.team_id, t.name AS team_name, u.last_active_at AS last_activity
+           FROM users u
+           LEFT JOIN teams t ON t.id=u.team_id
+           WHERE COALESCE(u.heartbeat_enabled, 0)=1
+             AND COALESCE(u.is_active, 1)=1
+             AND COALESCE(t.status, 'active')='active'"""
+    ).fetchall()
     conn.close()
-    if not global_enabled and not team_rows:
+    if not global_enabled and not team_rows and not user_rows:
         return {"status": "disabled", "timeout": False, "action": "none"}
     try:
         timeout_min = int(_get_setting("heartbeat_timeout", "30"))
@@ -2550,12 +2628,67 @@ def heartbeat_check() -> dict:
             "minutes_since": team_minutes,
             "result": result,
         })
-    if team_timeouts:
+    owner_timeouts = []
+    for owner in user_rows:
+        owner_id = int(owner["id"])
+        owner_name = owner["name"] or f"User {owner_id}"
+        marker_key = f"owner_heartbeat_last_trigger_{owner_id}"
+        candidates = [owner["last_activity"] or "", _get_setting(marker_key, "") or ""]
+        last_dt = None
+        for raw in candidates:
+            if not raw:
+                continue
+            try:
+                parsed = datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError):
+                continue
+            if last_dt is None or parsed > last_dt:
+                last_dt = parsed
+        if last_dt is None:
+            continue
+        owner_minutes = int((now_bj - last_dt).total_seconds() / 60)
+        if owner_minutes < timeout_min:
+            continue
+        logger.warning(f"[Heartbeat] Owner {owner_id} activity timeout: {owner_minutes} minutes")
+        if _is_dry_run():
+            result = {"total": 0, "success": 0, "failed": 0, "dry_run": True}
+        else:
+            result = emergency_pause_all(operator="heartbeat", level="campaign", owner_user_id=owner_id)
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO action_logs (act_id, action_type, trigger_detail, status, error_msg) VALUES (?,?,?,?,?)",
+            ('*', 'heartbeat', f'Owner heartbeat timeout {owner_minutes} minutes: {owner_name}',
+             'success', f'Total {result.get("total",0)}, closed {result.get("success",0)}')
+        )
+        updated = conn.execute(
+            "UPDATE settings SET value=datetime('now','+8 hours') WHERE key=?",
+            (marker_key,),
+        )
+        if updated.rowcount == 0:
+            conn.execute(
+                "INSERT INTO settings(key,value) VALUES(?, datetime('now','+8 hours'))",
+                (marker_key,),
+            )
+        conn.commit()
+        conn.close()
+        owner_timeouts.append({
+            "owner_user_id": owner_id,
+            "owner_name": owner_name,
+            "team_id": owner["team_id"],
+            "team_name": owner["team_name"],
+            "minutes_since": owner_minutes,
+            "result": result,
+        })
+    if team_timeouts or owner_timeouts:
+        action = "team_owner_emergency_pause" if team_timeouts and owner_timeouts else (
+            "team_emergency_pause" if team_timeouts else "owner_emergency_pause"
+        )
         return {
             "status": "ok",
             "timeout": True,
             "minutes_since": minutes_since,
-            "action": "team_emergency_pause",
+            "action": action,
             "teams": team_timeouts,
+            "owners": owner_timeouts,
         }
     return {"status": "ok", "timeout": False, "minutes_since": minutes_since, "action": "none"}

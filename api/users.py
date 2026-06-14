@@ -42,6 +42,10 @@ class UpdateUserReq(BaseModel):
     tg_chat_id: Optional[str] = None
     notify_enabled: Optional[bool] = None
     notify_types: Optional[str] = None
+    sentinel_enabled: Optional[bool] = None
+    mirror_enabled: Optional[bool] = None
+    heartbeat_enabled: Optional[bool] = None
+    warmup_enabled: Optional[bool] = None
 
 
 class MyNotifyReq(BaseModel):
@@ -51,7 +55,9 @@ class MyNotifyReq(BaseModel):
 
 
 def _ensure_team(conn, name: str) -> tuple[int, str]:
-    name = (name or "").strip() or "Default Team"
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Team is required")
     row = conn.execute("SELECT id, name FROM teams WHERE name=?", (name,)).fetchone()
     if row:
         return int(row["id"]), row["name"]
@@ -72,10 +78,18 @@ def _get_team(conn, team_id: int | None, group_name: str | None) -> tuple[int | 
         return int(row["id"]), row["name"]
     if group_name and group_name.strip():
         return _ensure_team(conn, group_name)
-    row = conn.execute("SELECT id, name FROM teams WHERE name='Default Team'").fetchone()
-    if row:
-        return int(row["id"]), row["name"]
-    return _ensure_team(conn, "Default Team")
+    raise HTTPException(status_code=400, detail="Team is required")
+
+
+USER_GUARD_KEYS = ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled")
+
+
+def ensure_user_guard_schema(conn) -> None:
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    for key in USER_GUARD_KEYS:
+        if key not in cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {key} INTEGER DEFAULT 0")
+    conn.commit()
 
 
 def _actor_team(user: dict) -> tuple[int, str | None]:
@@ -105,6 +119,10 @@ def _user_row_to_payload(row) -> dict:
         "tg_chat_id": row["tg_chat_id"] if "tg_chat_id" in row.keys() else "",
         "notify_enabled": bool(row["notify_enabled"]) if "notify_enabled" in row.keys() and row["notify_enabled"] is not None else False,
         "notify_types": row["notify_types"] if "notify_types" in row.keys() else "all",
+        "sentinel_enabled": bool(row["sentinel_enabled"]) if "sentinel_enabled" in row.keys() else False,
+        "mirror_enabled": bool(row["mirror_enabled"]) if "mirror_enabled" in row.keys() else False,
+        "heartbeat_enabled": bool(row["heartbeat_enabled"]) if "heartbeat_enabled" in row.keys() else False,
+        "warmup_enabled": bool(row["warmup_enabled"]) if "warmup_enabled" in row.keys() else False,
     }
 
 
@@ -126,9 +144,14 @@ def _upsert_membership(conn, user_id: int, team_id: int | None, role: str) -> No
 def list_users(user=Depends(require_admin)):
     conn = get_db()
     ensure_notification_schema(conn)
+    ensure_user_guard_schema(conn)
     base_sql = """SELECT u.id, u.username, u.role, u.display_name, u.note, u.is_active,
                          u.last_login_at, u.last_active_at, u.last_ip, u.created_at,
                          u.group_name, u.team_id, u.tg_chat_id, u.notify_enabled, u.notify_types,
+                         COALESCE(u.sentinel_enabled, 0) AS sentinel_enabled,
+                         COALESCE(u.mirror_enabled, 0) AS mirror_enabled,
+                         COALESCE(u.heartbeat_enabled, 0) AS heartbeat_enabled,
+                         COALESCE(u.warmup_enabled, 0) AS warmup_enabled,
                          t.name AS team_name
                   FROM users u
                   LEFT JOIN teams t ON t.id = u.team_id"""
@@ -164,6 +187,7 @@ def create_user(body: CreateUserReq, user=Depends(require_admin)):
 
     conn = get_db()
     ensure_notification_schema(conn)
+    ensure_user_guard_schema(conn)
     try:
         if is_superadmin(user):
             team_id, team_name = _get_team(conn, body.team_id, body.group_name)
@@ -198,6 +222,7 @@ def create_user(body: CreateUserReq, user=Depends(require_admin)):
 def update_user(user_id: int, body: UpdateUserReq, user=Depends(require_admin)):
     conn = get_db()
     ensure_notification_schema(conn)
+    ensure_user_guard_schema(conn)
     row = conn.execute("SELECT id, role, team_id FROM users WHERE id=?", (user_id,)).fetchone()
     if not row:
         conn.close()
@@ -252,6 +277,11 @@ def update_user(user_id: int, body: UpdateUserReq, user=Depends(require_admin)):
     if body.notify_types is not None:
         updates.append("notify_types=?")
         params.append(body.notify_types or "all")
+    for guard_key in USER_GUARD_KEYS:
+        value = getattr(body, guard_key, None)
+        if value is not None:
+            updates.append(f"{guard_key}=?")
+            params.append(1 if value else 0)
     if actor_is_super and (body.team_id is not None or body.group_name is not None):
         new_team_id, team_name = _get_team(conn, body.team_id, body.group_name)
         updates.append("team_id=?")
@@ -323,6 +353,7 @@ def get_me(user=Depends(get_current_user)):
         }
     conn = get_db()
     ensure_notification_schema(conn)
+    ensure_user_guard_schema(conn)
     row = conn.execute(
         """SELECT u.id, u.username, u.role, u.display_name, u.group_name, u.team_id,
                   u.tg_chat_id, u.notify_enabled, u.notify_types,

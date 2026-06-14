@@ -126,6 +126,13 @@ def _ensure_schema():
                 conn.execute(f"ALTER TABLE teams ADD COLUMN {key} INTEGER DEFAULT 0")
             except Exception:
                 pass
+    user_cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    for key in ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled"):
+        if key not in user_cols:
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {key} INTEGER DEFAULT 0")
+            except Exception:
+                pass
     conn.commit()
     conn.close()
 
@@ -940,8 +947,11 @@ def _check_and_warmup_unlocked():
     team_warmup_enabled = bool(conn.execute(
         "SELECT 1 FROM teams WHERE COALESCE(warmup_enabled, 0)=1 LIMIT 1"
     ).fetchone())
+    owner_warmup_enabled = bool(conn.execute(
+        "SELECT 1 FROM users WHERE COALESCE(warmup_enabled, 0)=1 AND COALESCE(is_active, 1)=1 LIMIT 1"
+    ).fetchone())
     conn.close()
-    if not global_warmup_enabled and not team_warmup_enabled:
+    if not global_warmup_enabled and not team_warmup_enabled and not owner_warmup_enabled:
         return {"status": "disabled", "reason": "warmup disabled"}
 
     # 2. 守护模式互斥
@@ -970,8 +980,9 @@ def _check_and_warmup_unlocked():
         SELECT accounts.*
         FROM accounts
         LEFT JOIN teams tm ON tm.id=accounts.team_id
+        LEFT JOIN users ou ON ou.id=accounts.owner_user_id AND COALESCE(ou.is_active, 1)=1
         WHERE enabled=1
-          AND (?=1 OR COALESCE(tm.warmup_enabled, 0)=1)
+          AND (?=1 OR COALESCE(tm.warmup_enabled, 0)=1 OR COALESCE(ou.warmup_enabled, 0)=1)
           AND COALESCE(account_status, 1) NOT IN (3, 7, 9, 100, 101)
           AND (
               {direct_page_clause}
@@ -990,6 +1001,8 @@ def _check_and_warmup_unlocked():
           AND COALESCE(mirror_enabled, 0)=0
           AND COALESCE(tm.mirror_enabled, 0)=0
           AND COALESCE(tm.sentinel_enabled, 0)=0
+          AND COALESCE(ou.mirror_enabled, 0)=0
+          AND COALESCE(ou.sentinel_enabled, 0)=0
           AND EXISTS (
               SELECT 1 FROM account_op_tokens aot
               JOIN fb_tokens t ON t.id=aot.token_id

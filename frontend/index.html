@@ -1708,7 +1708,7 @@ select.fc option{background:#fff;color:#1d1d1f}
 <div id="login-page">
  <div class="lc">
    <div class="lc-logo">
-    <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-tech.png" alt="Mira"></div>
+    <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
 <p id="loginVer">广告投放管理系统 v3.2.1</p>
   </div>
@@ -1727,7 +1727,7 @@ select.fc option{background:#fff;color:#1d1d1f}
   <aside class="sidebar" id="sidebar">
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
-     <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-tech.png" alt="Mira"></div>
+     <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
 <div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.2.1</div></div>
     </div>
    <nav class="sb-nav">
@@ -1947,7 +1947,7 @@ select.fc option{background:#fff;color:#1d1d1f}
         <button class="btn btn-g btn-sm" onclick="closeAccDetail()">✕ 关闭</button>
        </div>
        <div class="table-wrap"><table>
-        <thead><tr><th>账户名称</th><th>货币</th><th>时区</th><th>消耗 (USD)</th><th>转化</th><th>CPA (USD)</th><th>ROAS</th><th>状态</th></tr></thead>
+        <thead id="accDetailHead"><tr><th>账户名称</th><th>货币</th><th>时区</th><th>消耗 (USD)</th><th>转化</th><th>CPA (USD)</th><th>ROAS</th><th>状态</th></tr></thead>
         <tbody id="accDetailBody"><tr><td colspan="8" style="text-align:center;color:var(--t3);padding:20px">加载中...</td></tr></tbody>
        </table></div>
       </div>
@@ -4019,6 +4019,7 @@ async function loadUserList(filterGroup){
   html += '</tbody></table>';
   var wrap = document.getElementById('userListWrap');
   if(wrap) wrap.innerHTML = html;
+  if(typeof refreshOperatorGuardSection==='function') refreshOperatorGuardSection();
  }catch(e){
   var wrap = document.getElementById('userListWrap');
   if(wrap) wrap.innerHTML = '<div style="color:var(--er)">\u52a0\u8f7d\u5931\u8d25\uff1a'+(e.message||e)+'</div>';
@@ -4173,9 +4174,10 @@ async function loadTeamAdminPage(){
   var r=await api('GET','/teams');
   var teams=(r&&r.teams)||[];
   window._teamsData=teams;
-  el.innerHTML=renderTeamOverviewSection(teams)+renderTeamGuardSection(teams)+renderOwnerGuardLogSection()+renderTeamNotifySection(teams)+renderTeamResourceSection()+renderPermissionMatrixSection()+renderUserManageSection();
+  el.innerHTML=renderTeamOverviewSection(teams)+renderTeamGuardSection(teams)+renderOperatorGuardSection()+renderOwnerGuardLogSection()+renderTeamNotifySection(teams)+renderTeamResourceSection()+renderPermissionMatrixSection()+renderUserManageSection();
   if(hasRole('superadmin')) await loadTeamResources();
   await loadUserList();
+  refreshOperatorGuardSection();
   refreshOwnerGuardFilters();
   await loadOwnerGuardLogs();
  }catch(e){
@@ -4398,6 +4400,66 @@ async function toggleTeamGuard(teamId,key,checked,el){
  }catch(e){
   if(el)el.checked=!checked;
   toast('更新团队守护失败：'+(e.message||e),'er');
+ }
+}
+
+function renderOperatorGuardSection(){
+ if(!hasRole('admin')) return '';
+ return '<div class="ss role-admin-only">'+
+  '<div class="ss-title">运营级守护开关 <span style="font-size:12px;font-weight:400;color:var(--t3)">只影响该成员作为账户负责人时名下账户，不影响其他运营</span></div>'+
+  '<div id="operatorGuardWrap"><div style="color:var(--t3);font-size:13px">加载中...</div></div>'+
+  '<div class="team-scope-note">商用建议：团队级开关作为兜底，日常由运营按自己负责账户开启哨兵、镜像、心跳或预热。账户没有负责人时不会命中运营级开关。</div>'+
+ '</div>';
+}
+
+function refreshOperatorGuardSection(){
+ var wrap=document.getElementById('operatorGuardWrap');
+ if(!wrap||!hasRole('admin'))return;
+ var users=(_usersData||[]).filter(function(u){
+  if(!u.is_active)return false;
+  if(['admin','operator'].indexOf(u.role)<0)return false;
+  if(!hasRole('superadmin')&&String(u.team_id||'')!==String(localStorage.getItem('mira_team_id')||''))return false;
+  if(!hasRole('superadmin')&&u.role==='admin'&&String(u.username||'')!==String(localStorage.getItem('mira_user')||''))return false;
+  return true;
+ }).sort(function(a,b){
+  var ta=String(a.team_name||a.group_name||''),tb=String(b.team_name||b.group_name||'');
+  if(ta!==tb)return ta.localeCompare(tb,'zh');
+  return String(a.display_name||a.username||'').localeCompare(String(b.display_name||b.username||''),'zh');
+ });
+ var keys=[
+  ['sentinel_enabled','哨兵','关闭未授权活跃系列'],
+  ['mirror_enabled','镜像','按快照保护广告'],
+  ['heartbeat_enabled','心跳','本人无人值守超时停名下账户'],
+  ['warmup_enabled','预热','自动预热名下新账户']
+ ];
+ if(!users.length){wrap.innerHTML='<div class="team-resource-empty">暂无可配置的运营/管理员</div>';return;}
+ var rows=users.map(function(u){
+  var cells=keys.map(function(k){
+   var checked=u[k[0]]===true||String(u[k[0]])==='1';
+   return '<td><div class="team-guard-cell">'+
+    '<label class="toggle"><input type="checkbox" '+(checked?'checked':'')+' onchange="toggleUserGuard('+parseInt(u.id||0,10)+',\''+k[0]+'\',this.checked,this)"><span class="ts"></span></label>'+
+    '<div><div class="team-guard-name">'+k[1]+'</div><div class="team-guard-hint">'+k[2]+'</div></div>'+
+   '</div></td>';
+  }).join('');
+  var name=escHtml(u.display_name||u.username||('用户 '+u.id));
+  return '<tr>'+
+   '<td><div class="team-name-cell" title="'+name+'">'+name+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(u.username||'')+' · '+escHtml(u.team_name||u.group_name||'未分配团队')+'</div></td>'+
+   cells+
+  '</tr>';
+ }).join('');
+ wrap.innerHTML='<div class="team-table-wrap"><table class="team-table team-guard-table"><thead><tr><th style="text-align:left">运营/负责人</th><th style="text-align:left">哨兵</th><th style="text-align:left">镜像</th><th style="text-align:left">心跳</th><th style="text-align:left">预热</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+async function toggleUserGuard(userId,key,checked,el){
+ if(!userId||!key)return;
+ var body={};body[key]=!!checked;
+ try{
+  await api('PATCH','/users/'+userId,body);
+  (_usersData||[]).forEach(function(u){if(String(u.id)===String(userId))u[key]=!!checked;});
+  toast('运营级守护已更新','ok');
+ }catch(e){
+  if(el)el.checked=!checked;
+  toast('更新运营级守护失败：'+(e.message||e),'er');
  }
 }
 
@@ -5099,12 +5161,12 @@ function pageFromHash(){
 function getNavCollapseState(){
  var defaults={'数据中心':true,'账户管理':true,'自动化':true,'规则与策略':true,'系统':true};
  try{
-  var saved=JSON.parse(localStorage.getItem('mira_nav_collapsed')||'{}')||{};
+  var saved=JSON.parse(localStorage.getItem('mira_nav_collapsed_v2')||'{}')||{};
   return Object.assign({},defaults,saved);
  }catch(e){return defaults}
 }
 function saveNavCollapseState(state){
- localStorage.setItem('mira_nav_collapsed',JSON.stringify(state||{}));
+ localStorage.setItem('mira_nav_collapsed_v2',JSON.stringify(state||{}));
 }
 function _navPageFromItem(item){
  var code=item&&item.getAttribute('onclick')||'';
@@ -5193,7 +5255,6 @@ function revealActiveNavGroup(){
  if(!active)return;
  var sec=active.closest('.nav-sec');
  if(sec){
-  sec.classList.remove('collapsed');
   sec.classList.add('has-active');
  }
 }
@@ -5282,10 +5343,16 @@ function toggleAccDetail(mode){
  panel.style.display='block';
  var titleEl=document.getElementById('accDetailTitle');
  var tbody=document.getElementById('accDetailBody');
+ var thead=document.getElementById('accDetailHead');
  var modeLabel={'spend':' 各账户消耗明细','conv':' 各账户转化明细','cpa':' 各账户 CPA 明细','roas':' 各账户 ROAS 明细','balance':' 各账户余额明细'};
  var kpiEl=document.getElementById('dashKpi');
  var kpiTitle=(mode!=='balance'&&kpiEl&&kpiEl.value&&kpiEl.selectedOptions&&kpiEl.selectedOptions[0])?kpiEl.selectedOptions[0].textContent+' · ':'';
  if(titleEl)titleEl.textContent=kpiTitle+(modeLabel[mode]||' 各账户明细').trim();
+ if(thead){
+  thead.innerHTML=mode==='balance'
+   ? '<tr><th>账户名称</th><th>货币</th><th>时区</th><th>可用额度 (USD)</th><th>已花费 (USD)</th><th>账户上限 (USD)</th><th>额度类型</th><th>状态</th></tr>'
+   : '<tr><th>账户名称</th><th>货币</th><th>时区</th><th>消耗 (USD)</th><th>转化</th><th>CPA (USD)</th><th>ROAS</th><th>状态</th></tr>';
+ }
  // 余额模式用账户列表数据
  if(mode==='balance'){
   var accs=window._balanceDetails||window._accDetails||[];
@@ -5592,7 +5659,7 @@ function showPauseDetailsModal(){
  var rows=all.map(function(d){
   var isEmg=d.source==='emergency'||d.is_emergency;
   var badge=isEmg?'<span class="badge bg-er">紧急</span>':'<span class="badge bg-wa">规则</span>';
-  return '<tr><td style="font-size:12px;white-space:nowrap;color:var(--t3)">'+(_cst(d.created_at||d.time||'')||'--')+'</td>'+
+  return '<tr><td style="font-size:12px;white-space:nowrap;color:var(--t3)">'+(_fmtActionLogTime(d.created_at||d.time||'')||'--')+'</td>'+
    '<td style="font-size:12px"><div class="td-name" style="max-width:160px" title="'+(d.ad_name||d.target_name||'')+'">'+((d.ad_name||d.target_name||'--').slice(0,30))+'</div></td>'+
    '<td style="font-size:12px">'+(d.account_name||(d.act_id||'').replace(/^act_/,''))+'<br><span class="td-id">'+(d.act_id||'').replace(/^act_/,'')+'</span></td>'+
    '<td>'+badge+'</td>'+
@@ -5933,8 +6000,8 @@ function _adsLogToOp(l){
   msg='状态：'+(newV.effective_status||newV.status||'已提交');
  }
  if(!msg)msg=l.trigger_detail||l.status||'已记录';
- var when=_cst(l.created_at||'')||'--';
- return {level:level,target_id:String(l.target_id),name:l.target_name||l.target_id,act_id:l.act_id||'',action:_adsLogActionLabel(t),ok:ok,partial:partial,persisted:true,message:msg,detail:'操作人：'+(l.operator||'--')+'\n记录时间：'+when+'\n'+(l.trigger_detail||''),time:when};
+ var when=_fmtActionLogTime(l.created_at||'')||'--';
+ return {level:level,target_id:String(l.target_id),name:l.target_name||l.target_id,act_id:l.act_id||'',action:_adsLogActionLabel(t),ok:ok,partial:partial,persisted:true,message:msg,detail:'操作人：'+(l.operator||'--')+'\n记录时间（北京时间）：'+when+'\n'+(l.trigger_detail||''),time:when};
 }
 async function loadAdsRecentOps(opts){
  opts=opts||{};
@@ -5980,7 +6047,7 @@ function showAdsRecentOp(level,id){
  if(!op){toast('暂无最近操作记录','wa');return;}
  var html='<div><strong>'+escHtml(op.action||'最近操作')+'</strong></div>'+
   '<div style="margin-top:8px;color:var(--t2)">对象：'+escHtml(op.name||op.target_id)+'</div>'+
-  '<div style="font-size:12px;color:var(--t3);margin-top:4px">层级：'+escHtml(_adsSelectionLabel(op.level))+' · 账户：'+escHtml(op.act_id||'--')+' · 时间：'+escHtml(op.time||'--')+'</div>'+
+  '<div style="font-size:12px;color:var(--t3);margin-top:4px">层级：'+escHtml(_adsSelectionLabel(op.level))+' · 账户：'+escHtml(op.act_id||'--')+' · 北京时间：'+escHtml(op.time||'--')+'</div>'+
   '<div style="margin-top:10px;color:'+(op.ok?'var(--ok)':op.partial?'var(--wa)':'var(--er)')+'">'+escHtml(op.message||'--')+'</div>';
  if(op.detail)html+='<div style="margin-top:10px;font-size:12px;color:var(--t3);line-height:1.6">'+escHtml(op.detail).replace(/\n/g,'<br>')+'</div>';
  showInfo(html,'最近操作');
