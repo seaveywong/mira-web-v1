@@ -7,12 +7,14 @@ import logging
 import time
 import os
 import re
+import html
 from datetime import datetime, date, timedelta
 from typing import Optional, Tuple
 import requests
 
 from core.database import get_conn, decrypt_token
 from core.account_access import note_account_read_failure, note_account_read_success
+from services.notifier import notify_account, notify_global, notify_team
 
 logger = logging.getLogger("mira.guard")
 
@@ -321,6 +323,96 @@ def _ensure_mirror_schema():
         conn.close()
 
 
+def _fill_missing_hierarchy_ids(
+    act_id: str, ad_id: str = "", adset_id: str = "", campaign_id: str = ""
+) -> Tuple[str, str]:
+    """Use the latest local snapshot to fill missing adset/campaign ids."""
+    if adset_id and campaign_id:
+        return adset_id, campaign_id
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            """SELECT adset_id, campaign_id
+               FROM perf_snapshots
+               WHERE act_id=?
+                 AND (
+                   (? <> '' AND ad_id=?)
+                   OR (? <> '' AND adset_id=?)
+                   OR (? <> '' AND campaign_id=?)
+                 )
+               ORDER BY snapshot_date DESC, id DESC
+               LIMIT 1""",
+            (
+                act_id,
+                ad_id or "", ad_id or "",
+                adset_id or "", adset_id or "",
+                campaign_id or "", campaign_id or "",
+            ),
+        ).fetchone()
+        conn.close()
+        if row:
+            adset_id = adset_id or (row["adset_id"] or "")
+            campaign_id = campaign_id or (row["campaign_id"] or "")
+    except Exception as exc:
+        logger.warning("Hierarchy id fallback failed for %s/%s: %s", act_id, ad_id, exc)
+    return adset_id or "", campaign_id or ""
+
+
+def _ensure_sentinel_schema():
+    """Make account-level sentinel switch idempotent."""
+    conn = get_conn()
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        if "sentinel_enabled" not in cols:
+            conn.execute("ALTER TABLE accounts ADD COLUMN sentinel_enabled INTEGER DEFAULT 0")
+            conn.commit()
+    finally:
+        conn.close()
+
+
+TEAM_GUARD_KEYS = ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled")
+
+
+def _ensure_team_guard_schema():
+    conn = get_conn()
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(teams)").fetchall()}
+        for key in TEAM_GUARD_KEYS:
+            if key not in cols:
+                conn.execute(f"ALTER TABLE teams ADD COLUMN {key} INTEGER DEFAULT 0")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _account_team_guard_enabled(account: dict, key: str) -> bool:
+    alias = f"team_{key}"
+    if alias in account:
+        return int(account.get(alias) or 0) == 1
+    team_id = account.get("team_id")
+    if not team_id:
+        return False
+    try:
+        _ensure_team_guard_schema()
+        conn = get_conn()
+        row = conn.execute(f"SELECT COALESCE({key}, 0) AS enabled FROM teams WHERE id=?", (team_id,)).fetchone()
+        conn.close()
+        return bool(row and row["enabled"])
+    except Exception:
+        return False
+
+
+def _any_team_guard_enabled(key: str) -> bool:
+    try:
+        _ensure_team_guard_schema()
+        conn = get_conn()
+        row = conn.execute(f"SELECT 1 FROM teams WHERE COALESCE({key}, 0)=1 LIMIT 1").fetchone()
+        conn.close()
+        return bool(row)
+    except Exception:
+        return False
+
+
 def _load_mirror_snapshot(act_id: str) -> set:
     """返回该账户镜像快照中的广告ID集合"""
     _ensure_mirror_schema()
@@ -400,22 +492,37 @@ def _log_action(act_id, level, target_id, target_name,
     conn.close()
 
 
-def _send_tg(msg: str, parse_mode: str = "HTML"):
-    """发送TG通知，支持多个Chat ID"""
-    token = _get_setting("tg_bot_token", "")
-    chat_ids_str = _get_setting("tg_chat_ids", "")
-    if not token or not chat_ids_str:
-        return
-    chat_ids = [cid.strip() for cid in chat_ids_str.split(",") if cid.strip()]
-    for chat_id in chat_ids:
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": msg, "parse_mode": parse_mode},
-                timeout=10
-            )
-        except Exception as e:
-            logger.warning(f"TG 推送失败 (chat_id={chat_id}): {e}")
+def _send_tg(
+    msg: str,
+    parse_mode: str = "HTML",
+    act_id: str | None = None,
+    team_id: int | None = None,
+    event_type: str = "guard",
+    include_owner: bool = True,
+):
+    """Route TG notifications through team/account ownership rules."""
+    try:
+        if act_id:
+            return notify_account(act_id, msg, event_type=event_type, parse_mode=parse_mode, include_owner=include_owner)
+        if team_id is not None:
+            return notify_team(team_id, msg, event_type=event_type, parse_mode=parse_mode)
+        return notify_global(msg, parse_mode=parse_mode, dedup_key=event_type)
+    except Exception as e:
+        logger.warning(f"TG 推送失败: {e}")
+        return {"sent": 0, "errors": [{"error": str(e)}]}
+
+
+def _tg_escape(value) -> str:
+    return html.escape("" if value is None else str(value), quote=False)
+
+
+def _tg_code(value) -> str:
+    return f"<code>{_tg_escape(value)}</code>"
+
+
+def _tg_account_line(account: dict, act_id: str) -> str:
+    account_name = (account or {}).get("name") or act_id
+    return f"账户：{_tg_escape(account_name)} ({_tg_code(act_id)})"
 
 
 def _build_mirror_patrol_summary(results: list) -> str:
@@ -604,6 +711,12 @@ def _pause_with_escalation(
     返回: (最终执行级别, 状态)
     """
     act_id = account["act_id"]
+    adset_id, campaign_id = _fill_missing_hierarchy_ids(act_id, ad_id, adset_id, campaign_id)
+    account_line = _tg_account_line(account, act_id)
+    ad_line = f"广告：{_tg_code(ad_name)}"
+    ad_id_line = f"广告ID：{_tg_code(ad_id)}"
+    adset_id_line = f"广告组ID：{_tg_code(adset_id or '-')}"
+    campaign_id_line = f"系列ID：{_tg_code(campaign_id or '-')}"
 
     if dry_run:
         logger.info(f"[DRY RUN] 暂停广告 {ad_id}")
@@ -638,13 +751,18 @@ def _pause_with_escalation(
     if not escalate:
         _send_tg(
             f"❌ <b>Mira 暂停失败</b>\n"
-            f"广告：{ad_name}\n"
-            f"原因：{err_msg}\n"
-            f"⚠️ 向上升级已关闭，请手动处理！"
+            f"{account_line}\n"
+            f"{ad_line}\n"
+            f"{ad_id_line}\n"
+            f"原因：{_tg_escape(err_msg)}\n"
+            f"⚠️ 向上升级已关闭，请手动处理！",
+            act_id=act_id,
+            event_type="guard",
         )
         return "ad", "failed"
 
     # Step 2: 向上升级到广告组
+    adset_error = ""
     if adset_id:
         ok2, err2 = _fb_post(adset_id, token, {"status": "PAUSED"})
         if ok2:
@@ -659,45 +777,83 @@ def _pause_with_escalation(
             if verified2:
                 _send_tg(
                     f"⬆️ <b>Mira 升级关闭</b>\n"
-                    f"广告 <code>{ad_name}</code> 关闭失败\n"
-                    f"已自动关闭其所属广告组\n"
-                    f"失败原因：{err_msg}"
+                    f"{account_line}\n"
+                    f"{ad_line}\n"
+                    f"{ad_id_line}\n"
+                    f"{adset_id_line}\n"
+                    f"广告关闭失败，已自动关闭其所属广告组\n"
+                    f"失败原因：{_tg_escape(err_msg)}",
+                    act_id=act_id,
+                    event_type="guard",
                 )
                 return "adset", "escalated"
             err2 = f"广告组核验失败: {err2}"
 
         logger.warning(f"广告组 {adset_id} 暂停失败: {err2}，尝试向上升级到系列")
+        adset_error = err2
         _log_action(act_id, "adset", adset_id, "广告组", "pause",
                     trigger_type, f"升级关闭广告组失败",
                     status="failed", error_msg=err2, operator="system")
+    else:
+        adset_error = "缺少广告组ID，无法升级关闭广告组"
 
     # Step 3: 向上升级到系列
+    campaign_error = ""
+    campaign_error = ""
     if campaign_id:
         ok3, err3 = _fb_post(campaign_id, token, {"status": "PAUSED"})
         if ok3:
             time.sleep(2)
             verified3 = _verify_status(campaign_id, token, "PAUSED")
             status3 = "escalated" if verified3 else "failed"
+            campaign_error = "" if verified3 else "系列核验失败：状态未变更为PAUSED"
             _log_action(act_id, "campaign", campaign_id, f"[升级关闭] {ad_name}的系列",
                         "pause", trigger_type,
                         f"因广告/广告组关闭失败，升级关闭系列。",
                         old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
-                        status=status3, operator="system")
+                        status=status3, error_msg=campaign_error or None, operator="system")
             if verified3:
                 _send_tg(
                     f"🚨 <b>Mira 紧急升级关闭系列</b>\n"
-                    f"广告 <code>{ad_name}</code> 及其广告组均关闭失败\n"
+                    f"{account_line}\n"
+                    f"{ad_line}\n"
+                    f"{ad_id_line}\n"
+                    f"{adset_id_line}\n"
+                    f"{campaign_id_line}\n"
+                    f"广告及广告组均关闭失败\n"
                     f"已自动关闭其所属广告系列！\n"
-                    f"请立即检查账户状态"
+                    f"请立即检查账户状态",
+                    act_id=act_id,
+                    event_type="guard",
                 )
                 return "campaign", "escalated"
+        else:
+            campaign_error = err3
+            logger.warning(f"系列 {campaign_id} 暂停失败: {campaign_error}")
+            _log_action(act_id, "campaign", campaign_id, "广告系列", "pause",
+                        trigger_type, "升级关闭系列失败",
+                        status="failed", error_msg=campaign_error, operator="system")
+    else:
+        campaign_error = "缺少系列ID，无法升级关闭系列"
+        _log_action(act_id, "campaign", f"missing:{ad_id}", "广告系列", "pause",
+                    trigger_type, "升级关闭系列失败：缺少系列ID，本地快照也未能补齐",
+                    status="failed", error_msg=campaign_error, operator="system")
 
     # 全部失败
     _send_tg(
         f"🆘 <b>Mira 严重告警</b>\n"
-        f"广告 <code>{ad_name}</code>\n"
+        f"{account_line}\n"
+        f"{ad_line}\n"
+        f"{ad_id_line}\n"
+        f"{adset_id_line}\n"
+        f"{campaign_id_line}\n"
         f"广告/广告组/系列均关闭失败！\n"
-        f"请立即手动处理！"
+        f"广告失败：{_tg_escape(err_msg)}\n"
+        f"广告组失败：{_tg_escape(adset_error or '未返回原因')}\n"
+        f"系列失败：{_tg_escape(campaign_error or '未返回原因')}\n"
+        f"请立即手动处理！",
+        act_id=act_id,
+        event_type="guard",
     )
     return "campaign", "all_failed"
 
@@ -933,12 +1089,20 @@ class GuardEngine:
         self.learning_protect = _get_setting("learning_phase_protect", "1") == "1"
 
     def run_all(self):
+        _ensure_team_guard_schema()
         if _get_setting("inspect_enabled", "1") != "1":
             logger.info("自动巡检已关闭（inspect_enabled=0），跳过")
         else:
             conn = get_conn()
             accounts = conn.execute(
-                "SELECT * FROM accounts WHERE enabled=1 AND account_status NOT IN (3, 7, 9)"
+                """SELECT a.*,
+                          COALESCE(tm.mirror_enabled, 0) AS team_mirror_enabled,
+                          COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled,
+                          COALESCE(tm.heartbeat_enabled, 0) AS team_heartbeat_enabled,
+                          COALESCE(tm.warmup_enabled, 0) AS team_warmup_enabled
+                   FROM accounts a
+                   LEFT JOIN teams tm ON tm.id=a.team_id
+                   WHERE a.enabled=1 AND a.account_status NOT IN (3, 7, 9)"""
             ).fetchall()
             conn.close()
             for acc in accounts:
@@ -949,10 +1113,18 @@ class GuardEngine:
 
         # ── 镜像巡逻：保护未开启巡检但存活(enabled=0)的账户 ──────────────────────
         global_mirror = _get_setting("mirror_enabled", "0")
-        if global_mirror == "1":
+        has_team_mirror = _any_team_guard_enabled("mirror_enabled")
+        if global_mirror == "1" or has_team_mirror:
             conn = get_conn()
             mirror_only = conn.execute(
-                "SELECT * FROM accounts WHERE enabled=0 AND account_status NOT IN (3, 7, 9)"
+                """SELECT a.*,
+                          COALESCE(tm.mirror_enabled, 0) AS team_mirror_enabled
+                   FROM accounts a
+                   LEFT JOIN teams tm ON tm.id=a.team_id
+                   WHERE a.enabled=0
+                     AND a.account_status NOT IN (3, 7, 9)
+                     AND (?='1' OR COALESCE(a.mirror_enabled, 0)=1 OR COALESCE(tm.mirror_enabled, 0)=1)""",
+                (global_mirror,)
             ).fetchall()
             conn.close()
             patrol_results = []
@@ -966,6 +1138,7 @@ class GuardEngine:
                     patrol_results.append({
                         "act_id": acc.get("act_id", "?"),
                         "account_name": acc.get("name", acc.get("act_id", "?")),
+                        "team_id": acc.get("team_id"),
                         "status": "exception",
                         "error": str(e),
                         "review_pending": [],
@@ -978,7 +1151,11 @@ class GuardEngine:
                     for r in patrol_results
                 )
                 if has_actions:
-                    _send_tg(_build_mirror_patrol_summary(patrol_results))
+                    by_team = {}
+                    for item in patrol_results:
+                        by_team.setdefault(item.get("team_id"), []).append(item)
+                    for team_id, items in by_team.items():
+                        _send_tg(_build_mirror_patrol_summary(items), team_id=team_id, event_type="mirror", include_owner=False)
 
     def inspect_account(self, account: dict):
         act_id = account["act_id"]
@@ -1001,11 +1178,15 @@ class GuardEngine:
             _log_action(act_id, "account", act_id, account.get("name", ""),
                         "inspect", "system", f"API拉取失败: {e}",
                         status="failed", error_msg=str(e))
-            if _get_setting("mirror_enabled", "0") == "1" or account.get("mirror_enabled", 0) == 1:
+            if (
+                _get_setting("mirror_enabled", "0") == "1"
+                or account.get("mirror_enabled", 0) == 1
+                or _account_team_guard_enabled(account, "mirror_enabled")
+            ):
                 try:
                     mirror_result = self._mirror_patrol(account)
                     if mirror_result and (mirror_result.get("closures") or mirror_result.get("review_pending")):
-                        _send_tg(_build_mirror_patrol_summary([mirror_result]))
+                        _send_tg(_build_mirror_patrol_summary([mirror_result]), act_id=act_id, event_type="mirror")
                 except Exception as mirror_err:
                     logger.error(f"[Mirror] 巡检字段失败后的兜底镜像巡逻也失败 {act_id}: {mirror_err}")
             return
@@ -1017,7 +1198,8 @@ class GuardEngine:
         # ── 镜像模式：暂停不在白名单中的未授权广告 ──────────────────────────────
         global_mirror = _get_setting("mirror_enabled", "0")
         account_mirror = account.get("mirror_enabled", 0)
-        if global_mirror == "1" or account_mirror == 1:
+        team_mirror = _account_team_guard_enabled(account, "mirror_enabled")
+        if global_mirror == "1" or account_mirror == 1 or team_mirror:
             mirror_events = []  # Collect for aggregated TG notification per account
             mirrored_ids = _load_mirror_snapshot(act_id)
             if mirrored_ids:
@@ -1160,7 +1342,7 @@ class GuardEngine:
 
                 # Send aggregated TG notification for this account's mirror actions
                 if mirror_events:
-                    _send_tg(_build_mirror_account_summary(act_id, account.get("name", act_id), mirror_events))
+                    _send_tg(_build_mirror_account_summary(act_id, account.get("name", act_id), mirror_events), act_id=act_id, event_type="mirror")
 
                 if unauthorized:
                     paused_ids = {a["id"] for a in unauthorized}
@@ -1236,36 +1418,18 @@ class GuardEngine:
         # ─────────────────────────────────────────────────────────────────────
 
         conn = get_conn()
-        # 同时拉取账户级规则和全局规则（__global__），账户级同类型规则优先
-        acc_rules = conn.execute(
-            "SELECT * FROM guard_rules WHERE act_id=? AND enabled=1", (act_id,)
-        ).fetchall()
-        global_rules = conn.execute(
-            "SELECT * FROM guard_rules WHERE act_id='__global__' AND enabled=1"
-        ).fetchall()
-        acc_scale_rules = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id=? AND enabled=1", (act_id,)
-        ).fetchall()
-        global_scale_rules = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id='__global__' AND enabled=1"
-        ).fetchall()
+        # Rules are account-scoped. target_id="__global__" still means "all objects inside this account".
+        rules = [
+            dict(r) for r in conn.execute(
+                "SELECT * FROM guard_rules WHERE act_id=? AND enabled=1", (act_id,)
+            ).fetchall()
+        ]
+        scale_rules = [
+            dict(r) for r in conn.execute(
+                "SELECT * FROM scale_rules WHERE act_id=? AND enabled=1", (act_id,)
+            ).fetchall()
+        ]
         conn.close()
-        # 合并：账户级规则覆盖同类型全局规则
-        acc_rule_types = {r["rule_type"] for r in acc_rules}
-        merged_rules = [dict(r) for r in acc_rules]
-        for gr in global_rules:
-            if gr["rule_type"] not in acc_rule_types:
-                gr_dict = dict(gr)
-                gr_dict["_is_global"] = True
-                merged_rules.append(gr_dict)
-        rules = merged_rules
-        acc_scale_types = {r["rule_type"] for r in acc_scale_rules}
-        scale_rules = [dict(r) for r in acc_scale_rules]
-        for sr in global_scale_rules:
-            if sr["rule_type"] not in acc_scale_types:
-                sr_dict = dict(sr)
-                sr_dict["_is_global"] = True
-                scale_rules.append(sr_dict)
 
         for ad in ads:
             try:
@@ -1282,6 +1446,7 @@ class GuardEngine:
             ad_name = ad.get("name", ad_id)
             adset_id = ad.get("adset_id", "")
             campaign_id = ad.get("campaign_id", "")
+            adset_id, campaign_id = _fill_missing_hierarchy_ids(act_id, ad_id, adset_id, campaign_id)
 
             # 跳过已经不能花钱的广告（不需要再压制）
             eff_status = ad.get("effective_status", "")
@@ -1439,6 +1604,7 @@ class GuardEngine:
         patrol_result = {
             "act_id": act_id,
             "account_name": account.get("name", act_id),
+            "team_id": account.get("team_id"),
             "status": "ok",
             "review_pending": [],
             "closures": []
@@ -1748,7 +1914,9 @@ class GuardEngine:
                 f"⚠️ <b>Mira 预警</b>\n"
                 f"账户：{account.get('name', act_id)}\n"
                 f"广告：<code>{ad_name}</code>\n"
-                f"原因：{reason}"
+                f"原因：{reason}",
+                act_id=act_id,
+                event_type="guard",
             )
 
         elif action == "pause":
@@ -1766,7 +1934,9 @@ class GuardEngine:
                     f"广告：<code>{ad_name}</code>\n"
                     f"原因：{reason}\n"
                     f"消耗：{spend_display} | {kpi_label}：{conversions:.0f}"
-                    + (f"\n⬆️ 已升级关闭至{level}层级" if status == "escalated" else "")
+                    + (f"\n⬆️ 已升级关闭至{level}层级" if status == "escalated" else ""),
+                    act_id=act_id,
+                    event_type="guard",
                 )
                 # 止损后实时触发素材评分
 
@@ -1788,7 +1958,9 @@ class GuardEngine:
                         f"账户：{account.get('name', act_id)}\n"
                         f"广告：<code>{ad_name}</code>\n"
                         f"原因：{reason}\n"
-                        f"预算：${old_b:.2f} → ${new_b:.2f}（-{pct*100:.0f}%）"
+                        f"预算：${old_b:.2f} → ${new_b:.2f}（-{pct*100:.0f}%）",
+                        act_id=act_id,
+                        event_type="guard",
                     )
                 else:
                     _log_action(act_id, "adset", adset_id, ad_name, "reduce_budget_failed",
@@ -1797,7 +1969,9 @@ class GuardEngine:
                         f"⚠️ <b>Mira 降预算失败</b>\n"
                         f"广告：<code>{ad_name}</code>\n"
                         f"原因：{reason}\n"
-                        f"错误：{err_b}"
+                        f"错误：{err_b}",
+                        act_id=act_id,
+                        event_type="guard",
                     )
 
     def _check_scale_rule(self, rule: dict, account: dict, token: str,
@@ -1881,7 +2055,9 @@ class GuardEngine:
                 f"账户：{account.get('name', act_id)}\n"
                 f"广告：<code>{ad_name}</code>\n"
                 f"原因：{reason}\n"
-                f"预算：${old_b:.2f} -> ${new_b:.2f}"
+                f"预算：${old_b:.2f} -> ${new_b:.2f}",
+                act_id=act_id,
+                event_type="scale",
             )
             return True
 
@@ -1899,7 +2075,9 @@ class GuardEngine:
             f"<b>Mira 拉量失败</b>\n"
             f"账户：{account.get('name', act_id)}\n"
             f"广告：<code>{ad_name}</code>\n"
-            f"错误：{err_b}"
+            f"错误：{err_b}",
+            act_id=act_id,
+            event_type="scale",
         )
         return True
 
@@ -2001,14 +2179,17 @@ class GuardEngine:
 
 
 
-def emergency_pause_all(operator: str = "user", level: str = "campaign") -> dict:
+def emergency_pause_all(operator: str = "user", level: str = "campaign", team_id: Optional[int] = None) -> dict:
     """
     一键紧急暂停所有账户的所有活跃广告（按层级）
     level: campaign（系列级）| adset（广告组级）| ad（广告级）
     返回: {total, success, failed, failed_list, manual_required, level, level_label}
     """
     conn = get_conn()
-    accounts = conn.execute("SELECT * FROM accounts").fetchall()  # 紧急暂停不受巡检开关限制
+    if team_id is not None:
+        accounts = conn.execute("SELECT * FROM accounts WHERE team_id=?", (team_id,)).fetchall()
+    else:
+        accounts = conn.execute("SELECT * FROM accounts").fetchall()  # 紧急暂停不受巡检开关限制
     conn.close()
     total = 0
     success = 0
@@ -2090,7 +2271,7 @@ def emergency_pause_all(operator: str = "user", level: str = "campaign") -> dict
             msg_parts.append(f"• [{lbl}] {item['name']} ({iid}): {item['reason']}")
         if len(manual_required) > 8:
             msg_parts.append(f"...及其他 {len(manual_required)-8} 项，请登录后台查看操作日志")
-    _send_tg("\n".join(msg_parts))
+    _send_tg("\n".join(msg_parts), team_id=team_id)
 
     return {
         "total": total,
@@ -2126,19 +2307,38 @@ def sentinel_patrol() -> dict:
     哨兵扫描：遍历所有账户，检查是否有ACTIVE状态的系列。
     发现后立即关闭系列并发送 TG 通知。
     """
+    _ensure_sentinel_schema()
+    _ensure_team_guard_schema()
     enabled = _get_setting("sentinel_enabled", "0")
-    if enabled != "1":
-        return {"status": "disabled", "accounts_checked": 0, "series_closed": 0}
+    global_enabled = enabled == "1"
     dry_run = _is_dry_run()
     try:
         failure_cooldown = int(_get_setting("sentinel_failure_cooldown", "30"))
     except (ValueError, TypeError):
         failure_cooldown = 30
     conn = get_conn()
-    accounts = conn.execute(
-        "SELECT * FROM accounts WHERE account_status NOT IN (3, 7, 9, 100)"
-    ).fetchall()
+    if global_enabled:
+        accounts = conn.execute(
+            """SELECT a.*,
+                      COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled
+               FROM accounts a
+               LEFT JOIN teams tm ON tm.id=a.team_id
+               WHERE a.account_status NOT IN (3, 7, 9, 100)"""
+        ).fetchall()
+        mode = "global"
+    else:
+        accounts = conn.execute(
+            """SELECT a.*,
+                      COALESCE(tm.sentinel_enabled, 0) AS team_sentinel_enabled
+               FROM accounts a
+               LEFT JOIN teams tm ON tm.id=a.team_id
+               WHERE (COALESCE(a.sentinel_enabled, 0)=1 OR COALESCE(tm.sentinel_enabled, 0)=1)
+                 AND a.account_status NOT IN (3, 7, 9, 100)"""
+        ).fetchall()
+        mode = "team/account"
     conn.close()
+    if not accounts:
+        return {"status": "disabled", "mode": mode, "accounts_checked": 0, "series_closed": 0, "details": []}
     accounts_checked = 0
     series_closed = 0
     details = []
@@ -2191,7 +2391,9 @@ def sentinel_patrol() -> dict:
                         f"🛡 <b>Mira 哨兵</b>\n"
                         f"账户：{acc.get('name', act_id)} (<code>{act_id}</code>)\n"
                         f"系列：{camp_name} (<code>{camp_id}</code>)\n"
-                        f"状态：发现活跃系列，已自动关闭"
+                        f"状态：发现活跃系列，已自动关闭",
+                        act_id=act_id,
+                        event_type="sentinel",
                     )
                 else:
                     _log_action(act_id, "campaign", camp_id, camp_name,
@@ -2201,7 +2403,9 @@ def sentinel_patrol() -> dict:
                         f"⚠️ <b>Mira 哨兵关闭失败</b>\n"
                         f"账户：{acc.get('name', act_id)} (<code>{act_id}</code>)\n"
                         f"系列：{camp_name} (<code>{camp_id}</code>)\n"
-                        f"原因：API调用成功但核验状态未变更，请手动关闭"
+                        f"原因：API调用成功但核验状态未变更，请手动关闭",
+                        act_id=act_id,
+                        event_type="sentinel",
                     )
             else:
                 _log_action(act_id, "campaign", camp_id, camp_name,
@@ -2211,7 +2415,9 @@ def sentinel_patrol() -> dict:
                     f"⚠️ <b>Mira 哨兵关闭失败</b>\n"
                     f"账户：{acc.get('name', act_id)} (<code>{act_id}</code>)\n"
                     f"系列：{camp_name} (<code>{camp_id}</code>)\n"
-                    f"原因：API调用失败: {err}，请手动关闭"
+                    f"原因：API调用失败: {err}，请手动关闭",
+                    act_id=act_id,
+                    event_type="sentinel",
                 )
     if series_closed > 0:
         _send_tg(
@@ -2220,7 +2426,7 @@ def sentinel_patrol() -> dict:
             f"关闭系列：{series_closed} 个\n"
             f"哨兵模式保护中，所有非授权操作已被阻止"
         )
-    return {"status": "ok", "accounts_checked": accounts_checked, "series_closed": series_closed, "details": details}
+    return {"status": "ok", "mode": mode, "accounts_checked": accounts_checked, "series_closed": series_closed, "details": details}
 
 
 def heartbeat_check() -> dict:
@@ -2228,14 +2434,25 @@ def heartbeat_check() -> dict:
     心跳检查：判断距上次管理员活动是否超过超时时间。
     若超时则触发 campaign 级别的紧急全停。
     """
+    _ensure_team_guard_schema()
     enabled = _get_setting("heartbeat_enabled", "0")
-    if enabled != "1":
+    global_enabled = enabled == "1"
+    conn = get_conn()
+    team_rows = conn.execute(
+        """SELECT t.id, t.name, MAX(u.last_active_at) AS last_activity
+           FROM teams t
+           LEFT JOIN users u ON u.team_id=t.id AND COALESCE(u.is_active, 1)=1
+           WHERE COALESCE(t.heartbeat_enabled, 0)=1 AND COALESCE(t.status, 'active')='active'
+           GROUP BY t.id, t.name"""
+    ).fetchall()
+    conn.close()
+    if not global_enabled and not team_rows:
         return {"status": "disabled", "timeout": False, "action": "none"}
     try:
         timeout_min = int(_get_setting("heartbeat_timeout", "30"))
     except (ValueError, TypeError):
         timeout_min = 30
-    last_activity = _get_setting("last_admin_activity", "")
+    last_activity = _get_setting("last_admin_activity", "") if global_enabled else ""
     # Both datetime.now() and SQLite datetime('now','+8 hours') are UTC+8
     # Server timezone is Asia/Shanghai, so they align directly
     now_bj = datetime.now()
@@ -2253,7 +2470,7 @@ def heartbeat_check() -> dict:
     else:
         # First run after reboot: no activity recorded yet, don't trigger
         pass
-    if timed_out:
+    if timed_out and global_enabled:
         logger.warning(f"[Heartbeat] 管理员活动超时 {minutes_since} 分钟 (阈值={timeout_min}分钟)，触发紧急全停")
         action_line = "DryRun 模式：仅记录，不实际关闭广告系列" if _is_dry_run() else "正在执行紧急全停..."
         _send_tg(
@@ -2284,4 +2501,61 @@ def heartbeat_check() -> dict:
         conn.commit()
         conn.close()
         return {"status": "ok", "timeout": True, "minutes_since": minutes_since, "action": "emergency_pause", "result": result}
+    team_timeouts = []
+    for team in team_rows:
+        team_id = int(team["id"])
+        team_name = team["name"] or f"Team {team_id}"
+        marker_key = f"team_heartbeat_last_trigger_{team_id}"
+        candidates = [team["last_activity"] or "", _get_setting(marker_key, "") or ""]
+        last_dt = None
+        for raw in candidates:
+            if not raw:
+                continue
+            try:
+                parsed = datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError):
+                continue
+            if last_dt is None or parsed > last_dt:
+                last_dt = parsed
+        if last_dt is None:
+            continue
+        team_minutes = int((now_bj - last_dt).total_seconds() / 60)
+        if team_minutes < timeout_min:
+            continue
+        logger.warning(f"[Heartbeat] Team {team_id} activity timeout: {team_minutes} minutes")
+        if _is_dry_run():
+            result = {"total": 0, "success": 0, "failed": 0, "dry_run": True}
+        else:
+            result = emergency_pause_all(operator="heartbeat", level="campaign", team_id=team_id)
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO action_logs (act_id, action_type, trigger_detail, status, error_msg) VALUES (?,?,?,?,?)",
+            ('*', 'heartbeat', f'Team heartbeat timeout {team_minutes} minutes: {team_name}',
+             'success', f'Total {result.get("total",0)}, closed {result.get("success",0)}')
+        )
+        updated = conn.execute(
+            "UPDATE settings SET value=datetime('now','+8 hours') WHERE key=?",
+            (marker_key,),
+        )
+        if updated.rowcount == 0:
+            conn.execute(
+                "INSERT INTO settings(key,value) VALUES(?, datetime('now','+8 hours'))",
+                (marker_key,),
+            )
+        conn.commit()
+        conn.close()
+        team_timeouts.append({
+            "team_id": team_id,
+            "team_name": team_name,
+            "minutes_since": team_minutes,
+            "result": result,
+        })
+    if team_timeouts:
+        return {
+            "status": "ok",
+            "timeout": True,
+            "minutes_since": minutes_since,
+            "action": "team_emergency_pause",
+            "teams": team_timeouts,
+        }
     return {"status": "ok", "timeout": False, "minutes_since": minutes_since, "action": "none"}

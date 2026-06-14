@@ -1,5 +1,5 @@
 """管理后台 API — 用户活动监控（仅 admin/superadmin 可访问）"""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from core.database import get_conn
 from core.auth import require_admin, is_superadmin
 
@@ -92,3 +92,35 @@ def activity_usernames(user=Depends(require_admin)):
     ).fetchall()
     conn.close()
     return {"users": [dict(r) for r in rows]}
+
+
+@router.delete("/user-activity")
+def clear_user_activity(
+    username: str = Query(""),
+    method: str = Query(""),
+    older_than_days: int = Query(0, ge=0, le=3650),
+    user=Depends(require_admin)
+):
+    """Clear user activity logs. Superadmin only because this is audit data."""
+    if not is_superadmin(user):
+        raise HTTPException(status_code=403, detail="只有超级管理员可以清理用户活动记录")
+    where = []
+    params = []
+    if username:
+        where.append("username=?")
+        params.append(username)
+    if method:
+        where.append("method=?")
+        params.append(method.upper())
+    if older_than_days:
+        where.append("created_at < datetime('now','+8 hours', ?)")
+        params.append(f"-{older_than_days} days")
+    where_clause = ("WHERE " + " AND ".join(where)) if where else ""
+    conn = get_conn()
+    total = conn.execute(
+        f"SELECT COUNT(*) AS cnt FROM user_activity_log {where_clause}", params
+    ).fetchone()["cnt"]
+    conn.execute(f"DELETE FROM user_activity_log {where_clause}", params)
+    conn.commit()
+    conn.close()
+    return {"success": True, "deleted": int(total or 0)}

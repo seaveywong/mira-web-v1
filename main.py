@@ -196,6 +196,12 @@ async def startup():
     except Exception as e:
         import logging
         logging.getLogger("mira").warning(f"v6 migrate warning: {e}")
+    try:
+        from services.notifier import ensure_notification_schema
+        ensure_notification_schema()
+    except Exception as e:
+        import logging
+        logging.getLogger("mira").warning(f"notification schema warning: {e}")
     # v3.10: 预热列自愈
     try:
         from services.warmup_engine import _ensure_schema

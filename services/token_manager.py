@@ -25,6 +25,7 @@ import requests
 from typing import Optional, Tuple
 
 from core.database import get_conn, decrypt_token
+from services.notifier import notify_account
 
 logger = logging.getLogger("mira.token_manager")
 
@@ -704,24 +705,8 @@ def _send_op_pool_exhausted_alert(act_id: str, action_type: str):
         acc = conn.execute(
             "SELECT name FROM accounts WHERE act_id=?", (act_id,)
         ).fetchone()
-        tg_token = conn.execute(
-            "SELECT value FROM settings WHERE key='tg_bot_token'"
-        ).fetchone()
-        chat_ids_row = conn.execute(
-            "SELECT value FROM settings WHERE key='tg_chat_ids'"
-        ).fetchone()
-        tg_enabled = conn.execute(
-            "SELECT value FROM settings WHERE key='tg_enabled'"
-        ).fetchone()
         conn.close()
 
-        if not tg_enabled or tg_enabled["value"] != "1":
-            return
-        if not tg_token or not chat_ids_row:
-            return
-
-        token_val = tg_token["value"]
-        chat_ids = [c.strip() for c in chat_ids_row["value"].split(",") if c.strip()]
         acc_name = (acc["name"] if acc else "") or act_id
         account_label = f"{acc_name} (<code>{act_id}</code>)" if acc_name != act_id else f"<code>{act_id}</code>"
 
@@ -736,12 +721,7 @@ def _send_op_pool_exhausted_alert(act_id: str, action_type: str):
             f"⚠️ 自动铺广告和加预算功能已暂停，请尽快在后台补充操作号！"
         )
 
-        for chat_id in chat_ids:
-            requests.post(
-                f"https://api.telegram.org/bot{token_val}/sendMessage",
-                json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
-                timeout=8
-            )
+        notify_account(act_id, msg, event_type="token", dedup_key=f"op_exhaust:{act_id}:{action_type}")
     except Exception as e:
         logger.warning(f"[TokenManager] TG 告警发送失败: {e}")
 

@@ -28,9 +28,7 @@ def _ensure_rule_team_columns(conn) -> None:
 def _assert_rule_target_access(conn, act_id: str, user) -> None:
     target = (act_id or "").strip()
     if target == GLOBAL_ACT_ID:
-        if not is_superadmin(user):
-            raise HTTPException(403, "全局规则只能由超级管理员修改")
-        return
+        raise HTTPException(400, "Global account rules are disabled. Please choose a specific ad account.")
     if not target:
         raise HTTPException(400, "请指定账户")
     assert_row_access(conn, "accounts", target, user, id_column="act_id")
@@ -104,35 +102,23 @@ class EmergencyPauseRequest(BaseModel):
 @router.get("/guard")
 def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user)):
     conn = get_conn()
-    if act_id and act_id != "__global__":
+    if act_id and act_id != GLOBAL_ACT_ID:
         _assert_rule_target_access(conn, act_id, user)
-        # 返回指定账户规则 + 全局规则（全局规则排前面）
-        global_rows = conn.execute(
-            "SELECT * FROM guard_rules WHERE act_id='__global__' ORDER BY id DESC"
-        ).fetchall()
-        acc_rows = conn.execute(
+        rows = conn.execute(
             "SELECT * FROM guard_rules WHERE act_id=? ORDER BY id DESC", (act_id,)
         ).fetchall()
-        rows = list(global_rows) + list(acc_rows)
-    elif act_id == "__global__":
-        rows = conn.execute(
-            "SELECT * FROM guard_rules WHERE act_id='__global__' ORDER BY id DESC"
-        ).fetchall()
+    elif act_id == GLOBAL_ACT_ID:
+        rows = []
     else:
-        # 全部：全局规则排前面
-        global_rows = conn.execute(
-            "SELECT * FROM guard_rules WHERE act_id='__global__' ORDER BY id DESC"
-        ).fetchall()
         account_ids = _team_account_act_ids(conn, user)
         if account_ids:
             placeholders = ",".join("?" for _ in account_ids)
-            other_rows = conn.execute(
-                f"SELECT * FROM guard_rules WHERE act_id!='__global__' AND act_id IN ({placeholders}) ORDER BY id DESC",
-                account_ids,
+            rows = conn.execute(
+                f"SELECT * FROM guard_rules WHERE act_id!=? AND act_id IN ({placeholders}) ORDER BY id DESC",
+                [GLOBAL_ACT_ID] + account_ids,
             ).fetchall()
         else:
-            other_rows = []
-        rows = list(global_rows) + list(other_rows)
+            rows = []
     conn.close()
     return [dict(r) for r in rows]
 
@@ -334,31 +320,21 @@ def list_scale_rules(act_id: Optional[str] = None, user=Depends(get_current_user
     conn = get_conn()
     if act_id and act_id != GLOBAL_ACT_ID:
         _assert_rule_target_access(conn, act_id, user)
-        global_rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (GLOBAL_ACT_ID,)
-        ).fetchall()
-        acc_rows = conn.execute(
+        rows = conn.execute(
             "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (act_id,)
         ).fetchall()
-        rows = list(global_rows) + list(acc_rows)
     elif act_id == GLOBAL_ACT_ID:
-        rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (GLOBAL_ACT_ID,)
-        ).fetchall()
+        rows = []
     else:
-        global_rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (GLOBAL_ACT_ID,)
-        ).fetchall()
         account_ids = _team_account_act_ids(conn, user)
         if account_ids:
             placeholders = ",".join("?" for _ in account_ids)
-            other_rows = conn.execute(
+            rows = conn.execute(
                 f"SELECT * FROM scale_rules WHERE act_id!=? AND act_id IN ({placeholders}) ORDER BY id DESC",
                 [GLOBAL_ACT_ID] + account_ids,
             ).fetchall()
         else:
-            other_rows = []
-        rows = list(global_rows) + list(other_rows)
+            rows = []
     conn.close()
     return [dict(r) for r in rows]
 
@@ -666,7 +642,7 @@ class ApplyTemplateRequest(BaseModel):
     act_id: Optional[str] = None          # 单账户（向下兼容）
     act_ids: Optional[List[str]] = None   # 多账户批量应用
     override_existing: bool = False        # 是否覆盖已有规则
-    global_mode: bool = False              # True 时规则写入 __global__，对所有账户生效
+    global_mode: bool = False              # Legacy field; global account rules are disabled.
 
 @router.get("/templates")
 def list_rule_templates_v2(user=Depends(get_current_user)):
@@ -736,7 +712,9 @@ def save_current_as_template(body: SaveCurrentAsTemplateRequest, user=Depends(ge
                 "SELECT * FROM guard_rules WHERE act_id=? AND enabled=1", (body.act_id,)
             ).fetchall()
         elif is_superadmin(user):
-            guard_rows = conn.execute("SELECT * FROM guard_rules WHERE enabled=1").fetchall()
+            guard_rows = conn.execute(
+                "SELECT * FROM guard_rules WHERE enabled=1 AND act_id!=?", (GLOBAL_ACT_ID,)
+            ).fetchall()
         else:
             account_ids = _team_account_act_ids(conn, user)
             if account_ids:
@@ -804,13 +782,10 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
         target_act_ids = [a for a in body.act_ids if a]
     elif body.act_id:
         target_act_ids = [body.act_id]
-    # 全局模式：act_id = __global__，规则对所有账户生效
     global_mode = getattr(body, 'global_mode', False)
     if global_mode:
-        if not is_superadmin(user):
-            raise HTTPException(403, "全局应用规则模板只能由超级管理员执行")
-        target_act_ids = ['__global__']
-    elif not target_act_ids:
+        raise HTTPException(400, "Global account rules are disabled. Please choose specific ad accounts.")
+    if not target_act_ids:
         raise HTTPException(400, '请指定账户（act_id 或 act_ids）')
 
     access_conn = get_conn()

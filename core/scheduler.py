@@ -9,6 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from core.database import get_conn
 from services.token_manager import TOKEN_SOURCE_SYSTEM_USER, ensure_token_source_columns
+from services.notifier import notify_account
 
 logger = logging.getLogger("mira.scheduler")
 _scheduler = None
@@ -253,34 +254,21 @@ def run_account_status_sync():
                 _STATUS_LABELS = {1: "正常", 2: "禁用", 3: "支付失败", 7: "政策违规", 8: "待结算", 9: "宽限期", 100: "待关闭", 101: "已关闭/停用"}
                 if old_status != new_status and new_status in (2, 3, 7, 9, 100, 101):
                     try:
-                        _tg_token = conn.execute("SELECT value FROM settings WHERE key='tg_bot_token'").fetchone()
-                        _tg_chats = conn.execute("SELECT value FROM settings WHERE key='tg_chat_ids'").fetchone()
-                        if _tg_token and _tg_chats and _tg_token["value"] and _tg_chats["value"]:
-                            _status_emoji = {3: "💳", 7: "🚫", 9: "🔒"}.get(new_status, "⚠️")
-                            _msg = (
-                                f"{_status_emoji} <b>Mira 账户状态告警</b>\n"
-                                f"账户：<code>{acc_name}</code> ({acc_act_id})\n"
-                                f"状态变化：{_STATUS_LABELS.get(old_status, str(old_status))} → "
-                                f"<b>{_STATUS_LABELS.get(new_status, str(new_status))}</b>\n"
-                                + ({2: "账户已被 Meta 标记为禁用，前端将禁止铺广告。",
-                                    3: "请检查付款方式，及时充值或更换信用卡。",
-                                    7: "账户因违反政策被限制，请检查广告内容。",
-                                    9: "账户处于宽限期，请检查付款或账户状态。",
-                                    100: "账户处于待关闭状态，请勿继续铺广告。",
-                                    101: "账户已关闭或停用，请勿继续铺广告。"}.get(new_status, ""))
-                            )
-                            for _cid in _tg_chats["value"].split(","):
-                                _cid = _cid.strip()
-                                if _cid:
-                                    try:
-                                        requests.post(
-                                            f"https://api.telegram.org/bot{_tg_token['value']}/sendMessage",
-                                            json={"chat_id": _cid, "text": _msg, "parse_mode": "HTML"},
-                                            timeout=10
-                                        )
-                                    except Exception:
-                                        pass
-                            logger.warning(f"[AccountSync] 账户 {acc_act_id} 状态变化: {old_status}→{new_status}，已发TG提醒")
+                        _status_emoji = {3: "💳", 7: "🚫", 9: "🔒"}.get(new_status, "⚠️")
+                        _msg = (
+                            f"{_status_emoji} <b>Mira 账户状态告警</b>\n"
+                            f"账户：<code>{acc_name}</code> ({acc_act_id})\n"
+                            f"状态变化：{_STATUS_LABELS.get(old_status, str(old_status))} → "
+                            f"<b>{_STATUS_LABELS.get(new_status, str(new_status))}</b>\n"
+                            + ({2: "账户已被 Meta 标记为禁用，前端将禁止铺广告。",
+                                3: "请检查付款方式，及时充值或更换信用卡。",
+                                7: "账户因违反政策被限制，请检查广告内容。",
+                                9: "账户处于宽限期，请检查付款或账户状态。",
+                                100: "账户处于待关闭状态，请勿继续铺广告。",
+                                101: "账户已关闭或停用，请勿继续铺广告。"}.get(new_status, ""))
+                        )
+                        notify_account(acc_act_id, _msg, event_type="account_status", dedup_key=f"status:{acc_act_id}:{new_status}")
+                        logger.warning(f"[AccountSync] 账户 {acc_act_id} 状态变化: {old_status}→{new_status}，已发TG提醒")
                     except Exception as _tg_err:
                         logger.warning(f"[AccountSync] TG提醒发送失败: {_tg_err}")
             conn.execute("""

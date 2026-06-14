@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Tuple, Optional
 from core.database import get_conn, decrypt_token
 from services.token_manager import get_exec_token, ACTION_CREATE, ACTION_READ, ACTION_UPDATE
+from services.notifier import notify_account, notify_global, notify_team
 
 logger = logging.getLogger("mira.warmup")
 
@@ -118,6 +119,13 @@ def _ensure_schema():
         "INSERT OR IGNORE INTO settings (key, value, category) VALUES ('warmup_enabled', '0', 'warmup')")
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value, category) VALUES ('warmup_check_interval', '30', 'warmup')")
+    team_cols = {r["name"] for r in conn.execute("PRAGMA table_info(teams)").fetchall()}
+    for key in ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled"):
+        if key not in team_cols:
+            try:
+                conn.execute(f"ALTER TABLE teams ADD COLUMN {key} INTEGER DEFAULT 0")
+            except Exception:
+                pass
     conn.commit()
     conn.close()
 
@@ -725,21 +733,13 @@ def _log_action(act_id, action_type, detail, account_name="", status="success", 
         pass
 
 
-def _send_tg(msg: str):
-    """发送 TG 通知"""
-    token = _get_setting("tg_bot_token", "")
-    chat_ids_str = _get_setting("tg_chat_ids", "")
-    if not token or not chat_ids_str:
-        return
-    chat_ids = [cid.strip() for cid in chat_ids_str.split(",") if cid.strip()]
-    for chat_id in chat_ids:
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
-                timeout=10)
-        except Exception:
-            pass
+def _send_tg(msg: str, act_id: str | None = None, team_id: int | None = None):
+    """发送 TG 通知，按账户/团队路由。"""
+    if act_id:
+        return notify_account(act_id, msg, event_type="warmup")
+    if team_id is not None:
+        return notify_team(team_id, msg, event_type="warmup")
+    return notify_global(msg, dedup_key="warmup")
 
 
 def _account_label(account: dict) -> str:
@@ -934,9 +934,15 @@ def _check_and_warmup_unlocked():
     """主入口：扫描并预热符合条件的账户"""
     _ensure_schema()
 
-    # 1. 全局开关
-    if _get_setting("warmup_enabled", "0") != "1":
-        return {"status": "disabled", "reason": "warmup_enabled=0"}
+    # 1. 全局或团队预热开关
+    global_warmup_enabled = _get_setting("warmup_enabled", "0") == "1"
+    conn = get_conn()
+    team_warmup_enabled = bool(conn.execute(
+        "SELECT 1 FROM teams WHERE COALESCE(warmup_enabled, 0)=1 LIMIT 1"
+    ).fetchone())
+    conn.close()
+    if not global_warmup_enabled and not team_warmup_enabled:
+        return {"status": "disabled", "reason": "warmup disabled"}
 
     # 2. 守护模式互斥
     if _get_setting("sentinel_enabled", "0") == "1":
@@ -961,8 +967,11 @@ def _check_and_warmup_unlocked():
         "WHERE p.page_id=accounts.page_id AND (" + bad_page_sql + "))"
     )
     candidates = conn.execute(f"""
-        SELECT * FROM accounts
+        SELECT accounts.*
+        FROM accounts
+        LEFT JOIN teams tm ON tm.id=accounts.team_id
         WHERE enabled=1
+          AND (?=1 OR COALESCE(tm.warmup_enabled, 0)=1)
           AND COALESCE(account_status, 1) NOT IN (3, 7, 9, 100, 101)
           AND (
               {direct_page_clause}
@@ -979,6 +988,8 @@ def _check_and_warmup_unlocked():
               )
           )
           AND COALESCE(mirror_enabled, 0)=0
+          AND COALESCE(tm.mirror_enabled, 0)=0
+          AND COALESCE(tm.sentinel_enabled, 0)=0
           AND EXISTS (
               SELECT 1 FROM account_op_tokens aot
               JOIN fb_tokens t ON t.id=aot.token_id
@@ -1000,7 +1011,7 @@ def _check_and_warmup_unlocked():
               )
           )
         ORDER BY CASE WHEN warmup_state='dormant' THEN 1 WHEN warmup_state='recent_spend' THEN 2 ELSE 0 END, created_at ASC
-    """).fetchall()
+    """, (1 if global_warmup_enabled else 0,)).fetchall()
     conn.close()
 
     if not candidates:
@@ -1009,23 +1020,42 @@ def _check_and_warmup_unlocked():
     # 5. 逐个预热
     started, skipped, security_holds, errors = 0, 0, 0, []
     started_accounts, skipped_accounts, security_hold_accounts = [], [], []
+    team_buckets = {}
     for acc in candidates:
         acc_dict = dict(acc)
+        team_id = acc_dict.get("team_id")
+        bucket = team_buckets.setdefault(team_id, {
+            "started": 0,
+            "skipped": 0,
+            "security_holds": 0,
+            "errors": [],
+            "started_accounts": [],
+            "skipped_accounts": [],
+            "security_hold_accounts": [],
+        })
         label = _account_label(acc_dict)
         result = _warmup_account(acc_dict)
         if result[0] == "started":
             started += 1
+            bucket["started"] += 1
             started_accounts.append(f"{label}: campaign=<code>{result[1]}</code>")
+            bucket["started_accounts"].append(f"{label}: campaign=<code>{result[1]}</code>")
         elif result[0] == "skipped":
             detail = _strip_account_prefix(result[1], acc_dict.get('act_id', ''))
             if "身份验证" in (result[1] or ""):
                 security_holds += 1
+                bucket["security_holds"] += 1
                 security_hold_accounts.append(f"{label}: {detail}")
+                bucket["security_hold_accounts"].append(f"{label}: {detail}")
             else:
                 skipped += 1
+                bucket["skipped"] += 1
                 skipped_accounts.append(f"{label}: {detail}")
+                bucket["skipped_accounts"].append(f"{label}: {detail}")
         else:
-            errors.append(f"{label}: {_strip_account_prefix(result[1], acc_dict.get('act_id', ''))}")
+            err_line = f"{label}: {_strip_account_prefix(result[1], acc_dict.get('act_id', ''))}"
+            errors.append(err_line)
+            bucket["errors"].append(err_line)
 
     summary = {
         "status": "ok",
@@ -1040,25 +1070,27 @@ def _check_and_warmup_unlocked():
         "diagnostics": diagnostics,
     }
 
-    if started > 0 or security_holds > 0 or errors:
+    for team_id, bucket in team_buckets.items():
+        if bucket["started"] <= 0 and bucket["security_holds"] <= 0 and not bucket["errors"]:
+            continue
         msg = [
             f"<b>预热扫描</b>",
-            f"开始预热：{started} 个 | 跳过：{skipped} 个 | 失败：{len(errors)} 个 | 需验证：{security_holds} 个",
+            f"开始预热：{bucket['started']} 个 | 跳过：{bucket['skipped']} 个 | 失败：{len(bucket['errors'])} 个 | 需验证：{bucket['security_holds']} 个",
         ]
-        if started_accounts:
+        if bucket["started_accounts"]:
             msg.append("\n<b>已启动：</b>")
-            msg.extend("• " + item for item in started_accounts[:10])
-            if len(started_accounts) > 10:
-                msg.append(f"... 还有 {len(started_accounts) - 10} 个")
-        if security_hold_accounts:
+            msg.extend("• " + item for item in bucket["started_accounts"][:10])
+            if len(bucket["started_accounts"]) > 10:
+                msg.append(f"... 还有 {len(bucket['started_accounts']) - 10} 个")
+        if bucket["security_hold_accounts"]:
             msg.append("\n<b>需FB验证（广告可能已创建，请登录Ads Manager确认）：</b>")
-            msg.extend("• " + item for item in security_hold_accounts[:10])
-        if errors:
+            msg.extend("• " + item for item in bucket["security_hold_accounts"][:10])
+        if bucket["errors"]:
             msg.append("\n<b>失败：</b>")
-            msg.extend("• " + item for item in errors[:10])
-            if len(errors) > 10:
-                msg.append(f"... 还有 {len(errors) - 10} 个")
-        _send_tg("\n".join(msg))
+            msg.extend("• " + item for item in bucket["errors"][:10])
+            if len(bucket["errors"]) > 10:
+                msg.append(f"... 还有 {len(bucket['errors']) - 10} 个")
+        _send_tg("\n".join(msg), team_id=team_id)
 
     return summary
 

@@ -97,6 +97,46 @@ def _count_conversions(actions: list, kpi_field: Optional[str] = None) -> int:
     return total
 
 
+_DASH_KPI_FILTERS = (
+    "purchase",
+    "lead",
+    "add_to_cart",
+    "initiate_checkout",
+    "complete_registration",
+    "messaging",
+    "view_content",
+    "other",
+)
+_DASH_KPI_MAIN_TOKENS = (
+    "purchase",
+    "lead",
+    "add_to_cart",
+    "initiate_checkout",
+    "complete_registration",
+    "messaging",
+    "messenger",
+    "conversation",
+    "view_content",
+)
+
+
+def _normalize_dash_kpi_filter(kpi_filter: Optional[str]) -> str:
+    value = (kpi_filter or "").strip().lower()
+    return value if value in _DASH_KPI_FILTERS else ""
+
+
+def _kpi_field_matches_filter(kpi_field: Optional[str], kpi_filter: Optional[str]) -> bool:
+    value = _normalize_dash_kpi_filter(kpi_filter)
+    if not value:
+        return True
+    field = (kpi_field or "").lower()
+    if value == "other":
+        return not any(token in field for token in _DASH_KPI_MAIN_TOKENS)
+    if value == "messaging":
+        return any(token in field for token in ("messaging", "messenger", "conversation"))
+    return value in field
+
+
 # ─── 辅助函数 ──────────────────────────────────────────────────
 
 def _get_token_for_account(acc: dict) -> Optional[str]:
@@ -206,7 +246,7 @@ def _default_dates(date_from: Optional[str], date_to: Optional[str]):
 
 
 # ─── 大盘汇总 ─────────────────────────────────────────────────
-def _fetch_account_summary(acc: dict, df: str, dt: str) -> dict:
+def _fetch_account_summary(acc: dict, df: str, dt: str, kpi_filter: Optional[str] = None) -> dict:
     token = _get_token_for_account(acc)
     acc_name = acc.get("name") or acc["act_id"].replace("act_", "")
     acc_tz = acc.get("timezone") or "UTC"
@@ -272,6 +312,8 @@ def _fetch_account_summary(acc: dict, df: str, dt: str) -> dict:
         for ad_item in all_ad_items:
             ad_id_item = ad_item.get("ad_id", "")
             kpi_field = kpi_map.get(ad_id_item)
+            if not _kpi_field_matches_filter(kpi_field, kpi_filter):
+                continue
             ad_spend = float(ad_item.get("spend", 0) or 0)
             spend_orig += ad_spend
             ad_actions = ad_item.get("actions", [])
@@ -312,6 +354,7 @@ def get_summary(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     act_id: Optional[str] = None,
+    kpi: Optional[str] = None,
     user=Depends(get_current_user)
 ):
     """
@@ -321,7 +364,8 @@ def get_summary(
     """
     df, dt = _default_dates(date_from, date_to)
     server_today = date.today().isoformat()
-    cache_key = (df, dt, act_id or "", user.get("uid"), user.get("team_id"), user.get("role"))
+    kpi_filter = _normalize_dash_kpi_filter(kpi)
+    cache_key = (df, dt, act_id or "", kpi_filter, user.get("uid"), user.get("team_id"), user.get("role"))
     cached = _SUMMARY_CACHE.get(cache_key)
     if cached and time.time() - cached["ts"] < _SUMMARY_CACHE_TTL:
         return dict(cached["data"], source="fb_insights_api_cache")
@@ -410,7 +454,7 @@ def get_summary(
         max_workers = min(4, len(accs))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_map = {
-                executor.submit(_fetch_account_summary, dict(acc), df, dt): dict(acc).get("act_id")
+                executor.submit(_fetch_account_summary, dict(acc), df, dt, kpi_filter): dict(acc).get("act_id")
                 for acc in accs
             }
             for future in as_completed(future_map):
@@ -565,6 +609,7 @@ def get_summary(
     result = {
         "date_from": df,
         "date_to": dt,
+        "kpi_filter": kpi_filter,
         "server_today": server_today,
         "account_count": account_count,
         "error_accounts": error_accounts,
@@ -595,6 +640,7 @@ def get_trend(
     date_to: Optional[str] = None,
     days: Optional[int] = None,
     act_id: Optional[str] = None,
+    kpi: Optional[str] = None,
     user=Depends(get_current_user)
 ):
     """
@@ -626,6 +672,7 @@ def get_trend(
 
     daily_spend = {d: 0.0 for d in day_list}
     daily_conv = {d: 0 for d in day_list}
+    kpi_filter = _normalize_dash_kpi_filter(kpi)
 
     for acc in accs:
         acc = dict(acc)
@@ -638,6 +685,49 @@ def get_trend(
         conn2.close()
 
         try:
+            if kpi_filter:
+                conn3 = get_conn()
+                kpi_rows = conn3.execute(
+                    'SELECT target_id, kpi_field FROM kpi_configs WHERE act_id=? AND level="ad" AND enabled=1',
+                    (acc["act_id"],)
+                ).fetchall()
+                conn3.close()
+                kpi_map = {row["target_id"]: row["kpi_field"] for row in kpi_rows}
+                items = []
+                next_url = f'https://graph.facebook.com/v25.0/{acc["act_id"]}/insights'
+                params = {
+                    'access_token': token,
+                    'fields': 'date_start,ad_id,spend,actions',
+                    'time_range': f'{{"since":"{df}","until":"{dt}"}}',
+                    'time_increment': 1,
+                    'level': 'ad',
+                    'limit': 500
+                }
+                fetched = 0
+                while next_url and fetched < 5000:
+                    resp = req.get(next_url, params=params, timeout=25)
+                    data = resp.json()
+                    if 'error' in data:
+                        items = []
+                        break
+                    page_items = data.get('data', [])
+                    items.extend(page_items)
+                    fetched += len(page_items)
+                    next_url = data.get('paging', {}).get('next')
+                    params = {}
+                for item in items:
+                    d = item.get('date_start', '')
+                    if d not in daily_spend:
+                        continue
+                    kpi_field = kpi_map.get(item.get('ad_id', ''))
+                    if not _kpi_field_matches_filter(kpi_field, kpi_filter):
+                        continue
+                    spend_orig = float(item.get('spend', 0) or 0)
+                    spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
+                    daily_spend[d] += spend_usd
+                    daily_conv[d] += _count_conversions(item.get('actions', []), kpi_field)
+                continue
+
             resp = req.get(
                 f'https://graph.facebook.com/v25.0/{acc["act_id"]}/insights',
                 params={
@@ -717,6 +807,23 @@ def get_ads_live(
         settings_map = {r["key"]: str(r["value"]) for r in settings_rows}
     except Exception:
         settings_map = {}
+
+    team_guard_map = {}
+    try:
+        team_ids = sorted({int(a.get("team_id")) for a in accs if a.get("team_id")})
+        if team_ids:
+            placeholders = ",".join("?" for _ in team_ids)
+            rows = conn.execute(
+                f"""SELECT id,
+                          COALESCE(mirror_enabled, 0) AS mirror_enabled,
+                          COALESCE(sentinel_enabled, 0) AS sentinel_enabled,
+                          COALESCE(heartbeat_enabled, 0) AS heartbeat_enabled
+                   FROM teams WHERE id IN ({placeholders})""",
+                team_ids,
+            ).fetchall()
+            team_guard_map = {int(r["id"]): dict(r) for r in rows}
+    except Exception:
+        team_guard_map = {}
 
     cap_map = {a["act_id"]: {
         "manage_token_ok": False,
@@ -826,11 +933,12 @@ def get_ads_live(
             note_account_read_success(acc["act_id"])
             acc_caps = cap_map.get(acc["act_id"], {})
             automation_warnings = []
-            if settings_map.get("mirror_enabled") == "1" or int(acc.get("mirror_enabled") or 0) == 1:
+            team_guard = team_guard_map.get(int(acc.get("team_id") or 0), {})
+            if settings_map.get("mirror_enabled") == "1" or int(acc.get("mirror_enabled") or 0) == 1 or int(team_guard.get("mirror_enabled") or 0) == 1:
                 automation_warnings.append("mirror_enabled")
-            if settings_map.get("sentinel_enabled") == "1":
+            if settings_map.get("sentinel_enabled") == "1" or int(acc.get("sentinel_enabled") or 0) == 1 or int(team_guard.get("sentinel_enabled") or 0) == 1:
                 automation_warnings.append("sentinel_enabled")
-            if settings_map.get("heartbeat_enabled") == "1":
+            if settings_map.get("heartbeat_enabled") == "1" or int(team_guard.get("heartbeat_enabled") or 0) == 1:
                 automation_warnings.append("heartbeat_enabled")
             for ad in ads:
                 ins_data = ad.get('insights', {})
@@ -1108,7 +1216,13 @@ def spend_query(
 
 # ─── 其他接口（保持不变） ─────────────────────────────────────
 @router.get("/ads")
-def get_ads(act_id: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, user=Depends(get_current_user)):
+def get_ads(
+    act_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    kpi: Optional[str] = None,
+    user=Depends(get_current_user)
+):
     df, dt = _default_dates(date_from, date_to)
     conn = get_conn()
     date_range = (df, dt) if df != dt else (df,)
@@ -1134,7 +1248,11 @@ def get_ads(act_id: Optional[str] = None, date_from: Optional[str] = None, date_
                WHERE {where_date}{scope_sql}
                ORDER BY p.spend DESC""", tuple(date_range) + tuple(scope_params)).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    kpi_filter = _normalize_dash_kpi_filter(kpi)
+    result = [dict(r) for r in rows]
+    if kpi_filter:
+        result = [r for r in result if _kpi_field_matches_filter(r.get("kpi_field"), kpi_filter)]
+    return result
 
 
 @router.post("/trigger-inspect")

@@ -1104,11 +1104,601 @@ tr:hover td{background:#151e29}
  height:30px;background:#0f151d!important;border:1px solid #344557!important;border-radius:5px!important;color:#edf3f9!important
 }
 #kpiMappingTables button{height:28px!important;min-height:28px!important;border:1px solid #344557!important}
+
+/* Mira clarity refresh: cleaner operational UI, Apple-like restraint without changing workflows. */
+:root{
+ --bg:#0f1115;--bg2:#15171c;--bg3:#1b1e24;--bgh:#242831;--bgi:#111318;
+ --bd:#2a2f38;--bd2:#3a414d;--t1:#f5f5f7;--t2:#b8bec8;--t3:#7a828f;
+ --ac:#0a84ff;--ach:#0071e3;--acg:rgba(10,132,255,.12);
+ --ok:#32d074;--okg:rgba(50,208,116,.11);--wa:#ffd166;--wag:rgba(255,209,102,.12);
+ --er:#ff6961;--erg:rgba(255,105,97,.12);--pu:#bf9cff;--pug:rgba(191,156,255,.12);
+ --cy:#5ac8fa;--cyg:rgba(90,200,250,.12);--r:8px;--rs:8px;--sh:0 18px 46px rgba(0,0,0,.24)
+}
+html,body{background:var(--bg);color:var(--t1)}
+*{letter-spacing:0!important}
+.sidebar{background:rgba(18,20,24,.96);border-right:1px solid rgba(255,255,255,.08)}
+.sb-logo,.sb-foot{border-color:rgba(255,255,255,.08)}
+.sb-mark,.tb-user,.lc-icon{background:#f5f5f7!important;color:#111318!important;box-shadow:none!important}
+.nav-sec-title{color:#737b86;padding-top:12px}
+.nav-item{border-radius:8px;color:#b8bec8;border:0}
+.nav-item:hover{background:rgba(255,255,255,.055);color:#fff}
+.nav-item.active{background:#f5f5f7;color:#111318;border:0;font-weight:750}
+.topbar{height:58px;background:rgba(18,20,24,.92);border-bottom:1px solid rgba(255,255,255,.08);backdrop-filter:blur(18px)}
+.content{background:var(--bg);padding:26px 28px 36px}
+.ph{align-items:flex-end;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.08)}
+.ph h2{font-size:24px;font-weight:760;line-height:1.18;color:#fff}
+.ph p{color:#9aa2ae;font-size:13px;margin-top:5px}
+.ph-acts{gap:8px}
+.card,.sc,.chart-card,.ss,.tkc,.rc,.kc,.acc-card,.modal{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:8px;box-shadow:none}
+.card:hover,.sc:hover,.tkc:hover,.rc:hover,.kc:hover,.acc-card:hover{border-color:rgba(255,255,255,.16);background:rgba(255,255,255,.062);box-shadow:none;transform:none}
+.ss-title,.mh,.mf{border-color:rgba(255,255,255,.08)}
+.btn,.btn-sm{border-radius:999px;font-weight:700;box-shadow:none}
+.btn{height:34px;min-height:34px;padding:0 14px}
+.btn-sm{height:28px;min-height:28px;padding:0 10px;font-size:12px}
+.btn-p,.btn-inspect{background:#f5f5f7!important;border:1px solid #f5f5f7!important;color:#111318!important;box-shadow:none!important}
+.btn-p:hover,.btn-inspect:hover{background:#fff!important;border-color:#fff!important;transform:none;box-shadow:none!important}
+.btn-ok{background:rgba(50,208,116,.18);border:1px solid rgba(50,208,116,.36);color:#9df2bf}
+.btn-er,.btn-r{background:rgba(255,105,97,.14);border:1px solid rgba(255,105,97,.30);color:#ffaaa5}
+.btn-g{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10);color:#d7dbe2}
+.btn-g:hover{background:rgba(255,255,255,.085);border-color:rgba(255,255,255,.18);color:#fff}
+.fc,.lc-input{background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#f5f5f7}
+.fc:focus,.lc-input:focus{border-color:rgba(10,132,255,.72);box-shadow:0 0 0 3px rgba(10,132,255,.16)}
+table{border-collapse:separate;border-spacing:0}
+th{height:36px;background:rgba(255,255,255,.045);border-bottom:1px solid rgba(255,255,255,.08);color:#8f98a5}
+td{border-bottom:1px solid rgba(255,255,255,.07)}
+tr:hover td{background:rgba(255,255,255,.045)}
+.badge{height:22px;border-radius:999px;border:1px solid rgba(255,255,255,.10);font-weight:700}
+.bg-mu{background:rgba(255,255,255,.06);color:#aeb6c2}
+.acc-card{padding:15px 16px;margin-bottom:8px}
+.acc-card.expanded{border-color:rgba(10,132,255,.58);background:rgba(255,255,255,.06)}
+.acc-card.danger{border-color:rgba(255,105,97,.45)!important;background:rgba(255,105,97,.06)}
+.acc-card.warn{border-color:rgba(255,209,102,.42)!important;background:rgba(255,209,102,.045)}
+.acc-icon{display:none}
+.acc-header{gap:12px}
+.acc-name{font-size:14px;font-weight:760;color:#fff}
+.acc-id,.td-id{color:#8b95a3}
+.acc-detail{border-top-color:rgba(255,255,255,.08)}
+.acc-detail-item{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.08);border-radius:8px}
+.acc-detail-label{color:#8f98a5;letter-spacing:0;text-transform:none}
+.fb-switch{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16)}
+.fb-switch.on{background:rgba(50,208,116,.28);border-color:rgba(50,208,116,.55)}
+.ads-table tr.ads-account-row td{background:rgba(255,255,255,.07);border-top:8px solid var(--bg);border-bottom-color:rgba(255,255,255,.12)}
+.ads-table tr.ads-account-row:hover td{background:rgba(255,255,255,.095)}
+.ads-table tr.ads-campaign-row td{background:rgba(255,255,255,.035)}
+.ads-table tr.ads-adset-row td{background:rgba(255,255,255,.02)}
+
+/* Full interaction refresh: compact navigation, clearer hierarchy, project logo. */
+:root{--sw:244px;--swc:72px}
+.sidebar{width:var(--sw);transition:width .18s ease,background .18s ease;will-change:width}
+.main-area{min-width:0}
+.lc-icon,.sb-mark{overflow:hidden;background:#060b13!important;border:1px solid rgba(90,200,250,.24)!important;box-shadow:0 0 0 1px rgba(255,255,255,.04),0 14px 34px rgba(10,132,255,.16)!important}
+.lc-icon img,.sb-mark img{width:100%;height:100%;object-fit:cover;display:block}
+.lc-icon::after,.sb-mark::after{content:none!important}
+.lc-icon{width:68px;height:68px;border-radius:16px!important}
+.sb-mark{width:38px;height:38px;border-radius:10px!important;flex:0 0 38px}
+.sb-logo{cursor:pointer;transition:padding .18s ease}
+.sb-name{font-size:17px;letter-spacing:0!important}
+.sb-ver{font-size:11px;color:#8794a3}
+.sb-desk-toggle{width:34px;height:34px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1px solid rgba(255,255,255,.10);border-radius:999px;background:rgba(255,255,255,.045);color:var(--t2);cursor:pointer;transition:var(--tr);flex:0 0 auto}
+.sb-desk-toggle span{width:14px;height:2px;border-radius:2px;background:currentColor;display:block}
+.sb-desk-toggle:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.2);color:#fff}
+.nav-sec{margin:0 0 8px}
+.nav-sec-toggle{height:28px;padding:0 10px;border-radius:999px;color:#8d97a4}
+.nav-sec-body{gap:3px}
+.nav-item{height:36px;border-radius:999px!important;padding:0 11px!important;gap:9px!important}
+.nav-icon{width:28px;height:24px;min-width:28px;display:inline-flex!important;align-items:center;justify-content:center;border-radius:8px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.08);color:#b9c8d8;font-size:11px;font-weight:850;line-height:1}
+.nav-item.active .nav-icon{background:rgba(10,132,255,.22);border-color:rgba(90,200,250,.36);color:#c8eeff}
+.nav-item.active::before{display:none}
+.sb-foot{transition:opacity .12s ease}
+body.sidebar-compact .sidebar{width:var(--swc)}
+body.sidebar-compact .sb-logo{padding:14px 10px;justify-content:center}
+body.sidebar-compact .sb-logo>div:not(.sb-mark){display:none}
+body.sidebar-compact .sb-mark{width:42px;height:42px;flex-basis:42px;border-radius:13px!important}
+body.sidebar-compact .sb-nav{padding:10px 8px}
+body.sidebar-compact .nav-sec{margin-bottom:8px}
+body.sidebar-compact .nav-sec-toggle{height:8px;min-height:8px;padding:0;margin:2px 0 4px;pointer-events:none;background:transparent!important;border-color:transparent!important}
+body.sidebar-compact .nav-sec-toggle span{display:none!important}
+body.sidebar-compact .nav-sec-body{display:flex!important}
+body.sidebar-compact .nav-item{height:40px;padding:0!important;justify-content:center;font-size:0!important;margin:3px 0}
+body.sidebar-compact .nav-item .nav-icon{width:36px;height:36px;min-width:36px;border-radius:12px;font-size:12px}
+body.sidebar-compact .nav-item{position:relative}
+body.sidebar-compact .nav-item::after{
+ content:attr(data-label);position:absolute;left:52px;top:50%;transform:translateY(-50%);z-index:90;
+ min-width:max-content;max-width:180px;padding:6px 10px;border-radius:999px;background:rgba(29,29,31,.92);
+ color:#fff;font-size:12px;font-weight:720;line-height:1;box-shadow:0 8px 24px rgba(0,0,0,.16);
+ opacity:0;pointer-events:none;white-space:nowrap;transition:opacity .14s ease,transform .14s ease
+}
+body.sidebar-compact .nav-item:hover::after{opacity:1;transform:translate(4px,-50%)}
+body.sidebar-compact .nav-item.active{background:transparent!important;border-color:transparent!important}
+body.sidebar-compact .nav-item.active .nav-icon{background:rgba(10,132,255,.26);border-color:rgba(90,200,250,.42);box-shadow:0 0 0 1px rgba(10,132,255,.16)}
+body.sidebar-compact .sb-foot{display:none}
+body.sidebar-compact .sb-desk-toggle span:nth-child(1){transform:translateY(6px) rotate(90deg)}
+body.sidebar-compact .sb-desk-toggle span:nth-child(2){opacity:.95}
+body.sidebar-compact .sb-desk-toggle span:nth-child(3){transform:translateY(-6px) rotate(90deg)}
+.page{max-width:100%}
+.page>.ph:first-child{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,rgba(15,17,21,.98),rgba(15,17,21,.90));backdrop-filter:blur(12px);margin:-26px -28px 18px;padding:18px 28px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+.ph h2{font-size:22px!important;font-weight:800!important}
+.ph p{max-width:760px}
+.ph-acts .btn,.ph-acts .fc{margin-top:0}
+.fb,.date-row,#kpiBatchBar,#adsBulkBar,#onlineUsersBar{box-shadow:none!important}
+.fb{position:relative}
+.fb::before{content:'';position:absolute;left:12px;right:12px;top:-1px;height:1px;background:linear-gradient(90deg,transparent,rgba(90,200,250,.22),transparent)}
+.table-wrap,#page-landing_urls>div[style*="overflow:hidden"],#twPagesList2 .tw-matrix-table-wrap{box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+.card,.chart-card,.ss,.rc,.kc,.tkc,.acc-card{box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+.sc{min-height:104px;display:flex;flex-direction:column;justify-content:space-between}
+.sc-val{font-variant-numeric:tabular-nums}
+.btn:disabled,.btn-ic:disabled{opacity:.42;cursor:not-allowed}
+.btn-p,.btn-inspect{background:linear-gradient(180deg,#f8fafc,#dce7f2)!important;border-color:#ffffff!important;color:#071018!important}
+.btn-p:hover,.btn-inspect:hover{background:#fff!important}
+.btn-g{background:rgba(255,255,255,.052)!important}
+.btn-g:hover{background:rgba(255,255,255,.095)!important}
+.btn-r,.btn-er{background:rgba(255,105,97,.13)!important;border-color:rgba(255,105,97,.34)!important;color:#ffaaa5!important}
+.tgl-sw,.toggle,.toggle-sw{flex:0 0 auto}
+.rtabs,.kpi-tabs,#page-logs>div[style*="border-bottom"],#page-templates>div[style*="border-bottom"]{border-radius:999px!important}
+.rtab,.kpi-tab,#tplTabMsg,#tplTabForm{border-radius:999px!important}
+#page-dashboard .charts-grid{align-items:stretch}
+#page-dashboard .chart-card{min-height:270px}
+#page-ads .table-wrap{border-color:rgba(90,200,250,.18)}
+#page-ads .ads-table th{position:sticky;top:0;z-index:3}
+#page-logs .card,#page-tokens .tkc,#page-assets .acc-card,#page-accounts .acc-card,#page-rules .rc,#page-templates #msgTemplateList>div,#page-templates #leadFormTemplateList>div{transition:background .15s ease,border-color .15s ease,transform .15s ease}
+#page-tokens .tkc:hover,#page-assets .acc-card:hover,#page-accounts .acc-card:hover,#page-rules .rc:hover,#page-templates #msgTemplateList>div:hover,#page-templates #leadFormTemplateList>div:hover{transform:translateY(-1px)}
+#page-assets #assetDropZone{border-style:dashed!important}
+#page-accounts .ph-acts{align-items:center}
+#page-accounts #accSearchQ{min-width:220px}
+#page-kpi .kpi-tabs,#page-rules .rtabs{width:max-content;max-width:100%;overflow:auto}
+#page-twpages .tw-matrix-head{position:sticky;left:0;z-index:2}
+#teamAdminContent .ss,#settingsContent .ss{overflow:hidden}
+#teamAdminContent table,#settingsContent table,#teamResourceWrap>div,#userListWrap>div{border-radius:8px!important}
+.modal{border-radius:14px}
+.mh{background:rgba(255,255,255,.035)}
+.mobile-more-sheet{background:#15171c;border:1px solid rgba(255,255,255,.10);border-bottom:0}
+
 @media(max-width:900px){
+ .page>.ph:first-child{position:static;margin:0 0 14px;padding:0 0 10px;background:transparent;backdrop-filter:none}
  #page-assets .ph-acts,#page-landing_urls .ph>div:last-child{justify-content:flex-start;width:100%}
  #page-assets .ph-acts .fc,#page-landing_urls .ph .fc{flex:1 1 160px;width:auto!important}
  #settingsContent .sg,#teamAdminContent .sg{grid-template-columns:1fr!important}
  #page-twpages .ss>div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+}
+@media(max-width:768px){
+ .sb-desk-toggle{display:none}
+ body.sidebar-compact .sidebar{width:260px}
+}
+
+/* Apple product finish: final UI layer, visual only. */
+:root{
+ --bg:#f5f5f7;--bg2:#ffffff;--bg3:#fbfbfd;--bgh:#f0f0f3;--bgi:#ffffff;
+ --bd:#d8d8df;--bd2:#b8bcc6;--t1:#1d1d1f;--t2:#515154;--t3:#86868b;
+ --ac:#0071e3;--ach:#0066cc;--acg:rgba(0,113,227,.10);
+ --ok:#248a3d;--okg:rgba(36,138,61,.10);--wa:#b7791f;--wag:rgba(183,121,31,.12);
+ --er:#d70015;--erg:rgba(215,0,21,.10);--pu:#7b61ff;--pug:rgba(123,97,255,.11);
+ --cy:#007aff;--cyg:rgba(0,122,255,.10);--green:#248a3d;--blue:#0071e3;
+ --red:#d70015;--warn:#b7791f;--r:8px;--rs:8px;--sh:0 8px 24px rgba(0,0,0,.06);
+ --tr:all .18s cubic-bezier(.2,.8,.2,1)
+}
+html,body,#app,.layout,.main-area,.content{background:var(--bg)!important;color:var(--t1)!important}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Arial,sans-serif!important}
+*{letter-spacing:0!important;text-decoration:none!important}
+*:focus{outline:none!important}
+::selection{background:rgba(0,113,227,.18);color:var(--t1)}
+
+#login-page{background:var(--bg)!important}
+.lc{background:rgba(255,255,255,.86)!important;border:1px solid rgba(0,0,0,.08)!important;border-radius:8px!important;box-shadow:0 18px 55px rgba(0,0,0,.10)!important}
+.lc h1,.lc-label{color:var(--t1)!important}
+.lc p,#loginVer{color:var(--t3)!important}
+.lc-btn{height:42px;border:0!important;border-radius:999px!important;background:var(--ac)!important;color:#fff!important;box-shadow:none!important}
+.lc-btn:hover{background:var(--ach)!important;transform:none!important}
+
+.sidebar{background:rgba(255,255,255,.86)!important;border-right:1px solid rgba(0,0,0,.08)!important;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
+.topbar{background:rgba(255,255,255,.86)!important;border-bottom:1px solid rgba(0,0,0,.08)!important;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
+.sb-logo,.sb-foot{border-color:rgba(0,0,0,.08)!important}
+.sb-name{color:var(--t1)!important;font-weight:760!important}
+.sb-ver,.nav-sec-title,.nav-sec-toggle{color:var(--t3)!important}
+.sb-desk-toggle{background:#fff!important;border:1px solid var(--bd)!important;color:var(--t2)!important;box-shadow:0 1px 2px rgba(0,0,0,.04)!important}
+.sb-desk-toggle:hover{background:var(--bgh)!important;border-color:var(--bd2)!important;color:var(--t1)!important}
+.nav-item{background:transparent!important;border:0!important;color:var(--t2)!important;font-weight:650!important}
+.nav-item:hover{background:rgba(0,0,0,.045)!important;color:var(--t1)!important}
+.nav-item.active{background:rgba(0,113,227,.12)!important;color:#005bb5!important;border:0!important;font-weight:760!important}
+.nav-icon{background:rgba(0,0,0,.045)!important;border:1px solid rgba(0,0,0,.06)!important;color:var(--t2)!important;font-size:9px!important;font-weight:820!important}
+.nav-item.active .nav-icon,body.sidebar-compact .nav-item.active .nav-icon{background:var(--ac)!important;border-color:var(--ac)!important;color:#fff!important;box-shadow:none!important}
+.tb-user{background:var(--ac)!important;color:#fff!important;box-shadow:none!important}
+.team-paused-banner{background:#fff4d7!important;border:1px solid rgba(183,121,31,.25)!important;color:#7a4b00!important;border-radius:8px!important}
+
+.content{padding:28px 30px 40px!important}
+.page>.ph:first-child{position:sticky;top:0;z-index:20;background:rgba(245,245,247,.92)!important;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);margin:-28px -30px 20px!important;padding:22px 30px 16px!important;border-bottom:1px solid rgba(0,0,0,.08)!important}
+.ph{border-bottom-color:rgba(0,0,0,.08)!important}
+.ph h2{font-size:24px!important;line-height:1.15!important;font-weight:780!important;color:var(--t1)!important}
+.ph p{color:var(--t3)!important;line-height:1.45!important}
+.ph-acts{gap:8px!important}
+
+.card,.chart-card,.ss,.sc,.tkc,.rc,.kc,.acc-card,.modal,.info-box,.fb,.date-row,#kpiBatchBar,#adsBulkBar,#onlineUsersBar,
+#serverResourceContent [style*="border-radius"],#teamAdminContent [style*="border-radius"],#teamResourceWrap>div,#userListWrap>div,
+#page-landing_urls>div[style*="background:var(--bg2)"],#twPagesList2 .tw-matrix-table-wrap,#twPagesList .tw-matrix-table-wrap{
+ background:rgba(255,255,255,.92)!important;border:1px solid rgba(0,0,0,.08)!important;border-radius:8px!important;box-shadow:0 1px 2px rgba(0,0,0,.04)!important;color:var(--t1)!important
+}
+.card:hover,.chart-card:hover,.ss:hover,.sc:hover,.tkc:hover,.rc:hover,.kc:hover,.acc-card:hover{background:#fff!important;border-color:rgba(0,0,0,.12)!important;box-shadow:0 2px 10px rgba(0,0,0,.045)!important;transform:none!important}
+.ss-title,.mh,.mf{border-color:rgba(0,0,0,.08)!important}
+.mh,.mf{background:rgba(255,255,255,.96)!important}
+.modal{border-radius:8px!important}
+.mc{background:var(--bgh)!important;border:1px solid transparent!important;color:var(--t2)!important}
+.mc:hover{background:#e6e6eb!important;color:var(--t1)!important}
+
+.fc,.lc-input,.ss-wrap .ss-input,#kpiMappingTables input,#kpiMappingTables select,
+#unknownTypesSection select,#unknownTypesSection input,
+input.fc,select.fc,textarea.fc{
+ background:#fff!important;border:1px solid #d2d2d7!important;border-bottom:1px solid #d2d2d7!important;border-radius:10px!important;
+ color:var(--t1)!important;box-shadow:none!important;outline:0!important;appearance:auto!important;-webkit-appearance:auto!important
+}
+.fc:focus,.lc-input:focus,.ss-wrap .ss-input:focus,#kpiMappingTables input:focus,#kpiMappingTables select:focus{
+ border-color:var(--ac)!important;box-shadow:0 0 0 3px rgba(0,113,227,.14)!important
+}
+.fc::placeholder,.lc-input::placeholder,.ss-wrap .ss-input::placeholder{color:#9a9aa0!important}
+textarea.fc{line-height:1.55!important}
+.fg,.si{color:var(--t1)!important}
+.fl,.si-label{color:var(--t1)!important;font-weight:700!important}
+.fh,.si-desc{color:var(--t3)!important}
+
+.btn,.btn-sm,.btn-ic,.qdate-btn,.pb{border-radius:999px!important;font-weight:720!important;box-shadow:none!important;transform:none!important}
+.btn{min-height:34px!important;height:34px!important;padding:0 14px!important}
+.btn-sm{min-height:28px!important;height:28px!important;padding:0 10px!important}
+.btn-p,.btn-inspect{background:var(--ac)!important;border:1px solid var(--ac)!important;color:#fff!important}
+.btn-p:hover,.btn-inspect:hover{background:var(--ach)!important;border-color:var(--ach)!important}
+.btn-g{background:#fff!important;border:1px solid var(--bd)!important;color:var(--t1)!important}
+.btn-g:hover{background:var(--bgh)!important;border-color:var(--bd2)!important;color:var(--t1)!important}
+.btn-ok{background:rgba(36,138,61,.10)!important;border:1px solid rgba(36,138,61,.25)!important;color:var(--ok)!important}
+.btn-er,.btn-r{background:rgba(215,0,21,.08)!important;border:1px solid rgba(215,0,21,.20)!important;color:var(--er)!important}
+.btn:disabled,.btn-ic:disabled{opacity:.42!important;cursor:not-allowed!important}
+.qdate-btn{height:30px!important;background:#fff!important;border:1px solid var(--bd)!important;color:var(--t2)!important}
+.qdate-btn.active,.pb.active{background:var(--ac)!important;border-color:var(--ac)!important;color:#fff!important}
+
+.rtabs,.kpi-tabs,#page-logs>div[style*="border-bottom"],#page-templates>div[style*="border-bottom"],.mo .mb>div[style*="border-bottom"]{
+ display:inline-flex!important;align-items:center!important;gap:4px!important;padding:3px!important;background:#e9e9ee!important;
+ border:0!important;border-bottom:0!important;border-radius:999px!important;margin-bottom:16px!important;box-shadow:none!important
+}
+.rtab,.kpi-tab,#tplTabMsg,#tplTabForm,#importTabFb,#importTabDirect,
+button[style*="border-bottom"]{
+ height:30px!important;padding:0 14px!important;margin:0!important;border:0!important;border-bottom:0!important;border-radius:999px!important;
+ background:transparent!important;color:var(--t2)!important;box-shadow:none!important;font-size:13px!important;font-weight:720!important
+}
+.rtab.active,.kpi-tab.active,#tplTabMsg.active,#tplTabForm.active,
+#importTabFb[style*="var(--ac)"],#importTabDirect[style*="var(--ac)"]{
+ background:#fff!important;color:var(--t1)!important;box-shadow:0 1px 2px rgba(0,0,0,.10)!important
+}
+.rtab:hover,.kpi-tab:hover,#tplTabMsg:hover,#tplTabForm:hover,#importTabFb:hover,#importTabDirect:hover{background:rgba(255,255,255,.7)!important;color:var(--t1)!important}
+
+.ss-wrap .ss-list,.mobile-more-sheet{background:#fff!important;border:1px solid rgba(0,0,0,.08)!important;border-radius:8px!important;box-shadow:0 18px 55px rgba(0,0,0,.14)!important;color:var(--t1)!important}
+.ss-opt{color:var(--t1)!important;border-bottom:1px solid #f0f0f3!important}
+.ss-opt:hover{background:var(--bgh)!important}
+.ss-opt.selected{background:rgba(0,113,227,.10)!important;color:#005bb5!important;font-weight:760!important}
+
+.table-wrap{background:#fff!important;border:1px solid rgba(0,0,0,.08)!important;border-radius:8px!important;overflow:auto!important}
+table{background:transparent!important;border-collapse:separate!important;border-spacing:0!important}
+th{height:38px!important;background:#f5f5f7!important;color:#6e6e73!important;border-bottom:1px solid #e5e5ea!important;font-weight:720!important;text-transform:none!important}
+td{border-bottom:1px solid #ededf2!important;color:var(--t1)!important}
+tr:hover td{background:#fafafa!important}
+tr:last-child td{border-bottom:0!important}
+.td-id,.acc-id{color:var(--t3)!important}
+.td-name,.acc-name{color:var(--t1)!important;font-weight:760!important}
+
+.badge{height:22px!important;border-radius:999px!important;border:1px solid rgba(0,0,0,.08)!important;font-weight:760!important}
+.bg-ok{background:rgba(36,138,61,.10)!important;color:var(--ok)!important}
+.bg-wa{background:rgba(183,121,31,.12)!important;color:var(--wa)!important}
+.bg-er{background:rgba(215,0,21,.09)!important;color:var(--er)!important}
+.bg-ac{background:rgba(0,113,227,.10)!important;color:#005bb5!important}
+.bg-mu{background:#eeeef2!important;color:var(--t3)!important}
+
+.sc{min-height:108px!important;padding:16px!important}
+.sc-label{color:var(--t3)!important;font-weight:700!important}
+.sc-val{font-size:26px!important;font-weight:800!important;font-variant-numeric:tabular-nums!important}
+.sc-sub{color:var(--t3)!important}
+.sc-icon{display:none!important}
+.blue,.sc-val.blue{color:var(--blue)!important}.green,.sc-val.green{color:var(--green)!important}
+.orange,.sc-val.orange{color:var(--warn)!important}.red,.sc-val.red{color:var(--red)!important}
+.purple,.sc-val.purple{color:var(--pu)!important}.cyan,.sc-val.cyan{color:var(--cy)!important}
+
+.acc-card{padding:15px 16px!important;margin-bottom:10px!important}
+.acc-card.expanded{border-color:rgba(0,113,227,.36)!important;background:#fff!important}
+.acc-card.danger{border-color:rgba(215,0,21,.26)!important;background:#fff8f8!important}
+.acc-card.warn{border-color:rgba(183,121,31,.28)!important;background:#fffaf0!important}
+.acc-detail{border-top:1px solid #ededf2!important}
+.acc-detail-item{background:#f7f7fa!important;border-color:#e5e5ea!important;border-radius:8px!important}
+.acc-detail-label{color:var(--t3)!important;text-transform:none!important}
+.fb-switch{background:#e9e9ee!important;border-color:#d2d2d7!important}
+.fb-switch.on{background:#34c759!important;border-color:#34c759!important}
+
+.ads-table tr.ads-account-row td{background:#f2f6fb!important;border-top:8px solid var(--bg)!important;border-bottom:1px solid #dce5ef!important}
+.ads-table tr.ads-account-row:hover td{background:#edf4fd!important}
+.ads-table tr.ads-campaign-row td{background:#fff!important}
+.ads-table tr.ads-adset-row td{background:#fafafa!important}
+.ads-table tr.ads-ad-row td{background:#fff!important}
+.ads-table th{position:sticky;top:0;z-index:3}
+
+#settingsContent .ss,#teamAdminContent .ss,#settingsContent .fg,#settingsContent .si,
+#teamAdminContent table,#settingsContent table,#kpiMappingTables>div,#unknownTypesSection>div,
+#serverResourceContent [style*="background"],#teamAdminContent [style*="background"]{
+ background:#fff!important;border-color:#e5e5ea!important;color:var(--t1)!important
+}
+#teamAdminContent .ss{padding:16px!important}
+#teamAdminContent .team-overview-card,#teamAdminContent .team-stat-card{
+ background:#fff!important;border:1px solid #e5e5ea!important;border-radius:8px!important;box-shadow:none!important
+}
+#teamAdminContent .team-overview-card{padding:16px!important}
+#teamAdminContent .team-stat-card{padding:10px!important}
+#teamAdminContent .team-filter-row,#teamAdminContent .team-action-row{
+ display:flex!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important;margin-bottom:10px!important
+}
+#teamAdminContent .team-filter-row{display:grid!important;grid-template-columns:150px 170px minmax(220px,1fr) auto!important}
+#teamAdminContent .team-resource-box{max-height:420px;overflow:auto;border:1px solid #e5e5ea!important;border-radius:8px!important;background:#fff!important}
+#teamAdminContent .team-resource-empty{padding:18px;text-align:center;color:var(--t3);border:1px solid #e5e5ea;border-radius:8px;background:#fff}
+@media(max-width:900px){#teamAdminContent .team-filter-row{display:flex!important}}
+#kpiMappingTables>div>div:first-child,#teamResourceWrap th,#userListWrap th{background:#f5f5f7!important;border-color:#e5e5ea!important}
+#kpiMappingTables [data-map-id]{border-top:1px solid #ededf2!important}
+#unknownTypesSection [style*="color:#333"],#unknownTypesSection [style*="color:#666"],#unknownTypesSection [style*="color:#999"],
+[style*="color:#333"],[style*="color:#666"],[style*="color:#999"]{color:var(--t2)!important}
+
+#twPagesList2 .tw-matrix-group{margin-bottom:14px!important}
+#twPagesList2 .tw-matrix-head{background:#fff!important;border:1px solid #e5e5ea!important;border-radius:8px!important;color:var(--t1)!important}
+#twPagesList2 .tw-matrix-head:hover{background:#f8f8fb!important;border-color:#d2d2d7!important}
+#twPagesList2 .tw-matrix-title{color:var(--t1)!important;font-weight:760!important}
+#twPagesList2 .tw-matrix-count{color:var(--t3)!important}
+#twPagesList2 .tw-page-table{border-collapse:separate!important;border-spacing:0!important}
+#twPagesList2 [style*="background:#22c55e"],#twPagesList [style*="background:#22c55e"]{background:var(--ok)!important;color:#fff!important}
+#twPagesList2 [style*="background:#f59e0b"],#twPagesList [style*="background:#f59e0b"]{background:var(--wa)!important;color:#fff!important}
+#twPagesList2 [style*="background:#dc2626"],#twPagesList [style*="background:#dc2626"]{background:var(--er)!important;color:#fff!important}
+
+[style*="background:#101720"],[style*="background:#111923"],[style*="background:#0f151d"],[style*="background:#15171c"],
+[style*="background:#17202b"],[style*="background:#111827"],[style*="background:var(--bg2)"]{
+ background:#fff!important;color:var(--t1)!important;border-color:#e5e5ea!important
+}
+[style*="background:var(--bg3)"],[style*="background:#18160d"]{background:#f5f5f7!important;color:var(--t1)!important;border-color:#e5e5ea!important}
+[style*="border-bottom:2px"],button[style*="border-bottom"],#page-logs>div[style*="border-bottom"],.mo .mb>div[style*="border-bottom"]{border-bottom:0!important}
+
+.toggle-sw .toggle-sl,.tgl-sw .tgl-tr,.toggle .ts{background:#d2d2d7!important}
+.toggle-sw input:checked+.toggle-sl,.tgl-sw input:checked+.tgl-tr,.toggle input:checked+.ts{background:#34c759!important}
+.toggle-sl::after,.tgl-tr::after,.ts::before{background:#fff!important;box-shadow:0 1px 2px rgba(0,0,0,.20)!important}
+
+.mobile-nav{background:rgba(255,255,255,.9)!important;border-top:1px solid rgba(0,0,0,.08)!important;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.mn-item{color:var(--t3)!important}
+.mn-item.active{color:var(--ac)!important;background:transparent!important}
+.mobile-more-item{color:var(--t1)!important}
+.mobile-more-item:hover,.mobile-more-item:active{background:var(--bgh)!important}
+
+/* Apple finish details: compact headers and readable section titles. */
+.tb-title{color:var(--t1)!important;font-weight:760!important;opacity:1!important}
+.tb-status,#tbRoleLabel{color:var(--t3)!important}
+.ss-title,.card-title,.rc-title,.kc-title,.tkc-alias{
+ color:var(--t1)!important;font-weight:760!important
+}
+.ss-title span,.card-title span{color:var(--t3)!important}
+.page>.ph:first-child>div:last-child,.ph-acts{
+ display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;flex-wrap:wrap!important
+}
+.page>.ph:first-child .fc,.ph-acts .fc,.fb .fc,
+.page>.ph:first-child .ss-wrap,.ph-acts .ss-wrap,.fb .ss-wrap{
+ width:auto!important;min-height:34px!important;flex:0 0 auto!important
+}
+.page>.ph:first-child .ss-wrap,.ph-acts .ss-wrap,.fb .ss-wrap{min-width:160px!important;max-width:260px!important}
+.page>.ph:first-child select.fc,.fb select.fc{min-width:130px!important;max-width:260px!important}
+.page>.ph:first-child input.fc,.fb input.fc{min-width:180px!important;max-width:320px!important}
+#page-dashboard .ph>div:last-child{max-width:760px!important}
+#dashAct{width:160px!important;max-width:180px!important}
+#dashAct+.ss-wrap{width:160px!important;min-width:160px!important;max-width:180px!important}
+#dashKpi{width:150px!important;max-width:170px!important}
+#dashPreset{width:112px!important;max-width:130px!important}
+#dashDf,#dashDt{width:132px!important;min-width:132px!important}
+#dashCustomDates{flex:0 0 auto!important}
+#adsAct{width:220px!important;min-width:220px!important}
+#adsAct+.ss-wrap{width:220px!important;min-width:220px!important}
+#adsDateFrom,#adsDateTo{width:132px!important;min-width:132px!important}
+#adsQ{width:180px!important;min-width:180px!important}
+#adsStatus{width:140px!important}
+#page-accounts #accSearch,#page-accounts #accSearchQ{width:220px!important;min-width:220px!important}
+#page-assets .ph-acts{max-width:980px!important}
+#page-assets .ph-acts .fc{height:34px!important;min-width:118px!important}
+#landingUrlSearch{width:220px!important}
+#landingUrlMatrixFilter{width:150px!important}
+.fb{align-items:center!important}
+.fb::before{display:none!important}
+.qdate-btns{display:inline-flex!important;align-items:center!important;gap:6px!important;flex-wrap:wrap!important}
+
+/* Final polish for team and page-library dense tables. */
+#teamAdminContent .team-overview-card{background:#fff!important;border-color:#e5e5ea!important}
+#teamAdminContent .team-overview-card div.team-stat-card{
+ background:#f5f5f7!important;border:1px solid #e5e5ea!important;color:var(--t1)!important;border-radius:8px!important
+}
+#teamAdminContent .team-overview-card div.team-stat-card div:first-child{color:var(--t1)!important}
+#teamAdminContent .team-overview-card div.team-stat-card div:last-child{color:var(--t3)!important}
+#twPagesList2 .tw-page-table th:last-child,#twPagesList2 .tw-page-table td:last-child,
+#twPagesList .tw-page-table th:last-child,#twPagesList .tw-page-table td:last-child{
+ position:sticky;right:0;background:#fff!important;z-index:4;box-shadow:-1px 0 0 #e5e5ea!important
+}
+#twPagesList2 .tw-page-table th:last-child,#twPagesList .tw-page-table th:last-child{background:#f5f5f7!important}
+#twPagesList2 .tw-page-table col:nth-child(9),#twPagesList .tw-page-table col:nth-child(9){width:122px!important}
+
+@media(max-width:900px){
+ .content{padding:16px!important}
+ .page>.ph:first-child{position:static!important;margin:0 0 14px!important;padding:0 0 12px!important;background:transparent!important;backdrop-filter:none!important}
+ .ph h2{font-size:22px!important}
+ .page>.ph:first-child>div:last-child,.ph-acts{justify-content:flex-start!important;width:100%!important}
+ .page>.ph:first-child .fc,.ph-acts .fc,.fb .fc,.page>.ph:first-child .ss-wrap,.ph-acts .ss-wrap,.fb .ss-wrap{flex:1 1 160px!important;width:auto!important;max-width:none!important}
+}
+
+/* Commercial ops console alignment pass: keep dense tools tidy and predictable. */
+:root{--ops-gutter:30px;--ops-card-gap:14px;--ops-toolbar-h:42px}
+.content{padding:24px var(--ops-gutter) 42px!important}
+.page{width:100%!important;max-width:1480px!important;margin:0 auto!important}
+.page>.ph:first-child{
+ display:grid!important;grid-template-columns:minmax(260px,1fr) auto!important;align-items:end!important;gap:12px 20px!important;
+ min-height:88px!important;margin:-24px calc(-1 * var(--ops-gutter)) 18px!important;padding:20px var(--ops-gutter) 16px!important;
+ background:rgba(245,245,247,.94)!important;border-bottom:1px solid #dcdce2!important
+}
+.page>.ph:first-child h2{margin:0!important;font-size:24px!important;line-height:1.15!important;white-space:nowrap!important}
+.page>.ph:first-child p{margin:4px 0 0!important;max-width:none!important;color:#7c7c82!important}
+.page>.ph:first-child>div:first-child{min-width:0!important}
+.page>.ph:first-child>div:last-child,.ph-acts{min-width:0!important}
+.ph-acts,.fb,.date-row,#adsBulkBar,#kpiBatchBar,#onlineUsersBar{
+ display:flex!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important;
+ width:100%!important;min-height:58px!important;margin:0 0 var(--ops-card-gap)!important;padding:11px 14px!important;
+ background:#fff!important;border:1px solid #dedee4!important;border-radius:8px!important;box-shadow:0 1px 2px rgba(0,0,0,.035)!important
+}
+.page>.ph:first-child .ph-acts,.page>.ph:first-child>div:last-child.ph-acts{margin:0!important}
+.page>.ph:first-child>div:last-child:not(.ph-acts){display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;flex-wrap:wrap!important}
+.page>.ph:first-child>div:first-child:last-child{display:block!important;justify-self:start!important;text-align:left!important}
+.page>.ph:first-child>div:first-child:last-child h2,.page>.ph:first-child>div:first-child:last-child p{display:block!important;text-align:left!important}
+#page-dashboard .ph>div:last-child,#page-accounts .ph-acts,#page-kpi .ph-acts,#page-landing_urls .ph>div:last-child,#page-rules .ph>div:last-child{
+ width:auto!important;max-width:980px!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important
+}
+#page-assets .page>.ph:first-child,#page-assets>.ph:first-child{grid-template-columns:1fr!important;align-items:start!important;min-height:166px!important}
+#page-assets .ph-acts{justify-content:flex-start!important;max-width:none!important;margin-top:4px!important}
+#page-assets .ph-acts .fc,#page-assets .ph-acts .ss-wrap{min-width:132px!important}
+
+.card,.chart-card,.ss,.acc-card,.tkc,.rc,.kc,#accsSummary+.card{
+ margin-bottom:var(--ops-card-gap)!important;border-radius:8px!important
+}
+.table-wrap{width:100%!important;max-width:100%!important;border-radius:8px!important}
+table{width:100%}
+th,td{vertical-align:middle!important}
+td,th,.td-name,.acc-name,.card-title,.ss-title{overflow-wrap:anywhere}
+
+input.fc,select.fc,textarea.fc,.fc{
+ min-height:var(--ops-toolbar-h)!important;height:var(--ops-toolbar-h)!important;padding:0 12px!important;
+ line-height:normal!important;font-size:13px!important;border-radius:8px!important
+}
+textarea.fc{height:auto!important;min-height:86px!important;padding:10px 12px!important;line-height:1.55!important}
+select.fc{padding-right:34px!important;text-overflow:ellipsis!important}
+.btn,.btn-p,.btn-g,.btn-ok,.btn-er,.btn-r,.btn-inspect{
+ min-height:var(--ops-toolbar-h)!important;height:var(--ops-toolbar-h)!important;padding:0 15px!important;border-radius:999px!important;white-space:nowrap!important
+}
+.btn-sm,.ph-acts .btn-sm,.fb .btn-sm{min-height:34px!important;height:34px!important;padding:0 12px!important}
+.qdate-btn{min-height:34px!important;height:34px!important;padding:0 13px!important}
+.badge{max-width:100%;white-space:nowrap}
+
+#assetDropZone,#assetsList>.empty{
+ background:#fff!important;border:1px dashed #c7c7cf!important;border-radius:8px!important;color:var(--t1)!important;
+ box-shadow:0 1px 2px rgba(0,0,0,.035)!important
+}
+#assetDropZone:hover{background:#f8fbff!important;border-color:#0071e3!important}
+#assetDropZone div,#assetsList>.empty p{color:var(--t2)!important}
+#assetsList>.empty{min-height:118px!important;display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important}
+#page-rules>.ph:first-child{position:relative!important;top:auto!important;z-index:auto!important;min-height:76px!important;align-items:center!important}
+#page-rules .rtabs{margin:0 0 14px!important}
+#tplDropMenu{background:#fff!important;border:1px solid #d8d8df!important;border-radius:8px!important;overflow:hidden!important;box-shadow:0 10px 28px rgba(0,0,0,.14)!important}
+#tplDropMenu .tpl-menu-item{background:#fff!important;color:#1d1d1f!important;padding:11px 16px!important;cursor:pointer!important;font-size:13px!important;border-bottom:1px solid #ececf1!important;white-space:nowrap!important}
+#tplDropMenu .tpl-menu-item:last-child{border-bottom:0!important}
+#tplDropMenu .tpl-menu-item:hover{background:#f5f5f7!important}
+#teamAdminContent .sg{grid-template-columns:1fr!important}
+#teamResourceWrap,#teamResourceWrap .team-resource-box{width:100%!important;display:block!important}
+#teamResourceWrap table{width:100%!important;min-width:100%!important}
+.topbar{position:relative!important;z-index:3000!important}
+.content{position:relative!important;z-index:1!important}
+.page>.ph:first-child{z-index:8!important}
+.tb-user-wrap{position:relative;display:inline-flex;align-items:center}
+.tb-user{border:0!important;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;padding:0!important;line-height:1!important}
+.user-menu{
+ display:none;position:absolute;right:0;top:calc(100% + 10px);z-index:5000;width:260px;background:#fff;border:1px solid #d8d8df;
+ border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.18);overflow:hidden;color:var(--t1)
+}
+.user-menu.open{display:block}
+.user-menu-head{display:flex;align-items:center;gap:10px;padding:14px;border-bottom:1px solid #ececf1;background:#fbfbfd}
+.user-menu-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--ac);color:#fff;font-size:14px;font-weight:800;flex:0 0 36px}
+.user-menu-name{font-size:14px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-menu-role{font-size:12px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.user-menu-item{width:100%;height:42px;border:0;background:#fff;color:var(--er);font-size:13px;font-weight:760;text-align:left;padding:0 14px;cursor:pointer}
+.user-menu-item:hover{background:#fff5f5}
+.team-overview-title{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important}
+.team-overview-title small{display:block;font-size:12px;font-weight:400;color:var(--t3);margin-top:3px}
+.team-summary-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:12px 0}
+.team-summary-item{background:#f5f5f7;border:1px solid #e5e5ea;border-radius:8px;padding:10px 12px}
+.team-summary-value{font-size:19px;font-weight:820;color:var(--t1);font-variant-numeric:tabular-nums}
+.team-summary-label{font-size:11px;color:var(--t3);margin-top:2px}
+.team-table-wrap{border:1px solid #e5e5ea;border-radius:8px;overflow:auto;background:#fff}
+.team-table{width:100%;min-width:860px;border-collapse:separate;border-spacing:0;font-size:13px}
+.team-table th,.team-table td{padding:10px 12px!important;vertical-align:middle}
+.team-table td{height:54px}
+.team-name-cell{font-weight:760;color:var(--t1);max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.team-note-cell{max-width:280px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.team-counts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--t2)}
+.team-counts span{display:inline-flex;gap:3px;align-items:baseline;white-space:nowrap}
+.team-counts b{font-variant-numeric:tabular-nums;color:var(--t1)}
+.team-scope-note{margin-top:10px;font-size:12px;color:var(--t3);line-height:1.45}
+.team-profile-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:12px}
+.team-profile-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #ececf1}
+.team-create-btn{height:40px!important;border:0!important;border-radius:999px!important;padding:0 16px!important;gap:8px!important;background:#0071e3!important;color:#fff!important;box-shadow:none!important}
+.team-create-btn:hover{background:#005bb5!important;color:#fff!important}
+.team-create-btn:before{content:"+";display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.18);border:0!important;font-size:16px;line-height:18px;color:#fff}
+.team-guard-table{min-width:980px}
+.team-guard-cell{display:flex;align-items:center;gap:10px;min-width:150px}
+.team-guard-name{font-size:13px;font-weight:760;color:var(--t1);line-height:1.2}
+.team-guard-hint{font-size:11px;color:var(--t3);margin-top:2px;white-space:normal;line-height:1.25}
+.tw-add-panel{margin-top:14px;padding-top:14px;border-top:1px solid #ececf1}
+.tw-add-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px 14px;align-items:start;margin-top:10px}
+.tw-add-grid .fg{margin:0!important;min-width:0}
+.tw-add-page-id,.tw-add-matrix,.tw-add-token,.tw-add-name{grid-column:span 3}
+.tw-add-verified{grid-column:span 4}
+.tw-add-note{grid-column:span 6}
+.tw-add-action{grid-column:span 2;display:flex;align-items:flex-end;justify-content:flex-end;min-height:66px;padding-bottom:0}
+.tw-add-action .btn{width:100%}
+.page>.ph:first-child{
+ position:relative!important;top:auto!important;z-index:auto!important;min-height:0!important;
+ margin:0 0 18px!important;padding:0 0 18px!important;background:transparent!important;
+ border-bottom:1px solid #dcdce2!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important
+}
+@media(max-width:1100px){.team-summary-grid,.team-profile-strip{grid-template-columns:repeat(3,minmax(0,1fr))}.tw-add-page-id,.tw-add-matrix,.tw-add-token,.tw-add-name,.tw-add-verified,.tw-add-note{grid-column:span 6}.tw-add-action{grid-column:span 12;min-height:0}.tw-add-action .btn{width:auto;min-width:120px}}
+@media(max-width:720px){.team-summary-grid,.team-profile-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.user-menu{right:-8px}.tw-add-page-id,.tw-add-matrix,.tw-add-token,.tw-add-name,.tw-add-verified,.tw-add-note,.tw-add-action{grid-column:span 12}.tw-add-action .btn{width:100%}}
+.kpi-raw-field{font-size:11px;color:var(--t3);font-family:monospace;line-height:22px}
+
+#page-logs .table-wrap,#page-twpages .tw-matrix-table-wrap,#twPagesList2 .tw-matrix-table-wrap,#page-landing_urls>div[style*="overflow:hidden"]{overflow:auto!important}
+#page-logs table{min-width:1280px!important;table-layout:fixed!important}
+#page-logs th:nth-child(1),#page-logs td:nth-child(1){width:126px!important}
+#page-logs th:nth-child(2),#page-logs td:nth-child(2){width:210px!important}
+#page-logs th:nth-child(3),#page-logs td:nth-child(3){width:220px!important}
+#page-logs th:nth-child(4),#page-logs td:nth-child(4){width:94px!important}
+#page-logs th:nth-child(5),#page-logs td:nth-child(5){width:330px!important}
+#page-logs th:nth-child(6),#page-logs td:nth-child(6){width:230px!important}
+#page-logs th:nth-child(7),#page-logs td:nth-child(7){width:70px!important}
+#page-logs td:nth-child(5),#page-logs td:nth-child(6){
+ white-space:normal!important;word-break:break-word!important;overflow:visible!important;text-overflow:clip!important;line-height:1.45!important
+}
+#page-logs td:nth-child(2),#page-logs td:nth-child(3){white-space:normal!important;word-break:break-word!important}
+
+#twPagesList2 .tw-page-table,#twPagesList .tw-page-table{min-width:1320px!important;table-layout:fixed!important}
+#twPagesList2 .tw-page-table col:nth-child(8),#twPagesList .tw-page-table col:nth-child(8){width:250px!important}
+#twPagesList2 .tw-page-table td:nth-child(8),#twPagesList .tw-page-table td:nth-child(8){
+ white-space:normal!important;word-break:break-word!important;overflow:visible!important;text-overflow:clip!important;line-height:1.45!important
+}
+#twPagesList2 .tw-page-table th:last-child,#twPagesList2 .tw-page-table td:last-child,
+#twPagesList .tw-page-table th:last-child,#twPagesList .tw-page-table td:last-child{min-width:122px!important;width:122px!important}
+
+@media(max-width:900px){
+ :root{--ops-gutter:16px}
+ .page>.ph:first-child{display:block!important;min-height:0!important;margin:0 0 14px!important;padding:0 0 12px!important;border-bottom:1px solid #dedee4!important}
+ .page>.ph:first-child h2{white-space:normal!important;font-size:22px!important}
+ #page-dashboard .ph>div:last-child,#page-accounts .ph-acts,#page-kpi .ph-acts,#page-landing_urls .ph>div:last-child,#page-rules .ph>div:last-child,
+ .ph-acts,.fb{width:100%!important;max-width:none!important;margin-top:10px!important}
+ input.fc,select.fc,.fc,.btn{flex:1 1 160px!important;max-width:none!important}
+}
+
+/* Display-only alignment guardrails for the multi-team console. */
+.ss{width:100%!important;overflow:visible!important}
+.ss-title{min-height:36px!important;align-items:flex-start!important;justify-content:space-between!important;gap:10px!important;flex-wrap:wrap!important;line-height:1.35!important}
+.ss-title>span:first-child{line-height:1.35!important}
+.fg{min-width:0!important}
+.fr{gap:14px!important}
+.fc{max-width:100%!important}
+select.fc option{background:#fff;color:#1d1d1f}
+.table-wrap,.team-table-wrap,.team-resource-box{max-width:100%!important}
+.team-table td,.team-table th{white-space:normal!important}
+.team-table .team-name-cell,.team-table .team-note-cell{white-space:nowrap!important}
+#teamAdminContent .owner-log-filters{grid-template-columns:minmax(150px,1fr) minmax(190px,1.2fr) minmax(130px,.8fr) minmax(150px,.9fr) auto!important}
+#teamAdminContent .owner-log-box{max-height:360px!important}
+#teamAdminContent .owner-log-box td{height:auto!important;min-height:46px!important}
+#teamAdminContent .team-table-wrap+.team-scope-note,#teamAdminContent .team-resource-empty{margin-top:10px}
+#page-settings .ss,#page-team_admin .ss,#page-kpi .ss,#page-rules .ss{overflow:visible!important}
+#page-kpi .kc,#page-rules .rc,#page-tokens .tkc,#page-accounts .acc-card{min-width:0!important}
+#page-kpi .kc *,#page-rules .rc *,#page-tokens .tkc *,#page-accounts .acc-card *{max-width:100%}
+@media(max-width:1100px){
+ #teamAdminContent .owner-log-filters{display:flex!important}
+ .page>.ph:first-child>div:last-child:not(.ph-acts){justify-content:flex-start!important}
 }
 </style>
 </head>
@@ -1117,8 +1707,8 @@ tr:hover td{background:#151e29}
 <!-- Login -->
 <div id="login-page">
  <div class="lc">
-  <div class="lc-logo">
-   <div class="lc-icon" id="loginLogo"></div>
+   <div class="lc-logo">
+    <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-tech.png" alt="Mira"></div>
    <h1>Mira</h1>
 <p id="loginVer">广告投放管理系统 v3.2.1</p>
   </div>
@@ -1136,10 +1726,10 @@ tr:hover td{background:#151e29}
   <div class="sb-overlay" id="sbOverlay" onclick="closeSidebar()"></div>
   <aside class="sidebar" id="sidebar">
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
-   <div class="sb-logo">
-    <div class="sb-mark" id="sidebarLogo"></div>
+    <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
+     <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-tech.png" alt="Mira"></div>
 <div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.2.1</div></div>
-   </div>
+    </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
     <div class="nav-item active" onclick="showPage('dashboard')"><span class="nav-icon"></span>数据看板</div>
@@ -1213,13 +1803,14 @@ tr:hover td{background:#151e29}
       </label>
      </div>
     </div>
-     <button class="btn-emg role-superadmin-only" onclick="showEmgModal()">一键紧急暂停</button>
+     <button class="btn-emg role-superadmin-only" onclick="showEmgModal()">全局紧急暂停</button>
     <div style="margin-top:8px;font-size:10px;color:var(--t3);text-align:center;opacity:0.6" id="buildVer">build 250511-2249</div>
    </div>
   </aside>
   <div class="main-area">
    <header class="topbar">
-    <button class="ham-btn" onclick="openSidebar()" aria-label="菜单"><div class="ham-line"></div><div class="ham-line"></div><div class="ham-line"></div></button>
+     <button class="ham-btn" onclick="openSidebar()" aria-label="菜单"><div class="ham-line"></div><div class="ham-line"></div><div class="ham-line"></div></button>
+     <button class="sb-desk-toggle" onclick="toggleSidebarCompact()" aria-label="展开或收起侧栏" title="展开或收起侧栏"><span></span><span></span><span></span></button>
     <div class="tb-title" id="tbTitle">数据看板</div>
 
     <div class="tb-acts">
@@ -1227,7 +1818,20 @@ tr:hover td{background:#151e29}
      <button class="btn-inspect role-superadmin-only" id="btnInspect" onclick="triggerInspect()">立即巡检</button>
      <button class="btn btn-g btn-sm role-superadmin-only" onclick="resetRuleCooldown()" style="padding:5px 10px;font-size:12px;margin-left:6px">重置冷却</button>
      <div style="display:flex;align-items:center;gap:6px">
-     <div class="tb-user" title="退出登录" id="tbUser" onclick="logout()">A</div>
+     <div class="tb-user-wrap">
+      <button type="button" class="tb-user" title="账户菜单" id="tbUser" onclick="toggleUserMenu(event)" aria-label="账户菜单" aria-expanded="false">A</button>
+      <div class="user-menu" id="userMenu">
+       <div class="user-menu-head">
+        <div class="user-menu-avatar" id="userMenuAvatar">A</div>
+        <div style="min-width:0">
+         <div class="user-menu-name" id="userMenuName">当前用户</div>
+         <div class="user-menu-role" id="userMenuRole">超级管理员</div>
+       </div>
+      </div>
+       <button type="button" class="user-menu-item" style="color:var(--t1)" onclick="openMyNotifyModal()">通知设置</button>
+       <button type="button" class="user-menu-item" onclick="logout()">退出登录</button>
+      </div>
+     </div>
      <span id="tbRoleLabel" style="font-size:11px;color:var(--t3);white-space:nowrap"></span>
      <span id="teamStatusBadge" class="team-status-badge">团队已暂停</span>
     </div>
@@ -1513,9 +2117,11 @@ tr:hover td{background:#151e29}
         <option value="PUT">PUT</option>
         <option value="DELETE">DELETE</option>
        </select>
-       <span style="margin-left:auto;font-size:12px;color:var(--t3)" id="uaCount"></span>
-       <button class="btn btn-g btn-sm" onclick="loadUserActivity()">刷新</button>
-      </div>
+        <span style="margin-left:auto;font-size:12px;color:var(--t3)" id="uaCount"></span>
+        <button class="btn btn-g btn-sm" onclick="loadUserActivity()">刷新</button>
+        <button class="btn btn-g btn-sm role-superadmin-only" onclick="clearUserActivity(true)">清理当前筛选</button>
+        <button class="btn btn-r btn-sm role-superadmin-only" onclick="clearUserActivity(false)">清空活动</button>
+       </div>
       <div class="card" style="padding:0"><div class="table-wrap"><table>
        <thead><tr><th>时间</th><th>用户</th><th>角色</th><th>请求路径</th><th>方法</th><th>状态码</th><th>IP</th><th>耗时</th></tr></thead>
        <tbody id="uaBody"></tbody>
@@ -1628,7 +2234,7 @@ tr:hover td{background:#151e29}
         <option value="all">全部矩阵</option>
        </select>
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
-       <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期本地快照中有消耗的账户ID">复制有消耗ID</button>
+       <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
        <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
        <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
@@ -1707,11 +2313,11 @@ tr:hover td{background:#151e29}
       <div style="display:flex;gap:8px;align-items:center">
        <select class="fc" id="rulesAct" style="width:180px" onchange="loadRules()"><option value="">全部账户</option></select>
        <div style="position:relative" id="tplMenuWrap">
-        <button class="btn btn-ok role-hide-viewer" onclick="toggleTplMenu()">模板管理 ▾</button>
-        <div id="tplDropMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;min-width:180px;z-index:100;box-shadow:var(--sh)">
-         <div onclick="openTemplateModal();toggleTplMenu()" style="padding:10px 16px;cursor:pointer;font-size:13px;color:var(--t1);border-bottom:1px solid var(--bd)" onmouseover="this.style.background='var(--bgh)'" onmouseout="this.style.background=''">套用推荐模板</div>
-         <div onclick="openCustomTplModal();toggleTplMenu()" style="padding:10px 16px;cursor:pointer;font-size:13px;color:var(--t1);border-bottom:1px solid var(--bd)" onmouseover="this.style.background='var(--bgh)'" onmouseout="this.style.background=''">自定义模板管理</div>
-         <div onclick="openSaveTplModal();toggleTplMenu()" style="padding:10px 16px;cursor:pointer;font-size:13px;color:var(--t1)" onmouseover="this.style.background='var(--bgh)'" onmouseout="this.style.background=''">将当前规则存为模板</div>
+       <button class="btn btn-ok role-hide-viewer" onclick="toggleTplMenu()">模板管理 ▾</button>
+       <div id="tplDropMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;min-width:180px;z-index:100;box-shadow:var(--sh)">
+         <div class="tpl-menu-item" onclick="openTemplateModal();toggleTplMenu()">套用推荐模板</div>
+         <div class="tpl-menu-item" onclick="openCustomTplModal();toggleTplMenu()">自定义模板管理</div>
+         <div class="tpl-menu-item" onclick="openSaveTplModal();toggleTplMenu()">将当前规则存为模板</div>
         </div>
        </div>
       </div>
@@ -1780,13 +2386,14 @@ tr:hover td{background:#151e29}
      <div class="ss">
       <div class="ss-title">主页列表</div>
       <div id="twPagesList2" style="margin-bottom:14px"><span class="spin"></span>加载中...</div>
-      <div class="ss-title" style="margin-top:8px">添加主页</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;align-items:start;margin-top:8px">
-       <div class="fg" style="margin:0">
+      <div class="tw-add-panel">
+      <div class="ss-title">添加主页</div>
+      <div class="tw-add-grid">
+       <div class="fg tw-add-page-id">
         <label class="fl">主页 ID <span class="req">*</span></label>
         <input class="fc" id="twNewPageId2" placeholder="如：1020399831162841" onblur="autoFetchTwPageName2(this.value)">
        </div>
-       <div class="fg" style="margin:0">
+       <div class="fg tw-add-matrix">
         <label class="fl">归属矩阵</label>
         <select class="fc" id="twNewMatrix2" onchange="onMatrixSelectChanged('twNewMatrix2','twNewMatrixCustom2');autoFetchTwPageName2(document.getElementById('twNewPageId2').value)">
          <option value="">-- 选择矩阵 --</option>
@@ -1796,27 +2403,28 @@ tr:hover td{background:#151e29}
         <input class="fc" id="twNewMatrixCustom2" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged('twNewMatrix2','twNewMatrixCustom2')">
         <div style="font-size:11px;color:var(--t3);margin-top:4px">可直接输入新的矩阵编号，不受预设矩阵限制</div>
        </div>
-       <div class="fg" style="margin:0">
+       <div class="fg tw-add-token">
         <label class="fl">对应 Token <span style="font-size:11px;color:var(--t3)">(有主页管理权限)</span></label>
         <select class="fc" id="twNewToken2" onchange="autoFetchTwPageName2(document.getElementById('twNewPageId2').value)">
          <option value="">-- 选择 Token --</option>
         </select>
        </div>
-       <div class="fg" style="margin:0">
+       <div class="fg tw-add-name">
         <label class="fl">主页名称 <span style="font-size:11px;color:var(--t3)" id="twNameHint2">(失焦后自动获取)</span></label>
         <input class="fc" id="twNewPageName2" placeholder="如：AI股市">
        </div>
-       <div class="fg" style="margin:0">
+       <div class="fg tw-add-verified">
         <label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint2">(扫描时自动探测，也可手动填写)</span></label>
         <input class="fc" id="twNewVerifiedId2" placeholder="如：1483822239783037">
        </div>
-       <div class="fg" style="margin:0">
+       <div class="fg tw-add-note">
         <label class="fl">备注（可选）</label>
         <input class="fc" id="twNewPageNote2" placeholder="如：陈燕认证">
        </div>
-       <div style="display:flex;align-items:flex-end;padding-bottom:2px">
-        <button class="btn btn-p role-hide-viewer" style="width:100%" onclick="addTwCertPage2()">添加</button>
+       <div class="tw-add-action">
+        <button class="btn btn-p role-hide-viewer" onclick="addTwCertPage2()">添加主页</button>
        </div>
+      </div>
       </div>
      </div>
     </div>
@@ -1861,6 +2469,7 @@ tr:hover td{background:#151e29}
     <div class="page" id="page-team_admin">
      <div class="ph">
       <div><h2>团队管理</h2><p>管理团队成员和角色权限；资源归属由团队用户创建或维护时自动绑定</p></div>
+      <div class="ph-acts role-superadmin-only"><button class="btn btn-p team-create-btn" onclick="createTeamQuick()">新建团队</button></div>
      </div>
      <div id="teamAdminContent"></div>
     </div>
@@ -1990,7 +2599,7 @@ tr:hover td{background:#151e29}
    <div class="fg"><label class="fl">目标名称（可选）</label><input class="fc" id="kpiTgtName" placeholder="便于识别的名称，下拉选择后自动填充"></div>
    <div class="fr">
     <div class="fg"><label class="fl">KPI 字段 <span class="req">*</span></label><select class="fc" id="kpiFieldSel"></select></div>
-    <div class="fg"><label class="fl">目标 CPA (USD) <button type="button" onclick="document.getElementById('kpiCpa').value=''" style="font-size:10px;padding:1px 6px;margin-left:6px;background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);border-radius:4px;cursor:pointer">清除</button></label><input class="fc" id="kpiCpa" type="number" step="0.01" placeholder="留空=不设CPA目标（由全局规则接管）"></div>
+    <div class="fg"><label class="fl">目标 CPA (USD) <button type="button" onclick="document.getElementById('kpiCpa').value=''" style="font-size:10px;padding:1px 6px;margin-left:6px;background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);border-radius:4px;cursor:pointer">清除</button></label><input class="fc" id="kpiCpa" type="number" step="0.01" placeholder="留空=不设置 CPA 目标"></div>
    </div>
    <div class="fg"><label class="fl">备注</label><input class="fc" id="kpiNote" placeholder="可选"></div>
   </div>
@@ -2369,7 +2978,7 @@ tr:hover td{background:#151e29}
       <select class="fc" id="launchMsgTemplate" style="flex:1">
        <option value="">— 留空 = 系统自动生成（含 3 个快捷回复按钮）—</option>
       </select>
-      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadMsgTemplatesForLaunch()" title="刷新模版列表"></button>
+      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadMsgTemplatesForLaunch()" title="刷新模版列表">刷新</button>
      </div>
      <div style="font-size:11px;color:var(--t3);margin-top:4px">留空时系统自动生成欢迎消息。可在「广告模版库」中预先创建消息模版，铺广告时直接选用。</div>
     </div>
@@ -2383,7 +2992,7 @@ tr:hover td{background:#151e29}
        <option value="">— 留空 = 系统自动创建表单（AI 生成内容）—</option>
       </select>
       <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="diagnoseLaunchLeadForm()" title="诊断主页 Lead Form 权限">诊断</button>
-      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadLeadFormTemplatesForLaunch()" title="刷新模版列表"></button>
+      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadLeadFormTemplatesForLaunch()" title="刷新模版列表">刷新</button>
      </div>
      <div style="font-size:11px;color:var(--t3);margin-top:4px" id="launchLeadFormHint">留空时系统自动用 AI 生成表单内容并在主页创建（需 <code>pages_manage_ads</code>权限）。
       可在「广告模版库」中预先配置表单字段，选择后优先使用模版。
@@ -2425,7 +3034,7 @@ tr:hover td{background:#151e29}
       <select class="fc" id="launchTwAdvId" style="flex:1">
        <option value="">— 选择账户后自动匹配同矩阵可用主页 —</option>
       </select>
-      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="refreshTwPages()" title="重新匹配"></button>
+      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="refreshTwPages()" title="重新匹配">重新匹配</button>
      </div>
      <div style="font-size:11px;color:var(--t3);margin-top:3px" id="launchTwHint">选择账户后自动匹配同矩阵且已填写 Verified ID 的主页库记录。<a href="#" onclick="showPage('twpages');closeModal('moLaunch');return false" style="color:var(--ac)">管理主页库</a></div>
     </div>
@@ -2550,7 +3159,7 @@ tr:hover td{background:#151e29}
       <option value="engagement">互动 (Engagement)</option>
       <option value="other">其他</option>
      </select>
-     <div class="fh">全局规则专用：只对 KPI 类型匹配的广告执行此规则。例：选"对话类"则只对 Messenger 广告生效。</div>
+     <div class="fh">只对 KPI 类型匹配的广告执行此规则。例：选“私信对话”则只对 Messenger 广告生效。</div>
     </div>
     <div class="fr">
      <div class="fg"><label class="fl">静默开始时间</label><input class="fc" id="silStart" type="time"><div class="fh">静默时段内不执行此规则</div></div>
@@ -2580,7 +3189,7 @@ tr:hover td{background:#151e29}
 <!-- Modal: Emergency -->
 <div class="mo" id="moEmg">
  <div class="modal modal-lg">
-  <div class="mh"><h3>一键紧急暂停</h3><button class="mc" onclick="closeModal('moEmg')">✕</button></div>
+  <div class="mh"><h3>全局紧急暂停</h3><button class="mc" onclick="closeModal('moEmg')">✕</button></div>
   <div class="mb">
    <div class="warn-box"> <strong>此操作将暂停所有账户下的全部活跃广告！</strong><br>执行前将自动扫描将要关闭的数量，执行后逐条核验是否真实关闭，失败的记录并提示人工处理。</div>
    <div class="fr">
@@ -2629,17 +3238,12 @@ tr:hover td{background:#151e29}
    </div>
    <div id="tplList" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
    <div style="margin-top:16px;padding:12px;background:var(--bg2);border-radius:8px;font-size:12px;color:var(--t3)">
-     <strong>提示：</strong>模板规则以「全部账户」级别添加，应用后可在规则列表中单独修改参数。
+     <strong>提示：</strong>模板规则会写入所选账户，并在该账户内对全部对象生效，应用后可在规则列表中单独修改参数。
    </div>
    <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--t2)">
      <input type="checkbox" id="tplOverride" style="width:16px;height:16px">覆盖已有模板规则
     </label>
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:rgba(139,92,246,.9)" id="tplGlobalWrap">
-     <input type="checkbox" id="tplGlobalMode" style="width:16px;height:16px" onchange="onTplGlobalMode(this.checked)">设为全局规则（对所有账户生效，无需选择账户）
-    </label>
-    <div id="tplGlobalHint" style="display:none;font-size:11px;color:rgba(139,92,246,.8);padding:8px 12px;background:rgba(139,92,246,.08);border-radius:6px;border:1px solid rgba(139,92,246,.2)">全局规则模式：规则将写入 <strong>全局作用域</strong>，巡检时自动应用到所有账户。账户级同类型规则优先级更高。
-    </div>
    </div>
   </div>
   <div class="mf">
@@ -3187,6 +3791,78 @@ function roleDisplayText(me){
  return (team?('团队：'+team+(status==='paused'?'（暂停）':'')+' · '):'')+(role||'团队成员');
 }
 
+function updateTopbarIdentity(me){
+ me=me||{};
+ var username=me.username||localStorage.getItem('mira_user')||'A';
+ var initial=(username&&username[0]?username[0]:'A').toUpperCase();
+ var roleText=roleDisplayText(me);
+ var tbEl=document.getElementById('tbUser');
+ if(tbEl)tbEl.textContent=initial;
+ var avatar=document.getElementById('userMenuAvatar');
+ if(avatar)avatar.textContent=initial;
+ var nameEl=document.getElementById('userMenuName');
+ if(nameEl)nameEl.textContent=username;
+ var roleEl=document.getElementById('userMenuRole');
+ if(roleEl)roleEl.textContent=roleText||'团队成员';
+ var rl=document.getElementById('tbRoleLabel');
+ if(rl)rl.textContent=roleText;
+}
+
+function closeUserMenu(){
+ var menu=document.getElementById('userMenu');
+ var btn=document.getElementById('tbUser');
+ if(menu)menu.classList.remove('open');
+ if(btn)btn.setAttribute('aria-expanded','false');
+}
+
+function toggleUserMenu(ev){
+ if(ev)ev.stopPropagation();
+ updateTopbarIdentity();
+ var menu=document.getElementById('userMenu');
+ var btn=document.getElementById('tbUser');
+ if(!menu)return;
+ var open=!menu.classList.contains('open');
+ menu.classList.toggle('open',open);
+ if(btn)btn.setAttribute('aria-expanded',open?'true':'false');
+}
+
+document.addEventListener('click',function(ev){
+ var wrap=document.querySelector('.tb-user-wrap');
+ if(wrap&&ev.target&&!wrap.contains(ev.target))closeUserMenu();
+});
+
+async function openMyNotifyModal(){
+ closeUserMenu();
+ if(hasRole('superadmin')){
+  toast('超级管理员通知在系统设置里配置全局 TG','wa');
+  showPage('settings');
+  return;
+ }
+ try{
+  var r=await api('GET','/users/me/notify-settings');
+  var mo=document.getElementById('moMyNotify');
+  if(!mo){mo=document.createElement('div');mo.id='moMyNotify';mo.className='mo';document.body.appendChild(mo);}
+  mo.innerHTML='<div class="modal"><div class="mh"><h3>个人通知设置</h3><button class="mc" onclick="closeModal(\'moMyNotify\')">×</button></div>'+
+   '<div class="mb">'+
+   '<div class="fg"><label class="fl">个人 Telegram chat_id</label><input class="fc" id="mn_chat_id" value="'+escHtml(r.tg_chat_id||'')+'" placeholder="只填写自己的个人 ID，不填团队群"></div>'+
+   '<div class="fh">账户负责人会收到自己负责账户的告警；团队群通知在团队管理中配置。</div>'+
+   '<label style="display:flex;align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="mn_enabled" '+(r.notify_enabled?'checked':'')+'> 接收我负责账户的通知</label>'+
+   '</div>'+
+   '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moMyNotify\')">取消</button><button class="btn btn-p" onclick="saveMyNotifySettings()">保存</button></div></div>';
+  openModal('moMyNotify');
+ }catch(e){toast('加载个人通知设置失败：'+(e.message||e),'er');}
+}
+
+async function saveMyNotifySettings(){
+ var chatId=(document.getElementById('mn_chat_id')||{}).value||'';
+ var enabled=!!((document.getElementById('mn_enabled')||{}).checked);
+ try{
+  await api('PATCH','/users/me/notify-settings',{tg_chat_id:chatId,notify_enabled:enabled,notify_types:'all'});
+  toast('个人通知已保存','ok');
+  closeModal('moMyNotify');
+ }catch(e){toast('保存失败：'+(e.message||e),'er');}
+}
+
 function syncTeamStatus(me){
  if(!me||!Object.prototype.hasOwnProperty.call(me,'team_status'))return;
  if(me.team_status)localStorage.setItem('mira_team_status',me.team_status);
@@ -3240,11 +3916,26 @@ function renderUserManageSection(){
    '</div></div>';
 }
 
+function renderTeamSelectOptions(selectedId, includePlaceholder){
+ var teams=(window._teamsData||[]).slice();
+ var html=includePlaceholder?'<option value="">请选择团队</option>':'';
+ if(!teams.length){
+  html+='<option value="">暂无团队，请先新建团队</option>';
+  return html;
+ }
+ teams.forEach(function(t){
+  var paused=(t.status||'active')!=='active';
+  var label=(t.name||('团队 '+t.id))+(paused?'（已暂停）':'');
+  html+='<option value="'+escHtml(String(t.id||''))+'" '+(String(selectedId||'')===String(t.id||'')?'selected':'')+'>'+escHtml(label)+'</option>';
+ });
+ return html;
+}
+
 function renderPermissionMatrixSection(){
  if(!hasRole('admin')) return '';
  var rows=[
-  ['超级管理员','系统设置、团队/用户、全局守护、全部资产','最终兜底账号，保留完整权限'],
-  ['团队管理员','本团队资产、Token、账户、素材、主页、规则、KPI','不能修改系统设置和全局守护开关'],
+  ['超级管理员','系统设置、团队管理、全部资产视图','最终兜底账号，保留完整权限'],
+  ['团队管理员','本团队成员、资产、Token、账户、素材、主页、规则、KPI','不能修改系统设置；守护开关只影响本团队'],
   ['运营','本团队投放操作、广告开关、预算、KPI、规则','用于日常投放执行'],
   ['只读观察者','本团队数据、日志、账户状态','不允许写入和变更投放']
  ];
@@ -3275,27 +3966,24 @@ async function loadUserList(filterGroup){
  try{
   var r = await api('GET','/users');
   _usersData = r.users||[];
-  // 收集所有分组
-  var groups = [];
-  _usersData.forEach(function(u){ if(u.group_name && groups.indexOf(u.group_name)<0) groups.push(u.group_name); });
-  groups.sort();
+  var teams=(window._teamsData||[]).slice().sort(function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'zh');});
   // 分组筛选栏
   var filterHtml = '';
   if(hasRole('superadmin')){
    filterHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">' +
     '<span style="color:var(--t3);font-size:12px">团队筛选：</span>' +
     '<button class="btn '+((!filterGroup||filterGroup==='all')?'btn-p':'')+'" style="padding:2px 10px;font-size:12px" onclick="loadUserList(this.dataset.g)" data-g="all">全部</button>';
-   groups.forEach(function(g){
-    filterHtml += '<button class="btn '+(filterGroup===g?'btn-p':'')+'" style="padding:2px 10px;font-size:12px" onclick="loadUserList(this.dataset.g)" data-g="'+escHtml(g)+'">'+escHtml(g)+'</button>';
+   teams.forEach(function(t){
+    filterHtml += '<button class="btn '+(String(filterGroup)===String(t.id)?'btn-p':'')+'" style="padding:2px 10px;font-size:12px" onclick="loadUserList(this.dataset.g)" data-g="'+escHtml(String(t.id))+'">'+escHtml(t.name||('团队 '+t.id))+'</button>';
    });
    filterHtml += '</div>';
   }else{
-   filterHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center"><span class="badge bg-ac">当前团队：'+escHtml(localStorage.getItem('mira_team_name')||groups[0]||'--')+'</span></div>';
+   filterHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center"><span class="badge bg-ac">当前团队：'+escHtml(localStorage.getItem('mira_team_name')||'--')+'</span></div>';
   }
   // 过滤用户
   var displayUsers = _usersData;
   if(filterGroup && filterGroup !== 'all'){
-   displayUsers = _usersData.filter(function(u){ return u.group_name === filterGroup; });
+   displayUsers = _usersData.filter(function(u){ return String(u.team_id||'') === String(filterGroup); });
   }
   var html = filterHtml + '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
    '<thead><tr style="color:var(--t3);border-bottom:1px solid var(--bd)">' +
@@ -3304,6 +3992,7 @@ async function loadUserList(filterGroup){
    '<th style="padding:8px 4px;text-align:left">\u5206\u7ec4</th>' +
    '<th style="padding:8px 4px;text-align:left">\u89d2\u8272</th>' +
    '<th style="padding:8px 4px;text-align:left">\u72b6\u6001</th>' +
+   '<th style="padding:8px 4px;text-align:left">TG</th>' +
    '<th style="padding:8px 4px;text-align:left">\u6700\u540e\u767b\u5f55</th>' +
    '<th style="padding:8px 4px;text-align:left">\u5907\u6ce8</th>' +
    '<th style="padding:8px 4px;text-align:right">\u64cd\u4f5c</th>' +
@@ -3319,13 +4008,14 @@ async function loadUserList(filterGroup){
     '<td style="padding:8px 4px"><strong>'+escHtml(u.username)+'</strong></td>' +
     '<td style="padding:8px 4px;color:var(--t2)">'+(u.display_name?escHtml(u.display_name):'-')+'</td>' +
     '<td style="padding:8px 4px"><span style="background:var(--bg2);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--t2)">'+(u.group_name?escHtml(u.group_name):'<span style=\"color:var(--t3)\">-</span>')+'</span></td>' +
-    '<td style="padding:8px 4px"><span style="color:'+roleColor+';font-weight:600">'+escHtml(u.role_label||u.role)+'</span></td>' +
-    '<td style="padding:8px 4px">'+(u.is_active?'<span style="color:#22c55e">\u25cf&nbsp;\u542f\u7528</span>':'<span style="color:var(--er)">\u25cb&nbsp;\u7981\u7528</span>')+'</td>' +
+   '<td style="padding:8px 4px"><span style="color:'+roleColor+';font-weight:600">'+escHtml(u.role_label||u.role)+'</span></td>' +
+   '<td style="padding:8px 4px">'+(u.is_active?'<span style="color:#22c55e">\u25cf&nbsp;\u542f\u7528</span>':'<span style="color:var(--er)">\u25cb&nbsp;\u7981\u7528</span>')+'</td>' +
+    '<td style="padding:8px 4px">'+(u.tg_chat_id?(u.notify_enabled?'<span class="badge bg-ok">个人通知</span>':'<span class="badge bg-mu">已填未启用</span>'):'<span style="color:var(--t3)">未配置</span>')+'</td>' +
     '<td style="padding:8px 4px;color:var(--t3);font-size:12px">'+(u.last_login_at?u.last_login_at.substring(0,16):'-')+'</td>' +
     '<td style="padding:8px 4px;color:var(--t3)">'+(u.note?escHtml(u.note):'-')+'</td>' +
     '<td style="padding:8px 4px;text-align:right">'+rowActions+'</td></tr>';
   });
-  if(displayUsers.length===0) html += '<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--t3)">暂无用户</td></tr>';
+  if(displayUsers.length===0) html += '<tr><td colspan="9" style="padding:16px;text-align:center;color:var(--t3)">暂无用户</td></tr>';
   html += '</tbody></table>';
   var wrap = document.getElementById('userListWrap');
   if(wrap) wrap.innerHTML = html;
@@ -3345,10 +4035,10 @@ function showAddUserModal(){
   document.body.appendChild(mo);
  }
  var roleOptions = (hasRole('superadmin')?'<option value="admin">\u7ba1\u7406\u5458</option>':'') +
-  '<option value="operator" selected>\u8fd0\u8425</option>' +
+ '<option value="operator" selected>\u8fd0\u8425</option>' +
   '<option value="viewer">\u53ea\u8bfb\u89c2\u5bdf\u8005</option>';
  var teamInput = hasRole('superadmin')
-  ? '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="uf_group_name" placeholder="\uff08\u53ef\u9009\uff09\u5982\uff1a\u53f0\u6e7e\u7ec4\u3001\u4e1c\u5357\u4e9a\u7ec4"></div>'
+  ? '<div class="fg"><label class="fl">\u56e2\u961f <span class="req">*</span></label><select class="fc" id="uf_team_id">'+renderTeamSelectOptions('',true)+'</select><div class="fh">团队来自「团队管理」中的已有团队，避免手输造成归属错误。</div></div>'
   : '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="uf_group_name" value="'+escHtml(localStorage.getItem('mira_team_name')||'当前团队')+'" disabled></div>';
  mo.innerHTML = '<div class="modal"><div class="mh"><h3>\u65b0\u589e\u7528\u6237</h3><button class="mc" onclick="closeModal(\'moUserForm\')">\u2715</button></div>' +
   '<div class="mb">' +
@@ -3360,6 +4050,8 @@ function showAddUserModal(){
   '</select><div style="font-size:11px;color:var(--t3);margin-top:4px">团队管理员只能创建运营或只读成员</div></div>' +
   '<div class="fg"><label class="fl">\u663e\u793a\u540d</label><input class="fc" id="uf_display_name" placeholder="\uff08\u53ef\u9009\uff09\u5bf9\u5916\u5c55\u793a\u7684\u540d\u5b57"></div>' +
   '<div class="fg"><label class="fl">\u5907\u6ce8</label><input class="fc" id="uf_note" placeholder="\uff08\u53ef\u9009\uff09"></div>' +
+  '<div class="fg"><label class="fl">个人 TG ID</label><input class="fc" id="uf_tg_chat_id" placeholder="可选，账户负责人个人通知"></div>' +
+  '<label style="display:flex;align-items:center;gap:8px;margin:2px 0 12px"><input type="checkbox" id="uf_notify_enabled"> 启用个人通知</label>' +
   teamInput +
   '</div>' +
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moUserForm\')">\u53d6\u6d88</button><button class="btn btn-p" onclick="submitAddUser()">\u521b\u5efa\u7528\u6237</button></div>' +
@@ -3374,9 +4066,16 @@ async function submitAddUser(){
  var display_name = (document.getElementById('uf_display_name')||{}).value||'';
  var note = (document.getElementById('uf_note')||{}).value||'';
  var group_name = (document.getElementById('uf_group_name')||{}).value||'';
+ var team_id = (document.getElementById('uf_team_id')||{}).value||'';
+ var tg_chat_id = (document.getElementById('uf_tg_chat_id')||{}).value||'';
+ var notify_enabled = !!((document.getElementById('uf_notify_enabled')||{}).checked);
  if(!username||!password){showToast('\u7528\u6237\u540d\u548c\u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a','er');return;}
+ if(hasRole('superadmin')&&!team_id){showToast('请选择团队','er');return;}
  try{
-  await api('POST','/users',{username:username,password:password,role:role,display_name:display_name,note:note,group_name:group_name||null});
+  var body={username:username,password:password,role:role,display_name:display_name,note:note,tg_chat_id:tg_chat_id,notify_enabled:notify_enabled,notify_types:'all'};
+  if(hasRole('superadmin'))body.team_id=parseInt(team_id,10);
+  else body.group_name=group_name||null;
+  await api('POST','/users',body);
   showToast('\u7528\u6237\u521b\u5efa\u6210\u529f','ok');
   closeModal('moUserForm');
   markPageStale('team_admin');
@@ -3398,9 +4097,9 @@ function showEditUserModal(uid){
  }
  var roleOptions = (hasRole('superadmin')?'<option value="admin"'+(u.role==='admin'?' selected':'')+'>\u7ba1\u7406\u5458</option>':'') +
   '<option value="operator"'+(u.role==='operator'?' selected':'')+'>\u8fd0\u8425</option>' +
-  '<option value="viewer"'+(u.role==='viewer'?' selected':'')+'>\u53ea\u8bfb\u89c2\u5bdf\u8005</option>';
+ '<option value="viewer"'+(u.role==='viewer'?' selected':'')+'>\u53ea\u8bfb\u89c2\u5bdf\u8005</option>';
  var teamInput = hasRole('superadmin')
-  ? '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="ef_group_name" value="'+(u.group_name?escHtml(u.group_name):'')+'"></div>'
+  ? '<div class="fg"><label class="fl">\u56e2\u961f <span class="req">*</span></label><select class="fc" id="ef_team_id">'+renderTeamSelectOptions(u.team_id,true)+'</select><div class="fh">修改团队后，该用户重新登录会进入新的团队视角。</div></div>'
   : '<div class="fg"><label class="fl">\u56e2\u961f</label><input class="fc" id="ef_group_name" value="'+(u.group_name?escHtml(u.group_name):(escHtml(localStorage.getItem('mira_team_name')||'')))+'" disabled></div>';
  mo.innerHTML = '<div class="modal"><div class="mh"><h3>\u7f16\u8f91\u7528\u6237\uff1a'+escHtml(u.username)+'</h3><button class="mc" onclick="closeModal(\'moUserForm\')">\u2715</button></div>' +
   '<div class="mb">' +
@@ -3411,6 +4110,8 @@ function showEditUserModal(uid){
   '</select></div>' +
   '<div class="fg"><label class="fl">\u663e\u793a\u540d</label><input class="fc" id="ef_display_name" value="'+(u.display_name?escHtml(u.display_name):'')+'"></div>' +
   '<div class="fg"><label class="fl">\u5907\u6ce8</label><input class="fc" id="ef_note" value="'+(u.note?escHtml(u.note):'')+'"></div>' +
+  '<div class="fg"><label class="fl">个人 TG ID</label><input class="fc" id="ef_tg_chat_id" value="'+(u.tg_chat_id?escHtml(u.tg_chat_id):'')+'" placeholder="可选，账户负责人个人通知"></div>' +
+  '<label style="display:flex;align-items:center;gap:8px;margin:2px 0 12px"><input type="checkbox" id="ef_notify_enabled" '+(u.notify_enabled?'checked':'')+'> 启用个人通知</label>' +
   teamInput +
   '<div class="fg"><label class="fl">\u72b6\u6001</label>' +
   '<select class="fc" id="ef_active">' +
@@ -3430,7 +4131,13 @@ async function submitEditUser(uid){
  var note = (document.getElementById('ef_note')||{}).value||'';
  var is_active = (document.getElementById('ef_active')||{}).value==='1';
  var group_name = (document.getElementById('ef_group_name')||{}).value||'';
- var body = {role:role,display_name:display_name,note:note,is_active:is_active,group_name:group_name||null};
+ var team_id = (document.getElementById('ef_team_id')||{}).value||'';
+ var tg_chat_id = (document.getElementById('ef_tg_chat_id')||{}).value||'';
+ var notify_enabled = !!((document.getElementById('ef_notify_enabled')||{}).checked);
+ if(hasRole('superadmin')&&!team_id){showToast('请选择团队','er');return;}
+ var body = {role:role,display_name:display_name,note:note,is_active:is_active,tg_chat_id:tg_chat_id,notify_enabled:notify_enabled,notify_types:'all'};
+ if(hasRole('superadmin'))body.team_id=parseInt(team_id,10);
+ else body.group_name=group_name||null;
  if(password) body.password = password;
  try{
   await api('PATCH','/users/'+uid,body);
@@ -3465,8 +4172,12 @@ async function loadTeamAdminPage(){
  try{
   var r=await api('GET','/teams');
   var teams=(r&&r.teams)||[];
-  el.innerHTML=renderTeamOverviewSection(teams)+renderPermissionMatrixSection()+renderUserManageSection();
+  window._teamsData=teams;
+  el.innerHTML=renderTeamOverviewSection(teams)+renderTeamGuardSection(teams)+renderOwnerGuardLogSection()+renderTeamNotifySection(teams)+renderTeamResourceSection()+renderPermissionMatrixSection()+renderUserManageSection();
+  if(hasRole('superadmin')) await loadTeamResources();
   await loadUserList();
+  refreshOwnerGuardFilters();
+  await loadOwnerGuardLogs();
  }catch(e){
   el.innerHTML='<div style="padding:28px;text-align:center;color:var(--er)">团队管理加载失败：'+escHtml(e.message||e)+'</div>';
  }
@@ -3476,39 +4187,348 @@ function renderTeamOverviewSection(teams){
  teams=teams||[];
  if(!hasRole('admin'))return '';
  var visibleTeams=hasRole('superadmin')?teams:teams.slice(0,1);
- var cards=visibleTeams.map(function(t){
-  var paused=(t.status||'active')!=='active';
-  var status=paused
-   ?'<span class="badge bg-wa">已暂停</span>'
-   :'<span class="badge bg-ok">正常</span>';
-  var counts=[
-   ['用户',t.user_count||0],
-   ['账户',t.account_count||0],
-   ['Token',t.token_count||0],
-   ['素材',t.asset_count||0],
-   ['主页',t.page_count||0],
-   ['模板',(t.msg_template_count||0)+(t.lead_form_count||0)]
-  ];
-  return '<div style="background:var(--bg2);border:1px solid '+(paused?'rgba(245,158,11,.5)':'var(--bd)')+';border-radius:8px;padding:14px 16px;min-width:260px;flex:1">'+
-   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
-    '<div style="font-size:15px;font-weight:700;color:var(--t1);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.name||('团队 '+t.id))+'</div>'+
-    '<div style="margin-left:auto">'+status+'</div>'+
-   '</div>'+
-   (t.note?'<div style="font-size:12px;color:var(--t3);margin-bottom:10px">'+escHtml(t.note)+'</div>':'')+
-   '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">'+counts.map(function(c){
-    return '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:6px;padding:8px">'+
-     '<div style="font-size:17px;font-weight:700;color:var(--t1)">'+c[1]+'</div>'+
-     '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+c[0]+'</div>'+
-    '</div>';
-   }).join('')+'</div>'+
-   (paused?'<div style="margin-top:10px;font-size:12px;color:var(--wa)">团队已暂停：成员仍可查看数据，但所有写入操作会被后端拦截。</div>':'')+
+ if(hasRole('superadmin')){
+  var totals=visibleTeams.reduce(function(acc,t){
+   acc.users += t.user_count||0;
+   acc.accounts += t.account_count||0;
+   acc.tokens += t.token_count||0;
+   acc.assets += t.asset_count||0;
+   acc.pages += t.page_count||0;
+   acc.templates += (t.msg_template_count||0)+(t.lead_form_count||0);
+   return acc;
+  },{users:0,accounts:0,tokens:0,assets:0,pages:0,templates:0});
+  var summary=[
+   ['团队',visibleTeams.length],
+   ['用户',totals.users],
+   ['账户',totals.accounts],
+   ['Token',totals.tokens],
+   ['素材',totals.assets],
+   ['主页/模板',totals.pages+'/'+totals.templates]
+  ].map(function(c){
+   return '<div class="team-summary-item"><div class="team-summary-value">'+escHtml(String(c[1]))+'</div><div class="team-summary-label">'+escHtml(c[0])+'</div></div>';
+  }).join('');
+  var rows=visibleTeams.map(function(t){
+   var paused=(t.status||'active')!=='active';
+   var status=paused?'<span class="badge bg-wa">已暂停</span>':'<span class="badge bg-ok">正常</span>';
+   var note=t.note?escHtml(t.note):'<span style="color:var(--t3)">--</span>';
+   var teamName=escHtml(t.name||('团队 '+t.id));
+   return '<tr>'+
+    '<td><div class="team-name-cell" title="'+teamName+'">'+teamName+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">ID '+escHtml(String(t.id||''))+'</div></td>'+
+    '<td>'+status+'</td>'+
+    '<td><div class="team-counts">'+
+     '<span>用户 <b>'+escHtml(String(t.user_count||0))+'</b></span>'+
+     '<span>账户 <b>'+escHtml(String(t.account_count||0))+'</b></span>'+
+     '<span>Token <b>'+escHtml(String(t.token_count||0))+'</b></span>'+
+     '<span>素材 <b>'+escHtml(String(t.asset_count||0))+'</b></span>'+
+     '<span>主页 <b>'+escHtml(String(t.page_count||0))+'</b></span>'+
+     '<span>模板 <b>'+escHtml(String((t.msg_template_count||0)+(t.lead_form_count||0)))+'</b></span>'+
+    '</div></td>'+
+    '<td><div class="team-note-cell">'+note+'</div></td>'+
+    '<td style="text-align:right;white-space:nowrap">'+
+     '<button class="btn btn-g btn-sm" onclick="jumpTeamResources('+parseInt(t.id||0,10)+')">资源</button> '+
+     '<button class="btn btn-g btn-sm" onclick="openEditTeamModal('+parseInt(t.id||0,10)+')">编辑</button> '+
+     '<button class="btn '+(paused?'btn-p':'btn-g')+' btn-sm" onclick="toggleTeamStatus('+parseInt(t.id||0,10)+',\''+(paused?'active':'paused')+'\')">'+(paused?'恢复':'暂停')+'</button> '+
+     '<button class="btn btn-r btn-sm" onclick="deleteTeam('+parseInt(t.id||0,10)+')">删除</button>'+
+    '</td>'+
+   '</tr>';
+  }).join('');
+  if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">暂无团队信息</td></tr>';
+  return '<div class="ss role-admin-only team-overview-section">'+
+   '<div class="ss-title team-overview-title"><div><span>团队概览</span><small>超级管理员会看到所有团队；团队成员登录后只看到自己团队的资产。</small></div></div>'+
+   '<div class="team-summary-grid">'+summary+'</div>'+
+   '<div class="team-table-wrap"><table class="team-table"><thead><tr><th style="text-align:left">团队</th><th style="text-align:left;width:96px">状态</th><th style="text-align:left">资产</th><th style="text-align:left">备注</th><th style="text-align:right;width:236px">操作</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+   '<div class="team-scope-note">新建团队不会切换当前超级管理员身份。需要在用户管理中创建或分配成员，成员重新登录后才会进入自己的团队视角。</div>'+
   '</div>';
+ }
+ var t=visibleTeams[0]||{};
+ var paused=(t.status||'active')!=='active';
+ var status=paused?'<span class="badge bg-wa">已暂停</span>':'<span class="badge bg-ok">正常</span>';
+ var profile=[
+  ['用户',t.user_count||0],
+  ['账户',t.account_count||0],
+  ['Token',t.token_count||0],
+  ['素材',t.asset_count||0],
+  ['主页',t.page_count||0],
+  ['模板',(t.msg_template_count||0)+(t.lead_form_count||0)]
+ ].map(function(c){
+  return '<div class="team-summary-item"><div class="team-summary-value">'+escHtml(String(c[1]))+'</div><div class="team-summary-label">'+escHtml(c[0])+'</div></div>';
  }).join('');
- if(!cards)cards='<div style="padding:18px;text-align:center;color:var(--t3);border:1px solid var(--bd);border-radius:8px">暂无团队信息</div>';
- return '<div class="ss role-admin-only">'+
-  '<div class="ss-title">团队概览 <span style="font-size:12px;font-weight:400;color:var(--t3)">状态和资产数量</span></div>'+
-  '<div style="display:flex;gap:12px;flex-wrap:wrap">'+cards+'</div>'+
+ return '<div class="ss role-admin-only team-overview-section">'+
+  '<div class="ss-title">我的团队 <span style="font-size:12px;font-weight:400;color:var(--t3)">只展示本团队资产和成员</span></div>'+
+  '<div class="team-profile-main"><div><div style="font-size:16px;font-weight:800;color:var(--t1)">'+escHtml(t.name||'当前团队')+'</div>'+(t.note?'<div style="font-size:12px;color:var(--t3);margin-top:4px">'+escHtml(t.note)+'</div>':'')+'</div>'+status+'</div>'+
+  '<div class="team-profile-strip">'+profile+'</div>'+
+  (paused?'<div class="team-scope-note" style="color:var(--wa)">团队已暂停：成员仍可查看数据，但所有写入操作会被后端拦截。</div>':'')+
  '</div>';
+}
+
+function jumpTeamResources(teamId){
+ if(!hasRole('superadmin')) return;
+ var kindEl=document.getElementById('teamResKind');
+ var filterEl=document.getElementById('teamResFilter');
+ if(kindEl)kindEl.value='accounts';
+ if(filterEl)filterEl.value=String(teamId||'all');
+ loadTeamResources();
+ setTimeout(function(){
+  var wrap=document.getElementById('teamResourceWrap');
+  if(wrap&&wrap.scrollIntoView)wrap.scrollIntoView({behavior:'smooth',block:'start'});
+ },80);
+}
+
+function _findTeamById(teamId){
+ return (window._teamsData||[]).find(function(t){return String(t.id)===String(teamId);})||null;
+}
+
+function _teamResourceTotal(t){
+ if(!t)return 0;
+ return ['user_count','account_count','token_count','asset_count','page_count','msg_template_count','lead_form_count'].reduce(function(sum,k){
+  return sum+(parseInt(t[k]||0,10)||0);
+ },0);
+}
+
+function openEditTeamModal(teamId){
+ if(!hasRole('superadmin'))return;
+ var t=_findTeamById(teamId);
+ if(!t){toast('团队不存在，请刷新后重试','er');return;}
+ var mo=document.getElementById('moEditTeam');
+ if(!mo){mo=document.createElement('div');mo.id='moEditTeam';mo.className='mo';document.body.appendChild(mo);}
+ mo.innerHTML='<div class="modal" style="max-width:520px">'+
+  '<div class="mh"><h3>编辑团队</h3><button class="mc" onclick="closeModal(\'moEditTeam\')">×</button></div>'+
+  '<div class="mb">'+
+   '<div class="fg"><label class="fl">团队名称</label><input class="fc" id="et_name" value="'+escHtml(t.name||'')+'"></div>'+
+   '<div class="fg"><label class="fl">状态</label><select class="fc" id="et_status"><option value="active">正常</option><option value="paused">暂停</option></select></div>'+
+   '<div class="fg"><label class="fl">备注</label><input class="fc" id="et_note" value="'+escHtml(t.note||'')+'"></div>'+
+   '<div class="fg"><label class="fl">团队 TG 群 ID</label><input class="fc" id="et_tg_chat_ids" value="'+escHtml(t.tg_chat_ids||'')+'" placeholder="多个群 ID 用英文逗号分隔"></div>'+
+   '<label style="display:flex;align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="et_notify_enabled" '+(t.notify_enabled!==false&&String(t.notify_enabled)!=='0'?'checked':'')+'> 启用团队通知</label>'+
+   '<div class="fh">暂停团队后，团队成员仍可查看本团队数据，但写入操作会被后端拦截。</div>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moEditTeam\')">取消</button><button class="btn btn-p" onclick="saveTeamProfile('+parseInt(teamId,10)+')">保存</button></div>'+
+ '</div>';
+ openModal('moEditTeam');
+ var st=document.getElementById('et_status');if(st)st.value=t.status||'active';
+}
+
+async function saveTeamProfile(teamId){
+ var name=(document.getElementById('et_name')||{}).value||'';
+ var status=(document.getElementById('et_status')||{}).value||'active';
+ var note=(document.getElementById('et_note')||{}).value||'';
+ var tg=(document.getElementById('et_tg_chat_ids')||{}).value||'';
+ var notify=!!((document.getElementById('et_notify_enabled')||{}).checked);
+ if(!name.trim()){toast('请输入团队名称','wa');return;}
+ try{
+  await api('PATCH','/teams/'+teamId,{name:name.trim(),status:status,note:note.trim(),tg_chat_ids:tg.trim(),notify_enabled:notify});
+  toast('团队已更新','ok');
+  closeModal('moEditTeam');
+  loadTeamAdminPage();
+ }catch(e){toast('保存团队失败：'+(e.message||e),'er');}
+}
+
+async function toggleTeamStatus(teamId,status){
+ var t=_findTeamById(teamId);
+ if(!t){toast('团队不存在，请刷新后重试','er');return;}
+ var action=status==='paused'?'暂停':'恢复';
+ var ok=await confirmAsync('确认'+action+'团队「'+escHtml(t.name||teamId)+'」？'+(status==='paused'?'<br>暂停后该团队成员不能执行写入操作。':''),'确认'+action,'取消',action+'团队');
+ if(!ok)return;
+ try{
+  await api('PATCH','/teams/'+teamId,{name:t.name,status:status,note:t.note||'',tg_chat_ids:t.tg_chat_ids||'',notify_enabled:t.notify_enabled!==false&&String(t.notify_enabled)!=='0'});
+  toast('团队已'+action,'ok');
+  loadTeamAdminPage();
+ }catch(e){toast(action+'团队失败：'+(e.message||e),'er');}
+}
+
+async function deleteTeam(teamId){
+ if(!hasRole('superadmin'))return;
+ var t=_findTeamById(teamId);
+ if(!t){toast('团队不存在，请刷新后重试','er');return;}
+ var total=_teamResourceTotal(t);
+ if(total>0){
+  var detail='成员 '+(t.user_count||0)+' / 账户 '+(t.account_count||0)+' / Token '+(t.token_count||0)+' / 素材 '+(t.asset_count||0)+' / 主页 '+(t.page_count||0)+' / 模板 '+((t.msg_template_count||0)+(t.lead_form_count||0));
+  toast('该团队仍有资源，不能删除：'+detail,'wa');
+  return;
+ }
+ var ok=await confirmAsync('确认永久删除空团队「'+escHtml(t.name||teamId)+'」？<br>此操作不可恢复。','确认删除','取消','删除团队');
+ if(!ok)return;
+ try{
+  await api('DELETE','/teams/'+teamId);
+  toast('团队已删除','ok');
+  loadTeamAdminPage();
+ }catch(e){
+  var msg=e&&e.message?e.message:e;
+  toast('删除团队失败：'+msg,'er');
+ }
+}
+
+function renderTeamGuardSection(teams){
+ if(!hasRole('admin')) return '';
+ teams=teams||[];
+ var visibleTeams=hasRole('superadmin')?teams:teams.slice(0,1);
+ var keys=[
+  ['sentinel_enabled','哨兵','关闭未授权活跃系列'],
+  ['mirror_enabled','镜像','按快照保护广告'],
+  ['heartbeat_enabled','心跳','团队无人值守超时全停'],
+  ['warmup_enabled','预热','自动扫描并创建预热广告']
+ ];
+ var rows=visibleTeams.map(function(t){
+  var cells=keys.map(function(k){
+   var checked=t[k[0]]===true||String(t[k[0]])==='1';
+   return '<td><div class="team-guard-cell">'+
+    '<label class="toggle"><input type="checkbox" '+(checked?'checked':'')+' onchange="toggleTeamGuard('+parseInt(t.id||0,10)+',\''+k[0]+'\',this.checked,this)"><span class="ts"></span></label>'+
+    '<div><div class="team-guard-name">'+k[1]+'</div><div class="team-guard-hint">'+k[2]+'</div></div>'+
+   '</div></td>';
+  }).join('');
+  return '<tr>'+
+   '<td><div class="team-name-cell">'+escHtml(t.name||('团队 '+t.id))+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">ID '+escHtml(String(t.id||''))+'</div></td>'+
+   cells+
+  '</tr>';
+ }).join('');
+ if(!rows) rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">暂无团队守护配置</td></tr>';
+ return '<div class="ss role-admin-only">'+
+  '<div class="ss-title">团队级守护开关 <span style="font-size:12px;font-weight:400;color:var(--t3)">全局开关仍由系统设置控制；这里仅影响本团队账户</span></div>'+
+  '<div class="team-table-wrap"><table class="team-table team-guard-table"><thead><tr><th style="text-align:left">团队</th><th style="text-align:left">哨兵</th><th style="text-align:left">镜像</th><th style="text-align:left">心跳</th><th style="text-align:left">预热</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '<div class="team-scope-note">建议日常使用团队或账户级开关，避免超级管理员全局开关影响其他团队。团队心跳按该团队成员最近活跃时间判断。</div>'+
+ '</div>';
+}
+
+async function toggleTeamGuard(teamId,key,checked,el){
+ if(!teamId||!key)return;
+ var body={};body[key]=!!checked;
+ try{
+  await api('PATCH','/teams/'+teamId+'/guard-settings',body);
+  (window._teamsData||[]).forEach(function(t){if(String(t.id)===String(teamId))t[key]=!!checked;});
+  toast('团队守护已更新','ok');
+ }catch(e){
+  if(el)el.checked=!checked;
+  toast('更新团队守护失败：'+(e.message||e),'er');
+ }
+}
+
+function renderOwnerGuardLogSection(){
+ if(!hasRole('admin')) return '';
+ return '<div class="ss role-admin-only">'+
+  '<div class="ss-title">账户负责人守护日志 <span style="font-size:12px;font-weight:400;color:var(--t3)">按账户负责人查看哨兵、镜像、心跳和规则操作记录</span></div>'+
+  '<div class="team-filter-row owner-log-filters">'+
+   '<select class="fc role-superadmin-only" id="ownerLogTeam" onchange="refreshOwnerGuardFilters();loadOwnerGuardLogs()"><option value="">全部团队</option></select>'+
+   '<select class="fc" id="ownerLogUser" onchange="loadOwnerGuardLogs()"><option value="">全部负责人</option></select>'+
+   '<select class="fc" id="ownerLogStatus" onchange="loadOwnerGuardLogs()"><option value="">全部状态</option><option value="success">成功</option><option value="failed">失败</option><option value="warning">预警</option><option value="skipped">跳过</option></select>'+
+   '<select class="fc" id="ownerLogTrigger" onchange="loadOwnerGuardLogs()"><option value="">全部守护类型</option><option value="sentinel">哨兵</option><option value="mirror_mode">镜像</option><option value="heartbeat">心跳</option></select>'+
+   '<button class="btn btn-g" onclick="loadOwnerGuardLogs()">刷新</button>'+
+  '</div>'+
+  '<div id="ownerGuardLogWrap"><div style="color:var(--t3);font-size:13px">加载中...</div></div>'+
+ '</div>';
+}
+
+function refreshOwnerGuardFilters(){
+ var teamSel=document.getElementById('ownerLogTeam');
+ var userSel=document.getElementById('ownerLogUser');
+ if(teamSel){
+  var old=teamSel.value||'';
+  var teams=(window._teamsData||[]).slice().sort(function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'zh');});
+  teamSel.innerHTML='<option value="">全部团队</option>'+teams.map(function(t){return '<option value="'+escHtml(String(t.id))+'">'+escHtml(t.name||('团队 '+t.id))+'</option>';}).join('');
+  teamSel.value=Array.prototype.some.call(teamSel.options,function(o){return o.value===old;})?old:'';
+ }
+ if(userSel){
+  var teamId=teamSel?teamSel.value:'';
+  var oldUser=userSel.value||'';
+  var users=(_usersData||[]).filter(function(u){
+   if(!u.is_active)return false;
+   if(['admin','operator'].indexOf(u.role)<0)return false;
+   if(teamId&&String(u.team_id||'')!==String(teamId))return false;
+   return true;
+  }).sort(function(a,b){return String(a.display_name||a.username||'').localeCompare(String(b.display_name||b.username||''),'zh');});
+  userSel.innerHTML='<option value="">全部负责人</option>'+users.map(function(u){return '<option value="'+u.id+'">'+escHtml((u.display_name||u.username||('用户 '+u.id))+' · '+(u.group_name||u.team_name||'团队'))+'</option>';}).join('');
+  userSel.value=Array.prototype.some.call(userSel.options,function(o){return o.value===oldUser;})?oldUser:'';
+ }
+}
+
+async function loadOwnerGuardLogs(){
+ var wrap=document.getElementById('ownerGuardLogWrap');
+ if(!wrap||!hasRole('admin'))return;
+ var owner=(document.getElementById('ownerLogUser')||{}).value||'';
+ var status=(document.getElementById('ownerLogStatus')||{}).value||'';
+ var trigger=(document.getElementById('ownerLogTrigger')||{}).value||'';
+ wrap.innerHTML='<div style="color:var(--t3);font-size:13px">加载中...</div>';
+ try{
+  var qs='?limit=80&offset=0';
+  if(owner)qs+='&owner_user_id='+encodeURIComponent(owner);
+  if(status)qs+='&status='+encodeURIComponent(status);
+  if(trigger)qs+='&trigger_type='+encodeURIComponent(trigger);
+  var r=await api('GET','/logs'+qs);
+  var items=(r&&r.items)||[];
+  var ownerMap={};
+  (_usersData||[]).forEach(function(u){ownerMap[String(u.id)]=escHtml(u.display_name||u.username||('用户 '+u.id));});
+  if(!items.length){wrap.innerHTML='<div class="team-resource-empty">暂无负责人守护日志</div>';return;}
+  var sb={success:'bg-ok',failed:'bg-er',warning:'bg-wa',escalated:'bg-wa',skipped:'bg-mu',dry_run:'bg-cy'};
+  var html='<div class="team-resource-box owner-log-box"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:var(--t3);border-bottom:1px solid var(--bd);background:var(--bg2)">'+
+   '<th style="padding:8px;text-align:left;width:130px">时间</th><th style="padding:8px;text-align:left">账户</th><th style="padding:8px;text-align:left">负责人</th><th style="padding:8px;text-align:left">对象</th><th style="padding:8px;text-align:left">动作</th><th style="padding:8px;text-align:left">详情</th><th style="padding:8px;text-align:left;width:86px">状态</th></tr></thead><tbody>';
+  html+=items.map(function(l){
+   var detail=l.trigger_detail||l.trigger_reason||l.error_msg||'--';
+   var ownerName=ownerMap[String(l.account_owner_user_id||'')]||'<span style="color:var(--t3)">未指定</span>';
+   return '<tr style="border-bottom:1px solid var(--bd)">'+
+    '<td style="padding:8px;color:var(--t3);white-space:nowrap">'+_fmtActionLogTime(l.created_at)+'</td>'+
+    '<td style="padding:8px"><div style="font-weight:650;color:var(--t1)">'+escHtml(l.account_name||l.act_id||'--')+'</div><div class="td-id">'+escHtml((l.act_id||'').replace(/^act_/,''))+'</div></td>'+
+    '<td style="padding:8px">'+ownerName+'</td>'+
+    '<td style="padding:8px"><div class="td-name" title="'+escHtml(l.target_name||l.target_id||'')+'">'+escHtml(l.target_name||l.target_id||'--')+'</div></td>'+
+    '<td style="padding:8px"><span class="badge bg-ac">'+escHtml(l.trigger_type||l.action_type||'--')+'</span></td>'+
+    '<td style="padding:8px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(detail)+'">'+escHtml(detail)+'</td>'+
+    '<td style="padding:8px"><span class="badge '+(sb[l.status]||'bg-mu')+'">'+escHtml(l.status||'--')+'</span></td>'+
+   '</tr>';
+  }).join('');
+  html+='</tbody></table></div>';
+  wrap.innerHTML=html;
+ }catch(e){
+  wrap.innerHTML='<div style="color:var(--er)">加载负责人守护日志失败：'+escHtml(e.message||e)+'</div>';
+ }
+}
+
+function renderTeamNotifySection(teams){
+ if(!hasRole('admin')) return '';
+ teams=teams||[];
+ var visibleTeams=hasRole('superadmin')?teams:teams.slice(0,1);
+ var rows=visibleTeams.map(function(t){
+  var enabled=t.notify_enabled!==false && String(t.notify_enabled)!=='0';
+  var chats=(t.tg_chat_ids||'').trim();
+  var status=enabled?'<span class="badge bg-ok">启用</span>':'<span class="badge bg-mu">停用</span>';
+  var chatText=chats?escHtml(chats):'<span style="color:var(--wa)">未配置，账户告警会走全局兜底</span>';
+  return '<tr>'+
+   '<td><div class="team-name-cell">'+escHtml(t.name||('团队 '+t.id))+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">ID '+escHtml(String(t.id||''))+'</div></td>'+
+   '<td>'+status+'</td>'+
+   '<td style="max-width:520px;word-break:break-all">'+chatText+'</td>'+
+   '<td style="text-align:right"><button class="btn btn-g btn-sm" onclick="openTeamNotifyModal('+parseInt(t.id||0,10)+')">配置</button></td>'+
+  '</tr>';
+ }).join('');
+ if(!rows) rows='<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--t3)">暂无团队通知配置</td></tr>';
+ return '<div class="ss role-admin-only">'+
+  '<div class="ss-title">通知路由 <span style="font-size:12px;font-weight:400;color:var(--t3)">统一 Bot，按团队群和账户负责人分流，chat_id 自动去重</span></div>'+
+  '<div class="team-table-wrap"><table class="team-table"><thead><tr><th style="text-align:left">团队</th><th style="text-align:left;width:96px">状态</th><th style="text-align:left">团队群 ID</th><th style="text-align:right;width:96px">操作</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '<div class="team-scope-note">账户级告警优先发到账户所属团队群和账户负责人个人 TG；没有团队群或负责人时才走全局 TG 兜底。</div>'+
+ '</div>';
+}
+
+async function openTeamNotifyModal(teamId){
+ if(!teamId){toast('团队ID无效','er');return;}
+ try{
+  var r=await api('GET','/teams/'+teamId+'/notify-settings');
+  var mo=document.getElementById('moTeamNotify');
+  if(!mo){mo=document.createElement('div');mo.id='moTeamNotify';mo.className='mo';document.body.appendChild(mo);}
+  mo.innerHTML='<div class="modal"><div class="mh"><h3>团队通知：'+escHtml(r.team_name||('团队 '+teamId))+'</h3><button class="mc" onclick="closeModal(\'moTeamNotify\')">×</button></div>'+
+   '<div class="mb">'+
+   '<div class="fg"><label class="fl">团队群 chat_id</label><input class="fc" id="tn_chat_ids" value="'+escHtml(r.tg_chat_ids||'')+'" placeholder="多个群 ID 用英文逗号分隔"></div>'+
+   '<div class="fh">只填写本团队群。系统会根据账户归属路由，避免不同团队重复收到消息。</div>'+
+   '<label style="display:flex;align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="tn_enabled" '+(r.notify_enabled?'checked':'')+'> 启用团队群通知</label>'+
+   '</div>'+
+   '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moTeamNotify\')">取消</button><button class="btn btn-p" onclick="saveTeamNotifySettings('+teamId+')">保存</button></div></div>';
+  openModal('moTeamNotify');
+ }catch(e){toast('加载通知配置失败：'+(e.message||e),'er');}
+}
+
+async function saveTeamNotifySettings(teamId){
+ var chatIds=(document.getElementById('tn_chat_ids')||{}).value||'';
+ var enabled=!!((document.getElementById('tn_enabled')||{}).checked);
+ try{
+  await api('PATCH','/teams/'+teamId+'/notify-settings',{tg_chat_ids:chatIds,notify_enabled:enabled});
+  toast('团队通知已保存','ok');
+  closeModal('moTeamNotify');
+  loadTeamAdminPage();
+ }catch(e){toast('保存失败：'+(e.message||e),'er');}
 }
 
 
@@ -3530,18 +4550,15 @@ function renderTeamResourceSection(){
  if(!hasRole('superadmin')) return '';
  var kindOpts = _teamResKinds.map(function(k){return '<option value="'+k[0]+'">'+k[1]+'</option>';}).join('');
  return '<div class="ss role-superadmin-only">' +
-  '<div class="ss-title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
-  '<span>团队资源分配 <span style="font-size:12px;font-weight:400;color:var(--t3)">补齐资源归属，团队用户按归属查看和操作</span></span>' +
-  '<button class="btn btn-g btn-sm" onclick="createTeamQuick()">新建团队</button>' +
-  '</div>' +
+  '<div class="ss-title">团队资源分配 <span style="font-size:12px;font-weight:400;color:var(--t3)">补齐资源归属，团队用户按归属查看和操作</span></div>' +
   '<div class="sg">' +
-  '<div style="display:grid;grid-template-columns:140px 160px 1fr auto;gap:8px;align-items:center;margin-bottom:10px">' +
+  '<div class="team-filter-row">' +
   '<select class="fc" id="teamResKind" onchange="loadTeamResources()">'+kindOpts+'</select>' +
   '<select class="fc" id="teamResFilter" onchange="loadTeamResources()"><option value="all">全部归属</option><option value="unassigned">未分配</option></select>' +
   '<input class="fc" id="teamResKeyword" placeholder="搜索名称 / ID / 状态" onkeydown="if(event.key===&quot;Enter&quot;)loadTeamResources()">' +
   '<button class="btn btn-g" onclick="loadTeamResources()">查询</button>' +
   '</div>' +
-  '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
+  '<div class="team-action-row">' +
   '<select class="fc" id="teamResAssignTeam" style="width:200px"><option value="">取消分配</option></select>' +
   '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置归属</button>' +
   '<span id="teamResSummary" style="font-size:12px;color:var(--t3)"></span>' +
@@ -3581,27 +4598,35 @@ function _renderTeamResources(kind){
  var wrap = document.getElementById('teamResourceWrap');
  if(!wrap) return;
  if(!_teamResItems.length){
-  wrap.innerHTML = '<div style="padding:18px;text-align:center;color:var(--t3);border:1px solid var(--bd);border-radius:6px">暂无资源</div>';
+  wrap.innerHTML = '<div class="team-resource-empty">暂无资源</div>';
   return;
  }
- var html = '<div style="max-height:420px;overflow:auto;border:1px solid var(--bd);border-radius:6px">' +
+ var html = '<div class="team-resource-box">' +
   '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-  '<thead><tr style="color:var(--t3);border-bottom:1px solid var(--bd);background:var(--bg2)">' +
+ '<thead><tr style="color:var(--t3);border-bottom:1px solid var(--bd);background:var(--bg2)">' +
   '<th style="width:34px;padding:8px;text-align:left"><input type="checkbox" onchange="toggleTeamResourceChecks(this.checked)"></th>' +
   '<th style="padding:8px;text-align:left">资源</th>' +
   '<th style="padding:8px;text-align:left">当前团队</th>' +
+  (kind==='accounts'?'<th style="padding:8px;text-align:left">负责人</th>':'')+
   '<th style="padding:8px;text-align:right">操作</th>' +
   '</tr></thead><tbody>';
  _teamResItems.forEach(function(item){
   var parts = _teamResMain(item, kind);
   var sub = parts.slice(1).filter(Boolean).map(escHtml).join(' · ');
   var team = item.team_name ? escHtml(item.team_name) : '<span style="color:var(--wa)">未分配</span>';
+  var ownerCell = '';
+  if(kind==='accounts'){
+   ownerCell = '<td style="padding:8px">'+(item.owner_user_name?escHtml(item.owner_user_name):'<span style="color:var(--t3)">未指定</span>')+'</td>';
+  }
   html += '<tr style="border-bottom:1px solid var(--bd)">' +
    '<td style="padding:8px"><input type="checkbox" class="team-res-check" value="'+item.id+'"></td>' +
    '<td style="padding:8px"><div style="font-weight:600;color:var(--t1)">'+escHtml(parts[0])+'</div>' +
    (sub?'<div style="font-size:12px;color:var(--t3);margin-top:2px">'+sub+'</div>':'')+'</td>' +
    '<td style="padding:8px">'+team+'</td>' +
-   '<td style="padding:8px;text-align:right"><button class="btn btn-g btn-sm" onclick="selectSingleTeamResource('+item.id+')">选择</button></td>' +
+   ownerCell +
+   '<td style="padding:8px;text-align:right">'+
+   (kind==='accounts'?'<button class="btn btn-g btn-sm" style="margin-right:6px" onclick="openAccountOwnerModal('+item.id+')">负责人</button>':'')+
+   '<button class="btn btn-g btn-sm" onclick="selectSingleTeamResource('+item.id+')">选择</button></td>' +
    '</tr>';
  });
  html += '</tbody></table></div>';
@@ -3639,6 +4664,42 @@ function selectSingleTeamResource(id){
  document.querySelectorAll('.team-res-check').forEach(function(el){el.checked=String(el.value)===String(id);});
 }
 
+async function openAccountOwnerModal(accountId){
+ var item=_teamResItems.find(function(x){return String(x.id)===String(accountId);});
+ if(!item){toast('账户不存在','er');return;}
+ if(!item.team_id){toast('请先给账户分配团队，再设置负责人','wa');return;}
+ try{
+  if(!_usersData.length){
+   var usersResp=await api('GET','/users');
+   _usersData=usersResp.users||[];
+  }
+  var users=_usersData.filter(function(u){return String(u.team_id)===String(item.team_id)&&['admin','operator'].indexOf(u.role)>=0&&u.is_active;});
+  var opts='<option value="0">不指定负责人</option>'+users.map(function(u){
+   return '<option value="'+u.id+'" '+(String(item.owner_user_id||'')===String(u.id)?'selected':'')+'>'+escHtml((u.display_name||u.username)+' · '+(u.role_label||u.role))+'</option>';
+  }).join('');
+  var mo=document.getElementById('moOwner');
+  if(!mo){mo=document.createElement('div');mo.id='moOwner';mo.className='mo';document.body.appendChild(mo);}
+  mo.innerHTML='<div class="modal"><div class="mh"><h3>设置账户负责人</h3><button class="mc" onclick="closeModal(\'moOwner\')">×</button></div>'+
+   '<div class="mb">'+
+   '<div class="fg"><label class="fl">广告账户</label><input class="fc" value="'+escHtml(item.name||item.act_id||accountId)+'" disabled></div>'+
+   '<div class="fg"><label class="fl">负责人</label><select class="fc" id="owner_user_id">'+opts+'</select></div>'+
+   '<div class="fh">账户级告警会发送给团队群和该负责人个人 TG；同一个 chat_id 会自动去重。</div>'+
+   '</div>'+
+   '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moOwner\')">取消</button><button class="btn btn-p" onclick="saveAccountOwner('+accountId+')">保存</button></div></div>';
+  openModal('moOwner');
+ }catch(e){toast('加载负责人失败：'+(e.message||e),'er');}
+}
+
+async function saveAccountOwner(accountId){
+ var ownerId=parseInt((document.getElementById('owner_user_id')||{}).value||'0',10)||0;
+ try{
+  await api('PUT','/accounts/'+accountId,{owner_user_id:ownerId});
+  toast('负责人已保存','ok');
+  closeModal('moOwner');
+  loadTeamResources();
+ }catch(e){toast('保存负责人失败：'+(e.message||e),'er');}
+}
+
 async function assignSelectedTeamResources(){
  var ids = Array.prototype.slice.call(document.querySelectorAll('.team-res-check:checked')).map(function(el){return parseInt(el.value,10);}).filter(Boolean);
  if(!ids.length){toast('请选择要分配的资源','wa');return;}
@@ -3653,13 +4714,35 @@ async function assignSelectedTeamResources(){
 }
 
 async function createTeamQuick(){
- var name = window.prompt('请输入团队名称');
- if(!name || !name.trim()) return;
+ var mo=document.getElementById('moCreateTeam');
+ if(!mo){mo=document.createElement('div');mo.id='moCreateTeam';mo.className='mo';document.body.appendChild(mo);}
+ mo.innerHTML='<div class="modal" style="max-width:520px">'+
+  '<div class="mh"><h3>新建团队</h3><button class="mc" onclick="closeModal(\'moCreateTeam\')">×</button></div>'+
+  '<div class="mb">'+
+   '<div class="fg"><label class="fl">团队名称</label><input class="fc" id="ct_name" placeholder="例如：越南团队 / 台湾团队"></div>'+
+   '<div class="fg"><label class="fl">备注</label><input class="fc" id="ct_note" placeholder="可选，用于区分团队职责"></div>'+
+   '<div class="fg"><label class="fl">团队 TG 群 ID</label><input class="fc" id="ct_tg_chat_ids" placeholder="可选，多个群 ID 用英文逗号分隔"></div>'+
+   '<label style="display:flex;align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="ct_notify_enabled" checked> 启用团队通知</label>'+
+   '<div class="fh">创建团队不会切换当前超级管理员身份；成员需要在用户管理中创建或分配。</div>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moCreateTeam\')">取消</button><button class="btn btn-p" onclick="submitCreateTeam()">创建团队</button></div>'+
+ '</div>';
+ openModal('moCreateTeam');
+ setTimeout(function(){var el=document.getElementById('ct_name');if(el)el.focus();},80);
+}
+
+async function submitCreateTeam(){
+ var name=(document.getElementById('ct_name')||{}).value||'';
+ var note=(document.getElementById('ct_note')||{}).value||'';
+ var tg=(document.getElementById('ct_tg_chat_ids')||{}).value||'';
+ var notify=!!((document.getElementById('ct_notify_enabled')||{}).checked);
+ if(!name || !name.trim()){toast('请输入团队名称','wa');return;}
  try{
-  await api('POST','/teams',{name:name.trim(),status:'active'});
-  toast('团队已创建','ok');
-  loadTeamResources();
-  loadUserList();
+  await api('POST','/teams',{name:name.trim(),note:note.trim(),status:'active',tg_chat_ids:tg.trim(),notify_enabled:notify});
+  toast('团队已创建，请在用户管理中创建或分配成员','ok');
+  closeModal('moCreateTeam');
+  if(document.getElementById('page-team_admin')&&document.getElementById('page-team_admin').classList.contains('active'))loadTeamAdminPage();
+  else{loadTeamResources();if(typeof loadUserList==='function')loadUserList();}
  }catch(e){toast('创建团队失败：'+(e.message||e),'er');}
 }
 
@@ -3769,12 +4852,9 @@ async function doLogin(){
   syncTeamStatus(d);
   document.getElementById('login-page').style.display='none';
   document.getElementById('app').style.display='block';
-  var u=d.username||localStorage.getItem('mira_user')||'A';
-  document.getElementById('tbUser').textContent=u[0].toUpperCase();
   applyRolePermissions(d.role);
   applyTeamStatus(d);
-  var rl=document.getElementById('tbRoleLabel');
-  if(rl)rl.textContent=roleDisplayText(d);
+  updateTopbarIdentity(d);
   initApp();
  }catch(e){
   document.getElementById('loginErr').textContent='网络错误，请重试';
@@ -3783,9 +4863,11 @@ async function doLogin(){
 }
 
 function logout(){
+ closeUserMenu();
  token='';localStorage.removeItem('mira_token');localStorage.removeItem('mira_user');
  localStorage.removeItem('mira_role');localStorage.removeItem('mira_role_label');
  localStorage.removeItem('mira_team_id');localStorage.removeItem('mira_team_name');localStorage.removeItem('mira_team_status');
+ localStorage.removeItem('mira_last_page');
  if(document.body)document.body.classList.remove('team-paused');
  document.getElementById('app').style.display='none';
  document.getElementById('login-page').style.display='flex';
@@ -3796,20 +4878,19 @@ function logout(){
 // ── Init ──
 async function initApp(){
  initSidebarGroups();
+ initSidebarCompact();
  try{
-  var me=await api('GET','/auth/me');
+ var me=await api('GET','/auth/me');
   if(me&&me.username){
-   document.getElementById('tbUser').textContent=me.username[0].toUpperCase();
    localStorage.setItem('mira_user',me.username);
    if(me.role)localStorage.setItem('mira_role',me.role);
    if(me.role_label)localStorage.setItem('mira_role_label',me.role_label);
    if(me.team_id!==undefined&&me.team_id!==null)localStorage.setItem('mira_team_id',me.team_id);else localStorage.removeItem('mira_team_id');
    if(me.team_name)localStorage.setItem('mira_team_name',me.team_name);else localStorage.removeItem('mira_team_name');
    syncTeamStatus(me);
-    var rl=document.getElementById('tbRoleLabel');
-    if(rl)rl.textContent=roleDisplayText(me);
     applyRolePermissions(me.role);
     applyTeamStatus(me);
+    updateTopbarIdentity(me);
    if(hasRole('admin')) loadActivityUsernames();
   }
  }catch(e){}
@@ -3855,8 +4936,7 @@ async function loadAccounts(){
     if(id==='scanAct'){
      el.innerHTML='<option value="">请选择账户...</option><option value="__all__">全部账户（逐一扫描）</option>'+optsNoAll;
     } else if(id==='ruleAct'){
-     // 止损规则账户选择：增加"全局"选项（对所有账户生效）
-     el.innerHTML='<option value="__global__">全部账户（全局规则）</option>'+optsNoAll;
+     el.innerHTML='<option value="">请选择账户...</option>'+optsNoAll;
     } else {
      el.innerHTML=optsNoAll;
     }
@@ -4017,15 +5097,57 @@ function pageFromHash(){
  return APP_PAGES.indexOf(h)>=0?h:'';
 }
 function getNavCollapseState(){
- try{return JSON.parse(localStorage.getItem('mira_nav_collapsed')||'{}')||{};}catch(e){return {}}
+ var defaults={'数据中心':true,'账户管理':true,'自动化':true,'规则与策略':true,'系统':true};
+ try{
+  var saved=JSON.parse(localStorage.getItem('mira_nav_collapsed')||'{}')||{};
+  return Object.assign({},defaults,saved);
+ }catch(e){return defaults}
 }
 function saveNavCollapseState(state){
  localStorage.setItem('mira_nav_collapsed',JSON.stringify(state||{}));
 }
+function _navPageFromItem(item){
+ var code=item&&item.getAttribute('onclick')||'';
+ var m=code.match(/showPage\('([^']+)'\)/);
+ return m?m[1]:'';
+}
+function initNavItemHints(){
+ var icons={dashboard:'DB',ads:'AD',logs:'LG',tokens:'TK',accounts:'AC',assets:'AS',templates:'TP',landing_urls:'URL',kpi:'KPI',kpi_mapping:'MAP',rules:'RL',twpages:'PG',team_admin:'TM',settings:'SET'};
+ document.querySelectorAll('.sb-nav .nav-item').forEach(function(item){
+  var page=_navPageFromItem(item);
+  var label=(item.textContent||'').trim();
+  if(page)item.dataset.page=page;
+  if(label)item.dataset.label=label;
+  if(label)item.title=label;
+  if(label)item.setAttribute('aria-label',label);
+  var icon=item.querySelector('.nav-icon');
+  if(icon)icon.textContent=icons[page]||label.slice(0,1)||'M';
+ });
+}
+function getSidebarCompactPreference(){
+ var v=localStorage.getItem('mira_sidebar_compact');
+ return v===null?true:v==='1';
+}
+function applySidebarCompact(compact, persist){
+ if(window.innerWidth<=768)compact=false;
+ document.body.classList.toggle('sidebar-compact',!!compact);
+ if(persist)localStorage.setItem('mira_sidebar_compact',compact?'1':'0');
+}
+function initSidebarCompact(){
+ applySidebarCompact(getSidebarCompactPreference(),false);
+}
+function toggleSidebarCompact(){
+ var next=!document.body.classList.contains('sidebar-compact');
+ applySidebarCompact(next,true);
+}
+function expandSidebarCompact(){
+ if(document.body.classList.contains('sidebar-compact'))applySidebarCompact(false,true);
+}
 function initSidebarGroups(){
- var nav=document.querySelector('.sb-nav');
- if(!nav||nav.dataset.grouped==='1')return;
- var nodes=Array.prototype.slice.call(nav.children);
+  var nav=document.querySelector('.sb-nav');
+  if(!nav||nav.dataset.grouped==='1')return;
+  initNavItemHints();
+  var nodes=Array.prototype.slice.call(nav.children);
  var frag=document.createDocumentFragment();
  var state=getNavCollapseState();
  var current=null;
@@ -4060,9 +5182,10 @@ function initSidebarGroups(){
   }
  });
  nav.textContent='';
- nav.appendChild(frag);
- nav.dataset.grouped='1';
- revealActiveNavGroup();
+  nav.appendChild(frag);
+  nav.dataset.grouped='1';
+  initNavItemHints();
+  revealActiveNavGroup();
 }
 function revealActiveNavGroup(){
  document.querySelectorAll('.sb-nav .nav-sec').forEach(function(s){s.classList.remove('has-active')});
@@ -4086,7 +5209,7 @@ function syncMobileNavForPage(name){
 }
 function _val(id){var e=document.getElementById(id);return e?e.value||'':'';}
 function _pageAutoKey(name){
- if(name==='dashboard')return [_val('dashAct'),dashDateFrom||'',dashDateTo||''].join('|');
+ if(name==='dashboard')return [_val('dashAct'),_val('dashKpi'),dashDateFrom||'',dashDateTo||''].join('|');
  if(name==='ads')return [_val('adsAct'),_val('adsDateFrom'),_val('adsDateTo')].join('|');
  if(name==='logs')return [_val('logAct'),_val('logType'),_val('logStatus'),logsPage].join('|');
  if(name==='assets')return [_val('assetAct'),_val('assetType'),_val('assetStatus'),_val('assetQ'),window.assetsPage||1].join('|');
@@ -4160,7 +5283,9 @@ function toggleAccDetail(mode){
  var titleEl=document.getElementById('accDetailTitle');
  var tbody=document.getElementById('accDetailBody');
  var modeLabel={'spend':' 各账户消耗明细','conv':' 各账户转化明细','cpa':' 各账户 CPA 明细','roas':' 各账户 ROAS 明细','balance':' 各账户余额明细'};
- if(titleEl)titleEl.textContent=modeLabel[mode]||' 各账户明细';
+ var kpiEl=document.getElementById('dashKpi');
+ var kpiTitle=(mode!=='balance'&&kpiEl&&kpiEl.value&&kpiEl.selectedOptions&&kpiEl.selectedOptions[0])?kpiEl.selectedOptions[0].textContent+' · ':'';
+ if(titleEl)titleEl.textContent=kpiTitle+(modeLabel[mode]||' 各账户明细').trim();
  // 余额模式用账户列表数据
  if(mode==='balance'){
   var accs=window._balanceDetails||window._accDetails||[];
@@ -4358,16 +5483,17 @@ async function loadDash(){
  }
  try{
   var a=document.getElementById('dashAct')&&document.getElementById('dashAct').value||'';
+  var kpiFilter=(document.getElementById('dashKpi')&&document.getElementById('dashKpi').value)||'';
   // Build query params
   var today=new Date(new Date().getTime()+8*3600000).toISOString().slice(0,10);
   var df=dashDateFrom||today,dt=dashDateTo||today;
-  var q='?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'');
+  var q='?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):'');
   var trendDays=(dashDateFrom&&dashDateFrom!==dashDateTo)?Math.min(90,Math.max(1,Math.round((new Date(dashDateTo)-new Date(dashDateFrom))/86400000)+1)):1;
-  var trendQ='?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'');
+  var trendQ='?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):'');
   var results=await Promise.all([
    api('GET','/dashboard/summary'+q),
    api('GET','/dashboard/trend'+trendQ),
-   api('GET','/dashboard/ads?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:''))
+   api('GET','/dashboard/ads?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):''))
   ]);
   var sum=results[0],trend=results[1],top=results[2];
   if(sum){
@@ -4391,6 +5517,7 @@ async function loadDash(){
    var _sAds=document.getElementById('s-ads');if(_sAds)_sAds.textContent=(sum.active_ads_count||sum.account_count||0);
    // 账户级明细存全局
    window._accDetails=sum.account_details||[];
+   if(_accDetailMode&&_accDetailMode!=='balance'){var keepMode=_accDetailMode;_accDetailMode='';toggleAccDetail(keepMode);}
    if(window._accDetails&&window._accDetails.length){
     renderBalanceCardFromAccounts(window._accDetails);
    }
@@ -4400,35 +5527,14 @@ async function loadDash(){
     renderBalanceCardFromAccounts(window._balanceDetails);
    }).catch(function(){if(!(window._accDetails&&window._accDetails.length))document.getElementById('s-balance').textContent='--';});
   }
-  // KPI 类型筛选：前端过滤 ads + 重算汇总（覆盖后端 summary）
-  var kpiFilter=(document.getElementById('dashKpi')&&document.getElementById('dashKpi').value)||'';
-  // 清除筛选时还原标题
-  if(!kpiFilter){var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent=tt.textContent.replace(/^ [^ ]+ · /,' ');}
-  if(kpiFilter&&top&&top.length){
-   top=top.filter(function(ad){
-    var kf=(ad.kpi_field||'').toLowerCase();
-    if(kpiFilter==='other'){
-     var mains=['purchase','lead','add_to_cart','initiate_checkout','complete_registration','messaging','view_content'];
-     for(var i=0;i<mains.length;i++){if(kf.indexOf(mains[i])>=0)return false;}
-     return true;
-    }
-    return kf.indexOf(kpiFilter)>=0;
-   });
-   // 重算汇总
-   var fSpend=0,fConv=0,fPurchVal=0;
-   top.forEach(function(ad){fSpend+=ad.spend||0;fConv+=ad.conversions||0;fPurchVal+=(ad.roas||0)*(ad.spend||0);});
-   var fCpa=fConv>0?fSpend/fConv:0;
-   var fRoas=fSpend>0?fPurchVal/fSpend:0;
-   document.getElementById('s-spend').textContent='$'+fSpend.toFixed(2);
-   document.getElementById('s-conv').textContent=fConv.toFixed(0);
-   document.getElementById('s-cpa').textContent=fCpa>0?'$'+fCpa.toFixed(2):'--';
-   document.getElementById('s-roas').textContent=fRoas>0?fRoas.toFixed(2)+'x':'--';
-   var _sAds=document.getElementById('s-ads');if(_sAds)_sAds.textContent=top.length;
-   // 标题加筛选标识（防重复追加）
-   var kpiLabel=document.getElementById('dashKpi').selectedOptions[0].textContent;
-   var tt=document.getElementById('topAdsTitle');if(tt){
-    var base=tt.textContent.replace(/^ [^ ]+ · /,' ');
-    tt.textContent=' '+kpiLabel+' ·'+base.slice(1);
+  var tt=document.getElementById('topAdsTitle');
+  if(tt){
+   var base=tt.textContent.replace(/^[^·]+ ·\s*/,'').trim();
+   if(kpiFilter){
+    var kpiLabel=document.getElementById('dashKpi').selectedOptions[0].textContent;
+    tt.textContent=kpiLabel+' · '+base;
+   }else{
+    tt.textContent=base;
    }
   }
   if(trend)renderCharts(trend);
@@ -6271,16 +7377,17 @@ function renderAccCard(a,idx){
   var color=matrixColors[(mid-1)%matrixColors.length];
   return '<span class="badge" style="background:'+color+';color:#fff">矩阵'+mid+'</span>';
  }).join('');
- var pageBadge=a.page_id?'<span class="badge bg-mu">主页 '+a.page_id+'</span>':'';
- var warmupBadge=renderWarmupBadge(a);
- var teamBadge=resourceTeamBadge(a);
+  var pageBadge=a.page_id?'<span class="badge bg-mu">主页 '+a.page_id+'</span>':'';
+  var warmupBadge=renderWarmupBadge(a);
+  var sentinelBadge=a.sentinel_enabled?'<span class="badge bg-wa" title="全局哨兵关闭时，该账户仍会被哨兵巡检">单户哨兵</span>':'';
+  var teamBadge=resourceTeamBadge(a);
  return'<div class="'+cardClass+'" id="acc-card-'+idx+'" onclick="toggleAccCard('+idx+')" data-idx="'+idx+'">'+
   '<div class="acc-header">'+
   '<div class="acc-icon"></div>'+
   '<div class="acc-main">'+
   '<div class="acc-name">'+a.name+'</div>'+
   '<div class="acc-id">'+(a.act_id||'').replace(/^act_/,'')+'</div>'+
-  '<div class="acc-meta">'+statusBadge+enabledBadge+tokenStatusBadge+matrixBadges+teamBadge+'<span class="badge bg-ac">'+cur+'</span>'+pageBadge+warmupBadge+(tzStr?'<span class="badge bg-mu">'+tzStr+(tzOff?' ('+tzOff+')':'')+'</span>':'')+'</div>'+
+  '<div class="acc-meta">'+statusBadge+enabledBadge+sentinelBadge+tokenStatusBadge+matrixBadges+teamBadge+'<span class="badge bg-ac">'+cur+'</span>'+pageBadge+warmupBadge+(tzStr?'<span class="badge bg-mu">'+tzStr+(tzOff?' ('+tzOff+')':'')+'</span>':'')+'</div>'+
   '</div>'+
   balHtml+
   '<div style="color:var(--t3);font-size:18px;transition:var(--tr)" id="acc-arrow-'+idx+'">▸</div>'+
@@ -6345,7 +7452,7 @@ function renderAccCard(a,idx){
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openOpPoolModal(\''+a.act_id+'\')">操作号配置</button>'+
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openPagePixelModal(\''+a.act_id+'\')">主页/像素</button>'+
   '<button class="btn btn-g btn-sm" style="'+(a.balance_type==='unlimited'?'color:var(--ac);font-weight:600':'')+'" onclick="event.stopPropagation();openSpendCapModal(\''+a.act_id+'\','+(spendCapUsd||0)+',\''+(a.name||a.act_id).replace(/'/g,'\\\x27')+'\',\''+(a.currency||'USD')+'\','+(a.balance_type==='unlimited'?'true':'false')+')">消费上限'+spendCapLabel+'</button>'+
-  '<button class="btn btn-r btn-sm role-hide-viewer" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm role-superadmin-only" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle role-hide-viewer" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
+  '<button class="btn btn-r btn-sm role-hide-viewer" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm role-superadmin-only" style="font-size:11px;'+(a.sentinel_enabled?'color:#d97706;font-weight:700':'')+'" title="只让这个账户进入哨兵巡检范围" onclick="event.stopPropagation();toggleSentinelForAccount(\''+a.act_id+'\','+(a.sentinel_enabled?'0':'1')+')">'+(a.sentinel_enabled?'关哨兵':'开哨兵')+'</button>'+'<button class="btn btn-g btn-sm role-superadmin-only" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle role-hide-viewer" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
   '</div>'+
   '</div>'+
   '</div>';
@@ -9447,14 +10554,27 @@ function renderKpiList(){
  el.innerHTML=data.map(function(k){
   var lv=lvMap[k.level]||{label:k.level,cls:'bg-mu'};
   var actName=(window._kpiActMap&&window._kpiActMap[k.act_id])||k.act_id||'';
+  var field=String(k.kpi_field||'');
+  var fieldLabel=k.kpi_label||({
+   purchase:'购买',
+   lead:'线索',
+   add_to_cart:'加购',
+   initiate_checkout:'结账',
+   complete_registration:'注册',
+   messaging:'私信',
+   messenger:'私信',
+   view_content:'浏览'
+  }[field]||field||'未设置');
+  var typeLabel={'messenger':'私信','purchase':'购买','leads':'线索','traffic':'流量','engagement':'互动'}[k.ad_type]||k.ad_type||'';
+  var showTypeBadge=typeLabel&&typeLabel!==fieldLabel&&field.toLowerCase().indexOf(String(k.ad_type||'').toLowerCase())<0;
   return'<div class="kc" data-id="'+k.id+'"><div class="role-hide-viewer" style="display:flex;align-items:center;padding:0 8px 0 4px"><input type="checkbox" class="kpi-chk" value="'+k.id+'" onchange="onKpiCheck()" style="width:14px;height:14px;cursor:pointer"></div><div class="kc-lv"><span class="badge '+lv.cls+'">'+lv.label+'</span></div>'+
    '<div class="kc-info">'+
    '<div class="kc-name" title="'+(k.target_name||k.target_id)+'">'+(k.target_name||k.target_id)+'</div>'+
    '<div class="kc-id">'+k.target_id+'</div>'+
    '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">'+
-   '<span class="badge bg-ac">'+k.kpi_field+'</span>'+
-   (k.kpi_label?'<span style="font-size:11px;color:var(--t2)">'+k.kpi_label+'</span>':'')+
-   (k.ad_type?'<span class="badge" style="background:#17a2b8;color:#fff;font-size:10px;margin-right:2px">'+({'messenger':' 私信','purchase':' 购买','leads':' 线索','traffic':' 流量','engagement':' 互动'}[k.ad_type]||k.ad_type)+'</span>':'')+(srcMap[k.source]||'')+
+   '<span class="badge bg-ac" title="KPI 字段：'+escHtml(field)+'">'+escHtml(fieldLabel)+'</span>'+
+   (field&&field!==fieldLabel?'<span class="kpi-raw-field">'+escHtml(field)+'</span>':'')+
+   (showTypeBadge?'<span class="badge" style="background:#17a2b8;color:#fff;font-size:10px;margin-right:2px">'+escHtml(typeLabel)+'</span>':'')+(srcMap[k.source]||'')+
    (k.note?'<span style="font-size:11px;color:var(--t3)">'+k.note+'</span>':'')+
    '</div>'+
    '</div>'+
@@ -9774,33 +10894,25 @@ function switchTab(tab){
  var sp=document.getElementById('scalePanel');if(sp)sp.style.display=tab==='scale'?'block':'none';
 }
 function renderGuard(rules){
+ rules=(rules||[]).filter(function(r){return r.act_id!=='__global__'});
  window._guardRules=rules;
  var el=document.getElementById('guardList');
  if(!rules.length){el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>还没有止损规则<br>点击「添加止损规则」开始</p></div>';return}
  var tl={bleed_abs:'空成效止血',cpa_exceed:'CPA超标止损',trend_drop:'ROAS趋势熔断',consecutive_bad:'连续恶化止损',click_no_conv:'高频点击无转化',budget_burn_fast:'预算消耗过快'};
  var al={pause:'暂停广告',reduce_budget:'降低预算',alert_only:'仅预警',pause_adset:'暂停广告组',pause_campaign:'暂停系列'};
  function ruleCard(r){
-  var isGlobal=r.act_id==='__global__';
   var descStr=r.rule_type==='bleed_abs'?'止血线: $'+(r.param_value||20):r.rule_type==='cpa_exceed'?'目标CPA >$'+(r.param_value??'')+(r.param_ratio&&r.param_ratio!=1.0?' · 倍率×'+((r.param_ratio*100).toFixed(0)+'%'):''):r.rule_type==='trend_drop'?'跌幅阈值: '+(r.param_value||40)+'%':r.rule_type==='consecutive_bad'?'连续 '+(r.param_days||2)+' 天超标 '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='click_no_conv'?'点击阈值: '+(r.param_value||100):r.rule_type==='budget_burn_fast'?'消耗比例: '+(r.param_value||80)+'%':'';
   var silStr=r.silent_start?' · 静默 '+r.silent_start+'-'+r.silent_end:'';
-  var kpiFilterLabel={'dt:MESSENGER':'对话类','dt:WEBSITE':'网站转化','dt:FACEBOOK_PAGE':'主页互动','dt:INSTAGRAM_PROFILE':'IG主页','dt:UNDEFINED':'未定义','obj:OUTCOME_SALES':'销售','obj:OUTCOME_LEADS':'线索','obj:OUTCOME_ENGAGEMENT':'互动','obj:OUTCOME_TRAFFIC':'流量','obj:PAGE_LIKES':'主页赞','purchase':'购买转化','leads':'线索收集','messenger':'私信对话','engagement':'帖子互动','traffic':'流量点击','contact':'联系转化','other':'其他'};
+ var kpiFilterLabel={'dt:MESSENGER':'对话类','dt:WEBSITE':'网站转化','dt:FACEBOOK_PAGE':'主页互动','dt:INSTAGRAM_PROFILE':'IG主页','dt:UNDEFINED':'未定义','obj:OUTCOME_SALES':'销售','obj:OUTCOME_LEADS':'线索','obj:OUTCOME_ENGAGEMENT':'互动','obj:OUTCOME_TRAFFIC':'流量','obj:PAGE_LIKES':'主页赞','purchase':'购买转化','leads':'线索收集','messenger':'私信对话','engagement':'帖子互动','traffic':'流量点击','contact':'联系转化','other':'其他'};
   var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+(kpiFilterLabel[r.kpi_filter]||r.kpi_filter)+'</span>':'';
-  var actBadge=isGlobal?'<span class="badge" style="background:rgba(139,92,246,.2);color:#a78bfa;border:1px solid rgba(139,92,246,.3)">全局</span>'+kfiBadge:'<span class="badge bg-mu">'+r.act_id+'</span>';
-  var cardStyle=isGlobal?'border-left:3px solid rgba(139,92,246,.6);':'';
+  var actBadge='<span class="badge bg-mu">'+r.act_id+'</span>'+kfiBadge;
+  var cardStyle='';
    return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
  }
- var globalRules=rules.filter(function(r){return r.act_id==='__global__'});
- var accRules=rules.filter(function(r){return r.act_id!=='__global__'});
- var html='';
- if(globalRules.length){
-  html+='<div style="font-size:11px;font-weight:600;color:rgba(139,92,246,.9);margin:0 0 8px 4px;letter-spacing:.5px">全局规则（对所有账户生效）</div>';
-  html+=globalRules.map(ruleCard).join('');
-  if(accRules.length)html+='<div style="font-size:11px;font-weight:600;color:var(--t3);margin:16px 0 8px 4px;letter-spacing:.5px">账户级规则</div>';
- }
- html+=accRules.map(ruleCard).join('');
- el.innerHTML=html;
+ el.innerHTML=rules.map(ruleCard).join('');
 }
 function renderScale(rules){
+ rules=(rules||[]).filter(function(r){return r.act_id!=='__global__'});
  window._scaleRules=rules;
  var el=document.getElementById('scaleList');
  if(!el)return;
@@ -9808,7 +10920,6 @@ function renderScale(rules){
  var tl={slow_scale:'稳健拉量',fast_scale:'快速拉量',roas_scale:'ROAS 拉量'};
  function pct(v){return ((parseFloat(v||0)*100).toFixed(0))+'%'}
  function card(r){
-  var isGlobal=r.act_id==='__global__';
   var parts=[];
   parts.push('CPA ≤ 目标×'+pct(r.cpa_ratio||0.8));
   parts.push('转化 ≥ '+(r.min_conversions||3));
@@ -9816,24 +10927,15 @@ function renderScale(rules){
   parts.push('加预算 '+pct(r.scale_pct||0.15));
   if(r.max_budget)parts.push('上限 '+r.max_budget);
   if(r.roas_threshold)parts.push('ROAS ≥ '+r.roas_threshold);
-  var actBadge=isGlobal?'<span class="badge" style="background:rgba(139,92,246,.2);color:#a78bfa;border:1px solid rgba(139,92,246,.3)">全局</span>':'<span class="badge bg-mu">'+r.act_id+'</span>';
-  var cardStyle=isGlobal?'border-left:3px solid rgba(36,168,120,.65);':'';
+  var actBadge='<span class="badge bg-mu">'+r.act_id+'</span>';
+  var cardStyle='';
   return '<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body">'+
    '<div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div>'+
    '<div class="rc-desc">'+parts.join(' · ')+'</div>'+
    '<div class="rc-meta"><span class="badge bg-ok">加预算</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div>'+
    '</div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleS('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑策略" onclick="editS('+r.id+')">编</button><button class="btn-ic d" title="删除策略" onclick="delS('+r.id+')">删</button></div></div>';
  }
- var globalRules=rules.filter(function(r){return r.act_id==='__global__'});
- var accRules=rules.filter(function(r){return r.act_id!=='__global__'});
- var html='';
- if(globalRules.length){
-  html+='<div style="font-size:11px;font-weight:600;color:rgba(36,168,120,.9);margin:0 0 8px 4px;letter-spacing:.5px">全局拉量（对所有账户生效）</div>';
-  html+=globalRules.map(card).join('');
-  if(accRules.length)html+='<div style="font-size:11px;font-weight:600;color:var(--t3);margin:16px 0 8px 4px;letter-spacing:.5px">账户级拉量</div>';
- }
- html+=accRules.map(card).join('');
- el.innerHTML=html;
+ el.innerHTML=rules.map(card).join('');
 }
 function showAddRule(mode, opts){
  opts=opts||{};
@@ -9848,7 +10950,7 @@ function showAddRule(mode, opts){
  ['ruleName','ruleNote','silStart','silEnd'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
  // 重置账户选择框（避免编辑后再添加时保留旧值）
  var actSel=document.getElementById('ruleAct');
- if(actSel)actSel.value='__global__';
+ if(actSel)actSel.value='';
  var hint=document.getElementById('ruleKpiHint');if(hint)hint.style.display='none';
  // 重新填充规则类型并渲染参数
  if(mode==='guard' && rulesMeta && rulesMeta.guard_types){
@@ -9860,7 +10962,7 @@ function showAddRule(mode, opts){
 async function onRuleActChange(){
  var actId=document.getElementById('ruleAct').value;
  var hint=document.getElementById('ruleKpiHint');
- if(!actId||actId==='__global__'){hint.style.display='none';return}
+ if(!actId){hint.style.display='none';return}
  hint.style.display='block';
  hint.style.background='var(--bg2)';
  hint.style.border='1px solid var(--bd)';
@@ -9914,7 +11016,7 @@ function onScaleType(){
 var _editingRuleId=null;
 async function submitRule(){
  var actId=document.getElementById('ruleAct').value;if(!actId){toast('请选择账户','er');return}
- // 全局规则：act_id = __global__，对所有账户生效
+ if(actId==='__global__'){toast('全局规则已取消，请选择具体账户','er');return}
  try{
   if(ruleMode==='guard'){
    var type=document.getElementById('guardType').value;
@@ -9960,7 +11062,7 @@ async function editG(id){
  document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent='保存修改');
  // 回填账户
  var actSel=document.getElementById('ruleAct');
- if(actSel){actSel.value=r.act_id;if(actSel.value!==r.act_id){var opt=document.createElement('option');opt.value=r.act_id;opt.textContent=r.act_id==='__global__'?' 全部账户（全局规则）':r.act_id;actSel.prepend(opt);actSel.value=r.act_id;}}
+ if(actSel){actSel.value=r.act_id;if(actSel.value!==r.act_id){var opt=document.createElement('option');opt.value=r.act_id;opt.textContent=r.act_id;actSel.prepend(opt);actSel.value=r.act_id;}}
  // 回填规则类型（需要先触发 onGuardType 渲染参数字段）
  var typeSel=document.getElementById('guardType');
  if(typeSel){typeSel.value=r.rule_type;onGuardType();}
@@ -9986,7 +11088,7 @@ async function editS(id){
  document.getElementById('ruleMTitle').textContent='编辑拉量策略';
  document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent='保存修改');
  var actSel=document.getElementById('ruleAct');
- if(actSel){actSel.value=r.act_id;if(actSel.value!==r.act_id){var opt=document.createElement('option');opt.value=r.act_id;opt.textContent=r.act_id==='__global__'?' 全部账户（全局规则）':r.act_id;actSel.prepend(opt);actSel.value=r.act_id;}}
+ if(actSel){actSel.value=r.act_id;if(actSel.value!==r.act_id){var opt=document.createElement('option');opt.value=r.act_id;opt.textContent=r.act_id;actSel.prepend(opt);actSel.value=r.act_id;}}
  var typeSel=document.getElementById('scaleType');
  if(typeSel){typeSel.value=r.rule_type||'slow_scale';onScaleType();}
  setTimeout(function(){
@@ -10039,8 +11141,6 @@ function selectTemplate(id){
 }
 function resetTemplateModal(){
  selectedTplId=null;
- var gm=document.getElementById('tplGlobalMode');if(gm)gm.checked=false;
- onTplGlobalMode(false);
  var cbs=document.querySelectorAll('.tpl-act-cb');cbs.forEach(function(cb){cb.checked=false});
  updateTplActCount();
  document.getElementById('btnApplyTpl').disabled=true;
@@ -10059,31 +11159,18 @@ function toggleAllTplActs(checked){
  updateTplActCount();
 }
 function onTplGlobalMode(checked){
- // 全局模式开启时，禁用账户选择区域
- var actList=document.getElementById('tplActCheckList');
- var hint=document.getElementById('tplGlobalHint');
- if(actList)actList.style.opacity=checked?'0.4':'1';
- if(actList)actList.style.pointerEvents=checked?'none':'auto';
- if(hint)hint.style.display=checked?'block':'none';
  document.getElementById('btnApplyTpl').disabled=!selectedTplId;
 }
 async function applyTemplate(){
  if(!selectedTplId){toast('请先选择一个模板','er');return}
- var globalMode=document.getElementById('tplGlobalMode')&&document.getElementById('tplGlobalMode').checked;
  var override=document.getElementById('tplOverride').checked;
  var payload={template_id:selectedTplId,override_existing:override};
- if(globalMode){
-  payload.global_mode=true;
-  document.getElementById('btnApplyTpl').disabled=true;
-  document.getElementById('btnApplyTpl').textContent='应用为全局规则...';
- }else{
-  var cbs=document.querySelectorAll('.tpl-act-cb:checked');
-  var actIds=Array.from(cbs).map(function(cb){return cb.value});
-  if(!actIds.length){toast('请先勾选要应用的账户，或开启全局规则模式','er');return}
-  payload.act_ids=actIds;
-  document.getElementById('btnApplyTpl').disabled=true;
-  document.getElementById('btnApplyTpl').textContent='应用中（'+actIds.length+'个账户）...';
- }
+ var cbs=document.querySelectorAll('.tpl-act-cb:checked');
+ var actIds=Array.from(cbs).map(function(cb){return cb.value});
+ if(!actIds.length){toast('请先勾选要应用的账户','er');return}
+ payload.act_ids=actIds;
+ document.getElementById('btnApplyTpl').disabled=true;
+ document.getElementById('btnApplyTpl').textContent='应用中（'+actIds.length+'个账户）...';
  try{
   var r=await api('POST','/rules/templates/apply',payload);
   toast(r.message||'模板应用成功','ok');closeModal('moTemplate');loadRules();
@@ -10670,9 +11757,6 @@ async function loadSettings() {
   html += renderConnectionTestSection();
   html += renderGuardHealthSection();
   html += renderServerResourceSection();
-  html += renderPermissionMatrixSection();
-  html += renderTeamResourceSection();
-  html += renderUserManageSection();
 
   document.getElementById('settingsContent').innerHTML = html;
 
@@ -10683,10 +11767,6 @@ async function loadSettings() {
   window._resTimer = setInterval(loadServerResource, 30000);
   if(window._guardHealthTimer) clearInterval(window._guardHealthTimer);
   window._guardHealthTimer = setInterval(loadGuardHealth, 30000);
-  if(hasRole('superadmin')){
-   loadTeamResources();
-   loadUserList();
-  }
 
  } catch(e) {
   document.getElementById('settingsContent').innerHTML = '<div style="padding:40px;text-align:center;color:var(--er)">加载失败：' + (e.message || e) + '</div>';
@@ -11683,7 +12763,28 @@ async function loadUserActivity(page){
    (function(pi){b.onclick=function(){loadUserActivity(pi)}})(i);
    pg.appendChild(b);
   }}
- }catch(e){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--er);padding:30px">加载失败：'+e.message+'</td></tr>'}
+  }catch(e){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--er);padding:30px">加载失败：'+e.message+'</td></tr>'}
+}
+async function clearUserActivity(filtered){
+ if(!hasRole('superadmin')){toast('只有超级管理员可以清理用户活动','er');return;}
+ var u=document.getElementById('uaUser')&&document.getElementById('uaUser').value||'';
+ var m=document.getElementById('uaMethod')&&document.getElementById('uaMethod').value||'';
+ var qs=[];
+ var label='全部用户活动记录';
+ if(filtered){
+  if(u){qs.push('username='+encodeURIComponent(u));}
+  if(m){qs.push('method='+encodeURIComponent(m));}
+  label=(u||m)?'当前筛选的用户活动记录':'当前全部用户活动记录';
+ }
+ var ok=await confirmAsync('确认清理'+label+'？<br>此操作只删除审计展示记录，不会删除用户账号。','确认清理','取消','清理用户活动');
+ if(!ok)return;
+ try{
+  var r=await api('DELETE','/admin/user-activity'+(qs.length?'?'+qs.join('&'):''));
+  toast('已清理 '+(r.deleted||0)+' 条用户活动记录','ok');
+  uaPage=1;
+  loadActivityUsernames();
+  loadUserActivity(1);
+ }catch(e){toast('清理失败：'+(e.message||e),'er');}
 }
 // 预加载用户名列表
 async function loadActivityUsernames(){
@@ -11725,10 +12826,22 @@ async function copySpentAccountIdsForDate(){
  try{
   var r=await api('GET','/accounts/spent-ids?date='+encodeURIComponent(date));
   var ids=(r&&r.account_ids)||[];
-  if(!ids.length){toast(date+' 没有找到有消耗账户','wa');return;}
+  if(!ids.length){
+   var apiChecked=parseInt((r&&r.api_checked)||0,10);
+   var apiErrors=parseInt((r&&r.api_error_count)||0,10);
+   if(apiChecked>0){
+    toast(date+' API 未发现有消耗账户'+(apiErrors?'，另有 '+apiErrors+' 个账户拉取失败':'') ,'wa');
+   }else if(!r || parseInt(r.snapshot_rows||0,10)===0){
+    toast(date+' 暂无本地快照，且没有可用 API 结果','wa');
+   }else{
+    toast(date+' 快照中没有发现有消耗账户','wa');
+   }
+   return;
+  }
   await copyTextToClipboard(ids.join('\n'));
   var total=(r.items||[]).reduce(function(sum,item){return sum+(parseFloat(item.spend)||0);},0);
-  toast('已复制 '+ids.length+' 个账户ID（'+date+'，消耗合计 $'+total.toFixed(2)+'）','ok');
+  var sourceLabel=r.source==='fb_insights_api'?'API':(r.source==='mixed'?'快照+API':'快照');
+  toast('已复制 '+ids.length+' 个账户ID（'+date+'，'+sourceLabel+'，消耗合计 $'+total.toFixed(2)+'）','ok');
  }catch(e){
   toast('复制失败：'+(e&&e.message?e.message:e),'er');
  }
@@ -12221,8 +13334,7 @@ function _tryAutoLogin(){
   if(apEl){apEl.style.display='flex';}
   applyRolePermissions(localStorage.getItem('mira_role')||'viewer');
   applyTeamStatus();
-  var rl=document.getElementById('tbRoleLabel');
-  if(rl)rl.textContent=roleDisplayText();
+  updateTopbarIdentity();
   initApp();
  }
 }
@@ -12266,6 +13378,9 @@ document.querySelectorAll('.nav-item').forEach(function(el){
   if(window.innerWidth<=768)closeSidebar();
  });
 });
+window.addEventListener('resize',function(){
+ applySidebarCompact(getSidebarCompactPreference(),false);
+});
 // Init dashboard with today
 // Note: setDashRange('today') is now called inside initApp() after loadAccounts() completes
 // For non-logged-in state, we still call it here as a fallback
@@ -12281,6 +13396,16 @@ async function toggleMirrorForAccount(actId, enabled) {
    await api('POST', '/mirror/disable', {act_id: actId});
    toast('镜像模式已关闭', 'ok');
   }
+  if (typeof loadAccsPage === 'function') loadAccsPage();
+ } catch(e) {
+  toast('设置失败：' + e.message, 'er');
+ }
+}
+
+async function toggleSentinelForAccount(actId, enabled) {
+ try {
+  await api('PATCH', '/accounts/by-act-id/' + encodeURIComponent(actId), {sentinel_enabled: enabled ? 1 : 0});
+  toast(enabled ? '已开启单账户哨兵' : '已关闭单账户哨兵', 'ok');
   if (typeof loadAccsPage === 'function') loadAccsPage();
  } catch(e) {
   toast('设置失败：' + e.message, 'er');
@@ -12947,7 +14072,8 @@ async function aiAutoMapUnknownTypes(){
 function renderWarmupBadge(a){
  var ws=a.warmup_state||'';
  var recentSpend=parseFloat(a.recent_3d_snapshot_spend||0);
- if(!ws&&recentSpend>0) return '<span class="badge" style="background:#10b981;color:#fff" title="本地快照近3天已有消耗 $'+recentSpend.toFixed(2)+'，不会作为新账户预热">近3天有消耗</span>';
+ var recentSource=a.recent_3d_spend_source==='fb_insights_api'?'FB API':'本地快照';
+ if(!ws&&recentSpend>0) return '<span class="badge" style="background:#10b981;color:#fff" title="'+recentSource+' 近3天已有消耗 $'+recentSpend.toFixed(2)+'，不会作为新账户预热">近3天有消耗</span>';
  if(!ws) return '<span class="badge bg-mu" title="尚未创建预热广告">未预热</span>';
  if(ws==='warming') return '<span class="badge" style="background:#4090e0;color:#fff">预热中</span>';
  if(ws==='completed') return '<span class="badge" style="background:#40c060;color:#fff">预热完成</span>';

@@ -12,6 +12,7 @@ from core.auth import (
     require_admin,
 )
 from core.database import get_db
+from services.notifier import ensure_notification_schema
 
 
 router = APIRouter()
@@ -25,6 +26,9 @@ class CreateUserReq(BaseModel):
     note: Optional[str] = None
     group_name: Optional[str] = None
     team_id: Optional[int] = None
+    tg_chat_id: Optional[str] = None
+    notify_enabled: Optional[bool] = False
+    notify_types: Optional[str] = "all"
 
 
 class UpdateUserReq(BaseModel):
@@ -35,6 +39,15 @@ class UpdateUserReq(BaseModel):
     is_active: Optional[bool] = None
     group_name: Optional[str] = None
     team_id: Optional[int] = None
+    tg_chat_id: Optional[str] = None
+    notify_enabled: Optional[bool] = None
+    notify_types: Optional[str] = None
+
+
+class MyNotifyReq(BaseModel):
+    tg_chat_id: Optional[str] = None
+    notify_enabled: Optional[bool] = False
+    notify_types: Optional[str] = "all"
 
 
 def _ensure_team(conn, name: str) -> tuple[int, str]:
@@ -89,6 +102,9 @@ def _user_row_to_payload(row) -> dict:
         "group_name": team_name,
         "team_id": row["team_id"],
         "team_name": team_name,
+        "tg_chat_id": row["tg_chat_id"] if "tg_chat_id" in row.keys() else "",
+        "notify_enabled": bool(row["notify_enabled"]) if "notify_enabled" in row.keys() and row["notify_enabled"] is not None else False,
+        "notify_types": row["notify_types"] if "notify_types" in row.keys() else "all",
     }
 
 
@@ -109,9 +125,11 @@ def _upsert_membership(conn, user_id: int, team_id: int | None, role: str) -> No
 @router.get("")
 def list_users(user=Depends(require_admin)):
     conn = get_db()
+    ensure_notification_schema(conn)
     base_sql = """SELECT u.id, u.username, u.role, u.display_name, u.note, u.is_active,
                          u.last_login_at, u.last_active_at, u.last_ip, u.created_at,
-                         u.group_name, u.team_id, t.name AS team_name
+                         u.group_name, u.team_id, u.tg_chat_id, u.notify_enabled, u.notify_types,
+                         t.name AS team_name
                   FROM users u
                   LEFT JOIN teams t ON t.id = u.team_id"""
     if is_superadmin(user):
@@ -145,6 +163,7 @@ def create_user(body: CreateUserReq, user=Depends(require_admin)):
         raise HTTPException(status_code=403, detail="Team admins can only create operator/viewer users")
 
     conn = get_db()
+    ensure_notification_schema(conn)
     try:
         if is_superadmin(user):
             team_id, team_name = _get_team(conn, body.team_id, body.group_name)
@@ -154,9 +173,11 @@ def create_user(body: CreateUserReq, user=Depends(require_admin)):
         pw_hash = hashlib.sha256(body.password.encode()).hexdigest()
         conn.execute(
             """INSERT INTO users
-               (username, password_hash, role, display_name, note, group_name, team_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (body.username, pw_hash, body.role, body.display_name, body.note, team_name, team_id),
+               (username, password_hash, role, display_name, note, group_name, team_id,
+                tg_chat_id, notify_enabled, notify_types)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (body.username, pw_hash, body.role, body.display_name, body.note, team_name, team_id,
+             body.tg_chat_id or "", 1 if body.notify_enabled else 0, body.notify_types or "all"),
         )
         user_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
         _upsert_membership(conn, user_id, team_id, body.role)
@@ -176,6 +197,7 @@ def create_user(body: CreateUserReq, user=Depends(require_admin)):
 @router.patch("/{user_id}")
 def update_user(user_id: int, body: UpdateUserReq, user=Depends(require_admin)):
     conn = get_db()
+    ensure_notification_schema(conn)
     row = conn.execute("SELECT id, role, team_id FROM users WHERE id=?", (user_id,)).fetchone()
     if not row:
         conn.close()
@@ -221,6 +243,15 @@ def update_user(user_id: int, body: UpdateUserReq, user=Depends(require_admin)):
     if body.is_active is not None:
         updates.append("is_active=?")
         params.append(1 if body.is_active else 0)
+    if body.tg_chat_id is not None:
+        updates.append("tg_chat_id=?")
+        params.append(body.tg_chat_id)
+    if body.notify_enabled is not None:
+        updates.append("notify_enabled=?")
+        params.append(1 if body.notify_enabled else 0)
+    if body.notify_types is not None:
+        updates.append("notify_types=?")
+        params.append(body.notify_types or "all")
     if actor_is_super and (body.team_id is not None or body.group_name is not None):
         new_team_id, team_name = _get_team(conn, body.team_id, body.group_name)
         updates.append("team_id=?")
@@ -291,8 +322,10 @@ def get_me(user=Depends(get_current_user)):
             "is_superadmin": True,
         }
     conn = get_db()
+    ensure_notification_schema(conn)
     row = conn.execute(
         """SELECT u.id, u.username, u.role, u.display_name, u.group_name, u.team_id,
+                  u.tg_chat_id, u.notify_enabled, u.notify_types,
                   t.name AS team_name
            FROM users u
            LEFT JOIN teams t ON t.id = u.team_id
@@ -323,4 +356,44 @@ def get_me(user=Depends(get_current_user)):
         "team_id": row["team_id"],
         "team_name": team_name,
         "is_superadmin": False,
+        "tg_chat_id": row["tg_chat_id"] or "",
+        "notify_enabled": bool(row["notify_enabled"]),
+        "notify_types": row["notify_types"] or "all",
     }
+
+
+@router.get("/me/notify-settings")
+def get_my_notify_settings(user=Depends(get_current_user)):
+    uid = user.get("uid", 0)
+    if uid == 0 or is_superadmin(user):
+        return {"tg_chat_id": "", "notify_enabled": False, "notify_types": "all", "is_superadmin": True}
+    conn = get_db()
+    ensure_notification_schema(conn)
+    row = conn.execute(
+        "SELECT tg_chat_id, COALESCE(notify_enabled, 0) AS notify_enabled, COALESCE(notify_types, 'all') AS notify_types FROM users WHERE id=?",
+        (uid,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"tg_chat_id": row["tg_chat_id"] or "", "notify_enabled": bool(row["notify_enabled"]), "notify_types": row["notify_types"] or "all"}
+
+
+@router.patch("/me/notify-settings")
+def update_my_notify_settings(body: MyNotifyReq, user=Depends(get_current_user)):
+    uid = user.get("uid", 0)
+    if uid == 0 or is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin TG is configured in system settings")
+    conn = get_db()
+    ensure_notification_schema(conn)
+    row = conn.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    conn.execute(
+        "UPDATE users SET tg_chat_id=?, notify_enabled=?, notify_types=? WHERE id=?",
+        (body.tg_chat_id or "", 1 if body.notify_enabled else 0, body.notify_types or "all", uid),
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True}

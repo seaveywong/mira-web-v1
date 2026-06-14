@@ -5,6 +5,7 @@
 import json
 import logging
 import requests
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import APIRouter, File, HTTPException, Depends, UploadFile
 from pydantic import BaseModel
@@ -28,6 +29,7 @@ from services.token_manager import (
     is_operate_token_eligible,
     normalize_token_source,
 )
+from services.notifier import ensure_notification_schema
 
 router = APIRouter()
 
@@ -126,6 +128,8 @@ def _calc_available_balance(balance, spend_cap, amount_spent, spending_limit, cu
 logger = logging.getLogger("mira.api.accounts")
 
 FB_API_BASE = "https://graph.facebook.com/v25.0"
+_SPEND_API_CACHE = {}
+_SPEND_API_CACHE_TTL_SECONDS = 120
 
 
 def _fetch_all_fb_adaccounts(
@@ -220,9 +224,37 @@ def _ensure_account_read_columns(conn) -> None:
     if "spending_limit" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN spending_limit TEXT")
         changed = True
+    if "sentinel_enabled" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN sentinel_enabled INTEGER DEFAULT 0")
+        changed = True
+    if "owner_user_id" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN owner_user_id INTEGER")
+        changed = True
     if changed:
         conn.commit()
+    ensure_notification_schema(conn)
     ensure_account_access_columns(conn)
+
+
+def _validate_account_owner(conn, owner_user_id: Optional[int], account_id: int, user: dict) -> Optional[int]:
+    if owner_user_id in (None, 0):
+        return None
+    acc = conn.execute("SELECT team_id FROM accounts WHERE id=?", (account_id,)).fetchone()
+    if not acc:
+        raise HTTPException(status_code=404, detail="账户不存在")
+    owner = conn.execute(
+        "SELECT id, role, team_id, is_active FROM users WHERE id=?",
+        (owner_user_id,),
+    ).fetchone()
+    if not owner or not owner["is_active"]:
+        raise HTTPException(status_code=400, detail="负责人不存在或已禁用")
+    if owner["role"] not in ("admin", "operator"):
+        raise HTTPException(status_code=400, detail="负责人必须是团队管理员或运营")
+    if owner["team_id"] != acc["team_id"]:
+        raise HTTPException(status_code=400, detail="负责人必须属于该账户所在团队")
+    if not normalize_user_claims(user).get("is_superadmin") and owner["team_id"] != user.get("team_id"):
+        raise HTTPException(status_code=403, detail="不能设置其他团队的负责人")
+    return int(owner_user_id)
 
 
 def _normalize_account_info(act_id: str, raw: dict) -> dict:
@@ -437,6 +469,149 @@ def _resolve_account_info(
     if errors:
         reason = errors[-1].get("error") or reason
     return {"ok": False, "act_id": normalized_act_id, "error": reason, "errors": errors}
+
+
+def _extract_graph_error(data: dict, fallback: str = "FB API error") -> str:
+    if not isinstance(data, dict):
+        return fallback
+    err = data.get("error")
+    if isinstance(err, dict):
+        msg = err.get("message") or fallback
+        code = err.get("code")
+        subcode = err.get("error_subcode") or err.get("subcode")
+        parts = [msg]
+        if code is not None:
+            parts.append(f"code={code}")
+        if subcode is not None:
+            parts.append(f"subcode={subcode}")
+        return " | ".join(parts)
+    return fallback
+
+
+def _sum_account_insights_spend(act_id: str, currency: str, date_from: str, date_to: str, team_id=None) -> dict:
+    """Fetch account-level spend from FB Insights for a date range, short cached."""
+    normalized_act_id = _normalize_act_id(act_id)
+    currency = (currency or "USD").upper()
+    cache_key = (normalized_act_id, currency, date_from, date_to, team_id)
+    now = time.time()
+    cached = _SPEND_API_CACHE.get(cache_key)
+    if cached and now - cached.get("ts", 0) < _SPEND_API_CACHE_TTL_SECONDS:
+        return dict(cached["data"], cached=True)
+
+    candidates = _read_token_candidates_for_account(normalized_act_id, team_id=team_id)
+    errors = []
+    for candidate in candidates:
+        try:
+            resp = requests.get(
+                f"{FB_API_BASE}/{normalized_act_id}/insights",
+                params={
+                    "access_token": candidate["token_plain"],
+                    "fields": "date_start,date_stop,spend,actions",
+                    "time_range": json.dumps({"since": date_from, "until": date_to}),
+                    "time_increment": 1,
+                    "limit": 100,
+                },
+                timeout=25,
+            )
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            if resp.status_code >= 400 or data.get("error"):
+                errors.append({
+                    "token_id": candidate.get("token_id"),
+                    "alias": candidate.get("alias"),
+                    "type": candidate.get("token_type"),
+                    "error": _extract_graph_error(data, f"HTTP {resp.status_code}"),
+                })
+                continue
+
+            spend_orig = 0.0
+            conversions = 0.0
+            for item in data.get("data", []) or []:
+                try:
+                    spend_orig += float(item.get("spend") or 0)
+                except (TypeError, ValueError):
+                    pass
+                # Only used as a secondary detail for this endpoint. Do not let
+                # action parsing affect spend detection.
+                for action in item.get("actions") or []:
+                    try:
+                        if action.get("action_type") in ("purchase", "lead", "onsite_conversion.messaging_conversation_started_7d"):
+                            conversions += float(action.get("value") or 0)
+                    except (TypeError, ValueError):
+                        pass
+
+            spend_usd = _to_usd(spend_orig, currency)
+            result = {
+                "ok": True,
+                "act_id": normalized_act_id,
+                "currency": currency,
+                "spend": float(spend_usd or 0),
+                "spend_orig": float(spend_orig or 0),
+                "conversions": float(conversions or 0),
+                "source": "fb_insights_api",
+                "token_id": candidate.get("token_id"),
+                "token_alias": candidate.get("alias"),
+            }
+            _SPEND_API_CACHE[cache_key] = {"ts": now, "data": result}
+            return result
+        except Exception as exc:
+            errors.append({
+                "token_id": candidate.get("token_id"),
+                "alias": candidate.get("alias"),
+                "type": candidate.get("token_type"),
+                "error": str(exc),
+            })
+
+    return {
+        "ok": False,
+        "act_id": normalized_act_id,
+        "currency": currency,
+        "spend": 0.0,
+        "spend_orig": 0.0,
+        "conversions": 0.0,
+        "source": "fb_insights_api",
+        "error": errors[-1]["error"] if errors else "no_read_token",
+        "errors": errors,
+    }
+
+
+def _fetch_spend_for_accounts(accounts: list, date_from: str, date_to: str, *, max_workers: int = 6) -> dict:
+    if not accounts:
+        return {}
+    results = {}
+    workers = max(1, min(max_workers, len(accounts)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {}
+        for acc in accounts:
+            act_id = _normalize_act_id(acc.get("act_id"))
+            if not act_id:
+                continue
+            future = executor.submit(
+                _sum_account_insights_spend,
+                act_id,
+                acc.get("currency") or "USD",
+                date_from,
+                date_to,
+                acc.get("team_id"),
+            )
+            future_map[future] = act_id
+        for future in as_completed(future_map):
+            act_id = future_map[future]
+            try:
+                results[act_id] = future.result()
+            except Exception as exc:
+                results[act_id] = {
+                    "ok": False,
+                    "act_id": act_id,
+                    "spend": 0.0,
+                    "spend_orig": 0.0,
+                    "conversions": 0.0,
+                    "source": "fb_insights_api",
+                    "error": str(exc),
+                }
+    return results
 
 
 def _matching_team_id(user: dict, account_team_id: Optional[int]) -> Optional[int]:
@@ -665,7 +840,9 @@ class AccountUpdate(BaseModel):
     landing_url: Optional[str] = None           # 账户级默认落地页链接
     form_link: Optional[str] = None             # 账户级表单链接（潜在客户广告用）
     target_objective_type: Optional[str] = None  # sales/website/leads/engagement
+    sentinel_enabled: Optional[int] = None     # Account-level sentinel switch 0/1
     mirror_enabled: Optional[int] = None       # 镜像模式开关 0/1
+    owner_user_id: Optional[int] = None        # 账户负责人（同团队用户）
 
 
 # ── Token 管理 ─────────────────────────────────────────────────────────────
@@ -1878,10 +2055,12 @@ def list_accounts(user=Depends(get_current_user)):
     rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name, a.currency, a.timezone, a.timezone_name, a.timezone_offset_hours_utc,
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
-               a.team_id, tm.name AS team_name,
+               a.team_id, tm.name AS team_name, a.owner_user_id,
+               COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name,
                a.balance, a.account_status, a.spend_cap, a.amount_spent, a.spending_limit,
                a.read_permission_status, a.read_permission_error, a.read_permission_checked_at,
                COALESCE(a.mirror_enabled, 0) as mirror_enabled,
+               COALESCE(a.sentinel_enabled, 0) as sentinel_enabled,
                COALESCE(a.warmup_state, '') as warmup_state,
                a.warmup_triggered_at, a.warmup_campaign_id,
                a.warmup_last_spend, a.warmup_last_checked_at,
@@ -1894,6 +2073,7 @@ def list_accounts(user=Depends(get_current_user)):
         LEFT JOIN fb_tokens t ON t.id = a.token_id
         LEFT JOIN tw_certified_pages tp ON tp.page_id = a.page_id
         LEFT JOIN teams tm ON tm.id = a.team_id
+        LEFT JOIN users ou ON ou.id = a.owner_user_id
         WHERE {' AND '.join(where)}
         ORDER BY a.created_at DESC
     """, params).fetchall()
@@ -1910,6 +2090,33 @@ def list_accounts(user=Depends(get_current_user)):
         GROUP BY p.act_id
     """, recent_params).fetchall():
         recent_spend_map[sr["act_id"]] = float(sr["recent_spend"] or 0)
+    recent_spend_source_map = {act_id: "local_perf_snapshots" for act_id in recent_spend_map.keys()}
+    recent_spend_error_map = {}
+    try:
+        from datetime import datetime as _datetime, timedelta as _timedelta
+        today_cst_date = (_datetime.utcnow() + _timedelta(hours=8)).date()
+        today_cst = today_cst_date.isoformat()
+        recent_since = (today_cst_date - _timedelta(days=3)).isoformat()
+        recent_api_accounts = []
+        for acc_row in rows:
+            act_id = acc_row["act_id"]
+            if float(recent_spend_map.get(act_id, 0) or 0) > 0:
+                continue
+            recent_api_accounts.append({
+                "act_id": act_id,
+                "currency": acc_row["currency"] or "USD",
+                "team_id": acc_row["team_id"],
+            })
+        for act_id, api_spend in _fetch_spend_for_accounts(
+            recent_api_accounts, recent_since, today_cst, max_workers=5
+        ).items():
+            if api_spend.get("ok") and float(api_spend.get("spend") or 0) > 0:
+                recent_spend_map[act_id] = float(api_spend.get("spend") or 0)
+                recent_spend_source_map[act_id] = "fb_insights_api"
+            elif not api_spend.get("ok"):
+                recent_spend_error_map[act_id] = api_spend.get("error") or "FB API 拉取失败"
+    except Exception as exc:
+        logger.warning("[Accounts] recent spend API supplement failed: %s", exc)
     all_tokens_map = {}
     token_where, token_params = ["1=1"], []
     apply_team_scope(token_where, token_params, user, "t.team_id", include_unassigned=False)
@@ -1986,6 +2193,8 @@ def list_accounts(user=Depends(get_current_user)):
             d['timezone_name'] = d.get('timezone', '')
         # 附带关联的所有 Token（来自 account_op_tokens，动态发现，管理号+操作号）
         d['recent_3d_snapshot_spend'] = recent_spend_map.get(d.get('act_id'), 0.0)
+        d['recent_3d_spend_source'] = recent_spend_source_map.get(d.get('act_id'), 'none')
+        d['recent_3d_spend_error'] = recent_spend_error_map.get(d.get('act_id'))
         d['linked_tokens'] = all_tokens_map.get(d.get('act_id'), [])
         active_linked_tokens = [
             t for t in d['linked_tokens']
@@ -2059,7 +2268,10 @@ def list_accounts(user=Depends(get_current_user)):
 
 @router.get("/spent-ids")
 def list_spent_account_ids(date: str, user=Depends(get_current_user)):
-    """Return visible account IDs that have local snapshot spend on the specified date."""
+    """Return visible account IDs that have spend on the specified date.
+
+    Prefer local perf_snapshots, then supplement missing accounts through FB Insights.
+    """
     from datetime import date as _date
     try:
         target_date = _date.fromisoformat(str(date or "").strip()).isoformat()
@@ -2069,6 +2281,14 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
     conn = get_conn()
     where, params = ["p.snapshot_date = ?"], [target_date]
     apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
+    snapshot_meta = conn.execute(f"""
+        SELECT COUNT(*) AS snapshot_rows,
+               COUNT(DISTINCT p.act_id) AS snapshot_accounts,
+               SUM(COALESCE(p.spend, 0)) AS snapshot_total_spend
+        FROM perf_snapshots p
+        JOIN accounts a ON a.act_id = p.act_id
+        WHERE {' AND '.join(where)}
+    """, params).fetchone()
     rows = conn.execute(f"""
         SELECT a.act_id, a.name, a.currency,
                SUM(COALESCE(p.spend, 0)) AS spend,
@@ -2080,6 +2300,14 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
         HAVING SUM(COALESCE(p.spend, 0)) > 0
         ORDER BY spend DESC, a.name ASC
     """, params).fetchall()
+    account_where, account_params = ["1=1"], []
+    apply_team_scope(account_where, account_params, user, "a.team_id", include_unassigned=False)
+    visible_accounts = conn.execute(f"""
+        SELECT a.act_id, a.name, a.currency, a.team_id
+        FROM accounts a
+        WHERE {' AND '.join(account_where)}
+        ORDER BY a.name ASC
+    """, account_params).fetchall()
     conn.close()
 
     items = []
@@ -2094,9 +2322,52 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
             "spend": float(r["spend"] or 0),
             "conversions": float(r["conversions"] or 0),
         })
+    local_positive = {i["act_id"] for i in items}
+    api_candidates = [
+        dict(acc)
+        for acc in visible_accounts
+        if acc["act_id"] not in local_positive
+    ]
+    api_results = _fetch_spend_for_accounts(api_candidates, target_date, target_date, max_workers=6)
+    api_errors = []
+    for act_id, api_spend in api_results.items():
+        if api_spend.get("ok") and float(api_spend.get("spend") or 0) > 0:
+            account_id = act_id[4:] if act_id.startswith("act_") else act_id
+            match = next((acc for acc in api_candidates if acc.get("act_id") == act_id), None) or {}
+            items.append({
+                "act_id": act_id,
+                "account_id": account_id,
+                "name": match.get("name") or act_id,
+                "currency": api_spend.get("currency") or match.get("currency") or "USD",
+                "spend": float(api_spend.get("spend") or 0),
+                "spend_orig": float(api_spend.get("spend_orig") or 0),
+                "conversions": float(api_spend.get("conversions") or 0),
+                "source": "fb_insights_api",
+            })
+        elif not api_spend.get("ok"):
+            api_errors.append({
+                "act_id": act_id,
+                "error": api_spend.get("error") or "FB API 拉取失败",
+            })
+
+    items.sort(key=lambda x: (-float(x.get("spend") or 0), x.get("name") or ""))
+    if api_results and rows:
+        source = "mixed"
+    elif api_results:
+        source = "fb_insights_api"
+    else:
+        source = "local_perf_snapshots"
     return {
         "date": target_date,
         "count": len(items),
+        "source": source,
+        "snapshot_rows": int(snapshot_meta["snapshot_rows"] or 0) if snapshot_meta else 0,
+        "snapshot_accounts": int(snapshot_meta["snapshot_accounts"] or 0) if snapshot_meta else 0,
+        "snapshot_total_spend": float(snapshot_meta["snapshot_total_spend"] or 0) if snapshot_meta else 0,
+        "visible_accounts": len(visible_accounts),
+        "api_checked": len(api_results),
+        "api_error_count": len(api_errors),
+        "api_errors": api_errors[:20],
         "account_ids": [i["account_id"] for i in items],
         "act_ids": [i["act_id"] for i in items],
         "items": items,
@@ -2107,6 +2378,7 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
 def update_account(account_id: int, body: AccountUpdate, user=Depends(get_current_user)):
     """更新账户信息"""
     conn = get_conn()
+    _ensure_account_read_columns(conn)
     assert_row_access(conn, "accounts", account_id, user, allow_unassigned=False)
     updates = []
     params = []
@@ -2170,6 +2442,12 @@ def update_account(account_id: int, body: AccountUpdate, user=Depends(get_curren
     if getattr(body, 'mirror_enabled', None) is not None:
         updates.append("mirror_enabled=?")
         params.append(1 if body.mirror_enabled else 0)
+    if getattr(body, 'sentinel_enabled', None) is not None:
+        updates.append("sentinel_enabled=?")
+        params.append(1 if body.sentinel_enabled else 0)
+    if getattr(body, 'owner_user_id', None) is not None:
+        updates.append("owner_user_id=?")
+        params.append(_validate_account_owner(conn, body.owner_user_id, account_id, user))
     if not updates:
         conn.close()
         raise HTTPException(400, "没有需要更新的字段")
@@ -2187,6 +2465,7 @@ def update_account(account_id: int, body: AccountUpdate, user=Depends(get_curren
 def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(get_current_user)):
     """通过 act_id 字符串更新账户配置（用于前端批量链接管理等场景）"""
     conn = get_conn()
+    _ensure_account_read_columns(conn)
     row = conn.execute("SELECT id FROM accounts WHERE act_id=?", (act_id_str,)).fetchone()
     if not row:
         conn.close()
@@ -2223,6 +2502,10 @@ def patch_account_by_act_id(act_id_str: str, body: AccountUpdate, user=Depends(g
         updates.append("target_objective_type=?"); params.append(body.target_objective_type)
     if getattr(body, 'mirror_enabled', None) is not None:
         updates.append("mirror_enabled=?"); params.append(1 if body.mirror_enabled else 0)
+    if getattr(body, 'sentinel_enabled', None) is not None:
+        updates.append("sentinel_enabled=?"); params.append(1 if body.sentinel_enabled else 0)
+    if getattr(body, 'owner_user_id', None) is not None:
+        updates.append("owner_user_id=?"); params.append(_validate_account_owner(conn, body.owner_user_id, account_id, user))
     if not updates:
         conn.close()
         raise HTTPException(400, "没有需要更新的字段")

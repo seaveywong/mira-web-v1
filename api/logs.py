@@ -14,6 +14,8 @@ def get_logs(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     keyword: Optional[str] = None,
+    trigger_type: Optional[str] = None,
+    owner_user_id: Optional[int] = None,
     limit: int = 200,
     offset: int = 0,
     user=Depends(get_current_user)
@@ -31,8 +33,12 @@ def get_logs(
         where.append("l.act_id=?"); params.append(act_id)
     if action_type:
         where.append("l.action_type=?"); params.append(action_type)
+    if trigger_type:
+        where.append("l.trigger_type=?"); params.append(trigger_type)
     if status:
         where.append("l.status=?"); params.append(status)
+    if owner_user_id:
+        where.append("a.owner_user_id=?"); params.append(owner_user_id)
     if date_from:
         where.append("date(l.created_at)>=?"); params.append(date_from)
     if date_to:
@@ -49,7 +55,8 @@ def get_logs(
         f"""SELECT l.*,
                COALESCE(a.name, l.act_id) as account_name,
                a.currency as account_currency,
-               a.timezone as account_timezone
+               a.timezone as account_timezone,
+               a.owner_user_id as account_owner_user_id
             FROM action_logs l
             LEFT JOIN accounts a ON a.act_id = l.act_id
             WHERE {' AND '.join(where)}
