@@ -1393,9 +1393,9 @@ def trigger_inspect(user=Depends(get_current_user)):
     try:
         if is_operator_user(user):
             uid = _uid(user)
-            engine.run_all(operator_uid=uid)
+            engine.run_all(operator_uid=uid, ignore_cooldown=True)
         else:
-            engine.run_all()
+            engine.run_all(ignore_cooldown=True)
         return {"message": "巡检完成"}
     except Exception as e:
         return {"message": f"巡检异常: {str(e)[:200]}"}
