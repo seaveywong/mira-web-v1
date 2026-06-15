@@ -270,10 +270,14 @@ def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
         # 区分错误类型
         err = result.get("error", {})
         code = err.get("code", 0)
+        subcode = err.get("error_subcode", 0)
         msg = _sanitize_error_text(err.get("message", str(result)))
         # 190=Token失效, 100=权限不足, 200=权限拒绝 -> 不重试，直接向上升级
         if code in (190, 100, 200, 294):
-            return False, f"权限拒绝(code={code}): {msg}"
+            suffix = ""
+            if subcode == 3498005:
+                suffix = " [Reels广告需升级到广告组操作]"
+            return False, f"权限拒绝(code={code}{suffix}): {msg}"
         return False, f"API错误(code={code}): {msg}"
     except requests.exceptions.RequestException as e:
         return False, f"网络错误: {e}"
