@@ -4648,7 +4648,7 @@ function renderTeamResourceSection(){
   '</div>' +
   '<div class="team-action-row">' +
   '<select class="fc" id="teamResAssignTeam" style="width:200px"><option value="">取消分配</option></select>' +
-  '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置归属</button>' +
+  '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置归属</button> <select class="fc" id="batchOwnerUid" style="width:180px"><option value="">批量设负责人</option></select> <button class="btn btn-p" onclick="batchAssignOwner()">确定</button>' +
   '<span id="teamResSummary" style="font-size:12px;color:var(--t3)"></span>' +
   '</div>' +
   '<div id="teamResourceWrap"><div style="color:var(--t3);font-size:13px">加载中...</div></div>' +
@@ -4657,6 +4657,8 @@ function renderTeamResourceSection(){
 
 function _teamResFillTeamOptions(teams){
  _teamResTeams = teams || [];
+ _teamResAllUsers = [];
+ (async function(){try{var ur=await api('GET','/users');_teamResAllUsers=ur.users||[];var sel=document.getElementById('batchOwnerUid');if(sel){sel.innerHTML='<option value="">批量设负责人</option>'+_teamResAllUsers.filter(function(u){return['admin','operator'].indexOf(u.role)>=0&&u.is_active}).map(function(u){return'<option value="'+u.id+'">'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('')}})();
  var filter = document.getElementById('teamResFilter');
  var assign = document.getElementById('teamResAssignTeam');
  var oldFilter = filter ? filter.value : 'all';
