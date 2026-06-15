@@ -165,6 +165,41 @@ def _team_account_act_ids(conn, user) -> list[str]:
     return [r["act_id"] for r in rows if r["act_id"]]
 
 
+def _target_cpa_preview(conn, act_id: str) -> list[dict]:
+    if not act_id or act_id in (GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID):
+        return []
+    try:
+        rows = conn.execute(
+            """SELECT level, target_id, kpi_field, kpi_label, target_cpa
+               FROM kpi_configs
+               WHERE act_id=? AND enabled=1
+                 AND target_cpa IS NOT NULL AND target_cpa > 0
+               ORDER BY CASE level
+                   WHEN 'ad' THEN 1
+                   WHEN 'adset' THEN 2
+                   WHEN 'campaign' THEN 3
+                   WHEN 'account' THEN 4
+                   ELSE 5 END,
+                   updated_at DESC
+               LIMIT 5""",
+            (act_id,),
+        ).fetchall()
+    except Exception:
+        return []
+
+    result = []
+    seen = set()
+    for row in rows:
+        key = (row["kpi_field"], row["target_cpa"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(row))
+        if len(result) >= 3:
+            break
+    return result
+
+
 def _guard_rule_row_or_404(conn, rule_id: int):
     _ensure_rule_scope_columns(conn)
     row = conn.execute("SELECT * FROM guard_rules WHERE id=?", (rule_id,)).fetchone()
@@ -270,7 +305,6 @@ def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user
                     "SELECT * FROM guard_rules WHERE scope=? AND owner_user_id=? ORDER BY id DESC",
                     (RULE_SCOPE_OWNER, uid),
                 ).fetchall())
-    conn.close()
     result = []
     seen = set()
     for r in rows:
@@ -280,7 +314,9 @@ def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user
         d = dict(r)
         d["scope"] = d.get("scope") or RULE_SCOPE_ACCOUNT
         d["scope_label"] = "名下全部账户" if d["scope"] == RULE_SCOPE_OWNER else "指定账户"
+        d["target_cpa_preview"] = _target_cpa_preview(conn, d.get("act_id", ""))
         result.append(d)
+    conn.close()
     return result
 
 
@@ -543,7 +579,6 @@ def list_scale_rules(act_id: Optional[str] = None, user=Depends(get_current_user
                     "SELECT * FROM scale_rules WHERE scope=? AND owner_user_id=? ORDER BY id DESC",
                     (RULE_SCOPE_OWNER, uid),
                 ).fetchall())
-    conn.close()
     result = []
     seen = set()
     for r in rows:
@@ -553,7 +588,9 @@ def list_scale_rules(act_id: Optional[str] = None, user=Depends(get_current_user
         d = dict(r)
         d["scope"] = d.get("scope") or RULE_SCOPE_ACCOUNT
         d["scope_label"] = "名下全部账户" if d["scope"] == RULE_SCOPE_OWNER else "指定账户"
+        d["target_cpa_preview"] = _target_cpa_preview(conn, d.get("act_id", ""))
         result.append(d)
+    conn.close()
     return result
 
 

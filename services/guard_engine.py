@@ -293,7 +293,8 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
         if delta_pct > 0:
             new_budget = min(new_budget, cur_budget * 3)
             if max_budget and float(max_budget) > 0:
-                max_budget_major = float(max_budget)
+                max_budget_usd = float(max_budget)
+                max_budget_major = max_budget_usd * _local_per_usd_rate(_budget_currency)
                 max_budget_api = max_budget_major if _is_no_decimal else max_budget_major * 100
                 if cur_budget >= max_budget_api:
                     old_display = cur_budget if _is_no_decimal else cur_budget / 100
@@ -1100,17 +1101,53 @@ def _load_alias_cache():
     except Exception as e:
         logger.warning(f"KPI别名缓存加载失败（非致命）: {e}")
 
+_KPI_UI_ALIAS_PRIORITY = {
+    "purchase": ["offsite_conversion.fb_pixel_purchase", "purchase"],
+    "offsite_conversion.fb_pixel_purchase": ["offsite_conversion.fb_pixel_purchase", "purchase"],
+    "leads": ["onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead", "lead"],
+    "lead": ["onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead", "lead"],
+    "offsite_conversion.fb_pixel_lead": ["offsite_conversion.fb_pixel_lead", "lead"],
+    "contact": ["offsite_conversion.fb_pixel_contact", "contact"],
+    "offsite_conversion.fb_pixel_contact": ["offsite_conversion.fb_pixel_contact", "contact"],
+    "messenger": [
+        "onsite_conversion.messaging_conversation_started_7d",
+        "onsite_conversion.messaging_first_reply",
+    ],
+    "traffic": ["link_click", "landing_page_view"],
+}
+
+
+def _sort_kpi_aliases_for_ui(kpi_field: str, aliases: list) -> list:
+    field = (kpi_field or "").strip()
+    priority = _KPI_UI_ALIAS_PRIORITY.get(field, [])
+    result = []
+    for item in list(priority) + list(aliases or []):
+        if item and item not in result:
+            result.append(item)
+    return result or ([field] if field else [])
+
+
+def _first_action_value_by_alias(actions: list, aliases: list) -> tuple[float, Optional[str]]:
+    for alias in aliases or []:
+        for action in actions or []:
+            if action.get("action_type") == alias:
+                try:
+                    return float(action.get("value", 0) or 0), alias
+                except (TypeError, ValueError):
+                    return 0.0, alias
+    return 0.0, None
+
 
 def _get_kpi_aliases(kpi_field: str) -> list:
     """获取标准别名列表（含自身），DB优先"""
     _load_alias_cache()
     std = _KPI_ALIAS_MAP_DB.get('standard', {})
     if kpi_field in std:
-        return std[kpi_field]
+        return _sort_kpi_aliases_for_ui(kpi_field, std[kpi_field])
     for kt, aliases in std.items():
         if kpi_field in aliases:
-            return aliases
-    return [kpi_field]
+            return _sort_kpi_aliases_for_ui(kt, aliases)
+    return _sort_kpi_aliases_for_ui(kpi_field, [kpi_field])
 
 
 def _get_kpi_fallback_aliases(kpi_field: str) -> list:
@@ -1155,11 +1192,10 @@ def _calc_conversions_with_audit(actions_raw: list, kpi_field: str, spend: float
     result['unknown_types'] = _detect_unknown_action_types(actions_raw)
 
     # 标准别名匹配
-    for a in actions_raw:
-        if a.get('action_type') in _get_kpi_aliases(kpi_field):
-            result['conversions'] = float(a.get('value', 0))
-            result['matched_action'] = a['action_type']
-            break
+    value, matched = _first_action_value_by_alias(actions_raw, _get_kpi_aliases(kpi_field))
+    if matched:
+        result['conversions'] = value
+        result['matched_action'] = matched
 
     # 默认严格贴近 Meta UI 选定目标：只统计标准目标字段。
     # 兜底别名容易把同一成效的不同口径或上游动作算进去，造成 UI 1 个、系统 7 个这类偏差。
@@ -1168,7 +1204,7 @@ def _calc_conversions_with_audit(actions_raw: list, kpi_field: str, spend: float
         fallback_aliases = _get_kpi_fallback_aliases(kpi_field)
         allow_fallback = _get_setting("kpi_allow_fallback_alias_count", "0") == "1"
         if fallback_aliases and allow_fallback:
-            for a in actions_raw:
+            for a in sorted(actions_raw, key=lambda x: fallback_aliases.index(x.get('action_type')) if x.get('action_type') in fallback_aliases else len(fallback_aliases)):
                 if a.get('action_type') in fallback_aliases:
                     result['conversions'] = float(a.get('value', 0))
                     result['matched_action'] = a['action_type']
@@ -1995,11 +2031,9 @@ class GuardEngine:
             cpa = (spend / conversions) if conversions > 0 else None  # USD CPA
 
             # 计算 ROAS（revenue 也需转换）
-            revenue_raw = 0.0
-            for av in action_values:
-                if av.get("action_type") in _get_kpi_aliases(kpi_field):
-                    revenue_raw = float(av.get("value", 0))
-                    break
+            revenue_raw, _revenue_action_type = _first_action_value_by_alias(
+                action_values, _get_kpi_aliases(kpi_field)
+            )
             revenue = _to_usd_guard(revenue_raw, account_currency)
             roas = (revenue / spend) if spend > 0 else None
 

@@ -85,7 +85,14 @@ def _get_team(conn, team_id: int | None, group_name: str | None) -> tuple[int | 
             raise HTTPException(status_code=400, detail="Team not found")
         return int(row["id"]), row["name"]
     if group_name and group_name.strip():
-        return _ensure_team(conn, group_name)
+        name = group_name.strip()
+        row = conn.execute("SELECT id, name FROM teams WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=400,
+                detail="Team not found; please create it in Team Management first",
+            )
+        return int(row["id"]), row["name"]
     raise HTTPException(status_code=400, detail="Team is required")
 
 

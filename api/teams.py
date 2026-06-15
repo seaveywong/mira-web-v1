@@ -461,10 +461,16 @@ def assign_resources(body: ResourceAssignBody, user=Depends(require_superadmin))
         team_name = team["name"]
 
     placeholders = ",".join(["?"] * len(ids))
-    conn.execute(
-        f"UPDATE {cfg['table']} SET team_id=? WHERE id IN ({placeholders})",
-        [body.team_id] + ids,
-    )
+    if body.kind == "accounts":
+        conn.execute(
+            f"UPDATE {cfg['table']} SET team_id=?, owner_user_id=NULL WHERE id IN ({placeholders})",
+            [body.team_id] + ids,
+        )
+    else:
+        conn.execute(
+            f"UPDATE {cfg['table']} SET team_id=? WHERE id IN ({placeholders})",
+            [body.team_id] + ids,
+        )
     changed = conn.execute("SELECT changes()").fetchone()[0]
     conn.commit()
     conn.close()

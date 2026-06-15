@@ -400,7 +400,8 @@ textarea.fc{resize:vertical;min-height:80px}
 .rc-icon.s{background:var(--okg)}
 .rc-body{flex:1;min-width:0}
 .rc-title{font-size:14px;font-weight:600;margin-bottom:4px}
-.rc-desc{font-size:12px;color:var(--t2)}
+.rc-desc{font-size:12px;color:var(--t2);line-height:1.55}
+.rule-explain{margin-top:6px;font-size:12px;color:var(--t2);line-height:1.55;background:rgba(10,132,255,.07);border:1px solid rgba(10,132,255,.16);border-radius:6px;padding:7px 9px}
 .rc-meta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
 .rc-acts{display:flex;align-items:center;gap:6px;flex-shrink:0}
 /* KPI card */
@@ -1537,6 +1538,7 @@ tr:last-child td{border-bottom:0!important}
 .content{padding:24px var(--ops-gutter) 42px!important}
 .page{width:100%!important;max-width:1480px!important;margin:0 auto!important}
 .page>.ph:first-child{
+ position:relative!important;top:auto!important;z-index:8!important;overflow:hidden!important;
  display:grid!important;grid-template-columns:minmax(260px,1fr) auto!important;align-items:end!important;gap:12px 20px!important;
  min-height:88px!important;margin:-24px calc(-1 * var(--ops-gutter)) 18px!important;padding:20px var(--ops-gutter) 16px!important;
  background:rgba(245,245,247,.94)!important;border-bottom:1px solid #dcdce2!important
@@ -3195,7 +3197,7 @@ select.fc option{background:#fff;color:#1d1d1f}
      <div class="fg"><label class="fl">加预算比例</label><input class="fc" id="sp_scale_pct" type="number" step="0.01" min="0.01" max="1" value="0.15"><div class="fh">0.15 = 每次加 15%，系统有冷却防重复触发</div></div>
     </div>
     <div class="fr">
-     <div class="fg"><label class="fl">广告组预算上限</label><input class="fc" id="sp_max_budget" type="number" step="0.01" min="0" placeholder="可选"><div class="fh">达到上限后不再继续拉量，按账户货币计算</div></div>
+     <div class="fg"><label class="fl">广告组预算上限 (USD)</label><input class="fc" id="sp_max_budget" type="number" step="0.01" min="0" placeholder="可选"><div class="fh">达到上限后不再继续拉量；系统按 USD 判断，并在写入 Meta 时换算为账户货币</div></div>
      <div class="fg"><label class="fl">ROAS 阈值</label><input class="fc" id="sp_roas_threshold" type="number" step="0.1" min="0" placeholder="可选"><div class="fh">填写后需同时满足 ROAS ≥ 此值</div></div>
     </div>
    </div>
@@ -11025,6 +11027,56 @@ function switchTab(tab){
  document.getElementById('guardPanel').style.display=tab==='guard'?'block':'none';
  var sp=document.getElementById('scalePanel');if(sp)sp.style.display=tab==='scale'?'block':'none';
 }
+function moneyUsd(v){
+ var n=parseFloat(v);
+ return isFinite(n)?('$'+n.toFixed(2)):'--';
+}
+function ratioPct(v,def){
+ var n=parseFloat(v);
+ if(!isFinite(n)||n<=0)n=def;
+ return (n*100).toFixed(0)+'%';
+}
+function firstTargetCpa(r){
+ var arr=(r&&r.target_cpa_preview)||[];
+ for(var i=0;i<arr.length;i++){
+  var n=parseFloat(arr[i]&&arr[i].target_cpa);
+  if(isFinite(n)&&n>0)return n;
+ }
+ return null;
+}
+function targetCpaLine(r,ratio,mode){
+ var def=mode==='scale'?0.8:1.3;
+ var n=parseFloat(ratio);
+ if(!isFinite(n)||n<=0)n=def;
+ var pct=ratioPct(n,def);
+ var target=firstTargetCpa(r);
+ if(target)return moneyUsd(target*n)+'（目标 '+moneyUsd(target)+' × '+pct+'）';
+ return '目标 CPA × '+pct+'（按每条广告当前 KPI 目标计算）';
+}
+function guardRuleExplain(r){
+ var actionMap={pause:'暂停广告',reduce_budget:'降低预算',alert_only:'仅预警',pause_adset:'暂停广告组',pause_campaign:'暂停系列'};
+ var act=actionMap[r.action]||r.action||'执行动作';
+ var ratio=parseFloat(r.param_ratio||1.3);
+ if(r.rule_type==='bleed_abs')return '当匹配广告消耗达到 '+moneyUsd(r.param_value||20)+' 且 KPI 转化为 0 时，执行：'+act+'。';
+ if(r.rule_type==='cpa_exceed'){
+  if(r.param_value)return '当实际 CPA 大于 '+moneyUsd(parseFloat(r.param_value||0)*ratio)+'（目标 '+moneyUsd(r.param_value)+' × '+ratioPct(ratio,1.3)+'）时，执行：'+act+'。';
+  return '当实际 CPA 大于 '+targetCpaLine(r,ratio,'guard')+' 时，执行：'+act+'。';
+ }
+ if(r.rule_type==='consecutive_bad')return '连续 '+(r.param_days||2)+' 天 CPA 大于 '+targetCpaLine(r,ratio,'guard')+' 时，执行：'+act+'。';
+ if(r.rule_type==='low_ctr_no_conv')return '当消耗达到 '+moneyUsd(r.param_value||10)+'、CTR 不高于 '+(r.param_ratio||0.5)+'% 且 KPI 转化为 0 时，执行：'+act+'。';
+ if(r.rule_type==='reach_no_conv')return '当覆盖达到 '+(r.param_value||1000)+'、消耗达到 '+moneyUsd(r.param_ratio||10)+' 且 KPI 转化为 0 时，执行：'+act+'。';
+ if(r.rule_type==='click_no_conv')return '当点击达到 '+(r.param_value||100)+' 且 KPI 转化为 0 时，执行：'+act+'。';
+ if(r.rule_type==='budget_burn_fast')return '当单次巡检发现消耗快速增加超过 '+moneyUsd(r.param_value||20)+' 时，执行：'+act+'。';
+ if(r.rule_type==='trend_drop')return '当 ROAS 或表现趋势跌幅达到 '+(r.param_value||40)+'% 时，执行：'+act+'。';
+ return '满足该规则条件时，执行：'+act+'。';
+}
+function scaleRuleExplain(r){
+ var ratio=parseFloat(r.cpa_ratio||0.8);
+ var line='当 CPA 不高于 '+targetCpaLine(r,ratio,'scale')+'、转化数 ≥ '+(r.min_conversions||3)+'、连续达标 '+(r.consecutive_days||1)+' 天时，加预算 '+ratioPct(r.scale_pct||0.15,0.15)+'。';
+ if(r.max_budget)line+=' 预算上限按 '+moneyUsd(r.max_budget)+' USD 判断，写入时自动换算账户货币。';
+ if(r.roas_threshold)line+=' 同时要求 ROAS ≥ '+r.roas_threshold+'。';
+ return line;
+}
 function renderGuard(rules){
  rules=(rules||[]).filter(function(r){return r.act_id!=='__global__'});
  window._guardRules=rules;
@@ -11042,7 +11094,8 @@ function renderGuard(rules){
   var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
   var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>'+kfiBadge;
   var cardStyle='';
-   return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(noteLabel?'<span style="font-size:11px;color:var(--t3)">'+escHtml(noteLabel)+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
+  var explain=guardRuleExplain(r);
+   return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rule-explain">'+escHtml(explain)+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(noteLabel?'<span style="font-size:11px;color:var(--t3)">'+escHtml(noteLabel)+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
  }
  el.innerHTML=rules.map(ruleCard).join('');
 }
@@ -11060,16 +11113,18 @@ function renderScale(rules){
   parts.push('转化 ≥ '+(r.min_conversions||3));
   parts.push('连续 '+(r.consecutive_days||1)+' 天');
   parts.push('加预算 '+pct(r.scale_pct||0.15));
-  if(r.max_budget)parts.push('上限 '+r.max_budget);
+  if(r.max_budget)parts.push('上限 '+moneyUsd(r.max_budget)+' USD');
   if(r.roas_threshold)parts.push('ROAS ≥ '+r.roas_threshold);
   var scopeLabel=r.scope_label||(r.scope==='owner'?'名下全部账户':'指定账户');
   var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(r.act_id||'指定账户');
   var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>';
   var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
   var cardStyle='';
+  var explain=scaleRuleExplain(r);
   return '<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body">'+
    '<div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div>'+
    '<div class="rc-desc">'+parts.join(' · ')+'</div>'+
+   '<div class="rule-explain">'+escHtml(explain)+'</div>'+
    '<div class="rc-meta"><span class="badge bg-ok">加预算</span>'+actBadge+(noteLabel?'<span style="font-size:11px;color:var(--t3)">'+escHtml(noteLabel)+'</span>':'')+'</div>'+
    '</div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleS('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑策略" onclick="editS('+r.id+')">编</button><button class="btn-ic d" title="删除策略" onclick="delS('+r.id+')">删</button></div></div>';
  }
