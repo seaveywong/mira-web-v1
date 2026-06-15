@@ -469,6 +469,31 @@ def _token_has_ads_management(token_id: Optional[int]) -> bool:
         pass
     return False
 
+
+# ── Token 权限告警（去重：同账户每小时最多一次）────────────────────────
+_TOKEN_ALERT_COOLDOWN = {}
+
+def _alert_no_pause_token(act_id: str, reason: str):
+    """Send TG alert when an account has no usable PAUSE token. Deduped per hour."""
+    import time as _time2
+    now = _time2.time()
+    last = _TOKEN_ALERT_COOLDOWN.get(act_id, 0)
+    if now - last < 3600:
+        return
+    _TOKEN_ALERT_COOLDOWN[act_id] = now
+    try:
+        from services.notifier import notify_account
+        notify_account(
+            act_id,
+            f"⚠️ <b>Mira 无法执行关闭操作</b>\\n"
+            f"账户：{act_id}\\n"
+            f"原因：{reason}\\n"
+            f"请在 Token 管理页更新 Token 权限或绑定操作号。",
+            event_type="guard"
+        )
+    except Exception:
+        pass
+
 def get_exec_token_candidates(
     act_id: str,
     action_type: str = ACTION_CREATE,
