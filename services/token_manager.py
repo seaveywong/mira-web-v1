@@ -448,6 +448,27 @@ def wait_for_token_slot_by_plain(
     return wait_seconds
 
 
+
+def _token_has_ads_management(token_id: Optional[int]) -> bool:
+    """Check if the token's cached permission_snapshot includes ads_management."""
+    if token_id is None:
+        return False
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT permission_snapshot FROM fb_tokens WHERE id=?",
+            (token_id,),
+        ).fetchone()
+        conn.close()
+        if row and row["permission_snapshot"]:
+            import json as _json2
+            snap = _json2.loads(row["permission_snapshot"])
+            status = snap.get("permission_status", {}).get("ads_management", "")
+            return status == "granted"
+    except Exception:
+        pass
+    return False
+
 def get_exec_token_candidates(
     act_id: str,
     action_type: str = ACTION_CREATE,
@@ -491,7 +512,16 @@ def get_exec_token_candidates(
     if action_type in (ACTION_PAUSE, ACTION_READ):
         manage = _get_manage_token(act_id)
         manage_candidate = None
+        manage_token_id = None
         if manage:
+            # Fetch token_id for permission check
+            try:
+                conn2 = get_conn()
+                trow = conn2.execute("SELECT id FROM fb_tokens WHERE access_token_enc=? LIMIT 1", (manage,)).fetchone()
+                conn2.close()
+                manage_token_id = trow["id"] if trow else None
+            except Exception:
+                manage_token_id = None
             manage_candidate = {
                 "token_id": None,
                 "token_plain": manage,
@@ -504,7 +534,13 @@ def get_exec_token_candidates(
         if action_type == ACTION_PAUSE:
             candidates = list(alive_candidates)
             if manage_candidate:
-                candidates.append(manage_candidate)
+                if _token_has_ads_management(manage_token_id):
+                    candidates.append(manage_candidate)
+                else:
+                    logger.warning(
+                        f"[TokenManager] 账户 {act_id} 管理号缺少 ads_management 权限，"
+                        f"无法用于 PAUSE 操作。请在 Token 管理页点击验证更新权限后重试。"
+                    )
             if candidates and alive_candidates and reserve:
                 with _selection_lock:
                     _reserve_token_locked(alive_candidates[0])
