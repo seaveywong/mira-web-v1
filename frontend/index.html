@@ -4695,7 +4695,7 @@ function _renderTeamResources(kind){
   '<th style="width:34px;padding:8px;text-align:left"><input type="checkbox" onchange="toggleTeamResourceChecks(this.checked)"></th>' +
   '<th style="padding:8px;text-align:left">资源</th>' +
   '<th style="padding:8px;text-align:left">当前团队</th>' +
-  (kind==='accounts'?'<th style="padding:8px;text-align:left">负责人</th>':'')+
+  (kind==='accounts'||kind==='tokens'?'<th style="padding:8px;text-align:left">负责人</th>':'')+
   '<th style="padding:8px;text-align:right">操作</th>' +
   '</tr></thead><tbody>';
  _teamResItems.forEach(function(item){
@@ -4713,7 +4713,7 @@ function _renderTeamResources(kind){
    '<td style="padding:8px">'+team+'</td>' +
    ownerCell +
    '<td style="padding:8px;text-align:right">'+
-   (kind==='accounts'?'<button class="btn btn-g btn-sm" style="margin-right:6px" onclick="openAccountOwnerModal('+item.id+')">负责人</button>':'')+
+   (kind==='accounts'?'<button class="btn btn-g btn-sm" style="margin-right:6px" onclick="openAccountOwnerModal('+item.id+')">负责人</button>':(kind==='tokens'?'<button class="btn btn-g btn-sm" style="margin-right:6px" onclick="openTokenOwnerModal('+item.id+')">负责人</button>':''))+
    '<button class="btn btn-g btn-sm" onclick="selectSingleTeamResource('+item.id+')">选择</button></td>' +
    '</tr>';
  });
