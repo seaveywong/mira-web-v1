@@ -122,29 +122,6 @@ _FX_RATES = {
 }
 
 
-def _to_usd_guard(amount: float, currency: str) -> float:
-    """修复: 将任意货币金额转换为USD
-    优先从 currency_rates 数据库读取实时汇率，如果数据库无数据则回退到静态表
-    """
-    if amount is None:
-        return 0.0
-    cur = (currency or "USD").upper().strip()
-    if cur == "USD":
-        return float(amount)
-    # 优先查询数据库实时汇率
-    try:
-        _conn = get_conn()
-        _row = _conn.execute(
-            "SELECT rate FROM currency_rates WHERE currency=?", (cur,)
-        ).fetchone()
-        _conn.close()
-        if _row and _row["rate"]:
-            return float(amount) / float(_row["rate"])  # currency_rates 存的是 1USD=X货币
-    except Exception:
-        pass
-    # 备用静态表
-    rate = _FX_RATES.get(cur, 1.0)
-    return float(amount) * rate
 
 
 def _db_rate_to_usd_multiplier(currency: str, raw_rate) -> Optional[float]:
