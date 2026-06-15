@@ -260,9 +260,10 @@ def _fb_get(path: str, token: str, params: dict = None,
 
 def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
     """执行FB写操作，返回 (成功, 错误原因)"""
-    data["access_token"] = token
+    import urllib.parse
+    url = f"{FB_API_BASE}/{path}?access_token={urllib.parse.quote(token, safe='')}"
     try:
-        resp = requests.post(f"{FB_API_BASE}/{path}", data=data, timeout=20)
+        resp = requests.post(url, data=data, timeout=20)
         result = resp.json()
         if resp.status_code == 200 and result.get("success"):
             return True, ""
