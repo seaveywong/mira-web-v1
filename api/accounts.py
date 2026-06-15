@@ -1195,6 +1195,8 @@ def list_tokens(user=Depends(get_current_user)):
     _ensure_fb_token_permission_columns(conn)
     where, params = ["1=1"], []
     apply_team_scope(where, params, user, "t.team_id", include_unassigned=False)
+    from core.tenancy import apply_account_owner_scope as _apply_token_owner
+    _apply_token_owner(where, params, user, "t.owner_user_id")
     rows = conn.execute(f"""
         SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
                t.last_verified_at, t.note, t.created_at, t.matrix_id,
@@ -1246,7 +1248,7 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
     cursor = conn.execute(
         """INSERT INTO fb_tokens (
                token_alias, access_token_enc, token_type, token_source, status,
-               last_verified_at, note, matrix_id, permission_snapshot, permission_checked_at, team_id
+               last_verified_at, note, matrix_id, permission_snapshot, permission_checked_at, team_id, owner_user_id
            ) VALUES (?,?,?,?,?,datetime('now','+8 hours'),?,?,?,datetime('now','+8 hours'),?)""",
         (body.token_alias, enc,
          actual_type_for_insert,
@@ -1254,7 +1256,8 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
          "active", body.note or "",
          body.matrix_id if actual_type_for_insert == "operate" else None,
          permission_snapshot_json,
-         resource_team_id)
+         resource_team_id,
+         _owner_id_for_token(user) if actual_type_for_insert != 'operate' else None)
     )
     token_id = cursor.lastrowid
     conn.commit()
