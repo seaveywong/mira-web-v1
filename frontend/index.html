@@ -4290,7 +4290,7 @@ function renderTeamOverviewSection(teams){
 }
 
 function jumpTeamResources(teamId){
- if(!hasRole('superadmin')) return;
+ if(!hasRole('admin')) return;
  var kindEl=document.getElementById('teamResKind');
  var filterEl=document.getElementById('teamResFilter');
  if(kindEl)kindEl.value='accounts';
@@ -4635,7 +4635,7 @@ var _teamResItems = [];
 var _teamResTeams = [];
 
 function renderTeamResourceSection(){
- if(!hasRole('superadmin')) return '';
+ if(!hasRole('admin')) return '';
  var kindOpts = _teamResKinds.map(function(k){return '<option value="'+k[0]+'">'+k[1]+'</option>';}).join('');
  return '<div class="ss role-superadmin-only">' +
   '<div class="ss-title">团队资源分配 <span style="font-size:12px;font-weight:400;color:var(--t3)">补齐资源归属，团队用户按归属查看和操作</span></div>' +
@@ -4722,7 +4722,7 @@ function _renderTeamResources(kind){
 }
 
 async function loadTeamResources(){
- if(!hasRole('superadmin')) return;
+ if(!hasRole('admin')) return;
  var kindEl = document.getElementById('teamResKind');
  var filterEl = document.getElementById('teamResFilter');
  var keywordEl = document.getElementById('teamResKeyword');
