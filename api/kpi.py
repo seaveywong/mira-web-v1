@@ -724,8 +724,10 @@ def _run_ai_enhance(act_id: str):
     if not rows:
         return  # 没有需要分析的记录
 
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key, base_url=api_base)
+    from services.ai_advisor import get_ai_client
+    client, model_name = get_ai_client()
+    if not client:
+        raise HTTPException(500, "AI 客户端初始化失败")
     BATCH_SIZE = 15
     FIELD_RE = re.compile(r'^[a-z][a-z0-9_.]{2,80}$')
     AUXILIARY_FIELDS = {"post_engagement", "page_engagement", "video_view", "reach", "impressions", "link_click"}
@@ -1160,46 +1162,47 @@ def get_kpi_trace(ad_id: str, user=Depends(get_current_user)):
 def _ai_analyze_unknown_type(action_type: str, sample_ads: list) -> dict:
     """调用 AI 分析未知 action_type 应归属的 KPI 类型"""
     import json
-    conn = get_conn()
-    ai_enabled = conn.execute("SELECT value FROM settings WHERE key='ai_enabled'").fetchone()
-    ai_api_key = conn.execute("SELECT value FROM settings WHERE key='ai_api_key'").fetchone()
-    ai_api_base = conn.execute("SELECT value FROM settings WHERE key='ai_api_base'").fetchone()
-    ai_model = conn.execute("SELECT value FROM settings WHERE key='ai_model'").fetchone()
-    conn.close()
-
-    if not ai_enabled or ai_enabled["value"] != "1" or not ai_api_key or not ai_api_key["value"]:
+    from services.ai_advisor import is_ai_enabled
+    if not is_ai_enabled():
         return {"suggested_kpi_type": None, "confidence": None, "reason": "AI 未启用"}
-
-    api_key = ai_api_key["value"]
-    api_base = (ai_api_base["value"] if ai_api_base and ai_api_base["value"] else "https://api.deepseek.com/v1")
-    model = (ai_model["value"] if ai_model and ai_model["value"] else "deepseek-chat")
 
     prompt = (
         "你是一个 Facebook 广告 KPI 映射专家。分析以下 FB action_type 应归属哪个 KPI 类型。\n\n"
-        "已知 KPI 类型:\n"
-        "- purchase: 购物/购买类转化 (标准事件: purchase, offsite_conversion.fb_pixel_purchase)\n"
-        "- lead: 线索/潜在客户类转化 (标准事件: lead, offsite_conversion.fb_pixel_lead, onsite_conversion.lead_grouped)\n"
-        "- contact: 联系类转化 (标准事件: contact, offsite_conversion.fb_pixel_contact)\n\n"
+        "已知 KPI 类型（与系统 UI 完全一致）:\n"
+        "- purchase: 购物/购买类转化 (purchase, offsite_conversion.fb_pixel_purchase, add_to_cart, initiate_checkout)\n"
+        "- lead: 线索/潜在客户 (lead, offsite_conversion.fb_pixel_lead, onsite_conversion.lead_grouped, signup, subscribe)\n"
+        "- contact: 联系/沟通类 (contact, offsite_conversion.fb_pixel_contact, phone, email, message)\n"
+        "- messenger: 私信类 (onsite_conversion.messaging_conversation_started_7d, messaging_block, messaging_conversation)\n"
+        "- traffic: 流量/访问类 (link_click, landing_page_view, view_content, offsite_conversion.fb_pixel_view_content)\n"
+        "- engagement: 互动类 (post_engagement, page_engagement, photo_view, video_view, like, comment, share)\n"
+        "- app_install: 应用安装 (app_install, mobile_app_install, offsite_conversion.fb_pixel_app_install)\n"
+        "- registration: 注册/报名 (registration, complete_registration, offsite_conversion.fb_pixel_complete_registration)\n\n"
         "分析规则:\n"
-        "1. 包含 purchase/buy/checkout/order/add_to_cart → purchase\n"
-        "2. 包含 lead/signup/register/subscribe/form → lead\n"
+        "1. 包含 purchase/buy/checkout/order/add_to_cart/initiate_checkout/payment → purchase\n"
+        "2. 包含 lead/signup/subscribe/form/lead_grouped → lead\n"
         "3. 包含 contact/phone/email/message/call → contact\n"
-        "4. 包含 custom/自定义 → 查看 sample_ads 的上下文推测\n"
-        "5. 包含 view/like/share/engagement → 非主要转化事件，但可归类为 contact\n"
-        "6. 无法判断 → 返回 null\n\n"
+        "4. 包含 messenger/messaging_conversation/messaging_block/whatsapp → messenger\n"
+        "5. 包含 link_click/landing_page_view/view_content/page_view → traffic\n"
+        "6. 包含 engagement/like/share/comment/video_view/photo_view/post → engagement\n"
+        "7. 包含 app_install/mobile_app/install → app_install\n"
+        "8. 包含 registration/complete_registration/register → registration\n"
+        "9. 包含 custom/自定义 → 查看 sample_ads 的上下文推测\n"
+        "10. 无法判断 → 返回 null\n\n"
         f"待分析 action_type: {action_type}\n"
         f"示例广告 ID: {json.dumps(sample_ads[:5])}\n\n"
         "请返回 JSON (只返回 JSON，不要其他文字):\n"
-        '{"suggested_kpi_type": "purchase"|"lead"|"contact"|null, '
+        '{"suggested_kpi_type": "purchase"|"lead"|"contact"|"messenger"|"traffic"|"engagement"|"app_install"|"registration"|null, '
         '"confidence": "high"|"medium"|"low", '
         '"reason": "简短原因"}'
     )
 
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url=api_base)
+        from services.ai_advisor import get_ai_client
+        client, model_name = get_ai_client()
+        if not client:
+            return {"suggested_kpi_type": None, "confidence": None, "reason": "AI 客户端初始化失败"}
         resp = client.chat.completions.create(
-            model=model,
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=200

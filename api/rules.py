@@ -429,7 +429,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "bleed_abs",
             "label": "空成效止血",
-            "desc": "消耗超过X元且KPI转化=0时，自动暂停广告。适合防止新广告乱烧钱。",
+            "desc": "消耗 ≥ $止血线 且 零转化 → 暂停。例如设置$20，当广告消费≥$20且无转化时触发。适合快速阻断无效消耗。",
             "params": [
                 {"key": "param_value", "label": "止血金额(USD)", "type": "number", "default": 20, "required": True}
             ]
@@ -437,7 +437,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "cpa_exceed",
             "label": "CPA超标止损",
-            "desc": "当CPA超过设定阈值的N倍时，自动暂停或降预算。设置「目标CPA」后，规则会将实际CPA与「目标CPA×超标倍数」进行比较。",
+            "desc": "CPA > 目标×超标倍数 → 暂停。例如目标$10、倍数1.3，当CPA>$13时触发。设置「目标CPA」后按此逻辑判断。",
             "params": [
                 {"key": "param_value", "label": "目标CPA(USD)", "type": "number", "default": None, "required": True,
                  "hint": "设定一个绝对CPA阈值，如 40 表示目标CPA为$40"},
@@ -448,7 +448,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "trend_drop",
             "label": "ROAS趋势熔断",
-            "desc": "当ROAS相比昨日跌幅超过X%时，触发熔断暂停。",
+            "desc": "ROAS跌幅 > X% → 熔断暂停。例如设置40%，当ROAS比昨天下跌超过40%时触发。趋势逆转时自动保护。",
             "params": [
                 {"key": "param_value", "label": "跌幅阈值(%)", "type": "number", "default": 40, "required": True}
             ]
@@ -456,7 +456,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "consecutive_bad",
             "label": "连续恶化止损",
-            "desc": "连续N天CPA超标，自动暂停。适合识别持续表现差的广告。",
+            "desc": "连续N天CPA > 目标×倍数 → 暂停。例如2天、1.3倍，则连续2天实际CPA超过目标×1.3时触发。防止持续恶化。",
             "params": [
                 {"key": "param_value", "label": "目标CPA(USD)", "type": "number", "default": None, "required": True,
                  "hint": "设定一个绝对CPA阈值，如 40 表示目标CPA为$40"},
@@ -468,7 +468,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "click_no_conv",
             "label": "高频点击无转化预警",
-            "desc": "点击数超过X且KPI转化=0，发送预警通知（不自动暂停）。",
+            "desc": "点击 ≥ X 且 零转化 → 预警。例如设置100，点击≥100次但无转化时发送通知。过滤无效点击流量。",
             "params": [
                 {"key": "param_value", "label": "点击数阈值", "type": "number", "default": 100, "required": True}
             ]
@@ -476,7 +476,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "low_ctr_no_conv",
             "label": "低CTR空转止损",
-            "desc": "消耗达到阈值后，如果CTR过低且KPI转化为0，则触发预警或暂停。适合识别素材/受众不匹配。",
+            "desc": "消耗 ≥ $X + CTR ≤ Y% + 零转化 → 暂停。例如$10+0.5%，消费≥$10且CTR≤0.5%且无转化时触发。剔除低质流量。",
             "params": [
                 {"key": "param_value", "label": "最低消耗(USD)", "type": "number", "default": 10, "required": True},
                 {"key": "param_ratio", "label": "最高CTR(%)", "type": "number", "default": 0.5, "required": True}
@@ -485,7 +485,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "reach_no_conv",
             "label": "高覆盖无转化止损",
-            "desc": "覆盖人数达到阈值且已有一定消耗，但KPI转化仍为0时触发。适合识别放量后无反馈的广告。",
+            "desc": "覆盖 ≥ X + 消耗 ≥ $Y + 零转化 → 暂停。例如1000+$10，覆盖≥1000、消费≥$10且无转化时触发。大曝光零转化止损。",
             "params": [
                 {"key": "param_value", "label": "覆盖人数阈值", "type": "number", "default": 1000, "required": True},
                 {"key": "param_ratio", "label": "最低消耗(USD)", "type": "number", "default": 10, "required": True}
@@ -494,7 +494,7 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "budget_burn_fast",
             "label": "瞬烧制止",
-            "desc": "单次巡棄周期内消耗增量超过X元时，触发预警或暂停。适合防止瞬间大量烧预算。",
+            "desc": "单次巡检消耗增量 > $X → 暂停。例如$20，两次巡检间消耗增加超过$20时触发。防止预算异常快速消耗。",
             "params": [
                 {"key": "param_value", "label": "单周期最大允许消耗增量(USD)", "type": "number", "default": 20, "required": True,
                  "hint": "两次巡棄之间消耗增加超过此值则触发，如 20 表示单周期增加超过$20就触发"}
@@ -514,19 +514,19 @@ def get_rule_types(user=Depends(get_current_user)):
         {
             "value": "slow_scale",
             "label": "稳健拉量",
-            "desc": "CPA 达标且有稳定转化后，按较小比例提升广告组日预算。",
+            "desc": "CPA≤目标80%+连续2天+≥3转化 → 每次+15%预算",
             "defaults": {"cpa_ratio": 0.8, "min_conversions": 3, "consecutive_days": 2, "scale_pct": 0.15}
         },
         {
             "value": "fast_scale",
             "label": "快速拉量",
-            "desc": "适合已验证素材和受众，转化充足时用更高比例加预算。",
+            "desc": "CPA≤目标70%+连续1天+≥5转化 → 每次+25%预算",
             "defaults": {"cpa_ratio": 0.7, "min_conversions": 5, "consecutive_days": 1, "scale_pct": 0.25}
         },
         {
             "value": "roas_scale",
             "label": "ROAS 拉量",
-            "desc": "ROAS 达到阈值且转化充足时加预算，适合购物类广告。",
+            "desc": "CPA≤目标90%+ROAS≥3.0+≥3转化 → 每次+20%预算",
             "defaults": {"cpa_ratio": 0.9, "min_conversions": 3, "consecutive_days": 1, "scale_pct": 0.2, "roas_threshold": 3.0}
         },
     ]
