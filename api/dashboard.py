@@ -1386,20 +1386,33 @@ def get_ads(
 
 @router.post("/trigger-inspect")
 def trigger_inspect(user=Depends(get_current_user)):
+    import threading, time as _t
     from services.guard_engine import GuardEngine
     from core.tenancy import is_operator_user, user_id as _uid
 
-    engine = GuardEngine()
-    try:
-        if is_operator_user(user):
-            uid = _uid(user)
-            engine.run_all(operator_uid=uid, ignore_cooldown=True)
-        else:
-            engine.run_all(ignore_cooldown=True)
-        return {"message": "巡检完成"}
-    except Exception as e:
-        return {"message": f"巡检异常: {str(e)[:200]}"}
+    uid = _uid(user) if is_operator_user(user) else None
+    key = str(uid) if uid else "all"
 
+    def run():
+        try:
+            engine = GuardEngine()
+            if uid:
+                engine.run_all(operator_uid=uid, ignore_cooldown=True)
+            else:
+                engine.run_all(ignore_cooldown=True)
+            _LAST_INSPECT[key] = {"status": "done", "error": None, "ts": _t.time()}
+        except Exception as e:
+            _LAST_INSPECT[key] = {"status": "error", "error": str(e)[:200], "ts": _t.time()}
+
+    _LAST_INSPECT[key] = {"status": "running", "error": None, "ts": _t.time()}
+    threading.Thread(target=run, daemon=True).start()
+    return {"message": "巡检已触发", "status": "running"}
+
+_LAST_INSPECT = {}
+
+@router.get("/trigger-inspect/status")
+def inspect_status():
+    return _LAST_INSPECT
 
 @router.get("/stats")
 def get_stats(user=Depends(get_current_user)):
