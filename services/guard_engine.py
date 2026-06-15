@@ -2250,6 +2250,8 @@ def _get_engagement_settings() -> dict:
                 "kpi_field": kpi_field,
                 "target_cpa": target_cpa,
                 "account_currency": account_currency,
+                "objective": camp_obj,
+                "created_time": ad.get("created_time", ""),
             }
 
     def _mirror_patrol(self, account: dict):
