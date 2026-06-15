@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user
 from core.database import get_conn
-from core.tenancy import assert_row_access
+from core.tenancy import assert_row_access, claim_row_for_team
 from services.token_manager import (
     ensure_token_source_columns,
     get_op_token_status,

@@ -20,7 +20,14 @@ from core.account_access import (
     mark_account_read_failure,
     mark_account_read_success,
 )
-from core.tenancy import apply_team_scope, assert_row_access, claim_row_for_team, team_id_for_create
+from core.tenancy import (
+    apply_team_scope,
+    assert_row_access,
+    claim_row_for_team,
+    is_operator_user,
+    team_id_for_create,
+    user_id,
+)
 from services.token_manager import (
     ALLOWED_TOKEN_SOURCES,
     TOKEN_SOURCE_SYSTEM_USER,
@@ -38,6 +45,19 @@ router = APIRouter()
 def _require_operator_user(user) -> None:
     if not isinstance(user, dict) or user.get("role") not in ("superadmin", "admin", "operator"):
         raise HTTPException(status_code=403, detail="Operator permission required")
+
+
+def _apply_account_owner_scope(where: list[str], params: list, user: dict, alias: str = "a") -> None:
+    if is_operator_user(user):
+        column = f"{alias}.owner_user_id" if alias else "owner_user_id"
+        where.append(f"{column}=?")
+        params.append(user_id(user))
+
+
+def _owner_user_id_for_import(user: dict) -> Optional[int]:
+    if is_operator_user(user):
+        return user_id(user)
+    return None
 
 _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
 _UNLIMITED_SPEND_CAP_USD = 1_000_000.0
@@ -142,6 +162,7 @@ def _ensure_spend_retention_schema(conn) -> None:
            account_name TEXT,
            currency TEXT DEFAULT 'USD',
            team_id INTEGER,
+           owner_user_id INTEGER,
            spend REAL DEFAULT 0,
            conversions REAL DEFAULT 0,
            removed_at TEXT DEFAULT (datetime('now','+8 hours')),
@@ -149,8 +170,12 @@ def _ensure_spend_retention_schema(conn) -> None:
            UNIQUE(snapshot_date, act_id)
         )"""
     )
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(account_spend_retention)").fetchall()}
+    if "owner_user_id" not in cols:
+        conn.execute("ALTER TABLE account_spend_retention ADD COLUMN owner_user_id INTEGER")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_spend_retention_date ON account_spend_retention(snapshot_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_spend_retention_team_date ON account_spend_retention(team_id, snapshot_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_spend_retention_team_owner_date ON account_spend_retention(team_id, owner_user_id, snapshot_date)")
     conn.execute(
         """INSERT OR IGNORE INTO settings(key,value,label,description,category,sort_order)
            VALUES ('spend_retention_days','180','消耗历史留存天数',
@@ -163,7 +188,7 @@ def _ensure_spend_retention_schema(conn) -> None:
 def _archive_account_spend_history(conn, account_id: int) -> None:
     _ensure_spend_retention_schema(conn)
     row = conn.execute(
-        "SELECT id, act_id, name, currency, team_id FROM accounts WHERE id=?",
+        "SELECT id, act_id, name, currency, team_id, owner_user_id FROM accounts WHERE id=?",
         (account_id,),
     ).fetchone()
     if not row:
@@ -172,9 +197,9 @@ def _archive_account_spend_history(conn, account_id: int) -> None:
     plain_id = act_id[4:] if str(act_id or "").startswith("act_") else act_id
     conn.execute(
         """INSERT INTO account_spend_retention
-           (snapshot_date, act_id, account_id, account_name, currency, team_id,
+           (snapshot_date, act_id, account_id, account_name, currency, team_id, owner_user_id,
             spend, conversions, removed_at, source)
-           SELECT p.snapshot_date, p.act_id, ?, ?, ?, ?,
+           SELECT p.snapshot_date, p.act_id, ?, ?, ?, ?, ?,
                   SUM(COALESCE(p.spend, 0)),
                   SUM(COALESCE(p.conversions, 0)),
                   datetime('now','+8 hours'),
@@ -187,11 +212,12 @@ def _archive_account_spend_history(conn, account_id: int) -> None:
              account_name=excluded.account_name,
              currency=excluded.currency,
              team_id=excluded.team_id,
+             owner_user_id=excluded.owner_user_id,
              spend=excluded.spend,
              conversions=excluded.conversions,
              removed_at=excluded.removed_at,
              source=excluded.source""",
-        (plain_id, row["name"] or act_id, row["currency"] or "USD", row["team_id"], act_id),
+        (plain_id, row["name"] or act_id, row["currency"] or "USD", row["team_id"], row["owner_user_id"], act_id),
     )
 _SPEND_API_CACHE_TTL_SECONDS = 120
 
@@ -1527,8 +1553,10 @@ def verify_token_now(token_id: int, user=Depends(get_current_user)):
     claim_row_for_team(conn, "fb_tokens", "id", token_id, user)
     account_where, account_params = ["token_id=?"], [token_id]
     apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=False)
+    _apply_account_owner_scope(account_where, account_params, user, "")
     op_scope_where, op_scope_params = ["a.act_id=account_op_tokens.act_id"], []
     apply_team_scope(op_scope_where, op_scope_params, user, "a.team_id", include_unassigned=False)
+    _apply_account_owner_scope(op_scope_where, op_scope_params, user, "a")
     op_scope_sql = (
         "token_id=? AND EXISTS ("
         f"SELECT 1 FROM accounts a WHERE {' AND '.join(op_scope_where)}"
@@ -1682,8 +1710,10 @@ def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
 
     # FB API调用完毕后，再开数据库连接
     conn = get_conn()
+    _ensure_account_read_columns(conn)
     imported_where, imported_params = [], []
     apply_team_scope(imported_where, imported_params, user, "team_id", include_unassigned=False)
+    _apply_account_owner_scope(imported_where, imported_params, user, "")
     imported_clause = ("WHERE " + " AND ".join(imported_where)) if imported_where else ""
     imported = {
         r["act_id"]
@@ -1906,12 +1936,13 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
 
     conn = get_conn()
     team_blocked_act_ids = set()
+    import_owner_user_id = _owner_user_id_for_import(user)
     try:
         _ensure_account_read_columns(conn)
         # 获取已存在的账户
         existing_rows = {
             r["act_id"]: dict(r)
-            for r in conn.execute("SELECT id, act_id, team_id FROM accounts").fetchall()
+            for r in conn.execute("SELECT id, act_id, team_id, owner_user_id FROM accounts").fetchall()
         }
 
         for act_id in act_ids:
@@ -1926,10 +1957,34 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                     failed.append({"act_id": act_id, "error": "该账户已归属其他团队，请联系超级管理员处理"})
                     team_blocked_act_ids.add(act_id)
                     continue
+                existing_owner_id = existing.get("owner_user_id")
+                if (
+                    import_owner_user_id is not None
+                    and existing_owner_id is not None
+                    and int(existing_owner_id) != import_owner_user_id
+                ):
+                    failed.append({"act_id": act_id, "error": "Account belongs to another operator"})
+                    continue
+                updates = []
+                update_params = []
                 if resource_team_id is not None and existing_team_id is None:
+                    updates.append("team_id=?")
+                    update_params.append(resource_team_id)
+                    updates.append("token_id=COALESCE(token_id,?)")
+                    update_params.append(token_id)
+                if (
+                    import_owner_user_id is not None
+                    and existing_owner_id is None
+                    and act_id in successful_act_ids
+                ):
+                    updates.append("owner_user_id=?")
+                    update_params.append(import_owner_user_id)
+                if updates:
+                    updates.append("updated_at=datetime('now')")
+                    update_params.append(existing["id"])
                     conn.execute(
-                        "UPDATE accounts SET team_id=?, token_id=COALESCE(token_id,?), updated_at=datetime('now') WHERE id=?",
-                        (resource_team_id, token_id, existing["id"]),
+                        f"UPDATE accounts SET {', '.join(updates)} WHERE id=?",
+                        update_params,
                     )
                 skipped.append(act_id)
                 continue
@@ -1941,9 +1996,9 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                 """INSERT INTO accounts (
                        act_id, name, currency, timezone, timezone_name, timezone_offset_hours_utc,
                        token_id, enabled, balance, account_status, spend_cap, page_id, pixel_id,
-                       amount_spent, spending_limit, team_id
+                       amount_spent, spending_limit, team_id, owner_user_id
                    )
-                   VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
                 (
                     act_id,
                     info.get("name", act_id),
@@ -1960,6 +2015,7 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
                     info.get("amount_spent"),
                     info.get("spending_limit"),
                     resource_team_id,
+                    import_owner_user_id,
                 )
             )
             imported.append({
@@ -2122,6 +2178,7 @@ def list_accounts(user=Depends(get_current_user)):
     _ensure_account_read_columns(conn)
     where, params = ["1=1"], []
     apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
+    _apply_account_owner_scope(where, params, user, "a")
     rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name, a.currency, a.timezone, a.timezone_name, a.timezone_offset_hours_utc,
                a.enabled, a.note, a.page_id, a.pixel_id, a.beneficiary, a.payer, a.tw_advertiser_id, a.created_at,
@@ -2151,6 +2208,7 @@ def list_accounts(user=Depends(get_current_user)):
     recent_spend_map = {}
     recent_where, recent_params = [], []
     apply_team_scope(recent_where, recent_params, user, "a.team_id", include_unassigned=False)
+    _apply_account_owner_scope(recent_where, recent_params, user, "a")
     recent_scope_sql = (" AND " + " AND ".join(recent_where)) if recent_where else ""
     for sr in conn.execute(f"""
         SELECT p.act_id, SUM(COALESCE(p.spend, 0)) AS recent_spend
@@ -2190,6 +2248,7 @@ def list_accounts(user=Depends(get_current_user)):
     all_tokens_map = {}
     token_where, token_params = ["1=1"], []
     apply_team_scope(token_where, token_params, user, "t.team_id", include_unassigned=False)
+    _apply_account_owner_scope(token_where, token_params, user, "acc")
     all_token_rows = conn.execute(f"""
         SELECT aot.act_id, t.id as token_id, t.token_alias, t.token_type, t.token_source,
                t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
@@ -2352,6 +2411,7 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
     _ensure_spend_retention_schema(conn)
     where, params = ["p.snapshot_date = ?"], [target_date]
     apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
+    _apply_account_owner_scope(where, params, user, "a")
     snapshot_meta = conn.execute(f"""
         SELECT COUNT(*) AS snapshot_rows,
                COUNT(DISTINCT p.act_id) AS snapshot_accounts,
@@ -2389,6 +2449,7 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
     if not is_superadmin(user):
         retention_where.append("r.team_id=?")
         retention_params.append(team_id_for_create(user))
+    _apply_account_owner_scope(retention_where, retention_params, user, "r")
     retention_meta = conn.execute(f"""
         SELECT COUNT(*) AS retention_rows,
                COUNT(DISTINCT r.act_id) AS retention_accounts,
@@ -2408,6 +2469,7 @@ def list_spent_account_ids(date: str, user=Depends(get_current_user)):
     """, retention_params).fetchall()
     account_where, account_params = ["1=1"], []
     apply_team_scope(account_where, account_params, user, "a.team_id", include_unassigned=False)
+    _apply_account_owner_scope(account_where, account_params, user, "a")
     visible_accounts = conn.execute(f"""
         SELECT a.act_id, a.name, a.currency, a.team_id
         FROM accounts a
@@ -2776,6 +2838,7 @@ def sync_all_accounts_status(user=Depends(get_current_user)):
     _ensure_account_read_columns(conn)
     where, params = [], []
     apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
+    _apply_account_owner_scope(where, params, user, "a")
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(f"""
         SELECT a.id, a.act_id, a.name
@@ -5008,6 +5071,7 @@ async def export_account_config(
     try:
         where, params = [], []
         apply_team_scope(where, params, current_user, "team_id", include_unassigned=False)
+        _apply_account_owner_scope(where, params, current_user, "")
         where_clause = (" WHERE " + " AND ".join(where)) if where else ""
         rows = conn.execute(
             "SELECT act_id, name, target_countries, target_age_min, target_age_max, "

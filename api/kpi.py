@@ -12,7 +12,7 @@ from typing import Optional, List
 
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
-from core.tenancy import apply_team_scope, assert_row_access
+from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row_access
 
 router = APIRouter()
 
@@ -298,6 +298,7 @@ def list_kpi_configs(act_id: Optional[str] = None, level: Optional[str] = None,
         params.append(level)
     scope_where, scope_params = [], []
     apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=False)
+    apply_account_owner_scope(scope_where, scope_params, user, "a.owner_user_id")
     if scope_where:
         query += " AND " + " AND ".join(scope_where)
         params.extend(scope_params)
@@ -322,6 +323,7 @@ def get_kpi_summary(act_id: Optional[str] = None, user=Depends(get_current_user)
         params.append(act_id)
     scope_where, scope_params = [], []
     apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=False)
+    apply_account_owner_scope(scope_where, scope_params, user, "a.owner_user_id")
     if scope_where:
         where += " AND " + " AND ".join(scope_where)
         params.extend(scope_params)

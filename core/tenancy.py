@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 
-from core.auth import is_superadmin
+from core.auth import is_superadmin, normalize_user_claims
 
 
 def _row_get(row, key: str, index: int = 0):
@@ -84,10 +84,38 @@ def apply_team_scope(where: list[str], params: list, user: dict, column: str = "
         params.extend(scope_params)
 
 
+def is_operator_user(user: dict) -> bool:
+    return normalize_user_claims(user).get("role") == "operator"
+
+
+def user_id(user: dict) -> int:
+    try:
+        return int(normalize_user_claims(user).get("uid"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=403, detail="Current user id is invalid")
+
+
+def apply_account_owner_scope(where: list[str], params: list, user: dict, column: str = "owner_user_id"):
+    """Restrict account-backed resources to the current operator's own accounts."""
+    if is_operator_user(user):
+        where.append(f"{column}=?")
+        params.append(user_id(user))
+
+
 def assert_row_access(conn, table: str, row_id: int, user: dict, id_column: str = "id", allow_unassigned: bool = True):
     """Raise 404/403 unless the current user can access a row with team_id."""
+    has_owner_column = False
+    select_cols = f"{id_column}, team_id"
+    if table == "accounts":
+        try:
+            account_cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+            has_owner_column = "owner_user_id" in account_cols
+        except Exception:
+            has_owner_column = False
+        if has_owner_column:
+            select_cols += ", owner_user_id"
     row = conn.execute(
-        f"SELECT {id_column}, team_id FROM {table} WHERE {id_column}=?",
+        f"SELECT {select_cols} FROM {table} WHERE {id_column}=?",
         (row_id,),
     ).fetchone()
     if not row:
@@ -96,6 +124,13 @@ def assert_row_access(conn, table: str, row_id: int, user: dict, id_column: str 
         return row
     team_id = team_id_for_create(user)
     row_team_id = row["team_id"]
-    if row_team_id == team_id or (allow_unassigned and row_team_id is None):
-        return row
-    raise HTTPException(status_code=403, detail="Resource belongs to another team")
+    team_allowed = row_team_id == team_id or (allow_unassigned and row_team_id is None)
+    if not team_allowed:
+        raise HTTPException(status_code=403, detail="Resource belongs to another team")
+    if table == "accounts" and has_owner_column and is_operator_user(user):
+        owner_user_id = row["owner_user_id"]
+        if owner_user_id is None:
+            raise HTTPException(status_code=403, detail="Account is not assigned to current operator")
+        if int(owner_user_id) != user_id(user):
+            raise HTTPException(status_code=403, detail="Account belongs to another operator")
+    return row

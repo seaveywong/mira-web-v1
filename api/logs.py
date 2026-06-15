@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from typing import Optional
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
-from core.tenancy import team_id_for_create
+from core.tenancy import apply_account_owner_scope, team_id_for_create
 
 router = APIRouter()
 
@@ -29,6 +29,7 @@ def get_logs(
             "OR (a.act_id IS NOT NULL AND a.team_id=?))"
         )
         params.append(team_id)
+    apply_account_owner_scope(where, params, user, "a.owner_user_id")
     if act_id:
         where.append("l.act_id=?"); params.append(act_id)
     if action_type:

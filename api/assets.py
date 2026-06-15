@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from core.auth import get_current_user
 from core.database import get_conn
-from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
+from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row_access, team_id_for_create
 
 
 # ── Facebook 广告合规要求(所有目的通用)──
@@ -1758,6 +1758,7 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
         account_params = list(act_ids)
         if user is not None:
             apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=False)
+            apply_account_owner_scope(account_where, account_params, user, "owner_user_id")
         rows = conn.execute(
             f"SELECT act_id,name,enabled,account_status,page_id,pixel_id,landing_url FROM accounts WHERE {' AND '.join(account_where)}",
             account_params,
@@ -2203,6 +2204,7 @@ def search_accounts(
     ]
     params = [keyword, keyword]
     apply_team_scope(where, params, user, "team_id", include_unassigned=False)
+    apply_account_owner_scope(where, params, user, "owner_user_id")
     rows = conn.execute(
         f"""SELECT act_id, name, currency, account_status, balance, timezone
            FROM accounts

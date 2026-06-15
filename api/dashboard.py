@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
 from core.account_access import is_read_blocking_status, note_account_read_failure, note_account_read_success
-from core.tenancy import apply_team_scope, assert_row_access
+from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row_access
 from datetime import date, timedelta, datetime
 import requests as req
 import time
@@ -39,6 +39,7 @@ def _fetch_visible_accounts(conn, user, act_id: Optional[str] = None):
         where.append("act_id=?")
         params.append(act_id)
     apply_team_scope(where, params, user, "team_id", include_unassigned=False)
+    apply_account_owner_scope(where, params, user, "owner_user_id")
     sql = "SELECT * FROM accounts"
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -1356,6 +1357,7 @@ def get_ads(
     where_date = "p.snapshot_date BETWEEN ? AND ?" if df != dt else "p.snapshot_date = ?"
     scope_where, scope_params = [], []
     apply_team_scope(scope_where, scope_params, user, "a.team_id", include_unassigned=False)
+    apply_account_owner_scope(scope_where, scope_params, user, "a.owner_user_id")
     if act_id:
         assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
         rows = conn.execute(
@@ -1399,6 +1401,8 @@ def get_stats(user=Depends(get_current_user)):
     conn = get_conn()
     where, params = [], []
     apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
+    apply_account_owner_scope(where, params, user, "a.owner_user_id")
+    apply_account_owner_scope(where, params, user, "a.owner_user_id")
     scope_sql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         f"""SELECT p.* FROM perf_snapshots p
@@ -1595,6 +1599,7 @@ def get_default_cpa(act_id: Optional[str] = None, user=Depends(get_current_user)
     else:
         where, params = [], []
         apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
+        apply_account_owner_scope(where, params, user, "a.owner_user_id")
         scope_sql = (" AND " + " AND ".join(where)) if where else ""
         rows = conn.execute(
             f"""SELECT k.* FROM kpi_configs k

@@ -21,39 +21,6 @@ DEFAULT_OWNER_STOPLOSS_RULES = [
 ]
 
 
-def backfill_unowned_accounts_to_single_operator(conn) -> int:
-    """Assign legacy unowned accounts when a team has exactly one active operator."""
-    account_cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
-    if "owner_user_id" not in account_cols or "team_id" not in account_cols:
-        return 0
-    teams = conn.execute(
-        """SELECT team_id, COUNT(*) AS operator_count, MAX(id) AS operator_id
-           FROM users
-           WHERE role='operator'
-             AND COALESCE(is_active, 1)=1
-             AND team_id IS NOT NULL
-           GROUP BY team_id
-           HAVING COUNT(*)=1"""
-    ).fetchall()
-    updated = 0
-    has_updated_at = "updated_at" in account_cols
-    for team in teams:
-        if has_updated_at:
-            cur = conn.execute(
-                """UPDATE accounts
-                   SET owner_user_id=?, updated_at=datetime('now','+8 hours')
-                   WHERE team_id=? AND owner_user_id IS NULL""",
-                (team["operator_id"], team["team_id"]),
-            )
-        else:
-            cur = conn.execute(
-                "UPDATE accounts SET owner_user_id=? WHERE team_id=? AND owner_user_id IS NULL",
-                (team["operator_id"], team["team_id"]),
-            )
-        updated += cur.rowcount or 0
-    return updated
-
-
 def ensure_rule_scope_schema(conn) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(guard_rules)").fetchall()}
     if "scope" not in cols:
@@ -102,7 +69,6 @@ def ensure_operator_default_stoploss_rules() -> dict:
     created = 0
     try:
         ensure_rule_scope_schema(conn)
-        backfilled_accounts = backfill_unowned_accounts_to_single_operator(conn)
         users = conn.execute(
             """SELECT id, username, team_id
                FROM users
@@ -159,4 +125,4 @@ def ensure_operator_default_stoploss_rules() -> dict:
         conn.commit()
     finally:
         conn.close()
-    return {"created": created, "backfilled_accounts": backfilled_accounts}
+    return {"created": created}
