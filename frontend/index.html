@@ -4684,6 +4684,9 @@ function _teamResMain(item, kind){
 
 function _renderTeamResources(kind){
  var wrap = document.getElementById('teamResourceWrap');
+ // Populate batch owner dropdown
+ if(!_teamResAllUsers||!_teamResAllUsers.length){try{var ur=await api('GET','/users');_teamResAllUsers=ur.users||[]}catch(e){} }
+ var bos=document.getElementById('batchOwnerUid'); if(bos)bos.innerHTML='<option value="">批量设负责人</option>'+(_teamResAllUsers||[]).filter(function(u){return['admin','operator'].indexOf(u.role)>=0&&u.is_active}).map(function(u){return'<option value="'+u.id+'">'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('');
  if(!wrap) return;
  if(!_teamResItems.length){
   wrap.innerHTML = '<div class="team-resource-empty">暂无资源</div>';
@@ -4730,6 +4733,9 @@ async function loadTeamResources(){
  var teamFilter = filterEl ? filterEl.value : 'all';
  var keyword = keywordEl ? keywordEl.value.trim() : '';
  var wrap = document.getElementById('teamResourceWrap');
+ // Populate batch owner dropdown
+ if(!_teamResAllUsers||!_teamResAllUsers.length){try{var ur=await api('GET','/users');_teamResAllUsers=ur.users||[]}catch(e){} }
+ var bos=document.getElementById('batchOwnerUid'); if(bos)bos.innerHTML='<option value="">批量设负责人</option>'+(_teamResAllUsers||[]).filter(function(u){return['admin','operator'].indexOf(u.role)>=0&&u.is_active}).map(function(u){return'<option value="'+u.id+'">'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('');
  if(wrap) wrap.innerHTML = '<div style="color:var(--t3);font-size:13px">加载中...</div>';
  try{
   var qs = '?kind='+encodeURIComponent(kind)+'&team_id='+encodeURIComponent(teamFilter)+'&keyword='+encodeURIComponent(keyword)+'&limit=300';
@@ -4792,7 +4798,27 @@ async function openTokenOwnerModal(tokenId){
 }
 async function saveTokenOwner(tokenId){
  var ownerId=parseInt((document.getElementById('tokenOwnerUid')||{}).value||'0',10)||0;
- try{await api('PATCH','/accounts/tokens/'+tokenId+'/owner',{owner_user_id:ownerId||null});toast('Token负责人已保存','ok');closeModal('moTokenOwner');loadTeamResources()}catch(e){toast('保存失败：'+(e.message||e),'er')}
+ try{await api('PATCH','/accounts/tokens/'+tokenId+'/owner',{owner_user_id:ownerId||null});toast('Token负责人已保存','ok');closeModal('moTokenOwner');await loadTeamResources()}catch(e){toast('保存失败：'+(e.message||e),'er')}
+}
+
+async function batchAssignOwner(){
+ var ids=Array.prototype.slice.call(document.querySelectorAll('.team-res-check:checked')).map(function(el){return parseInt(el.value,10)}).filter(Boolean);
+ if(!ids.length){toast('请勾选资源','wa');return}
+ var kind=(document.getElementById('teamResKind')||{}).value||'accounts';
+ var ownerId=parseInt((document.getElementById('batchOwnerUid')||{}).value||'0',10)||null;
+ if(!ownerId){toast('请选择负责人','wa');return}
+ var ok=await confirmAsync('确定将选中的 '+ids.length+' 个'+kind+' 分配给该负责人？','确定','取消','批量设负责人');
+ if(!ok)return;
+ var done=0,errs=[];
+ for(var i=0;i<ids.length;i++){
+  try{
+   if(kind==='tokens')await api('PATCH','/accounts/tokens/'+ids[i]+'/owner',{owner_user_id:ownerId});
+   else await api('PUT','/accounts/'+ids[i],{owner_user_id:ownerId});
+   done++
+  }catch(e){errs.push(e.message)}
+ }
+ toast('完成 '+done+'/'+ids.length+(errs.length?'，失败 '+errs.length+' 个':''),errs.length?'wa':'ok');
+ loadTeamResources()
 }
 
 async function saveAccountOwner(accountId){
