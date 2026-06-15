@@ -21,6 +21,35 @@
 
 ---
 
+## v3.11.15 - 2026-06-15 - fix: 死代码清理 + KPI AI识别增强 + 规则说明具体化
+
+### Fixed
+1. 删除 launch_engine.py 中重复的 _ai_gen_lead_form_content（~124行死代码，被第二个同名函数永久覆盖，实际是 _ai_gen_msg_template 的复制品）
+
+2. KPI AI 未知类型识别从3类扩展为8类：purchase/lead/contact/messenger/traffic/engagement/app_install/registration，与系统UI KPI类型完全一致
+
+3. KPI模块AI调用集中化：_ai_analyze_unknown_type 和 _run_ai_enhancement 统一使用 ai_advisor.get_ai_client() 和 is_ai_enabled()，不再各自创建OpenAI客户端
+
+4. 所有止损/拉量规则类型添加具体触发说明（含金额示例）：
+   - 止损规则：每条显示触发条件 + 金额示例（如「消耗 ≥ 0 且零转化 → 暂停」）
+   - 拉量策略：每条显示完整触发链（如「CPA≤目标80%+连续2天+≥3转化 → 每次+15%预算」）
+   - 前端规则卡片已包含 guardRuleExplain()/scaleRuleExplain() 动态说明
+
+5. 版本号统一：APP_VERSION + 前端3处显示 3.2.1/3.3.0 → 3.11.15
+
+6. Default Team 不再自动创建（db_migrate_v6.py 已在 v3.11.14 修复）
+
+7. 广告组预算上限确认已按USD计算（前端标签和提示已更新）
+
+### Files Changed
+1. services/launch_engine.py (-124 lines dead code)
+2. api/kpi.py (KPI AI 8-type + ai_advisor centralization)
+3. api/rules.py (rule descriptions with concrete amounts)
+4. core/app_meta.py (version 3.2.1 → 3.11.15)
+5. frontend/index.html (version strings + scale descs + CPA format)
+
+---
+
 ## v3.10.8 - 2026-05-30 - fix: OUTCOME_LEADS 目标不创建 Lead Form
 
 ### Fixed

@@ -355,6 +355,7 @@ tr:hover td{background:var(--bgh)}
 .fc::placeholder{color:var(--t3)}
 textarea.fc{resize:vertical;min-height:80px}
 .fh{font-size:11px;color:var(--t3);margin-top:5px}
+.rule-preview{margin-top:12px;padding:10px 14px;background:rgba(10,132,255,.07);border:1px solid rgba(10,132,255,.2);border-radius:8px;font-size:13px;color:var(--t1);line-height:1.55;font-weight:500}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:600px){.fr{grid-template-columns:1fr}}
 /* Toggle */
@@ -3150,7 +3151,7 @@ select.fc option{background:#fff;color:#1d1d1f}
   <div class="mh"><h3 id="ruleMTitle">添加止损规则</h3><button class="mc" onclick="closeModal('moAddRule')">✕</button></div>
   <div class="mb">
    <div class="fr">
-    <div class="fg"><label class="fl">账户 <span style="color:var(--t4);font-size:11px;font-weight:400">（不选=当前运营名下全部账户）</span></label><select class="fc" id="ruleAct" onchange="onRuleActChange()"></select></div>
+    <div class="fg"><label class="fl">账户 <span style="color:var(--t4);font-size:11px;font-weight:400">（不选=当前运营名下全部账户）</span></label><select class="fc" id="ruleAct" onchange="onRuleActChange();updateGuardPreview();updateScalePreview()"></select></div>
     <div class="fg"><label class="fl">规则名称</label><input class="fc" id="ruleName" placeholder="可选，便于识别"></div>
    </div>
    <!-- KPI配置状态提示 -->
@@ -3159,8 +3160,9 @@ select.fc option{background:#fff;color:#1d1d1f}
    <div id="guardFields">
     <div class="fg"><label class="fl">规则类型 <span class="req">*</span></label><select class="fc" id="guardType" onchange="onGuardType()"></select><div class="rtd" id="guardDesc"></div></div>
     <div id="guardParams"></div>
+    <div id="guardPreview" class="rule-preview" style="display:none"></div>
     <div class="fg"><label class="fl">触发动作 <span class="req">*</span></label>
-     <select class="fc" id="guardAction">
+     <select class="fc" id="guardAction" onchange="updateGuardPreview()">
       <option value="pause">暂停广告（失败自动向上升级）</option>
       <option value="reduce_budget">降低预算 20%</option>
       <option value="alert_only">仅发送预警（不操作）</option>
@@ -3170,7 +3172,7 @@ select.fc option{background:#fff;color:#1d1d1f}
     </div>
     <div class="fg">
      <label class="fl">KPI类型筛选 <span style="color:var(--t4);font-size:11px;font-weight:400">（仅对匹配类型的广告生效，留空=全部）</span></label>
-     <select class="fc" id="gp_kpi_filter">
+     <select class="fc" id="gp_kpi_filter" onchange="updateGuardPreview();updateScalePreview()">
       <option value="">全部广告（不限类型）</option>
       <option value="messenger">私信对话 (Messenger)</option>
       <option value="purchase">像素购买 (Purchase)</option>
@@ -3189,16 +3191,16 @@ select.fc option{background:#fff;color:#1d1d1f}
    <div id="scaleFields" style="display:none">
     <div class="fg"><label class="fl">策略类型 <span class="req">*</span></label><select class="fc" id="scaleType" onchange="onScaleType()"></select><div class="rtd" id="scaleDesc"></div></div>
     <div class="fr">
-     <div class="fg"><label class="fl">CPA 达标比例</label><input class="fc" id="sp_cpa_ratio" type="number" step="0.05" min="0.1" max="2" value="0.8"><div class="fh">实际 CPA ≤ 目标 CPA × 此比例才拉量，例如 0.8 表示低于目标 80%</div></div>
-     <div class="fg"><label class="fl">最低转化数</label><input class="fc" id="sp_min_conversions" type="number" min="1" step="1" value="3"><div class="fh">当天转化至少达到此数量</div></div>
+     <div class="fg"><label class="fl">CPA 达标比例</label><input class="fc" id="sp_cpa_ratio" type="number" step="0.05" min="0.1" max="2" value="0.8" oninput="updateScalePreview()"><div class="fh">实际 CPA ≤ 目标 CPA × 此比例才拉量，例如 0.8 表示低于目标 80%</div></div>
+     <div class="fg"><label class="fl">最低转化数</label><input class="fc" id="sp_min_conversions" type="number" min="1" step="1" value="3" oninput="updateScalePreview()"><div class="fh">当天转化至少达到此数量</div></div>
     </div>
     <div class="fr">
-     <div class="fg"><label class="fl">连续达标天数</label><input class="fc" id="sp_consecutive_days" type="number" min="1" step="1" value="2"><div class="fh">设置 1 表示只看当天</div></div>
-     <div class="fg"><label class="fl">加预算比例</label><input class="fc" id="sp_scale_pct" type="number" step="0.01" min="0.01" max="1" value="0.15"><div class="fh">0.15 = 每次加 15%，系统有冷却防重复触发</div></div>
+     <div class="fg"><label class="fl">连续达标天数</label><input class="fc" id="sp_consecutive_days" type="number" min="1" step="1" value="2" oninput="updateScalePreview()"><div class="fh">设置 1 表示只看当天</div></div>
+     <div class="fg"><label class="fl">加预算比例</label><input class="fc" id="sp_scale_pct" type="number" step="0.01" min="0.01" max="1" value="0.15" oninput="updateScalePreview()"><div class="fh">0.15 = 每次加 15%，系统有冷却防重复触发</div></div>
     </div>
     <div class="fr">
-     <div class="fg"><label class="fl">广告组预算上限 (USD)</label><input class="fc" id="sp_max_budget" type="number" step="0.01" min="0" placeholder="可选"><div class="fh">达到上限后不再继续拉量；系统按 USD 判断，并在写入 Meta 时换算为账户货币</div></div>
-     <div class="fg"><label class="fl">ROAS 阈值</label><input class="fc" id="sp_roas_threshold" type="number" step="0.1" min="0" placeholder="可选"><div class="fh">填写后需同时满足 ROAS ≥ 此值</div></div>
+     <div class="fg"><label class="fl">广告组预算上限 (USD)</label><input class="fc" id="sp_max_budget" type="number" step="0.01" min="0" placeholder="可选" oninput="updateScalePreview()"><div class="fh">达到上限后不再继续拉量；系统按 USD 判断，并在写入 Meta 时换算为账户货币</div></div>
+     <div class="fg"><label class="fl">ROAS 阈值</label><input class="fc" id="sp_roas_threshold" type="number" step="0.1" min="0" placeholder="可选" oninput="updateScalePreview()"><div class="fh">填写后需同时满足 ROAS ≥ 此值</div></div>
     </div>
    </div>
    <div class="fg"><label class="fl">备注</label><input class="fc" id="ruleNote" placeholder="可选"></div>
@@ -5669,6 +5671,7 @@ function renderTopAds(ads){
   var _srcBadge=a.source==='manual'?'<span style="font-size:10px;color:var(--t3);margin-left:4px">人工</span>':a.source==='ai'?'<span style="font-size:10px;color:#7c6fcd;margin-left:4px">AI</span>':a.source?'<span style="font-size:10px;color:var(--t3);margin-left:4px">自动</span>':'';
   var kpiSt=a.kpi_field?(a.cpa&&a.target_cpa?(a.cpa<=a.target_cpa?'<span class="badge bg-ok">达标</span>':a.cpa<=a.target_cpa*1.3?'<span class="badge bg-wa">偏高</span>':'<span class="badge bg-er">超标</span>')+'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+_kpiLabel+'</div>':'<span class="badge bg-ac" style="font-size:11px">'+_kpiLabel+'</span>'+_srcBadge+(a.target_cpa?'':'<div style="font-size:10px;color:var(--t3)">未设CPA</div>')):'<span class="badge bg-mu">未设目标</span>';  return'<tr><td><div class="td-name" title="'+_esc(a.ad_name)+'">'+ _esc(a.ad_name)+'</div><div class="td-id">'+a.ad_id+'</div></td><td><span style="font-weight:500;font-size:13px">'+_esc(a.account_name||a.act_id)+'</span><br><span class="td-id">'+a.act_id+'</span></td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0).toFixed(0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">未设</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td></tr>';
  }).join('');
+ updateGuardPreview();
 }
 
 // ── 止损明细弹窗 ──
@@ -6850,6 +6853,7 @@ function buildTokenPermissionBadges(t){
   var icon=status==='granted'?'✓':status==='missing'?'×':'?';
   return'<span class="badge" title="'+detail+'" style="'+style+'">'+icon+' '+label+'</span>';
  }).join('');
+ updateGuardPreview();
 }
 function buildTokenPermissionSummary(t){
  var snap=getTokenPermissionSnapshot(t);
@@ -8569,6 +8573,7 @@ function renderAssetsList(assets){
    '<div style="margin-top:10px">'+_renderAssetGroupPreview(items,groupId)+'</div>'+
   '</details>';
  }).join('');
+ updateGuardPreview();
 }
 // 待上传的文件暂存
 var _pendingUploadFiles=null;
@@ -9260,6 +9265,7 @@ function _initLaunchCountryBtns(){
   var style='margin:0;'+(on?'background:var(--ac);color:#fff;border-color:var(--ac)':'');
   return '<button class="btn-sm" style="'+style+'" onclick="_toggleLaunchCountry(\''+cc+'\')" id="lcb_'+cc+'">'+cc+'</button>';
  }).join('');
+ updateGuardPreview();
 }
 function _toggleLaunchCountry(cc){
  var inp=document.getElementById('launchCountries');
@@ -10723,6 +10729,7 @@ function renderKpiList(){
    '</div>'+
    '</div>';
  }).join('');
+ updateGuardPreview();
 }
 
 function showAddKpi(){
@@ -11098,6 +11105,7 @@ function renderGuard(rules){
    return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rule-explain">'+escHtml(explain)+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(noteLabel?'<span style="font-size:11px;color:var(--t3)">'+escHtml(noteLabel)+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
  }
  el.innerHTML=rules.map(ruleCard).join('');
+ updateGuardPreview();
 }
 function renderScale(rules){
  rules=(rules||[]).filter(function(r){return r.act_id!=='__global__'});
@@ -11129,6 +11137,7 @@ function renderScale(rules){
    '</div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleS('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑策略" onclick="editS('+r.id+')">编</button><button class="btn-ic d" title="删除策略" onclick="delS('+r.id+')">删</button></div></div>';
  }
  el.innerHTML=rules.map(card).join('');
+ updateGuardPreview();
 }
 function showAddRule(mode, opts){
  opts=opts||{};
@@ -11181,6 +11190,56 @@ async function onRuleActChange(){
   hint.style.display='none';
  }
 }
+function updateGuardPreview(){
+ var type=(document.getElementById('guardType')||{}).value||'';
+ var d=rulesMeta.guard_types&&rulesMeta.guard_types.find(function(t){return t.value===type});
+ var el=document.getElementById('guardPreview');
+ if(!el||!d){if(el)el.style.display='none';return}
+ el.style.display='block';
+ var scopeVal=(document.getElementById('ruleAct')||{}).value||'';
+ var scopeLabel=scopeVal==='__owner__'?'名下全部账户':(scopeVal?'指定账户':'账户级');
+ var kpiMap={purchase:'购物类',leads:'线索类',messenger:'私信类',traffic:'流量类',engagement:'互动类',contact:'联系类',other:'其他'};
+ var kpiVal=(document.getElementById('gp_kpi_filter')||{}).value||'';
+ var kpiLabel=kpiMap[kpiVal]||'全部类型';
+ var actionMap={pause:'暂停广告',reduce_budget:'降预算',alert_only:'仅预警',pause_adset:'暂停广告组',pause_campaign:'暂停系列'};
+ var actionLabel=actionMap[(document.getElementById('guardAction')||{}).value||'pause'];
+ function gv(key,def){var inp=document.getElementById('gp_'+key);return inp&&inp.value!==''?parseFloat(inp.value):def}
+ var val=gv('param_value',0);
+ var ratio=gv('param_ratio',0);
+ var days=gv('param_days',2);
+ var preview='';
+ if(type==='bleed_abs'){preview=scopeLabel+' · '+kpiLabel+'：费用 ≥ $'+val.toFixed(2)+' 且转化=0 → '+actionLabel}
+ else if(type==='cpa_exceed'){var e=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：CPA > $'+e.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）→ '+actionLabel}
+ else if(type==='consecutive_bad'){var e2=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：连续'+days+'天 CPA > $'+e2.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）→ '+actionLabel}
+ else if(type==='click_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：点击 ≥ '+val.toFixed(0)+' 且转化=0 → '+actionLabel}
+ else if(type==='low_ctr_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：消耗 ≥ $'+val.toFixed(2)+' + CTR ≤ '+ratio.toFixed(2)+'% + 转化=0 → '+actionLabel}
+ else if(type==='reach_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：覆盖 ≥ '+val.toFixed(0)+' + 消耗 ≥ $'+ratio.toFixed(2)+' + 转化=0 → '+actionLabel}
+ else if(type==='budget_burn_fast'){preview=scopeLabel+' · '+kpiLabel+'：单次巡检消耗增量 > $'+val.toFixed(2)+' → '+actionLabel}
+ else if(type==='trend_drop'){preview=scopeLabel+' · '+kpiLabel+'：ROAS跌幅 > '+val.toFixed(0)+'% → '+actionLabel}
+ else{preview=scopeLabel+' · '+kpiLabel+'：选择规则类型查看预览'}
+ el.textContent=preview;
+}
+function updateScalePreview(){
+ var type=(document.getElementById('scaleType')||{}).value||'';
+ var el=document.getElementById('scalePreview');
+ if(!el||!type){if(el)el.style.display='none';return}
+ el.style.display='block';
+ var scopeVal=(document.getElementById('ruleAct')||{}).value||'';
+ var scopeLabel=scopeVal==='__owner__'?'名下全部账户':(scopeVal?'指定账户':'账户级');
+ var kpiMap={purchase:'购物类',leads:'线索类',messenger:'私信类',traffic:'流量类',engagement:'互动类',contact:'联系类',other:'其他'};
+ var kpiVal=(document.getElementById('gp_kpi_filter')||{}).value||'';
+ var kpiLabel=kpiMap[kpiVal]||'全部类型';
+ function sv(id,def){var inp=document.getElementById(id);return inp&&inp.value!==''?parseFloat(inp.value):def}
+ var r=sv('sp_cpa_ratio',0.8);
+ var mc=sv('sp_min_conversions',3);
+ var cd=sv('sp_consecutive_days',2);
+ var sp=sv('sp_scale_pct',0.15);
+ var mbEl=document.getElementById('sp_max_budget');
+ var maxB=(mbEl&&mbEl.value)?'，上限$'+parseFloat(mbEl.value).toFixed(2)+' USD':'';
+ var roEl=document.getElementById('sp_roas_threshold');
+ var roasPart=(roEl&&roEl.value)?' + ROAS≥'+parseFloat(roEl.value).toFixed(1):'';
+ el.textContent=scopeLabel+' · '+kpiLabel+'：CPA ≤ 目标×'+(r*100).toFixed(0)+'% + ≥'+mc.toFixed(0)+'转化 + 连续'+cd.toFixed(0)+'天'+roasPart+' → 加'+(sp*100).toFixed(0)+'%预算'+maxB;
+}
 function onGuardType(){
  var type=document.getElementById('guardType')&&document.getElementById('guardType').value;
  var d=rulesMeta.guard_types&&rulesMeta.guard_types.find(function(t){return t.value===type});
@@ -11188,7 +11247,8 @@ function onGuardType(){
  if(d){de.textContent=d.desc;de.classList.add('show')}else{de.classList.remove('show')}
  var pf=document.getElementById('guardParams');
  if(!d||!d.params){pf.innerHTML='';return}
- pf.innerHTML=d.params.map(function(p){return'<div class="fg"><label class="fl">'+p.label+(p.required?'<span class="req">*</span>':'')+'</label><input class="fc" id="gp_'+p.key+'" type="'+(p.type||'text')+'" step="any" value="'+(p.default||'')+'" placeholder="'+(p.default||'')+'"></div>'}).join('');
+ pf.innerHTML=d.params.map(function(p){return'<div class="fg"><label class="fl">'+p.label+(p.required?'<span class="req">*</span>':'')+'</label><input class="fc" id="gp_'+p.key+'" type="'+(p.type||'text')+'" step="any" value="'+(p.default||'')+'" placeholder="'+(p.default||'')+'" oninput="updateGuardPreview()"></div>'}).join('');
+ updateGuardPreview();
 }
 function onScaleType(){
  var type=document.getElementById('scaleType')&&document.getElementById('scaleType').value;
@@ -11205,6 +11265,7 @@ function onScaleType(){
  set('sp_consecutive_days',defs.consecutive_days);
  set('sp_scale_pct',defs.scale_pct);
  set('sp_roas_threshold',defs.roas_threshold||'');
+ updateScalePreview();
 }
 var _editingRuleId=null;
 async function submitRule(){
@@ -11272,6 +11333,7 @@ async function editG(id){
   if(r.param_value!=null){var pv=document.getElementById('gp_param_value');if(pv)pv.value=r.param_value;}
   if(r.param_ratio!=null){var pr=document.getElementById('gp_param_ratio');if(pr)pr.value=r.param_ratio;}
  if(r.param_days!=null){var pd=document.getElementById('gp_param_days');if(pd)pd.value=r.param_days;}
+ updateGuardPreview();
  },100);
 }
 async function editS(id){
@@ -11295,6 +11357,7 @@ async function editS(id){
   document.getElementById('sp_scale_pct')&&(document.getElementById('sp_scale_pct').value=r.scale_pct||0.15);
   document.getElementById('sp_max_budget')&&(document.getElementById('sp_max_budget').value=r.max_budget||'');
   document.getElementById('sp_roas_threshold')&&(document.getElementById('sp_roas_threshold').value=r.roas_threshold||'');
+ updateScalePreview();
  },100);
 }
 // ── Template dropdown ──
@@ -13835,6 +13898,7 @@ function renderLandingUrlTable(accs) {
    '</td>' +
    '</tr>';
  }).join('');
+ updateGuardPreview();
 }
 function filterLandingUrls() {
  var q = (document.getElementById('landingUrlSearch').value || '').toLowerCase().trim();

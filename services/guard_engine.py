@@ -68,6 +68,18 @@ def _json_or_fb_error(resp: requests.Response) -> dict:
 _action_cooldown: dict = {}  # key: f"{ad_id}:{rule_type}" -> timestamp
 _COOLDOWN_TTL = 7200  # 2小时TTL，超过此时间的冷却记录可清理
 
+# ── 规则类型中文标签 ───────────────────────────────────────────
+_rule_type_labels = {
+    "bleed_abs": "空成效止血",
+    "cpa_exceed": "CPA超标止损",
+    "trend_drop": "ROAS趋势熔断",
+    "consecutive_bad": "连续恶化止损",
+    "click_no_conv": "高频点击无转化",
+    "low_ctr_no_conv": "低CTR空转止损",
+    "reach_no_conv": "高覆盖无转化",
+    "budget_burn_fast": "瞬烧制止",
+}
+
 def _cleanup_cooldown():
     """清理过期冷却记录，防止内存泄漏"""
     now = time.time()
@@ -1724,6 +1736,37 @@ class GuardEngine:
                 adsets.append(m["adset_id"])
             if m.get("ad_id") and m["ad_id"] not in ads:
                 ads.append(m["ad_id"])
+        cpm = (spend / impressions * 1000) if impressions > 0 else 0.0
+        unique_ctr_pct = (unique_clicks / impressions * 100) if impressions > 0 else 0.0
+        objectives = set()
+        oldest_created = None
+        ad_details = []
+        for m in sorted(metrics, key=lambda x: float(x.get("spend") or 0), reverse=True):
+            detail = {
+                "ad_id": m.get("ad_id", ""),
+                "ad_name": m.get("ad_name", ""),
+                "adset_id": m.get("adset_id", ""),
+                "campaign_id": m.get("campaign_id", ""),
+                "spend": float(m.get("spend") or 0),
+            }
+            ad_details.append(detail)
+            obj = m.get("objective", "") or m.get("campaign_objective", "")
+            if obj:
+                objectives.add(str(obj).upper())
+            created = m.get("created_time") or m.get("ad_created_time")
+            if created:
+                try:
+                    from datetime import datetime as _dt
+                    ct = _dt.strptime(str(created)[:19], "%Y-%m-%dT%H:%M:%S")
+                    if oldest_created is None or ct < oldest_created:
+                        oldest_created = ct
+                except Exception:
+                    pass
+        primary_objective = sorted(objectives)[0] if objectives else ""
+        hours_since_oldest = None
+        if oldest_created:
+            from datetime import datetime as _dt_now
+            hours_since_oldest = (_dt_now.utcnow() - oldest_created).total_seconds() / 3600
         return {
             "spend": spend,
             "spend_raw": spend_raw,
@@ -1734,11 +1777,99 @@ class GuardEngine:
             "clicks": clicks,
             "unique_clicks": unique_clicks,
             "ctr": ctr,
+            "cpm": cpm,
+            "unique_ctr_pct": unique_ctr_pct,
             "cpa": cpa,
             "campaign_ids": campaigns,
             "adset_ids": adsets,
             "ad_ids": ads,
+            "ad_details": ad_details,
+            "primary_objective": primary_objective,
+            "oldest_ad_created_at": str(oldest_created) if oldest_created else None,
+            "hours_since_oldest_ad": hours_since_oldest,
         }
+
+
+# ── 过程指标保护设置（缓存60秒）────────────────────────────────────────────
+_ENGAGEMENT_SETTINGS_CACHE = {}
+_ENGAGEMENT_SETTINGS_TS = 0
+
+def _get_engagement_settings() -> dict:
+    global _ENGAGEMENT_SETTINGS_CACHE, _ENGAGEMENT_SETTINGS_TS
+    import time as _time
+    now = _time.time()
+    if _ENGAGEMENT_SETTINGS_CACHE and (now - _ENGAGEMENT_SETTINGS_TS) < 60:
+        return _ENGAGEMENT_SETTINGS_CACHE
+    conn = get_conn()
+    keys = [
+        "guard_engagement_enabled", "guard_engagement_ctr_pct",
+        "guard_engagement_clicks", "guard_engagement_cpm_max",
+        "guard_engagement_reach", "guard_engagement_unique_ctr_pct",
+        "guard_engagement_signals_relax", "guard_engagement_signals_cut",
+        "guard_engagement_relax_mult", "guard_engagement_cut_pct",
+        "guard_learning_protect_hours",
+    ]
+    placeholders = ",".join(["?"] * len(keys))
+    rows = conn.execute(
+        f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+        keys,
+    ).fetchall()
+    conn.close()
+    row_map = {r["key"]: (r["value"] or "") for r in rows}
+    result = {
+        "enabled": row_map.get("guard_engagement_enabled", "1") == "1",
+        "ctr_pct": float(row_map.get("guard_engagement_ctr_pct", "1.5")),
+        "clicks": int(float(row_map.get("guard_engagement_clicks", "50"))),
+        "cpm_max": float(row_map.get("guard_engagement_cpm_max", "15")),
+        "reach": int(float(row_map.get("guard_engagement_reach", "2000"))),
+        "unique_ctr_pct": float(row_map.get("guard_engagement_unique_ctr_pct", "60")),
+        "signals_relax": int(float(row_map.get("guard_engagement_signals_relax", "3"))),
+        "signals_cut": int(float(row_map.get("guard_engagement_signals_cut", "1"))),
+        "relax_mult": float(row_map.get("guard_engagement_relax_mult", "3.0")),
+        "cut_pct": float(row_map.get("guard_engagement_cut_pct", "0.5")),
+        "learning_hours": float(row_map.get("guard_learning_protect_hours", "0")),
+    }
+    _ENGAGEMENT_SETTINGS_CACHE = result
+    _ENGAGEMENT_SETTINGS_TS = now
+    return result
+    def _evaluate_engagement_signals(self, agg: dict) -> tuple[int, dict]:
+        """Count positive engagement signals. Returns (count, detail_dict)."""
+        s = _get_engagement_settings()
+        if not s["enabled"]:
+            return 0, {"enabled": False}
+        signals = 0
+        detail = {}
+        ctr_pct = float(agg.get("ctr") or 0)
+        if ctr_pct >= s["ctr_pct"]:
+            signals += 1
+            detail["ctr"] = True
+        else:
+            detail["ctr"] = False
+        clicks = int(agg.get("clicks") or 0)
+        if clicks >= s["clicks"]:
+            signals += 1
+            detail["clicks"] = True
+        else:
+            detail["clicks"] = False
+        cpm = float(agg.get("cpm") or 0)
+        if 0 < cpm <= s["cpm_max"]:
+            signals += 1
+            detail["cpm"] = True
+        else:
+            detail["cpm"] = False
+        reach = int(agg.get("reach") or 0)
+        if reach >= s["reach"]:
+            signals += 1
+            detail["reach"] = True
+        else:
+            detail["reach"] = False
+        uctr = float(agg.get("unique_ctr_pct") or 0)
+        if uctr >= s["unique_ctr_pct"]:
+            signals += 1
+            detail["unique_ctr"] = True
+        else:
+            detail["unique_ctr"] = False
+        return signals, detail
 
     def _inspect_account_rules(self, account: dict, token: str, rules: list, ad_metrics: list[dict]) -> None:
         if not rules or not ad_metrics:
@@ -1765,7 +1896,7 @@ class GuardEngine:
             if not triggered:
                 continue
             _set_cooldown(cooldown_key, rule_type)
-            self._execute_account_rule(account, token, rule, agg, reason)
+            self._execute_account_rule(account, token, rule, agg, reason, selected)
 
     def _account_rule_triggered(self, rule: dict, account: dict, agg: dict, currency: str) -> tuple[bool, str]:
         rule_type = str(rule.get("rule_type") or "")
@@ -1789,6 +1920,23 @@ class GuardEngine:
                                 "bleed_abort", "bleed_abs",
                                 f"account KPI conversions=0 but broad conversions={broader_conv}; skip account stop")
                     return False, ""
+                # 过程指标保护
+                sig_count, sig_detail = self._evaluate_engagement_signals(agg)
+                es = _get_engagement_settings()
+                # 新广告保护
+                hours = agg.get("hours_since_oldest_ad")
+                if hours is not None and hours < es["learning_hours"]:
+                    return False, ""
+                if es["enabled"] and sig_count >= es["signals_relax"]:
+                    relaxed = threshold * es["relax_mult"]
+                    if spend < relaxed:
+                        return False, ""
+                    return True, (f"账户今日消耗 ${spend:.2f}{cur_note} 已超过放宽止血线 ${relaxed:.2f}"
+                                  f"（原始${threshold:.2f}×{es['relax_mult']}倍），KPI 转化=0"
+                                  f" | 过程信号{sig_count}/5")
+                if es["enabled"] and sig_count >= es["signals_cut"]:
+                    return True, (f"账户今日消耗 ${spend:.2f}{cur_note} 超过止血线 ${threshold:.2f}，KPI 转化=0"
+                                  f" | 过程信号{sig_count}/5 → 降预算")
                 return True, f"账户今日消耗 ${spend:.2f}{cur_note} 已超过空成效止血线 ${threshold:.2f}，KPI 转化=0"
 
         elif rule_type == "cpa_exceed":
@@ -1859,65 +2007,54 @@ class GuardEngine:
 
         return False, ""
 
-    def _execute_account_rule(self, account: dict, token: str, rule: dict, agg: dict, reason: str) -> None:
+    def _execute_account_rule(self, account: dict, token: str, rule: dict, agg: dict, reason: str, selected_metrics: list = None) -> None:
         act_id = account["act_id"]
         account_name = account.get("name", act_id)
         action = str(rule.get("action") or "pause")
         rule_type = str(rule.get("rule_type") or "")
+        rule_name = str(rule.get("rule_name") or _rule_type_labels.get(rule_type, rule_type))
         if action == "alert_only":
             _log_action(act_id, "account", act_id, account_name, "alert", rule_type, reason, operator="system")
             _send_tg(
                 f"⚠️ <b>Mira 账户级预警</b>\n"
                 f"账户：{_tg_escape(account_name)} ({_tg_code(act_id)})\n"
-                f"原因：{_tg_escape(reason)}",
+                f"原因：{_tg_escape(reason)}\n"
+                f"命中规则：{_tg_escape(rule_name)}",
                 act_id=act_id,
                 event_type="guard",
             )
             return
 
-        if action == "pause_adset":
-            level, ids = "adset", agg.get("adset_ids") or []
-        elif action in ("pause", "pause_campaign"):
-            level, ids = "campaign", agg.get("campaign_ids") or []
-        else:
-            level, ids = "campaign", agg.get("campaign_ids") or []
-        if not ids:
-            level, ids = "ad", agg.get("ad_ids") or []
-
+        # v3.11.16: 逐个广告走升级链（ad→adset→campaign），而非直接关campaign
+        ad_list = (selected_metrics or []) if selected_metrics else agg.get("ad_details", [])
         successes, failures = [], []
-        for target_id in ids:
-            if self.dry_run:
-                ok, err_msg, verified = True, "", True
-            else:
-                ok, err_msg = _fb_post(target_id, token, {"status": "PAUSED"})
-                verified = False
-                if ok:
-                    time.sleep(2)
-                    verified = _verify_status(target_id, token, "PAUSED")
-                    if not verified:
-                        err_msg = f"{level} status verification failed"
-            status = "success" if (ok and verified) else "failed"
-            _log_action(
-                act_id, level, target_id, f"[账户止损] {account_name}",
-                "pause", rule_type, reason,
-                old_value={"status": "ACTIVE"},
-                new_value={"status": "PAUSED"},
-                status=status,
-                error_msg=err_msg if status == "failed" else None,
-                operator="system",
+        for ad_m in ad_list:
+            ad_id = ad_m.get("ad_id", "")
+            ad_name = ad_m.get("ad_name", ad_id)
+            adset_id = ad_m.get("adset_id", "")
+            campaign_id = ad_m.get("campaign_id", "")
+            if not ad_id:
+                continue
+            level, status = _pause_with_escalation(
+                account, ad_id, adset_id, campaign_id,
+                ad_name, token, rule_type,
+                f"[账户止损] {reason}", self.dry_run
             )
-            if status == "success":
-                successes.append(target_id)
+            if status in ("success", "escalated", "dry_run"):
+                successes.append(f"{ad_name}({level})")
             else:
-                failures.append(f"{target_id}: {err_msg}")
+                failures.append(f"{ad_name}: {status}")
 
-        status_line = f"已关闭 {len(successes)} 个{level}"
-        if failures:
-            status_line += f"，失败 {len(failures)} 个"
+        closed_count = len(successes)
+        failed_count = len(failures)
+        status_line = f"已关闭 {closed_count} 个广告"
+        if failed_count:
+            status_line += f"，失败 {failed_count} 个"
         _send_tg(
             f"🚨 <b>Mira 账户级止损</b>\n"
             f"账户：{_tg_escape(account_name)} ({_tg_code(act_id)})\n"
             f"原因：{_tg_escape(reason)}\n"
+            f"命中规则：{_tg_escape(rule_name)}\n"
             f"消耗：${float(agg.get('spend') or 0):.2f} | 转化：{float(agg.get('conversions') or 0):.0f} | 点击：{int(agg.get('clicks') or 0)} | CTR：{float(agg.get('ctr') or 0):.2f}%\n"
             f"{_tg_escape(status_line)}"
             + (f"\n失败：{_tg_escape('; '.join(failures[:3]))}" if failures else ""),
