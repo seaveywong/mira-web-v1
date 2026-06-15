@@ -1386,19 +1386,19 @@ def get_ads(
 
 @router.post("/trigger-inspect")
 def trigger_inspect(user=Depends(get_current_user)):
-    import threading
     from services.guard_engine import GuardEngine
     from core.tenancy import is_operator_user, user_id as _uid
 
-    def run():
-        engine = GuardEngine()
+    engine = GuardEngine()
+    try:
         if is_operator_user(user):
             uid = _uid(user)
             engine.run_all(operator_uid=uid)
         else:
             engine.run_all()
-    threading.Thread(target=run, daemon=True).start()
-    return {"message": "巡检已触发"}
+        return {"message": "巡检完成"}
+    except Exception as e:
+        return {"message": f"巡检异常: {str(e)[:200]}"}
 
 
 @router.get("/stats")

@@ -1777,7 +1777,7 @@ select.fc option{background:#fff;color:#1d1d1f}
    <div class="sb-foot">
     <div class="role-operator-only role-non-superadmin-only" style="margin-bottom:10px;background:var(--bg2);border-radius:10px;border:1px solid var(--bd);overflow:hidden">
      <div style="padding:7px 10px;background:rgba(59,130,246,.06);border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:6px">
-      <span style="font-size:11px;font-weight:600;color:var(--t1)">安全守护</span>
+      <span style="font-size:11px;font-weight:600;color:var(--t1)">安全守护</span><span style="margin-left:auto;font-size:10px;color:var(--t3)" id="inspectCountdown">--</span>
       <span style="margin-left:auto;display:flex;gap:5px">
        <span id="sbSentinelDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="哨兵"></span>
        <span id="sbMirrorDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="镜像"></span>
@@ -12934,9 +12934,9 @@ async function checkAi(){
 }
 
 // ── Inspect ──
-async function triggerInspect(){
+async function triggerInspect(){ _nextInspectTime = null; updateInspectCountdown();
  var btn=document.getElementById('btnInspect');btn.disabled=true;btn.textContent='巡检中...';
- try{var r=await api('POST','/dashboard/trigger-inspect');toast(r.message||'巡检已触发','ok');setTimeout(loadDash,3000);}catch(e){toast('触发失败：'+e.message,'er')}
+ try{var r=await api('POST','/dashboard/trigger-inspect');toast(r.message||'巡检完成','ok');setTimeout(loadDash,3000);setNextInspectTime(30);}catch(e){toast('触发失败：'+e.message,'er')}
  setTimeout(function(){btn.disabled=false;btn.innerHTML='立即巡检'},3000);
 }
 
@@ -13498,6 +13498,33 @@ function _updateHeartbeatUI(v){
  var st=document.getElementById('heartbeatStatus');
  if(st){st.textContent=on?'已开启':'已关闭';st.style.color=on?'var(--ok)':'var(--t3)';}
 }
+
+var _nextInspectTime = null;
+function updateInspectCountdown(){
+ var el = document.getElementById('inspectCountdown');
+ if(!el) return;
+ if(!_nextInspectTime){
+  el.textContent = '--';
+  return;
+ }
+ var now = Date.now();
+ var remain = Math.max(0, _nextInspectTime - now);
+ if(remain <= 0){
+  el.textContent = '巡检中...';
+  el.style.color = 'var(--ac)';
+  return;
+ }
+ var mins = Math.floor(remain / 60000);
+ var secs = Math.floor((remain % 60000) / 1000);
+ el.textContent = '下次巡检 ' + mins + ':' + (secs < 10 ? '0' : '') + secs;
+ el.style.color = 'var(--t3)';
+}
+function setNextInspectTime(intervalMinutes){
+ _nextInspectTime = Date.now() + (intervalMinutes || 30) * 60000;
+ updateInspectCountdown();
+ setInterval(updateInspectCountdown, 10000);
+}
+
 function initSentinelHeartbeat(){
  if(!isSuperadminRole()){
   api('GET','/users/me/guard-settings').then(function(s){

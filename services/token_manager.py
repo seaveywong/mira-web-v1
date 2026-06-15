@@ -541,6 +541,8 @@ def get_exec_token_candidates(
                         f"[TokenManager] 账户 {act_id} 管理号缺少 ads_management 权限，"
                         f"无法用于 PAUSE 操作。请在 Token 管理页点击验证更新权限后重试。"
                     )
+                    # Send TG alert (deduped per account per hour)
+                    _alert_no_pause_token(act_id, "管理号缺少 ads_management 权限")
             if candidates and alive_candidates and reserve:
                 with _selection_lock:
                     _reserve_token_locked(alive_candidates[0])
@@ -583,6 +585,8 @@ def get_exec_token(
         return candidates[0]["token_plain"]
     if action_type in (ACTION_PAUSE, ACTION_READ):
         logger.warning(f"[TokenManager] 账户 {act_id} 无可用 Token，{action_type} 操作无法执行")
+        if action_type == ACTION_PAUSE:
+            _alert_no_pause_token(act_id, "无可用 Token（操作号+管理号均不可用）")
     else:
         logger.error(
             f"[TokenManager] 账户 {act_id} 操作号耗尽，{action_type} 操作已被拦截，保护管理号安全"
