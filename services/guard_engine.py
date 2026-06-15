@@ -1295,7 +1295,7 @@ class GuardEngine:
         self.default_cpa_ratio = float(_get_setting("default_cpa_ratio", "1.3"))
         self.learning_protect = _get_setting("learning_phase_protect", "1") == "1"
 
-    def run_all(self):
+    def run_all(self, operator_uid=None):
         _ensure_team_guard_schema()
         _ensure_user_guard_schema()
         if _get_setting("inspect_enabled", "1") != "1":
@@ -1315,8 +1315,9 @@ class GuardEngine:
                    FROM accounts a
                    LEFT JOIN teams tm ON tm.id=a.team_id
                    LEFT JOIN users ou ON ou.id=a.owner_user_id AND COALESCE(ou.is_active, 1)=1
-                   WHERE a.enabled=1 AND a.account_status NOT IN (3, 7, 9)"""
-            ).fetchall()
+                   WHERE a.enabled=1 AND a.account_status NOT IN (3, 7, 9)
+                 AND (a.owner_user_id=? OR ? IS NULL)"""
+            , (operator_uid, operator_uid)).fetchall()
             conn.close()
             for acc in accounts:
                 try:
