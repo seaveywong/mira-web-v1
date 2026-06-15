@@ -1812,7 +1812,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <div style="display:flex;align-items:center;gap:5px;min-width:0">
         <div style="line-height:1.3">
          <div style="font-size:11px;color:var(--t1)">心跳模式</div>
-         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="heartbeatHint">-</div>
+         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="heartbeatHint">-</div><div style="font-size:10px;color:var(--t3);margin-top:1px" id="heartbeatCountdown"></div>
         </div>
        </div>
        <span class="tgl-sw"><input type="checkbox" id="toggleHeartbeat" onchange="toggleHeartbeatMode()"><span class="tgl-tr"></span></span>
@@ -13568,6 +13568,20 @@ function updateInspectCountdown(){
  el.textContent = '下次巡检 ' + mins + ':' + (secs < 10 ? '0' : '') + secs;
  el.style.color = 'var(--t3)';
 }
+var _heartbeatTimeout=30,_heartbeatLastActivity=Date.now();
+function updateHeartbeatCountdown(){
+ var el=document.getElementById('heartbeatCountdown');
+ if(!el) return;
+ var remain=Math.max(0,(_heartbeatLastActivity+_heartbeatTimeout*60000)-Date.now());
+ if(remain<=0){el.textContent='超时';el.style.color='var(--er)';return}
+ var m=Math.floor(remain/60000),s=Math.floor((remain%60000)/1000);
+ el.textContent='剩余 '+m+':'+(s<10?'0':'')+s;
+ el.style.color='var(--t3)';
+}
+function resetHeartbeatTimer(){
+ _heartbeatLastActivity=Date.now();
+ updateHeartbeatCountdown();
+}
 function setNextInspectTime(intervalMinutes){
  _nextInspectTime = Date.now() + (intervalMinutes || 30) * 60000;
  updateInspectCountdown();
@@ -13575,6 +13589,12 @@ function setNextInspectTime(intervalMinutes){
 }
 
 function initSentinelHeartbeat(){
+ _heartbeatTimeout=parseInt(_heartbeatTimeout||30);
+ resetHeartbeatTimer();
+ setInterval(updateHeartbeatCountdown,10000);
+ // Reset heartbeat on user activity
+ document.addEventListener('click',function(){_heartbeatLastActivity=Date.now()});
+ document.addEventListener('keypress',function(){_heartbeatLastActivity=Date.now()});
  if(!isSuperadminRole()){
   api('GET','/users/me/guard-settings').then(function(s){
    _sentinelInterval='3';
