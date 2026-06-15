@@ -949,6 +949,7 @@ def _pause_with_escalation(
                     f"{ad_line}\n"
                     f"{ad_id_line}\n"
                     f"{adset_id_line}\n"
+                    f"触发原因：{_tg_escape(trigger_detail)}\n"
                     f"广告关闭失败，已自动关闭其所属广告组\n"
                     f"失败原因：{_tg_escape(err_msg)}",
                     act_id=act_id,

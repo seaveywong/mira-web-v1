@@ -485,9 +485,9 @@ def _alert_no_pause_token(act_id: str, reason: str):
         from services.notifier import notify_account
         notify_account(
             act_id,
-            f"⚠️ <b>Mira 无法执行关闭操作</b>\\n"
-            f"账户：{act_id}\\n"
-            f"原因：{reason}\\n"
+            f"⚠️ <b>Mira 无法执行关闭操作</b>\n"
+            f"账户：{act_id}\n"
+            f"原因：{reason}\n"
             f"请在 Token 管理页更新 Token 权限或绑定操作号。",
             event_type="guard"
         )
