@@ -203,10 +203,10 @@ def invalidate_token_cache(token_id: int):
     _heartbeat_cache.pop(token_id, None)
 
 
-def _get_manage_token(act_id: str) -> Optional[str]:
+def _get_manage_token(act_id: str):  # returns (token_id, token_plain) or None
     """
-    获取账户的管理号 Token。READ/PAUSE 兜底允许使用 active 管理号，
-    不要求该管理号绑定处于 active，避免操作号失效后巡检/关闭被误阻断。
+    获取账户的管理号 Token。READ/PAUSE 兜底允许使用 active 管理号。
+    返回 (token_id, token_plain) 或 None。
     """
     conn = get_conn()
     ensure_token_source_columns(conn)
@@ -261,7 +261,10 @@ def _get_manage_token(act_id: str) -> Optional[str]:
     if not row or row["status"] != "active":
         return None
     token = decrypt_token(row["access_token_enc"])
-    return token if token else None
+    if not token:
+        return None
+    token_id = int(row["id"])
+    return (token_id, token)
 
 
 def _get_op_tokens(act_id: str) -> list[dict]:
@@ -535,18 +538,11 @@ def get_exec_token_candidates(
             return alive_candidates
 
     if action_type in (ACTION_PAUSE, ACTION_READ):
-        manage = _get_manage_token(act_id)
+        mgr = _get_manage_token(act_id)
         manage_candidate = None
         manage_token_id = None
-        if manage:
-            # Fetch token_id for permission check
-            try:
-                conn2 = get_conn()
-                trow = conn2.execute("SELECT id FROM fb_tokens WHERE access_token_enc=? LIMIT 1", (manage,)).fetchone()
-                conn2.close()
-                manage_token_id = trow["id"] if trow else None
-            except Exception:
-                manage_token_id = None
+        if mgr:
+            manage_token_id, manage = mgr
             manage_candidate = {
                 "token_id": None,
                 "token_plain": manage,
