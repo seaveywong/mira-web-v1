@@ -27,17 +27,12 @@ def _add_column(conn, table: str, column: str, ddl: str) -> None:
     logger.info("Added %s.%s", table, column)
 
 
-def _ensure_team(conn, name: str, note: str = "") -> int:
-    name = (name or "").strip() or "Default Team"
+def _find_team(conn, name: str) -> int | None:
+    name = (name or "").strip()
+    if not name:
+        return None
     row = conn.execute("SELECT id FROM teams WHERE name=?", (name,)).fetchone()
-    if row:
-        return int(row["id"])
-    conn.execute(
-        """INSERT INTO teams (name, status, note, created_at, updated_at)
-           VALUES (?, 'active', ?, datetime('now','+8 hours'), datetime('now','+8 hours'))""",
-        (name, note),
-    )
-    return int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    return int(row["id"]) if row else None
 
 
 def run():
@@ -88,7 +83,6 @@ def run():
     ):
         _add_column(conn, table, "team_id", "team_id INTEGER")
 
-    default_team_id = _ensure_team(conn, "Default Team", "Created by v6 migration")
     if _table_exists(conn, "users"):
         rows = conn.execute(
             "SELECT id, role, group_name, team_id FROM users ORDER BY id"
@@ -96,9 +90,12 @@ def run():
         for row in rows:
             team_id = row["team_id"]
             team_name = (row["group_name"] or "").strip()
+            if not team_id and team_name:
+                team_id = _find_team(conn, team_name)
+                if team_id:
+                    conn.execute("UPDATE users SET team_id=? WHERE id=?", (team_id, row["id"]))
             if not team_id:
-                team_id = _ensure_team(conn, team_name) if team_name else default_team_id
-                conn.execute("UPDATE users SET team_id=? WHERE id=?", (team_id, row["id"]))
+                continue
             membership_role = "admin" if row["role"] == "admin" else "member"
             conn.execute(
                 """INSERT OR IGNORE INTO user_team_memberships
