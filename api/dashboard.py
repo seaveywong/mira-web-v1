@@ -1394,7 +1394,7 @@ def trigger_inspect(user=Depends(get_current_user)):
         engine = GuardEngine()
         if is_operator_user(user):
             uid = _uid(user)
-            engine.run_for_operator(uid)
+            engine.run_all(operator_uid=uid)
         else:
             engine.run_all()
     threading.Thread(target=run, daemon=True).start()
