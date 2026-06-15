@@ -915,7 +915,7 @@ def _pause_with_escalation(
         err_msg = "核验失败：广告状态未变更为PAUSED"
 
     # 记录广告级失败
-    logger.warning(f"广告 {ad_id} 暂停失败: {err_msg}，尝试向上升级到广告组")
+    logger.warning(f"广告 {ad_id} 无法直接暂停({err_msg})，尝试向上升级到广告组")
     _log_action(act_id, "ad", ad_id, ad_name, "pause",
                 trigger_type, trigger_detail,
                 status="failed", error_msg=err_msg, operator="system")
@@ -955,8 +955,8 @@ def _pause_with_escalation(
                     f"{ad_id_line}\n"
                     f"{adset_id_line}\n"
                     f"触发原因：{_tg_escape(trigger_detail)}\n"
-                    f"广告关闭失败，已自动关闭其所属广告组\n"
-                    f"失败原因：{_tg_escape(err_msg)}",
+                    f"广告无法直接关闭，已升级关闭广告组\n"
+                    f"原因：{_tg_escape(err_msg)}",
                     act_id=act_id,
                     event_type="guard",
                 )
