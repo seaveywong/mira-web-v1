@@ -4648,7 +4648,7 @@ function renderTeamResourceSection(){
   '</div>' +
   '<div class="team-action-row">' +
   '<select class="fc" id="teamResAssignTeam" style="width:200px"><option value="">取消分配</option></select>' +
-  '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置归属</button> <select class="fc" id="batchOwnerUid" style="width:180px"><option value="">批量设负责人</option></select> <button class="btn btn-p" onclick="batchAssignOwner()">确定</button>' +
+  '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置归属</button>' +
   '<span id="teamResSummary" style="font-size:12px;color:var(--t3)"></span>' +
   '</div>' +
   '<div id="teamResourceWrap"><div style="color:var(--t3);font-size:13px">加载中...</div></div>' +
@@ -4657,8 +4657,6 @@ function renderTeamResourceSection(){
 
 function _teamResFillTeamOptions(teams){
  _teamResTeams = teams || [];
- _teamResAllUsers = [];
- (async function(){try{var ur=await api('GET','/users');_teamResAllUsers=ur.users||[];var sel=document.getElementById('batchOwnerUid');if(sel){sel.innerHTML='<option value="">批量设负责人</option>'+_teamResAllUsers.filter(function(u){return['admin','operator'].indexOf(u.role)>=0&&u.is_active}).map(function(u){return'<option value="'+u.id+'">'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('')}})();
  var filter = document.getElementById('teamResFilter');
  var assign = document.getElementById('teamResAssignTeam');
  var oldFilter = filter ? filter.value : 'all';
@@ -4778,42 +4776,6 @@ async function openAccountOwnerModal(accountId){
    '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moOwner\')">取消</button><button class="btn btn-p" onclick="saveAccountOwner('+accountId+')">保存</button></div></div>';
   openModal('moOwner');
  }catch(e){toast('加载负责人失败：'+(e.message||e),'er');}
-}
-
-
-async function openTokenOwnerModal(tokenId){
- var item=_teamResItems.find(function(x){return x.id===tokenId});
- if(!item){toast('Token数据未找到','er');return}
- try{
-  if(!_usersData||!_usersData.length){var r=await api('GET','/users');_usersData=r.users||[]}
-  var users=_usersData.filter(function(u){return String(u.team_id)===String(item.team_id)&&['admin','operator'].indexOf(u.role)>=0&&u.is_active});
-  var opts='<option value="0">不指定负责人</option>'+users.map(function(u){return '<option value="'+u.id+'" '+(String(item.owner_user_id||'')===String(u.id)?'selected':'')+'>'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('');
-  var mo=document.getElementById('moTokenOwner');if(!mo){mo=document.createElement('div');mo.id='moTokenOwner';mo.className='mo';document.body.appendChild(mo)}
-  mo.innerHTML='<div class="modal"><div class="mh"><h3>Token负责人</h3><button class="mc" onclick="closeModal(\'moTokenOwner\')">x</button></div><div class="mb"><div class="fg"><label class="fl">Token</label><input class="fc" value="'+escHtml(item.name||('Token '+tokenId))+'" disabled></div><div class="fg"><label class="fl">负责人</label><select class="fc" id="tokenOwnerUid">'+opts+'</select></div><div class="fh">设置后仅该负责人可见此Token。留空则团队内共享。</div></div><div class="mf"><button class="btn btn-g" onclick="closeModal(\'moTokenOwner\')">取消</button><button class="btn btn-p" onclick="saveTokenOwner('+tokenId+')">保存</button></div></div>';
-  openModal('moTokenOwner')
- }catch(e){toast('加载失败：'+(e.message||e),'er')}
-}
-async function saveTokenOwner(tokenId){
- var ownerId=parseInt((document.getElementById('tokenOwnerUid')||{}).value||'0',10)||0;
- try{await api('PATCH','/accounts/tokens/'+tokenId+'/owner',{owner_user_id:ownerId||null});toast('Token负责人已保存','ok');closeModal('moTokenOwner');loadTeamResources()}catch(e){toast('保存失败：'+(e.message||e),'er')}
-}
-async function batchAssignOwner(){
- var ids=Array.prototype.slice.call(document.querySelectorAll('.team-res-check:checked')).map(function(el){return parseInt(el.value,10)}).filter(Boolean);
- if(!ids.length){toast('请勾选资源','wa');return}
- var kind=(document.getElementById('teamResKind')||{}).value||'accounts';
- var ownerId=parseInt((document.getElementById('batchOwnerUid')||{}).value||'0',10)||null;
- if(!ownerId){toast('请选择负责人','wa');return}
- var ok=await confirmAsync('确定将选中的 '+ids.length+' 个资源分配给该负责人？','确定','取消','批量设负责人');
- if(!ok)return;
- var errs=[];
- for(var i=0;i<ids.length;i++){
-  try{
-   if(kind==='tokens')await api('PATCH','/accounts/tokens/'+ids[i]+'/owner',{owner_user_id:ownerId});
-   else await api('PUT','/accounts/'+ids[i],{owner_user_id:ownerId})
-  }catch(e){errs.push(e.message)}
- }
- var msg='已分配 '+ids.length+' 个';if(errs.length)msg+='，失败 '+errs.length;toast(msg,errs.length?'wa':'ok');
- loadTeamResources()
 }
 
 async function saveAccountOwner(accountId){
