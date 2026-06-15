@@ -222,15 +222,6 @@ async def startup():
     except Exception as e:
         import logging
         logging.getLogger("mira").warning(f"warmup schema warning: {e}")
-    try:
-        from services.default_rules import backfill_default_stoploss_rules_once
-        added = backfill_default_stoploss_rules_once()
-        if added:
-            import logging
-            logging.getLogger("mira").info(f"default stoploss rules added: {added}")
-    except Exception as e:
-        import logging
-        logging.getLogger("mira").warning(f"default stoploss rule backfill warning: {e}")
     start_scheduler()
 
 
