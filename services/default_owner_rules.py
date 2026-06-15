@@ -34,6 +34,16 @@ def ensure_rule_scope_schema(conn) -> None:
     conn.execute("UPDATE guard_rules SET scope='account' WHERE scope IS NULL OR scope=''")
     conn.execute(
         """UPDATE guard_rules
+           SET enabled=0,
+               note=CASE
+                    WHEN note LIKE '%archived_legacy_global_rule%' THEN note
+                    WHEN COALESCE(note, '')='' THEN 'archived_legacy_global_rule'
+                    ELSE note || ' | archived_legacy_global_rule'
+               END
+           WHERE act_id='__global__'"""
+    )
+    conn.execute(
+        """UPDATE guard_rules
            SET team_id=(SELECT a.team_id FROM accounts a WHERE a.act_id=guard_rules.act_id)
            WHERE team_id IS NULL AND act_id NOT IN ('__global__', ?)""",
         (OWNER_SCOPE_ACT_ID,),
@@ -52,6 +62,16 @@ def ensure_rule_scope_schema(conn) -> None:
         if "created_by" not in scale_cols:
             conn.execute("ALTER TABLE scale_rules ADD COLUMN created_by TEXT")
         conn.execute("UPDATE scale_rules SET scope='account' WHERE scope IS NULL OR scope=''")
+        conn.execute(
+            """UPDATE scale_rules
+               SET enabled=0,
+                   note=CASE
+                        WHEN note LIKE '%archived_legacy_global_rule%' THEN note
+                        WHEN COALESCE(note, '')='' THEN 'archived_legacy_global_rule'
+                        ELSE note || ' | archived_legacy_global_rule'
+                   END
+               WHERE act_id='__global__'"""
+        )
         conn.execute(
             """UPDATE scale_rules
                SET team_id=(SELECT a.team_id FROM accounts a WHERE a.act_id=scale_rules.act_id)

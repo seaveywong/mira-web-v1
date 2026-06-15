@@ -1302,6 +1302,8 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
     from services.token_manager import get_exec_token
     conn = get_conn()
     assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    account_row = conn.execute("SELECT * FROM accounts WHERE act_id=?", (act_id,)).fetchone()
+    account = dict(account_row) if account_row else {"act_id": act_id}
     conn.close()
     token = get_exec_token(act_id, 'READ')
     if not token:
@@ -1374,7 +1376,8 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
     # ── 4) 别名匹配 ──
     from services.guard_engine import (_calc_conversions_with_audit,
         _get_kpi_aliases, _get_kpi_fallback_aliases,
-        _POOR_FALLBACK_TYPES,  _match_kpi_filter, _action_cooldown)
+        _POOR_FALLBACK_TYPES,  _match_kpi_filter, _action_cooldown,
+        _ensure_rule_scope_schema, _load_rules_for_account)
     standard_aliases = _get_kpi_aliases(kpi_field)
     fallback_aliases = _get_kpi_fallback_aliases(kpi_field)
 
@@ -1391,22 +1394,12 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
     )
 
     # ── 7) 规则匹配 ──
+    _ensure_rule_scope_schema()
     conn2 = get_conn()
-    from api.rules import _ensure_rule_scope_columns, RULE_SCOPE_ACCOUNT, RULE_SCOPE_OWNER
-    _ensure_rule_scope_columns(conn2)
-    acc_row = conn2.execute("SELECT team_id, owner_user_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
-    owner_user_id = acc_row["owner_user_id"] if acc_row and "owner_user_id" in acc_row.keys() else None
-    rule_params = [RULE_SCOPE_ACCOUNT, act_id]
-    owner_sql = ""
-    if owner_user_id:
-        owner_sql = " OR (scope=? AND owner_user_id=?)"
-        rule_params.extend([RULE_SCOPE_OWNER, owner_user_id])
-    all_rules = conn2.execute(
-        f"""SELECT * FROM guard_rules
-            WHERE enabled=1 AND ((COALESCE(scope,'account')=? AND act_id=?){owner_sql})
-            ORDER BY rule_type, id""",
-        rule_params,
-    ).fetchall()
+    all_rules = _load_rules_for_account(conn2, "guard_rules", account)
+    legacy_global_ignored = conn2.execute(
+        "SELECT COUNT(*) AS c FROM guard_rules WHERE act_id='__global__'"
+    ).fetchone()["c"]
     conn2.close()
 
     matching_rules = []
@@ -1421,6 +1414,9 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
                 "param_ratio": kr.get("param_ratio"),
                 "action": kr.get("action"),
                 "note": kr.get("note", ""),
+                "scope": kr.get("scope") or "account",
+                "act_id": kr.get("act_id", ""),
+                "owner_user_id": kr.get("owner_user_id"),
             }
             # 计算触发状态
             if kr["rule_type"] == "cpa_exceed" and cpa is not None and kr.get("param_value"):
@@ -1506,6 +1502,8 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
         },
         "all_actions": all_actions,
         "rules": {
+            "total_effective": len(all_rules),
+            "legacy_global_ignored": legacy_global_ignored,
             "matching": matching_rules,
         },
     }

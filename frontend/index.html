@@ -6652,8 +6652,12 @@ async function showDiagnose(adId, actId){
   // Rules
   h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:16px">';
   h+='<div style="font-weight:600;font-size:14px;margin-bottom:8px"> 匹配规则</div>';
+  if(data.rules&&data.rules.legacy_global_ignored>0){
+   h+='<div style="margin-bottom:8px;padding:8px 10px;border-radius:6px;background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.25);color:var(--wa);font-size:12px">已忽略 '+data.rules.legacy_global_ignored+' 条旧版全局规则；诊断只展示当前巡检会实际加载的规则。</div>';
+  }
   if(data.rules.matching.length===0){
-   h+='<div style="color:var(--t3)">无匹配规则</div>';
+   var totalEff=(data.rules&&data.rules.total_effective)||0;
+   h+='<div style="color:var(--t3)">无有效匹配规则'+(totalEff?'（当前账户有效规则 '+totalEff+' 条，但未匹配此广告类型）':'（规则引擎没有会作用到该账户的有效规则）')+'</div>';
   } else {
    for(var i=0;i<data.rules.matching.length;i++){
     var r=data.rules.matching[i];

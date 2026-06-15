@@ -475,7 +475,17 @@ def _ensure_rule_scope_schema():
             conn.execute(f"UPDATE {table} SET scope='account' WHERE scope IS NULL OR scope=''")
             conn.execute(
                 f"""UPDATE {table}
-                    SET team_id=(SELECT a.team_id FROM accounts a WHERE a.act_id={table}.act_id)
+                    SET enabled=0,
+                        note=CASE
+                             WHEN note LIKE '%archived_legacy_global_rule%' THEN note
+                             WHEN COALESCE(note, '')='' THEN 'archived_legacy_global_rule'
+                             ELSE note || ' | archived_legacy_global_rule'
+                        END
+                    WHERE act_id='__global__'"""
+            )
+            conn.execute(
+                f"""UPDATE {table}
+                   SET team_id=(SELECT a.team_id FROM accounts a WHERE a.act_id={table}.act_id)
                     WHERE team_id IS NULL AND act_id NOT IN ('__global__', ?)""",
                 (OWNER_SCOPE_ACT_ID,),
             )
