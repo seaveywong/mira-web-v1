@@ -1201,11 +1201,14 @@ def list_tokens(user=Depends(get_current_user)):
         SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
                t.last_verified_at, t.note, t.created_at, t.matrix_id,
                t.team_id, tm.name AS team_name,
+               t.owner_user_id,
+               COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name,
                t.permission_snapshot, t.permission_checked_at,
                (SELECT COUNT(*) FROM account_op_tokens aot WHERE aot.token_id = t.id AND aot.status = 'active') as account_count
         FROM fb_tokens t
         LEFT JOIN accounts a ON a.token_id = t.id
         LEFT JOIN teams tm ON tm.id = t.team_id
+        LEFT JOIN users ou ON ou.id = t.owner_user_id
         WHERE {' AND '.join(where)}
         GROUP BY t.id
         ORDER BY t.created_at DESC
