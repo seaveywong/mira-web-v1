@@ -22,6 +22,10 @@ DEFAULT_OWNER_STOPLOSS_RULES = [
 
 
 def ensure_rule_scope_schema(conn) -> None:
+    # Check if default owner rules are enabled
+    row = conn.execute("SELECT value FROM settings WHERE key='default_owner_rules_enabled'").fetchone()
+    if row and row["value"] == "0":
+        return  # Default rules disabled by admin
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(guard_rules)").fetchall()}
     if "scope" not in cols:
         conn.execute("ALTER TABLE guard_rules ADD COLUMN scope TEXT DEFAULT 'account'")
