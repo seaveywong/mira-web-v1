@@ -1339,10 +1339,9 @@ class GuardEngine:
         self.default_cpa_ratio = float(_get_setting("default_cpa_ratio", "1.3"))
         self.learning_protect = _get_setting("learning_phase_protect", "1") == "1"
 
-    def run_all(self, operator_uid=None, ignore_cooldown=False):
+    def run_all(self, operator_uid=None):
         _ensure_team_guard_schema()
         _ensure_user_guard_schema()
-        self._ignore_cooldown = ignore_cooldown
         if _get_setting("inspect_enabled", "1") != "1":
             logger.info("自动巡检已关闭（inspect_enabled=0），跳过")
         else:
@@ -1890,7 +1889,7 @@ class GuardEngine:
                 continue
             rule_type = str(rule.get("rule_type") or "")
             cooldown_key = f"{act_id}:account"
-            if not self._ignore_cooldown and _check_cooldown(cooldown_key, rule_type):
+            if _check_cooldown(cooldown_key, rule_type):
                 continue
             selected = [m for m in ad_metrics if self._metric_matches_rule_filter(act_id, m, rule.get("kpi_filter"))]
             if not selected:
@@ -2030,51 +2029,6 @@ class GuardEngine:
             else:
                 failures.append(f"{ad_name}: {status}")
 
-        successes, failures = [], []
-        for target_id in ids:
-            if self.dry_run:
-                ok, err_msg, verified = True, "", True
-            else:
-                ok, err_msg = _fb_post(target_id, token, {"status": "PAUSED"})
-                verified = False
-                if ok:
-                    time.sleep(2)
-                    verified = _verify_status(target_id, token, "PAUSED")
-                    if not verified:
-                        err_msg = f"{level} status verification failed"
-            status = "success" if (ok and verified) else "failed"
-            _log_action(
-                act_id, level, target_id, f"[账户止损] {account_name}",
-                "pause", rule_type, reason,
-                old_value={"status": "ACTIVE"},
-                new_value={"status": "PAUSED"},
-                status=status,
-                error_msg=err_msg if status == "failed" else None,
-                operator="system",
-            )
-            if status == "success":
-                successes.append(target_id)
-            else:
-                failures.append(f"{target_id}: {err_msg}")
-
-        closed_count = len(successes)
-        failed_count = len(failures)
-        status_line = f"已关闭 {closed_count} 个广告"
-        if failed_count:
-            status_line += f"，失败 {failed_count} 个"
-        _send_tg(
-            f"🚨 <b>Mira 账户级止损</b>\n"
-            f"账户：{_tg_escape(account_name)} ({_tg_code(act_id)})\n"
-            f"原因：{_tg_escape(reason)}\n"
-            f"命中规则：{_tg_escape(rule_name)}\n"
-            f"消耗：${float(agg.get('spend') or 0):.2f} | 转化：{float(agg.get('conversions') or 0):.0f} | 点击：{int(agg.get('clicks') or 0)} | CTR：{float(agg.get('ctr') or 0):.2f}%\n"
-            f"{_tg_escape(status_line)}"
-            + (f"\n失败：{_tg_escape('; '.join(failures[:3]))}" if failures else ""),
-            act_id=act_id,
-            event_type="guard",
-        )
-
-    
     def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None):
             from services.kpi_resolver import get_kpi_for_ad
 
@@ -2211,7 +2165,7 @@ class GuardEngine:
                         continue
                 if _is_silent(rule.get("silent_start"), rule.get("silent_end")):
                     continue
-                if not self._ignore_cooldown and _check_cooldown(ad_id, rule["rule_type"]):
+                if _check_cooldown(ad_id, rule["rule_type"]):
                     continue
 
                 self._check_rule(
@@ -2229,7 +2183,7 @@ class GuardEngine:
                     continue
                 cooldown_key = adset_id or ad_id
                 rule_key = f"scale:{rule.get('id', rule.get('rule_type', 'unknown'))}"
-                if not self._ignore_cooldown and _check_cooldown(cooldown_key, rule_key, cooldown_min=1440):
+                if _check_cooldown(cooldown_key, rule_key, cooldown_min=1440):
                     continue
                 if (self._has_recent_action(act_id, cooldown_key, "increase_budget", hours=24)
                         or self._has_recent_action(act_id, cooldown_key, "increase_budget_skipped", hours=24)):
