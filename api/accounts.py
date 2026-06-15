@@ -1197,7 +1197,6 @@ def list_tokens(user=Depends(get_current_user)):
     apply_team_scope(where, params, user, "t.team_id", include_unassigned=False)
     from core.tenancy import apply_account_owner_scope as _apply_token_owner
     _apply_token_owner(where, params, user, "t.owner_user_id")
-    where[-1] = "(" + where[-1] + " OR t.owner_user_id IS NULL)"
     rows = conn.execute(f"""
         SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
                t.last_verified_at, t.note, t.created_at, t.matrix_id,
@@ -1675,6 +1674,26 @@ def rematch_op_token_accounts(token_id: int, user=Depends(get_current_user)):
         "imported_total": len(imported),
         "message": f"匹配完成：新增关联 {matched} 个账户，已有 {already} 个已关联"
     }
+
+
+@router.patch("/tokens/{token_id}/owner")
+def update_token_owner(token_id: int, body: dict, user=Depends(get_current_user)):
+    """Assign token to a specific operator (admin+ only)"""
+    if user.get("role") not in ("superadmin", "admin"):
+        raise HTTPException(status_code=403, detail="Only admin can assign token ownership")
+    owner_user_id = body.get("owner_user_id")
+    conn = get_conn()
+    row = conn.execute("SELECT id, team_id FROM fb_tokens WHERE id=?", (token_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Token not found")
+    if not user.get("is_superadmin") and row["team_id"] != user.get("team_id"):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Token belongs to another team")
+    conn.execute("UPDATE fb_tokens SET owner_user_id=? WHERE id=?", (owner_user_id if owner_user_id else None, token_id))
+    conn.commit()
+    conn.close()
+    return {"success": True, "token_id": token_id, "owner_user_id": owner_user_id}
 
 @router.get("/tokens/{token_id}/fetch-accounts")
 def fetch_token_accounts(token_id: int, user=Depends(get_current_user)):
