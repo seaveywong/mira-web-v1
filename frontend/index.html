@@ -4703,7 +4703,7 @@ function _renderTeamResources(kind){
   var sub = parts.slice(1).filter(Boolean).map(escHtml).join(' · ');
   var team = item.team_name ? escHtml(item.team_name) : '<span style="color:var(--wa)">未分配</span>';
   var ownerCell = '';
-  if(kind==='accounts'){
+  if(kind==='accounts'||kind==='tokens'){
    ownerCell = '<td style="padding:8px">'+(item.owner_user_name?escHtml(item.owner_user_name):'<span style="color:var(--t3)">未指定</span>')+'</td>';
   }
   html += '<tr style="border-bottom:1px solid var(--bd)">' +
