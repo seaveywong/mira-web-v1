@@ -1980,6 +1980,15 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
 
     # v4.3: 导入/重复导入账户后，立即将当前 token 与读取兜底 token 写入 account_op_tokens。
     # 注意：已存在账户会进入 skipped，但当前 token 仍应补齐关联，否则必须手点“重新匹配”。
+    if imported:
+        try:
+            from services.default_rules import ensure_default_stoploss_rules_for_accounts
+            added_rules = ensure_default_stoploss_rules_for_accounts([item["act_id"] for item in imported])
+            if added_rules:
+                logger.info("[Import] default stoploss rules added=%s accounts=%s", added_rules, len(imported))
+        except Exception as _default_rule_exc:
+            logger.warning("[Import] default stoploss seed failed: %s", _default_rule_exc)
+
     if successful_act_ids:
         _c_link = get_conn()
         try:

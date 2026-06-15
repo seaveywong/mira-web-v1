@@ -16,7 +16,7 @@ import requests as req
 import time
 from api.accounts import _calc_available_balance
 from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token
-from services.guard_engine import _local_per_usd_rate
+from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _local_per_usd_rate
 
 router = APIRouter()
 _SUMMARY_CACHE = {}
@@ -79,23 +79,152 @@ _KPI_FIELD_TO_ACTION = {
     "contact":                                             ["contact", "offsite_conversion.fb_pixel_contact"],
 }
 
-# 默认转化字段（未配置 KPI 时的展示用）：只用像素购买一个字段作为默认
+# 默认转化字段（未配置 KPI 时的展示用）：按优先级取一个字段，避免 purchase/offsite/omni 重复相加
 _DEFAULT_CONVERSION_ACTIONS = [
-    "offsite_conversion.fb_pixel_purchase",
     "purchase",
+    "offsite_conversion.fb_pixel_purchase",
 ]
+
+
+def _first_action_value(actions: list, action_types: list[str]) -> float:
+    if not actions or not action_types:
+        return 0.0
+    for action_type in action_types:
+        for action in actions:
+            if action.get("action_type") == action_type:
+                try:
+                    return float(action.get("value", 0) or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+    return 0.0
 
 
 def _count_conversions(actions: list, kpi_field: Optional[str] = None) -> int:
     """根据kpi_field从actions中提取正确的转化数量"""
     if not actions:
         return 0
-    target_fields = _KPI_FIELD_TO_ACTION.get(kpi_field, _DEFAULT_CONVERSION_ACTIONS) if kpi_field else _DEFAULT_CONVERSION_ACTIONS
-    total = 0
-    for a in actions:
-        if a.get("action_type") in target_fields:
-            total += int(float(a.get("value", 0)))
-    return total
+    if kpi_field:
+        try:
+            value = _first_action_value(actions, _get_kpi_aliases(kpi_field) or [])
+            if value:
+                return int(value)
+            return int(_first_action_value(actions, _get_kpi_fallback_aliases(kpi_field) or []))
+        except Exception:
+            return int(_first_action_value(actions, _KPI_FIELD_TO_ACTION.get(kpi_field, [kpi_field])))
+    return int(_first_action_value(actions, _DEFAULT_CONVERSION_ACTIONS))
+
+
+def _count_revenue(action_values: list, kpi_field: Optional[str] = None) -> float:
+    if not action_values:
+        return 0.0
+    if kpi_field:
+        try:
+            value = _first_action_value(action_values, _get_kpi_aliases(kpi_field) or [])
+            if value:
+                return value
+            return _first_action_value(action_values, _get_kpi_fallback_aliases(kpi_field) or [])
+        except Exception:
+            return _first_action_value(action_values, _KPI_FIELD_TO_ACTION.get(kpi_field, [kpi_field]))
+    return _first_action_value(action_values, _DEFAULT_CONVERSION_ACTIONS)
+
+
+def _score_ad_performance(
+    spend_usd: float,
+    conversions: int,
+    clicks: int,
+    impressions: int,
+    reach: int,
+    cpa: float,
+    target_cpa,
+    roas: float,
+    kpi_field: Optional[str],
+) -> dict:
+    spend_usd = float(spend_usd or 0)
+    conversions = int(conversions or 0)
+    clicks = int(clicks or 0)
+    impressions = int(impressions or 0)
+    reach = int(reach or 0)
+    ctr = (clicks / impressions * 100) if impressions > 0 else 0.0
+    score = 50
+    reasons: list[str] = []
+
+    if kpi_field:
+        reasons.append(f"目标：{kpi_field}")
+    else:
+        score -= 8
+        reasons.append("未配置 KPI，评分可信度降低")
+
+    try:
+        target = float(target_cpa) if target_cpa not in (None, "") else None
+    except (TypeError, ValueError):
+        target = None
+
+    if conversions > 0:
+        score += 20
+        reasons.append(f"已有 {conversions} 个目标成效")
+        if target and cpa:
+            if cpa <= target:
+                score += 18
+                reasons.append(f"CPA ${cpa:.2f} 低于目标 ${target:.2f}")
+            elif cpa <= target * 1.3:
+                score += 6
+                reasons.append(f"CPA ${cpa:.2f} 略高于目标 ${target:.2f}")
+            else:
+                score -= 18
+                reasons.append(f"CPA ${cpa:.2f} 明显高于目标 ${target:.2f}")
+    else:
+        if spend_usd >= 20:
+            score -= 32
+            reasons.append(f"消耗 ${spend_usd:.2f} 仍无目标成效")
+        elif spend_usd >= 10:
+            score -= 18
+            reasons.append(f"消耗 ${spend_usd:.2f} 暂无目标成效")
+        elif spend_usd > 0:
+            score -= 4
+            reasons.append("仍在早期消耗观察区间")
+
+    if impressions >= 100:
+        if ctr >= 2.0:
+            score += 12
+            reasons.append(f"CTR {ctr:.2f}% 较好")
+        elif ctr >= 1.0:
+            score += 5
+            reasons.append(f"CTR {ctr:.2f}% 可观察")
+        elif ctr < 0.5:
+            score -= 12
+            reasons.append(f"CTR {ctr:.2f}% 偏低")
+    elif spend_usd > 0:
+        reasons.append("曝光样本较少")
+
+    if conversions == 0 and clicks >= 20:
+        score -= 14
+        reasons.append(f"{clicks} 次点击仍无目标成效")
+    elif conversions == 0 and clicks >= 10:
+        score -= 7
+        reasons.append(f"{clicks} 次点击暂无目标成效")
+
+    if conversions == 0 and reach >= 1000 and spend_usd >= 10:
+        score -= 8
+        reasons.append(f"覆盖 {reach} 人仍无目标成效")
+
+    if roas:
+        if roas >= 2:
+            score += 8
+            reasons.append(f"ROAS {roas:.2f}x 表现较好")
+        elif roas < 1:
+            score -= 8
+            reasons.append(f"ROAS {roas:.2f}x 偏低")
+
+    score = max(0, min(100, int(round(score))))
+    label = "优秀" if score >= 80 else ("观察" if score >= 60 else ("风险" if score >= 40 else "较差"))
+    level = "good" if score >= 80 else ("warn" if score >= 60 else ("bad" if score >= 40 else "critical"))
+    return {
+        "score": score,
+        "label": label,
+        "level": level,
+        "ctr": round(ctr, 2),
+        "reasons": reasons[:6],
+    }
 
 
 _DASH_KPI_FILTERS = (
@@ -312,19 +441,7 @@ def _fetch_account_summary(acc: dict, df: str, dt: str, kpi_filter: Optional[str
             ad_action_values = ad_item.get("action_values", [])
             conversions += _count_conversions(ad_actions, kpi_field)
             if kpi_field and "purchase" in kpi_field:
-                for av in ad_action_values:
-                    if av.get("action_type") == kpi_field:
-                        revenue_orig += float(av.get("value", 0))
-                        break
-                else:
-                    for av in ad_action_values:
-                        if av.get("action_type") in (
-                            "offsite_conversion.fb_pixel_purchase",
-                            "purchase",
-                            "omni_purchase",
-                        ):
-                            revenue_orig += float(av.get("value", 0))
-                            break
+                revenue_orig += _count_revenue(ad_action_values, kpi_field)
 
         spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
         roas = round(revenue_orig / spend_orig, 2) if spend_orig > 0 and revenue_orig > 0 else 0
@@ -554,16 +671,7 @@ def get_summary(
                 conversions += ad_conversions
                 # ROAS 只对购买类广告有意义（kpi_field 含 purchase）
                 if kpi_field and 'purchase' in kpi_field:
-                    for av in ad_action_values:
-                        if av.get('action_type') == kpi_field:
-                            revenue_orig += float(av.get('value', 0))
-                            break
-                    else:
-                        # 兜底：用 offsite_conversion.fb_pixel_purchase 的 action_values
-                        for av in ad_action_values:
-                            if av.get('action_type') in ('offsite_conversion.fb_pixel_purchase', 'purchase', 'omni_purchase'):
-                                revenue_orig += float(av.get('value', 0))
-                                break
+                    revenue_orig += _count_revenue(ad_action_values, kpi_field)
 
             spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
             roas = round(revenue_orig / spend_orig, 2) if spend_orig > 0 and revenue_orig > 0 else 0
@@ -742,12 +850,7 @@ def get_trend(
                 spend_orig = float(item.get('spend', 0) or 0)
                 spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
                 daily_spend[d] += spend_usd
-                for a in item.get('actions', []):
-                    if a.get('action_type') in ('offsite_conversion.fb_pixel_purchase',
-                                                 'purchase', 'omni_purchase',
-                                                 'offsite_conversion.fb_pixel_lead', 'lead',
-                                                 'offsite_conversion.fb_pixel_contact', 'contact'):
-                        daily_conv[d] += int(float(a.get('value', 0)))
+                daily_conv[d] += _count_conversions(item.get('actions', []), None)
         except Exception:
             continue
 
@@ -784,7 +887,7 @@ def get_ads_live(
         date_to = today.isoformat()
 
     tr = '{' + f'"since":"{date_from}","until":"{date_to}"' + '}'
-    insights_field = f'insights.time_range({tr}){{spend,impressions,clicks,actions,action_values}}'
+    insights_field = f'insights.time_range({tr}){{spend,impressions,reach,clicks,actions,action_values}}'
 
     conn = get_conn()
     accs = _fetch_visible_accounts(conn, user, act_id)
@@ -953,14 +1056,18 @@ def get_ads_live(
                 ins_data = ad.get('insights', {})
                 ins = ins_data.get('data', []) if isinstance(ins_data, dict) else []
                 spend_orig = 0.0
+                impressions = 0
+                reach = 0
+                clicks = 0
                 raw_actions = []
                 roas = 0.0
                 if ins:
                     spend_orig = float(ins[0].get('spend', 0) or 0)
+                    impressions = int(ins[0].get('impressions', 0) or 0)
+                    reach = int(ins[0].get('reach', 0) or 0)
+                    clicks = int(ins[0].get('clicks', 0) or 0)
                     raw_actions = ins[0].get('actions', [])
-                    revenue = sum(float(v.get('value', 0)) for v in ins[0].get('action_values', [])
-                                  if v.get('action_type') in ('offsite_conversion.fb_pixel_purchase',
-                                                               'purchase', 'omni_purchase'))
+                    revenue = _count_revenue(ins[0].get('action_values', []), None)
                     roas = round(revenue / spend_orig, 2) if spend_orig > 0 and revenue > 0 else 0
                 spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
                 # v1.2.0: 根据kpi_field选择正确的转化字段
@@ -968,6 +1075,13 @@ def get_ads_live(
                 kpi_field = kpi.get('kpi_field')
                 conversions = _count_conversions(raw_actions, kpi_field)
                 cpa = round(spend_usd / conversions, 2) if conversions > 0 else 0
+                if kpi_field and "purchase" in str(kpi_field):
+                    revenue = _count_revenue(ins[0].get('action_values', []), kpi_field) if ins else 0.0
+                    roas = round(revenue / spend_orig, 2) if spend_orig > 0 and revenue > 0 else 0
+                score_info = _score_ad_performance(
+                    spend_usd, conversions, clicks, impressions, reach, cpa,
+                    kpi.get('target_cpa'), roas, kpi_field
+                )
                 adset = ad.get("adset") if isinstance(ad.get("adset"), dict) else {}
                 campaign = ad.get("campaign") if isinstance(ad.get("campaign"), dict) else {}
                 ad_status = ad.get("status", "")
@@ -1016,9 +1130,17 @@ def get_ads_live(
                     'status': ad_status,
                     'effective_status': effective_status,
                     'spend': spend_usd,
+                    'impressions': impressions,
+                    'reach': reach,
+                    'clicks': clicks,
+                    'ctr': score_info.get('ctr', 0),
                     'conversions': conversions,
                     'cpa': cpa,
                     'roas': roas,
+                    'score': score_info.get('score'),
+                    'score_label': score_info.get('label'),
+                    'score_level': score_info.get('level'),
+                    'score_reasons': score_info.get('reasons', []),
                     'adset_id': adset_id,
                     'adset_name': adset.get('name', ''),
                     'adset_status': adset.get('status', ''),
@@ -1148,19 +1270,11 @@ def spend_query(
                 spend_orig = float(item.get('spend', 0) or 0)
                 spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
                 actions = item.get('actions', [])
-                conversions = 0
-                for a in actions:
-                    if a.get('action_type') in ('offsite_conversion.fb_pixel_purchase',
-                                                 'purchase', 'omni_purchase',
-                                                 'offsite_conversion.fb_pixel_lead', 'lead',
-                                                 'offsite_conversion.fb_pixel_contact', 'contact'):
-                        conversions += int(float(a.get('value', 0)))
+                conversions = _count_conversions(actions, None)
                 cpa_orig = round(spend_orig / conversions, 2) if conversions > 0 else 0
                 cpa_usd = round(spend_usd / conversions, 2) if conversions > 0 else 0
                 action_values = item.get('action_values', [])
-                revenue = sum(float(v.get('value', 0)) for v in action_values
-                              if v.get('action_type') in ('offsite_conversion.fb_pixel_purchase',
-                                                           'purchase', 'omni_purchase'))
+                revenue = _count_revenue(action_values, None)
                 roas = round(revenue / spend_orig, 2) if spend_orig > 0 and revenue > 0 else 0
                 row = {
                     'date': item.get('date_start', ''),

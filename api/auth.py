@@ -17,8 +17,11 @@ class LoginReq(BaseModel):
 @router.post("/login")
 def login(req: LoginReq, request: Request):
     ip = request.client.host if request.client else "unknown"
+    username = req.username or ADMIN_USERNAME
+    login_key = f"{ip}:{username.strip().lower()[:80]}"
     try:
         check_login_lock(ip)
+        check_login_lock(login_key)
     except HTTPException as exc:
         if exc.status_code == 429:
             return JSONResponse(
@@ -26,18 +29,19 @@ def login(req: LoginReq, request: Request):
                 content={"detail": exc.detail, "remaining": 0},
             )
         raise
-    username = req.username or ADMIN_USERNAME
     ok, role, uid = verify_credentials(username, req.password)
     if not ok:
         record_fail(ip)
+        record_fail(login_key)
         return JSONResponse(
             status_code=401,
             content={
                 "detail": "用户名或密码错误",
-                "remaining": get_remaining_attempts(ip),
+                "remaining": min(get_remaining_attempts(ip), get_remaining_attempts(login_key)),
             },
         )
     record_success(ip)
+    record_success(login_key)
     claims = build_user_claims(username, role, uid)
     token = create_token(claims)
     # 更新最后登录时间（非超级管理员ENV账户）

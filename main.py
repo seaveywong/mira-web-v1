@@ -53,6 +53,18 @@ class TimingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
+
 class ActivityAuditMiddleware(BaseHTTPMiddleware):
     """记录每个 API 请求到 user_activity_log，更新 users.last_active_at"""
     async def dispatch(self, request: Request, call_next):
@@ -158,6 +170,7 @@ app.add_middleware(
 app.add_middleware(TimingMiddleware)
 app.add_middleware(TeamWriteGuardMiddleware)
 app.add_middleware(ActivityAuditMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.on_event("startup")
@@ -209,6 +222,15 @@ async def startup():
     except Exception as e:
         import logging
         logging.getLogger("mira").warning(f"warmup schema warning: {e}")
+    try:
+        from services.default_rules import backfill_default_stoploss_rules_once
+        added = backfill_default_stoploss_rules_once()
+        if added:
+            import logging
+            logging.getLogger("mira").info(f"default stoploss rules added: {added}")
+    except Exception as e:
+        import logging
+        logging.getLogger("mira").warning(f"default stoploss rule backfill warning: {e}")
     start_scheduler()
 
 
