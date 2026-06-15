@@ -14363,9 +14363,7 @@ async function addKpiMapping(kpiType){
  }catch(e){toast('添加失败: '+e.message,'er')}
 }
 
-async
-
-function editKpiMapping(mapId, kpiType, actionType, isStandard){
+async function editKpiMapping(mapId, kpiType, actionType, isStandard){
  var rowId="mapRow_"+mapId;
  var row=document.getElementById(rowId);
  if(row){
