@@ -1944,17 +1944,12 @@ class GuardEngine:
             max_ctr = float(rule.get("param_ratio") or 0.5)
             if spend >= min_spend and impressions >= 100 and conversions == 0 and float(ctr or 0) <= max_ctr:
                 return True, f"账户消耗 ${spend:.2f} 且 CTR {float(ctr or 0):.2f}% <= {max_ctr:.2f}%，KPI 转化=0"
-                triggered = True
-                reason = (f"CTR {float(ctr or 0):.2f}% <= {max_ctr:.2f}% 且消耗 ${spend:.2f}，"
-                          f"{kpi_label} = 0（点击 {clicks}，唯一点击 {unique_clicks}）")
 
         elif rule_type == "reach_no_conv":
             threshold_reach = int(rule.get("param_value") or 1000)
             min_spend = float(rule.get("param_ratio") or 10.0)
             if int(reach or 0) >= threshold_reach and spend >= min_spend and conversions == 0:
                 return True, f"账户覆盖 {int(reach or 0)} 且消耗 ${spend:.2f}，KPI 转化=0"
-                triggered = True
-                reason = f"覆盖 {int(reach or 0)} >= {threshold_reach} 且消耗 ${spend:.2f}，{kpi_label} = 0"
 
         elif rule_type == "budget_burn_fast":
             threshold_abs = float(rule.get("param_value") or 20.0)
@@ -1980,17 +1975,7 @@ class GuardEngine:
             except Exception as exc:
                 logger.warning("account budget_burn_fast cache failed: %s", exc)
 
-        elif rule_type == "low_ctr_no_conv":
-            min_spend = float(rule.get("param_value") or 10.0)
-            max_ctr = float(rule.get("param_ratio") or 0.5)
-            if spend >= min_spend and impressions >= 100 and conversions == 0 and ctr <= max_ctr:
-                return True, f"账户消耗 ${spend:.2f} 且 CTR {ctr:.2f}% <= {max_ctr:.2f}%，KPI 转化=0"
 
-        elif rule_type == "reach_no_conv":
-            reach_threshold = int(rule.get("param_value") or 1000)
-            min_spend = float(rule.get("param_ratio") or 10.0)
-            if reach >= reach_threshold and spend >= min_spend and conversions == 0:
-                return True, f"账户覆盖 {reach} 且消耗 ${spend:.2f}，KPI 转化=0"
 
         return False, ""
 
