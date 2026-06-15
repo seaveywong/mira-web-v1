@@ -1836,7 +1836,7 @@ select.fc option{background:#fff;color:#1d1d1f}
 
     <div class="tb-acts">
      <span id="aiBadge" class="ai-badge ai-off">AI 未启用</span>
-     <button class="btn-inspect role-superadmin-only" id="btnInspect" onclick="triggerInspect()">立即巡检</button>
+     <button class="btn-inspect" id="btnInspect" onclick="triggerInspect()">立即巡检</button>
      <button class="btn btn-g btn-sm role-superadmin-only" onclick="resetRuleCooldown()" style="padding:5px 10px;font-size:12px;margin-left:6px">重置冷却</button>
      <div style="display:flex;align-items:center;gap:6px">
      <div class="tb-user-wrap">
@@ -4776,6 +4776,23 @@ async function openAccountOwnerModal(accountId){
    '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moOwner\')">取消</button><button class="btn btn-p" onclick="saveAccountOwner('+accountId+')">保存</button></div></div>';
   openModal('moOwner');
  }catch(e){toast('加载负责人失败：'+(e.message||e),'er');}
+}
+
+async function openTokenOwnerModal(tokenId){
+ var item=_teamResItems.find(function(x){return x.id===tokenId});
+ if(!item){toast('Token数据未找到','er');return}
+ try{
+  if(!_usersData||!_usersData.length){var r=await api('GET','/users');_usersData=r.users||[]}
+  var users=_usersData.filter(function(u){return String(u.team_id)===String(item.team_id)&&['admin','operator'].indexOf(u.role)>=0&&u.is_active});
+  var opts='<option value="0">不指定负责人</option>'+users.map(function(u){return '<option value="'+u.id+'" '+(String(item.owner_user_id||'')===String(u.id)?'selected':'')+'>'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('');
+  var mo=document.getElementById('moTokenOwner');if(!mo){mo=document.createElement('div');mo.id='moTokenOwner';mo.className='mo';document.body.appendChild(mo)}
+  mo.innerHTML='<div class="modal"><div class="mh"><h3>Token负责人</h3><button class="mc" onclick="closeModal(\'moTokenOwner\')">x</button></div><div class="mb"><div class="fg"><label class="fl">Token</label><input class="fc" value="'+escHtml(item.name||('Token '+tokenId))+'" disabled></div><div class="fg"><label class="fl">负责人</label><select class="fc" id="tokenOwnerUid">'+opts+'</select></div><div class="fh">设置后仅该负责人可见此Token。留空则团队内共享。</div></div><div class="mf"><button class="btn btn-g" onclick="closeModal(\'moTokenOwner\')">取消</button><button class="btn btn-p" onclick="saveTokenOwner('+tokenId+')">保存</button></div></div>';
+  openModal('moTokenOwner')
+ }catch(e){toast('加载失败：'+(e.message||e),'er')}
+}
+async function saveTokenOwner(tokenId){
+ var ownerId=parseInt((document.getElementById('tokenOwnerUid')||{}).value||'0',10)||0;
+ try{await api('PATCH','/accounts/tokens/'+tokenId+'/owner',{owner_user_id:ownerId||null});toast('Token负责人已保存','ok');closeModal('moTokenOwner');loadTeamResources()}catch(e){toast('保存失败：'+(e.message||e),'er')}
 }
 
 async function saveAccountOwner(accountId){
