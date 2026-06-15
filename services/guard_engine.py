@@ -1770,7 +1770,10 @@ class GuardEngine:
         for rule in rules or []:
             target = str(rule.get("target_id") or "")
             level = str(rule.get("level") or "").lower()
-            if level == "account" or target in ("", "__global__", act_id):
+            act = str(rule.get("act_id") or "")
+            if act == "__owner__":
+                object_rules.append(rule)
+            elif level == "account" or target in ("", "__global__", act_id):
                 account_rules.append(rule)
             else:
                 object_rules.append(rule)
