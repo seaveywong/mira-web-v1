@@ -12962,8 +12962,26 @@ async function checkAi(){
 // ── Inspect ──
 async function triggerInspect(){ _nextInspectTime = null; updateInspectCountdown();
  var btn=document.getElementById('btnInspect');btn.disabled=true;btn.textContent='巡检中...';
- try{var r=await api('POST','/dashboard/trigger-inspect');toast(r.message||'巡检完成','ok');setTimeout(loadDash,3000);setNextInspectTime(10);}catch(e){toast('触发失败：'+e.message,'er')}
- setTimeout(function(){btn.disabled=false;btn.innerHTML='立即巡检'},3000);
+ try{
+  var r=await api('POST','/dashboard/trigger-inspect');
+  toast((r.message||'巡检已触发'),'ok');
+  var polls=0;
+  var iv=setInterval(async function(){
+   polls++;
+   try{
+    var s=await api('GET','/dashboard/trigger-inspect/status');
+    var mine=s[Object.keys(s)[0]];
+    if(mine&&mine.status!=='running'){
+     clearInterval(iv);
+     btn.disabled=false;btn.innerHTML='立即巡检';
+     if(mine.status==='done'){toast('巡检完成','ok');setTimeout(loadDash,2000)}
+     else{toast('巡检异常:'+(mine.error||''),'er')}
+     setNextInspectTime(10);
+    }
+   }catch(e){}
+   if(polls>60){clearInterval(iv);btn.disabled=false;btn.innerHTML='立即巡检';toast('巡检超时','wa')}
+  },3000);
+ }catch(e){toast('触发失败:'+e.message,'er');btn.disabled=false;btn.innerHTML='立即巡检'}
 }
 
 // ── Log Tabs ──
