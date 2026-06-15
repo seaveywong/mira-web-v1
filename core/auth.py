@@ -5,6 +5,7 @@ JWT 认证核心模块 v3.0
 import os
 import jwt
 import hashlib
+import hmac
 import time
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -233,7 +234,7 @@ def verify_credentials(username: str, password: str):
         pass
 
     # 2. 兜底：超级管理员（从ENV读取）
-    if username == ADMIN_USERNAME and pw_hash == ADMIN_PASSWORD_HASH:
+    if username == ADMIN_USERNAME and hmac.compare_digest(pw_hash, ADMIN_PASSWORD_HASH):
         return True, "superadmin", 0
 
     return False, None, None
@@ -242,7 +243,7 @@ def verify_credentials(username: str, password: str):
 def verify_password(plain: str) -> bool:
     """仅验证密码（向后兼容旧版）"""
     _reload_env()
-    return hashlib.sha256(plain.encode()).hexdigest() == ADMIN_PASSWORD_HASH
+    return hmac.compare_digest(hashlib.sha256(plain.encode()).hexdigest(), ADMIN_PASSWORD_HASH)
 
 
 def create_token(data: dict) -> str:

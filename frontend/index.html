@@ -201,6 +201,8 @@ body.role-operator .role-admin-only{display:none!important}
 body.role-viewer .role-superadmin-only,
 body.role-operator .role-superadmin-only,
 body.role-admin .role-superadmin-only{display:none!important}
+body.role-superadmin .role-non-superadmin-only,
+body.role-viewer .role-non-superadmin-only{display:none!important}
 body.role-viewer .fb-row-check,
 body.role-viewer #adsBulkBar{display:none!important}
 body.role-viewer .fb-switch,
@@ -1770,7 +1772,7 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="nav-item role-superadmin-only" onclick="showPage('settings')"><span class="nav-icon"></span>系统设置</div>
    </nav>
    <div class="sb-foot">
-    <div class="role-superadmin-only" style="margin-bottom:10px;background:var(--bg2);border-radius:10px;border:1px solid var(--bd);overflow:hidden">
+    <div class="role-operator-only role-non-superadmin-only" style="margin-bottom:10px;background:var(--bg2);border-radius:10px;border:1px solid var(--bd);overflow:hidden">
      <div style="padding:7px 10px;background:rgba(59,130,246,.06);border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:6px">
       <span style="font-size:11px;font-weight:600;color:var(--t1)">安全守护</span>
       <span style="margin-left:auto;display:flex;gap:5px">
@@ -3146,7 +3148,7 @@ select.fc option{background:#fff;color:#1d1d1f}
   <div class="mh"><h3 id="ruleMTitle">添加止损规则</h3><button class="mc" onclick="closeModal('moAddRule')">✕</button></div>
   <div class="mb">
    <div class="fr">
-    <div class="fg"><label class="fl">账户 <span class="req">*</span></label><select class="fc" id="ruleAct" onchange="onRuleActChange()"></select></div>
+    <div class="fg"><label class="fl">账户 <span style="color:var(--t4);font-size:11px;font-weight:400">（不选=当前运营名下全部账户）</span></label><select class="fc" id="ruleAct" onchange="onRuleActChange()"></select></div>
     <div class="fg"><label class="fl">规则名称</label><input class="fc" id="ruleName" placeholder="可选，便于识别"></div>
    </div>
    <!-- KPI配置状态提示 -->
@@ -3243,18 +3245,18 @@ select.fc option{background:#fff;color:#1d1d1f}
   <div class="mh"><h3>一键套用规则模板</h3><button class="mc" onclick="closeModal('moTemplate')">✕</button></div>
   <div class="mb">
    <div style="margin-bottom:16px">
-    <label class="fl">应用到账户 <span style="font-size:11px;color:var(--t3);font-weight:400">（可多选，模板将批量应用到所选账户）</span></label>
+    <label class="fl">应用到账户 <span style="font-size:11px;color:var(--t3);font-weight:400">（可多选；不选=当前运营名下全部账户）</span></label>
     <div style="border:1px solid var(--bd);border-radius:8px;background:var(--bg2);padding:8px 12px;max-height:160px;overflow-y:auto" id="tplActCheckList">
      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:12px;color:var(--t3);border-bottom:1px solid var(--bd);margin-bottom:4px">
       <input type="checkbox" id="tplSelectAll" onchange="toggleAllTplActs(this.checked)" style="width:14px;height:14px"> <strong>全选</strong>
      </label>
      <div id="tplActItems"><!-- 账户列表由JS填充 --></div>
     </div>
-    <div style="font-size:11px;color:var(--t3);margin-top:4px">已选 <span id="tplActCount" style="color:var(--ac);font-weight:600">0</span>个账户</div>
+    <div style="font-size:11px;color:var(--t3);margin-top:4px">已选 <span id="tplActCount" style="color:var(--ac);font-weight:600">0</span>个账户；不选时覆盖当前运营名下全部账户</div>
    </div>
    <div id="tplList" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
    <div style="margin-top:16px;padding:12px;background:var(--bg2);border-radius:8px;font-size:12px;color:var(--t3)">
-     <strong>提示：</strong>模板规则会写入所选账户，并在该账户内对全部对象生效，应用后可在规则列表中单独修改参数。
+     <strong>提示：</strong>默认模板只包含止损规则；不选择账户时会写入当前运营的默认规则，覆盖该运营名下账户。指定账户时只对选中账户生效。
    </div>
    <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--t2)">
@@ -3668,7 +3670,7 @@ function showConfirm(msg, onOk) {
  }
  mo.innerHTML = '<div class="modal" style="max-width:420px">' +
   '<div class="mh"><h3 style="margin:0;font-size:16px">确认操作</h3></div>' +
-  '<div class="mb" style="padding:20px 24px;font-size:14px;line-height:1.6;color:var(--t1)">' + msg.replace(/\n/g,'<br>') + '</div>' +
+  '<div class="mb" style="padding:20px 24px;font-size:14px;line-height:1.6;color:var(--t1)">' + escHtml(msg).replace(/\n/g,'<br>') + '</div>' +
   '<div class="mf" style="gap:12px">' +
   '<button class="btn btn-g" onclick="closeModal(\'moConfirm\')">取消</button>' +
   '<button class="btn" style="background:var(--er);color:#fff" id="confirmOkBtn_">确认删除</button>' +
@@ -3791,6 +3793,7 @@ var ROLE_LEVELS = {superadmin:100, admin:80, operator:50, viewer:10};
 var PAGE_MIN_ROLES = {settings:'superadmin', kpi_mapping:'superadmin', team_admin:'admin'};
 function getCurrentRole(){return localStorage.getItem('mira_role')||'viewer';}
 function hasRole(minRole){return (ROLE_LEVELS[getCurrentRole()]||0)>=(ROLE_LEVELS[minRole]||0);}
+function isSuperadminRole(){return getCurrentRole()==='superadmin';}
 function canWrite(){return hasRole('operator');}
 function getTeamStatus(){return localStorage.getItem('mira_team_status')||'';}
 function isTeamPaused(){return getTeamStatus()==='paused'&&!hasRole('superadmin');}
@@ -3911,9 +3914,12 @@ function applyRolePermissions(role){
  document.querySelectorAll('.role-superadmin-only').forEach(function(el){
   el.style.display = level>=100 ? '' : 'none';
  });
+ document.querySelectorAll('.role-non-superadmin-only').forEach(function(el){
+  el.style.display = (level>=50 && level<100) ? '' : 'none';
+ });
  ['toggleSentinel','toggleMirror','toggleHeartbeat','toggleWarmup'].forEach(function(id){
   var el=document.getElementById(id);
-  if(el){el.disabled=level<100;el.title=level<100?'仅超级管理员可修改全局守护开关':'';}
+  if(el){el.disabled=level<50||level>=100;el.title=level>=100?'超管不使用个人守护开关':(level<50?'只读用户不能修改守护开关':'管理自己名下账户的守护开关');}
  });
 }
 
@@ -5014,7 +5020,7 @@ async function loadAccounts(){
     if(id==='scanAct'){
      el.innerHTML='<option value="">请选择账户...</option><option value="__all__">全部账户（逐一扫描）</option>'+optsNoAll;
     } else if(id==='ruleAct'){
-     el.innerHTML='<option value="">请选择账户...</option>'+optsNoAll;
+     el.innerHTML='<option value="">当前运营名下全部账户</option>'+optsNoAll;
     } else {
      el.innerHTML=optsNoAll;
     }
@@ -5111,7 +5117,7 @@ function initSearchableSelects(){
  ['dashAct','adsAct','logAct','spendActSel','rulesAct','kpiAct'].forEach(function(id){
   SearchableSelect(id,'全部账户');
  });
- SearchableSelect('ruleAct','请选择账户...');
+ SearchableSelect('ruleAct','当前运营名下全部账户');
  SearchableSelect('kpiActSel','请选择账户...');
 }
 
@@ -7574,7 +7580,7 @@ function renderAccCard(a,idx){
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openOpPoolModal(\''+a.act_id+'\')">操作号配置</button>'+
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openPagePixelModal(\''+a.act_id+'\')">主页/像素</button>'+
   '<button class="btn btn-g btn-sm" style="'+(a.balance_type==='unlimited'?'color:var(--ac);font-weight:600':'')+'" onclick="event.stopPropagation();openSpendCapModal(\''+a.act_id+'\','+(spendCapUsd||0)+',\''+(a.name||a.act_id).replace(/'/g,'\\\x27')+'\',\''+(a.currency||'USD')+'\','+(a.balance_type==='unlimited'?'true':'false')+')">消费上限'+spendCapLabel+'</button>'+
-  '<button class="btn btn-r btn-sm role-hide-viewer" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm role-superadmin-only" style="font-size:11px;'+(a.sentinel_enabled?'color:#d97706;font-weight:700':'')+'" title="只让这个账户进入哨兵巡检范围" onclick="event.stopPropagation();toggleSentinelForAccount(\''+a.act_id+'\','+(a.sentinel_enabled?'0':'1')+')">'+(a.sentinel_enabled?'关哨兵':'开哨兵')+'</button>'+'<button class="btn btn-g btn-sm role-superadmin-only" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle role-hide-viewer" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
+  '<button class="btn btn-r btn-sm role-hide-viewer" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm role-hide-viewer role-non-superadmin-only" style="font-size:11px;'+(a.sentinel_enabled?'color:#d97706;font-weight:700':'')+'" title="只让这个账户进入哨兵巡检范围" onclick="event.stopPropagation();toggleSentinelForAccount(\''+a.act_id+'\','+(a.sentinel_enabled?'0':'1')+')">'+(a.sentinel_enabled?'关哨兵':'开哨兵')+'</button>'+'<button class="btn btn-g btn-sm role-hide-viewer role-non-superadmin-only" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle role-hide-viewer" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
   '</div>'+
   '</div>'+
   '</div>';
@@ -11027,9 +11033,12 @@ function renderGuard(rules){
   var silStr=r.silent_start?' · 静默 '+r.silent_start+'-'+r.silent_end:'';
  var kpiFilterLabel={'dt:MESSENGER':'对话类','dt:WEBSITE':'网站转化','dt:FACEBOOK_PAGE':'主页互动','dt:INSTAGRAM_PROFILE':'IG主页','dt:UNDEFINED':'未定义','obj:OUTCOME_SALES':'销售','obj:OUTCOME_LEADS':'线索','obj:OUTCOME_ENGAGEMENT':'互动','obj:OUTCOME_TRAFFIC':'流量','obj:PAGE_LIKES':'主页赞','purchase':'购买转化','leads':'线索收集','messenger':'私信对话','engagement':'帖子互动','traffic':'流量点击','contact':'联系转化','other':'其他'};
   var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+(kpiFilterLabel[r.kpi_filter]||r.kpi_filter)+'</span>':'';
-  var actBadge='<span class="badge bg-mu">'+r.act_id+'</span>'+kfiBadge;
+  var scopeLabel=r.scope_label||(r.scope==='owner'?'名下全部账户':'指定账户');
+  var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(r.act_id||'指定账户');
+  var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
+  var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>'+kfiBadge;
   var cardStyle='';
-   return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
+   return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(noteLabel?'<span style="font-size:11px;color:var(--t3)">'+escHtml(noteLabel)+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
  }
  el.innerHTML=rules.map(ruleCard).join('');
 }
@@ -11049,12 +11058,15 @@ function renderScale(rules){
   parts.push('加预算 '+pct(r.scale_pct||0.15));
   if(r.max_budget)parts.push('上限 '+r.max_budget);
   if(r.roas_threshold)parts.push('ROAS ≥ '+r.roas_threshold);
-  var actBadge='<span class="badge bg-mu">'+r.act_id+'</span>';
+  var scopeLabel=r.scope_label||(r.scope==='owner'?'名下全部账户':'指定账户');
+  var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(r.act_id||'指定账户');
+  var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>';
+  var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
   var cardStyle='';
   return '<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body">'+
    '<div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div>'+
    '<div class="rc-desc">'+parts.join(' · ')+'</div>'+
-   '<div class="rc-meta"><span class="badge bg-ok">加预算</span>'+actBadge+(r.note?'<span style="font-size:11px;color:var(--t3)">'+r.note+'</span>':'')+'</div>'+
+   '<div class="rc-meta"><span class="badge bg-ok">加预算</span>'+actBadge+(noteLabel?'<span style="font-size:11px;color:var(--t3)">'+escHtml(noteLabel)+'</span>':'')+'</div>'+
    '</div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleS('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑策略" onclick="editS('+r.id+')">编</button><button class="btn-ic d" title="删除策略" onclick="delS('+r.id+')">删</button></div></div>';
  }
  el.innerHTML=rules.map(card).join('');
@@ -11137,7 +11149,7 @@ function onScaleType(){
 }
 var _editingRuleId=null;
 async function submitRule(){
- var actId=document.getElementById('ruleAct').value;if(!actId){toast('请选择账户','er');return}
+ var actId=document.getElementById('ruleAct').value||null;
  if(actId==='__global__'){toast('全局规则已取消，请选择具体账户','er');return}
  try{
   if(ruleMode==='guard'){
@@ -11184,7 +11196,8 @@ async function editG(id){
  document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent='保存修改');
  // 回填账户
  var actSel=document.getElementById('ruleAct');
- if(actSel){actSel.value=r.act_id;if(actSel.value!==r.act_id){var opt=document.createElement('option');opt.value=r.act_id;opt.textContent=r.act_id;actSel.prepend(opt);actSel.value=r.act_id;}}
+ var editAct=(r.scope==='owner'||r.act_id==='__owner__')?'':r.act_id;
+ if(actSel){actSel.value=editAct;if(editAct&&actSel.value!==editAct){var opt=document.createElement('option');opt.value=editAct;opt.textContent=editAct;actSel.prepend(opt);actSel.value=editAct;}}
  // 回填规则类型（需要先触发 onGuardType 渲染参数字段）
  var typeSel=document.getElementById('guardType');
  if(typeSel){typeSel.value=r.rule_type;onGuardType();}
@@ -11210,7 +11223,8 @@ async function editS(id){
  document.getElementById('ruleMTitle').textContent='编辑拉量策略';
  document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent='保存修改');
  var actSel=document.getElementById('ruleAct');
- if(actSel){actSel.value=r.act_id;if(actSel.value!==r.act_id){var opt=document.createElement('option');opt.value=r.act_id;opt.textContent=r.act_id;actSel.prepend(opt);actSel.value=r.act_id;}}
+ var editAct=(r.scope==='owner'||r.act_id==='__owner__')?'':r.act_id;
+ if(actSel){actSel.value=editAct;if(editAct&&actSel.value!==editAct){var opt=document.createElement('option');opt.value=editAct;opt.textContent=editAct;actSel.prepend(opt);actSel.value=editAct;}}
  var typeSel=document.getElementById('scaleType');
  if(typeSel){typeSel.value=r.rule_type||'slow_scale';onScaleType();}
  setTimeout(function(){
@@ -11289,10 +11303,9 @@ async function applyTemplate(){
  var payload={template_id:selectedTplId,override_existing:override};
  var cbs=document.querySelectorAll('.tpl-act-cb:checked');
  var actIds=Array.from(cbs).map(function(cb){return cb.value});
- if(!actIds.length){toast('请先勾选要应用的账户','er');return}
- payload.act_ids=actIds;
+ if(actIds.length)payload.act_ids=actIds;
  document.getElementById('btnApplyTpl').disabled=true;
- document.getElementById('btnApplyTpl').textContent='应用中（'+actIds.length+'个账户）...';
+ document.getElementById('btnApplyTpl').textContent=actIds.length?'应用中（'+actIds.length+'个账户）...':'应用到名下全部账户...';
  try{
   var r=await api('POST','/rules/templates/apply',payload);
   toast(r.message||'模板应用成功','ok');closeModal('moTemplate');loadRules();
@@ -13215,11 +13228,28 @@ function onKpiTgtSel(){
 }
 
 // ── Mirror Mode ──
+async function updateMyGuardMode(key, enabled, updateFn, label, hintText){
+ var body={};
+ body[key]=!!enabled;
+ await api('PATCH','/users/me/guard-settings',body);
+ if(typeof updateFn==='function')updateFn(enabled?'1':'0',hintText);
+ toast(label+(enabled?'已开启':'已关闭')+'，仅作用于你名下账户','ok');
+}
 async function toggleMirrorMode(){
   var el=document.getElementById('toggleMirror');
   if(!el)return;
-  if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改镜像模式','wa');return;}
   var v=el.checked?'1':'0';
+ if(!isSuperadminRole()){
+  el.disabled=true;
+  try{
+   await updateMyGuardMode('mirror_enabled',el.checked,_updateMirrorUI,'镜像模式',el.checked?'个人镜像已开启':'已关闭');
+  }catch(e){el.checked=!el.checked;_updateMirrorUI(el.checked?'1':'0');showErr(e);}
+  el.disabled=false;
+  return;
+ }
+ toast('超管不使用个人镜像开关，请在团队或账户层级管理','wa');
+ el.checked=!el.checked;
+ return;
  el.disabled=true;
  try{
   if(v==='1'){
@@ -13274,8 +13304,17 @@ function _updateMirrorUI(v, hintOverride){
 function toggleSentinelMode(){
   var el=document.getElementById('toggleSentinel');
   if(!el)return;
-  if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改哨兵模式','wa');return;}
   var v=el.checked?'1':'0';
+ if(!isSuperadminRole()){
+  el.disabled=true;
+  updateMyGuardMode('sentinel_enabled',el.checked,_updateSentinelUI,'哨兵模式')
+   .catch(function(e){el.checked=!el.checked;_updateSentinelUI(el.checked?'1':'0');showErr(e);})
+   .finally(function(){el.disabled=false;});
+  return;
+ }
+ toast('超管不使用个人哨兵开关，请在团队或账户层级管理','wa');
+ el.checked=!el.checked;
+ return;
  el.disabled=true;
  api('PUT','/settings',{settings:[{key:'sentinel_enabled',value:v}]}).then(function(){
   _updateSentinelUI(v);
@@ -13285,8 +13324,17 @@ function toggleSentinelMode(){
 function toggleHeartbeatMode(){
   var el=document.getElementById('toggleHeartbeat');
   if(!el)return;
-  if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改心跳模式','wa');return;}
   var v=el.checked?'1':'0';
+ if(!isSuperadminRole()){
+  el.disabled=true;
+  updateMyGuardMode('heartbeat_enabled',el.checked,_updateHeartbeatUI,'心跳模式')
+   .catch(function(e){el.checked=!el.checked;_updateHeartbeatUI(el.checked?'1':'0');showErr(e);})
+   .finally(function(){el.disabled=false;});
+  return;
+ }
+ toast('超管不使用个人心跳开关，请在团队或账户层级管理','wa');
+ el.checked=!el.checked;
+ return;
  el.disabled=true;
  api('PUT','/settings',{settings:[{key:'heartbeat_enabled',value:v}]}).then(function(){
   _updateHeartbeatUI(v);
@@ -13312,6 +13360,25 @@ function _updateHeartbeatUI(v){
  if(st){st.textContent=on?'已开启':'已关闭';st.style.color=on?'var(--ok)':'var(--t3)';}
 }
 function initSentinelHeartbeat(){
+ if(!isSuperadminRole()){
+  api('GET','/users/me/guard-settings').then(function(s){
+   _sentinelInterval='3';
+   _heartbeatTimeout='30';
+   var sv=s.sentinel_enabled?'1':'0';
+   var hv=s.heartbeat_enabled?'1':'0';
+   var mv=s.mirror_enabled?'1':'0';
+   var wv=s.warmup_enabled?'1':'0';
+   var tel=document.getElementById('toggleSentinel');if(tel)tel.checked=sv==='1';
+   var hel=document.getElementById('toggleHeartbeat');if(hel)hel.checked=hv==='1';
+   var mel=document.getElementById('toggleMirror');if(mel)mel.checked=mv==='1';
+   var wel=document.getElementById('toggleWarmup');if(wel)wel.checked=wv==='1';
+   _updateSentinelUI(sv);
+   _updateHeartbeatUI(hv);
+   _updateMirrorUI(mv,mv==='1'?'个人镜像已开启':null);
+   _updateWarmupUI(wv,wv==='1'?'个人预热已开启':null);
+  }).catch(function(){});
+  return;
+ }
  api('GET','/settings?keys=sentinel_enabled,sentinel_interval,heartbeat_enabled,heartbeat_timeout,mirror_enabled,warmup_enabled').then(function(d){
   // Convert array [{key,value}] to object {key:value}
   var s={};
@@ -14219,7 +14286,17 @@ function renderWarmupBadge(a){
 async function toggleWarmupMode(){
  var el=document.getElementById("toggleWarmup");
  if(!el)return;
- if(!hasRole('superadmin')){el.checked=!el.checked;toast('仅超级管理员可修改预热模式','wa');return;}
+ if(!isSuperadminRole()){
+  el.disabled=true;
+  try{
+   await updateMyGuardMode('warmup_enabled',el.checked,_updateWarmupUI,'预热模式',el.checked?'个人预热已开启':'已关闭');
+  }catch(e){el.checked=!el.checked;_updateWarmupUI(el.checked?'1':'0');showErr(e);}
+  el.disabled=false;
+  return;
+ }
+ toast('超管不使用个人预热开关，请在团队或账户层级管理','wa');
+ el.checked=!el.checked;
+ return;
  var v=el.checked?"1":"0";
  el.disabled=true;
  try{

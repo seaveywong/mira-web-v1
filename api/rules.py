@@ -16,6 +16,10 @@ router = APIRouter()
 logger = logging.getLogger("mira.api.rules")
 
 GLOBAL_ACT_ID = "__global__"
+OWNER_SCOPE_ACT_ID = "__owner__"
+RULE_SCOPE_ACCOUNT = "account"
+RULE_SCOPE_OWNER = "owner"
+DEFAULT_OWNER_RULE_NOTE = "owner_default_stoploss_v2"
 
 
 def _ensure_rule_team_columns(conn) -> None:
@@ -25,16 +29,135 @@ def _ensure_rule_team_columns(conn) -> None:
         conn.commit()
 
 
+def _ensure_rule_scope_columns(conn) -> None:
+    guard_cols = {r["name"] for r in conn.execute("PRAGMA table_info(guard_rules)").fetchall()}
+    if guard_cols:
+        if "scope" not in guard_cols:
+            conn.execute("ALTER TABLE guard_rules ADD COLUMN scope TEXT DEFAULT 'account'")
+        if "owner_user_id" not in guard_cols:
+            conn.execute("ALTER TABLE guard_rules ADD COLUMN owner_user_id INTEGER")
+        if "team_id" not in guard_cols:
+            conn.execute("ALTER TABLE guard_rules ADD COLUMN team_id INTEGER")
+        if "created_by" not in guard_cols:
+            conn.execute("ALTER TABLE guard_rules ADD COLUMN created_by TEXT")
+        conn.execute("UPDATE guard_rules SET scope='account' WHERE scope IS NULL OR scope=''")
+        conn.execute(
+            """UPDATE guard_rules
+               SET team_id=(SELECT a.team_id FROM accounts a WHERE a.act_id=guard_rules.act_id)
+               WHERE team_id IS NULL AND act_id NOT IN (?, ?)""",
+            (GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID),
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_guard_rules_scope_owner ON guard_rules(scope, owner_user_id, enabled)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_guard_rules_scope_account ON guard_rules(act_id, scope, enabled)")
+
+    scale_cols = {r["name"] for r in conn.execute("PRAGMA table_info(scale_rules)").fetchall()}
+    if scale_cols:
+        if "scope" not in scale_cols:
+            conn.execute("ALTER TABLE scale_rules ADD COLUMN scope TEXT DEFAULT 'account'")
+        if "owner_user_id" not in scale_cols:
+            conn.execute("ALTER TABLE scale_rules ADD COLUMN owner_user_id INTEGER")
+        if "team_id" not in scale_cols:
+            conn.execute("ALTER TABLE scale_rules ADD COLUMN team_id INTEGER")
+        if "created_by" not in scale_cols:
+            conn.execute("ALTER TABLE scale_rules ADD COLUMN created_by TEXT")
+        conn.execute("UPDATE scale_rules SET scope='account' WHERE scope IS NULL OR scope=''")
+        conn.execute(
+            """UPDATE scale_rules
+               SET team_id=(SELECT a.team_id FROM accounts a WHERE a.act_id=scale_rules.act_id)
+               WHERE team_id IS NULL AND act_id NOT IN (?, ?)""",
+            (GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID),
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scale_rules_scope_owner ON scale_rules(scope, owner_user_id, enabled)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scale_rules_scope_account ON scale_rules(act_id, scope, enabled)")
+    conn.commit()
+
+
 def _assert_rule_target_access(conn, act_id: str, user) -> None:
     target = (act_id or "").strip()
-    if target == GLOBAL_ACT_ID:
-        raise HTTPException(400, "Global account rules are disabled. Please choose a specific ad account.")
+    if target in (GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID):
+        return
     if not target:
-        raise HTTPException(400, "请指定账户")
+        return
     assert_row_access(conn, "accounts", target, user, id_column="act_id")
 
 
+def _actor_uid(user) -> int | None:
+    try:
+        uid = int((user or {}).get("uid") or 0)
+    except (TypeError, ValueError):
+        return None
+    return uid if uid > 0 else None
+
+
+def _actor_can_manage_team(user) -> bool:
+    return bool(is_superadmin(user) or (user or {}).get("role") == "admin")
+
+
+def _account_row(conn, act_id: str):
+    return conn.execute(
+        "SELECT act_id, name, team_id, owner_user_id FROM accounts WHERE act_id=?",
+        (act_id,),
+    ).fetchone()
+
+
+def _rule_scope_for_body(conn, act_id: str | None, user) -> tuple[str, str, int | None, int | None]:
+    _ensure_rule_scope_columns(conn)
+    target = (act_id or "").strip()
+    if target in ("", GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID, "__all__"):
+        if is_superadmin(user):
+            raise HTTPException(400, "超级管理员不创建默认规则；请由运营在自己的账户范围内配置。")
+        uid = _actor_uid(user)
+        if not uid:
+            raise HTTPException(403, "当前用户不能创建运营级规则")
+        return OWNER_SCOPE_ACT_ID, RULE_SCOPE_OWNER, uid, team_id_for_create(user)
+
+    _assert_rule_target_access(conn, target, user)
+    account = _account_row(conn, target)
+    if not account:
+        raise HTTPException(404, "账户不存在")
+    if not _actor_can_manage_team(user):
+        uid = _actor_uid(user)
+        owner_id = account["owner_user_id"] if "owner_user_id" in account.keys() else None
+        if owner_id and uid and int(owner_id) != uid:
+            raise HTTPException(403, "只能为自己负责的账户配置规则")
+    return target, RULE_SCOPE_ACCOUNT, _actor_uid(user), account["team_id"]
+
+
+def _rule_row_accessible(conn, row, user) -> bool:
+    if is_superadmin(user):
+        return True
+    team_id = team_id_for_create(user)
+    row_team = row["team_id"] if "team_id" in row.keys() else None
+    if row_team is not None and int(row_team) != int(team_id):
+        return False
+    scope = (row["scope"] if "scope" in row.keys() else None) or RULE_SCOPE_ACCOUNT
+    uid = _actor_uid(user)
+    if scope == RULE_SCOPE_OWNER:
+        owner = row["owner_user_id"] if "owner_user_id" in row.keys() else None
+        return bool(owner and uid and (int(owner) == int(uid) or _actor_can_manage_team(user)))
+    if not _actor_can_manage_team(user):
+        owner = row["owner_user_id"] if "owner_user_id" in row.keys() else None
+        if owner and uid and int(owner) != int(uid):
+            return False
+    return True
+
+
+def _assert_rule_row_access(conn, row, user) -> None:
+    if not _rule_row_accessible(conn, row, user):
+        raise HTTPException(403, "规则不属于当前用户或团队")
+
+
 def _team_account_act_ids(conn, user) -> list[str]:
+    if not is_superadmin(user) and (user or {}).get("role") not in ("admin", "superadmin"):
+        uid = _actor_uid(user)
+        team_id = team_id_for_create(user)
+        if not uid:
+            return []
+        rows = conn.execute(
+            "SELECT act_id FROM accounts WHERE team_id=? AND owner_user_id=?",
+            (team_id, uid),
+        ).fetchall()
+        return [r["act_id"] for r in rows if r["act_id"]]
     where, params = [], []
     apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
@@ -43,21 +166,23 @@ def _team_account_act_ids(conn, user) -> list[str]:
 
 
 def _guard_rule_row_or_404(conn, rule_id: int):
-    row = conn.execute("SELECT id, act_id FROM guard_rules WHERE id=?", (rule_id,)).fetchone()
+    _ensure_rule_scope_columns(conn)
+    row = conn.execute("SELECT * FROM guard_rules WHERE id=?", (rule_id,)).fetchone()
     if not row:
         raise HTTPException(404, "规则不存在")
     return row
 
 
 def _scale_rule_row_or_404(conn, rule_id: int):
-    row = conn.execute("SELECT id, act_id FROM scale_rules WHERE id=?", (rule_id,)).fetchone()
+    _ensure_rule_scope_columns(conn)
+    row = conn.execute("SELECT * FROM scale_rules WHERE id=?", (rule_id,)).fetchone()
     if not row:
         raise HTTPException(404, "拉量策略不存在")
     return row
 
 
 class GuardRuleIn(BaseModel):
-    act_id: str
+    act_id: Optional[str] = None
     rule_name: Optional[str] = None
     level: str = "account"
     target_id: str = "__global__"
@@ -78,7 +203,7 @@ class GuardRuleIn(BaseModel):
 
 
 class ScaleRuleIn(BaseModel):
-    act_id: str
+    act_id: Optional[str] = None
     rule_name: Optional[str] = None
     rule_type: str = "slow_scale"
     cpa_ratio: Optional[float] = 0.8
@@ -103,42 +228,79 @@ class EmergencyPauseRequest(BaseModel):
 @router.get("/guard")
 def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user)):
     conn = get_conn()
-    if act_id and act_id != GLOBAL_ACT_ID:
+    _ensure_rule_scope_columns(conn)
+    if act_id and act_id not in (GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID):
         _assert_rule_target_access(conn, act_id, user)
+        account = _account_row(conn, act_id)
+        owner_id = account["owner_user_id"] if account and "owner_user_id" in account.keys() else None
+        params = [act_id]
+        owner_sql = ""
+        if owner_id:
+            owner_sql = " OR (scope=? AND owner_user_id=?)"
+            params.extend([RULE_SCOPE_OWNER, owner_id])
         rows = conn.execute(
-            "SELECT * FROM guard_rules WHERE act_id=? ORDER BY id DESC", (act_id,)
+            f"""SELECT * FROM guard_rules
+                WHERE ((COALESCE(scope,'account')=? AND act_id=?){owner_sql})
+                ORDER BY id DESC""",
+            [RULE_SCOPE_ACCOUNT] + params,
         ).fetchall()
-    elif act_id == GLOBAL_ACT_ID:
-        rows = []
     else:
-        account_ids = _team_account_act_ids(conn, user)
-        if account_ids:
-            placeholders = ",".join("?" for _ in account_ids)
+        if is_superadmin(user):
+            rows = []
+        elif (user or {}).get("role") == "admin":
+            team_id = team_id_for_create(user)
             rows = conn.execute(
-                f"SELECT * FROM guard_rules WHERE act_id!=? AND act_id IN ({placeholders}) ORDER BY id DESC",
-                [GLOBAL_ACT_ID] + account_ids,
+                "SELECT * FROM guard_rules WHERE team_id=? ORDER BY id DESC",
+                (team_id,),
             ).fetchall()
         else:
+            uid = _actor_uid(user)
+            account_ids = _team_account_act_ids(conn, user)
             rows = []
+            if account_ids:
+                placeholders = ",".join("?" for _ in account_ids)
+                rows.extend(conn.execute(
+                    f"""SELECT * FROM guard_rules
+                        WHERE COALESCE(scope,'account')=? AND act_id IN ({placeholders})
+                        ORDER BY id DESC""",
+                    [RULE_SCOPE_ACCOUNT] + account_ids,
+                ).fetchall())
+            if uid:
+                rows.extend(conn.execute(
+                    "SELECT * FROM guard_rules WHERE scope=? AND owner_user_id=? ORDER BY id DESC",
+                    (RULE_SCOPE_OWNER, uid),
+                ).fetchall())
     conn.close()
-    return [dict(r) for r in rows]
+    result = []
+    seen = set()
+    for r in rows:
+        if r["id"] in seen:
+            continue
+        seen.add(r["id"])
+        d = dict(r)
+        d["scope"] = d.get("scope") or RULE_SCOPE_ACCOUNT
+        d["scope_label"] = "名下全部账户" if d["scope"] == RULE_SCOPE_OWNER else "指定账户"
+        result.append(d)
+    return result
 
 
 @router.post("/guard")
 def add_guard_rule(body: GuardRuleIn, user=Depends(get_current_user)):
     conn = get_conn()
-    _assert_rule_target_access(conn, body.act_id, user)
+    act_id, scope, owner_user_id, team_id = _rule_scope_for_body(conn, body.act_id, user)
     cur = conn.execute(
         """INSERT INTO guard_rules
            (act_id, rule_name, level, target_id, rule_type,
             param_value, param_ratio, param_days,
             action, action_value, enabled,
-            silent_start, silent_end, note, kpi_filter)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (body.act_id, body.rule_name, body.level, body.target_id, body.rule_type,
+            silent_start, silent_end, note, kpi_filter,
+            scope, owner_user_id, team_id, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (act_id, body.rule_name, body.level, body.target_id, body.rule_type,
          body.param_value, body.param_ratio, body.param_days,
          body.action, body.action_value, body.enabled,
-         body.silent_start, body.silent_end, body.note, body.kpi_filter)
+         body.silent_start, body.silent_end, body.note, body.kpi_filter,
+         scope, owner_user_id, team_id, (user or {}).get("username"))
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -150,21 +312,23 @@ def add_guard_rule(body: GuardRuleIn, user=Depends(get_current_user)):
 def update_guard_rule(rule_id: int, body: GuardRuleIn, user=Depends(get_current_user)):
     conn = get_conn()
     old = _guard_rule_row_or_404(conn, rule_id)
-    _assert_rule_target_access(conn, old["act_id"], user)
-    _assert_rule_target_access(conn, body.act_id, user)
+    _assert_rule_row_access(conn, old, user)
+    act_id, scope, owner_user_id, team_id = _rule_scope_for_body(conn, body.act_id, user)
     conn.execute(
         """UPDATE guard_rules SET
            act_id=?, rule_name=?, level=?, target_id=?, rule_type=?,
            param_value=?, param_ratio=?, param_days=?,
            action=?, action_value=?, enabled=?,
            silent_start=?, silent_end=?, note=?, kpi_filter=?,
+           scope=?, owner_user_id=?, team_id=?, created_by=?,
            updated_at=datetime('now')
            WHERE id=?""",
-        (body.act_id, body.rule_name, body.level, body.target_id, body.rule_type,
+        (act_id, body.rule_name, body.level, body.target_id, body.rule_type,
          body.param_value, body.param_ratio, body.param_days,
          body.action, body.action_value, body.enabled,
          body.silent_start, body.silent_end, body.note,
-         getattr(body, "kpi_filter", None), rule_id)
+         getattr(body, "kpi_filter", None),
+         scope, owner_user_id, team_id, (user or {}).get("username"), rule_id)
     )
     conn.commit()
     conn.close()
@@ -176,7 +340,7 @@ def toggle_guard_rule(rule_id: int, user=Depends(get_current_user)):
     """快速启用/禁用规则"""
     conn = get_conn()
     row = _guard_rule_row_or_404(conn, rule_id)
-    _assert_rule_target_access(conn, row["act_id"], user)
+    _assert_rule_row_access(conn, row, user)
     conn.execute("UPDATE guard_rules SET enabled = 1 - enabled WHERE id=?", (rule_id,))
     row = conn.execute("SELECT enabled FROM guard_rules WHERE id=?", (rule_id,)).fetchone()
     conn.commit()
@@ -188,7 +352,7 @@ def toggle_guard_rule(rule_id: int, user=Depends(get_current_user)):
 def delete_guard_rule(rule_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     row = _guard_rule_row_or_404(conn, rule_id)
-    _assert_rule_target_access(conn, row["act_id"], user)
+    _assert_rule_row_access(conn, row, user)
     conn.execute("DELETE FROM guard_rules WHERE id=?", (rule_id,))
     conn.commit()
     conn.close()
@@ -337,41 +501,76 @@ def get_rule_types(user=Depends(get_current_user)):
 @router.get("/scale")
 def list_scale_rules(act_id: Optional[str] = None, user=Depends(get_current_user)):
     conn = get_conn()
-    if act_id and act_id != GLOBAL_ACT_ID:
+    _ensure_rule_scope_columns(conn)
+    if act_id and act_id not in (GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID):
         _assert_rule_target_access(conn, act_id, user)
+        account = _account_row(conn, act_id)
+        owner_id = account["owner_user_id"] if account and "owner_user_id" in account.keys() else None
+        params = [RULE_SCOPE_ACCOUNT, act_id]
+        owner_sql = ""
+        if owner_id:
+            owner_sql = " OR (scope=? AND owner_user_id=?)"
+            params.extend([RULE_SCOPE_OWNER, owner_id])
         rows = conn.execute(
-            "SELECT * FROM scale_rules WHERE act_id=? ORDER BY id DESC", (act_id,)
+            f"""SELECT * FROM scale_rules
+                WHERE ((COALESCE(scope,'account')=? AND act_id=?){owner_sql})
+                ORDER BY id DESC""",
+            params,
         ).fetchall()
-    elif act_id == GLOBAL_ACT_ID:
-        rows = []
     else:
-        account_ids = _team_account_act_ids(conn, user)
-        if account_ids:
-            placeholders = ",".join("?" for _ in account_ids)
+        if is_superadmin(user):
+            rows = []
+        elif (user or {}).get("role") == "admin":
+            team_id = team_id_for_create(user)
             rows = conn.execute(
-                f"SELECT * FROM scale_rules WHERE act_id!=? AND act_id IN ({placeholders}) ORDER BY id DESC",
-                [GLOBAL_ACT_ID] + account_ids,
+                "SELECT * FROM scale_rules WHERE team_id=? ORDER BY id DESC",
+                (team_id,),
             ).fetchall()
         else:
+            uid = _actor_uid(user)
+            account_ids = _team_account_act_ids(conn, user)
             rows = []
+            if account_ids:
+                placeholders = ",".join("?" for _ in account_ids)
+                rows.extend(conn.execute(
+                    f"""SELECT * FROM scale_rules
+                        WHERE COALESCE(scope,'account')=? AND act_id IN ({placeholders})
+                        ORDER BY id DESC""",
+                    [RULE_SCOPE_ACCOUNT] + account_ids,
+                ).fetchall())
+            if uid:
+                rows.extend(conn.execute(
+                    "SELECT * FROM scale_rules WHERE scope=? AND owner_user_id=? ORDER BY id DESC",
+                    (RULE_SCOPE_OWNER, uid),
+                ).fetchall())
     conn.close()
-    return [dict(r) for r in rows]
+    result = []
+    seen = set()
+    for r in rows:
+        if r["id"] in seen:
+            continue
+        seen.add(r["id"])
+        d = dict(r)
+        d["scope"] = d.get("scope") or RULE_SCOPE_ACCOUNT
+        d["scope_label"] = "名下全部账户" if d["scope"] == RULE_SCOPE_OWNER else "指定账户"
+        result.append(d)
+    return result
 
 
 @router.post("/scale")
 def add_scale_rule(body: ScaleRuleIn, user=Depends(get_current_user)):
     conn = get_conn()
-    _assert_rule_target_access(conn, body.act_id, user)
+    act_id, scope, owner_user_id, team_id = _rule_scope_for_body(conn, body.act_id, user)
     cur = conn.execute(
         """INSERT INTO scale_rules
            (act_id, rule_name, rule_type, cpa_ratio, min_conversions,
             consecutive_days, scale_pct, max_budget, roas_threshold,
-            target_regions, enabled, note)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (body.act_id, body.rule_name, body.rule_type, body.cpa_ratio,
+            target_regions, enabled, note, scope, owner_user_id, team_id, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (act_id, body.rule_name, body.rule_type, body.cpa_ratio,
          body.min_conversions, body.consecutive_days, body.scale_pct,
          body.max_budget, body.roas_threshold, body.target_regions,
-         body.enabled, body.note)
+         body.enabled, body.note, scope, owner_user_id, team_id, (user or {}).get("username"))
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -383,19 +582,19 @@ def add_scale_rule(body: ScaleRuleIn, user=Depends(get_current_user)):
 def update_scale_rule(rule_id: int, body: ScaleRuleIn, user=Depends(get_current_user)):
     conn = get_conn()
     old = _scale_rule_row_or_404(conn, rule_id)
-    _assert_rule_target_access(conn, old["act_id"], user)
-    _assert_rule_target_access(conn, body.act_id, user)
+    _assert_rule_row_access(conn, old, user)
+    act_id, scope, owner_user_id, team_id = _rule_scope_for_body(conn, body.act_id, user)
     conn.execute(
         """UPDATE scale_rules SET
            act_id=?, rule_name=?, rule_type=?, cpa_ratio=?,
            min_conversions=?, consecutive_days=?, scale_pct=?,
            max_budget=?, roas_threshold=?, target_regions=?,
-           enabled=?, note=?
+           enabled=?, note=?, scope=?, owner_user_id=?, team_id=?, created_by=?
            WHERE id=?""",
-        (body.act_id, body.rule_name, body.rule_type, body.cpa_ratio,
+        (act_id, body.rule_name, body.rule_type, body.cpa_ratio,
          body.min_conversions, body.consecutive_days, body.scale_pct,
          body.max_budget, body.roas_threshold, body.target_regions,
-         body.enabled, body.note, rule_id)
+         body.enabled, body.note, scope, owner_user_id, team_id, (user or {}).get("username"), rule_id)
     )
     conn.commit()
     conn.close()
@@ -406,7 +605,7 @@ def update_scale_rule(rule_id: int, body: ScaleRuleIn, user=Depends(get_current_
 def toggle_scale_rule(rule_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     row = _scale_rule_row_or_404(conn, rule_id)
-    _assert_rule_target_access(conn, row["act_id"], user)
+    _assert_rule_row_access(conn, row, user)
     conn.execute("UPDATE scale_rules SET enabled = 1 - enabled WHERE id=?", (rule_id,))
     row = conn.execute("SELECT enabled FROM scale_rules WHERE id=?", (rule_id,)).fetchone()
     conn.commit()
@@ -418,7 +617,7 @@ def toggle_scale_rule(rule_id: int, user=Depends(get_current_user)):
 def delete_scale_rule(rule_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     row = _scale_rule_row_or_404(conn, rule_id)
-    _assert_rule_target_access(conn, row["act_id"], user)
+    _assert_rule_row_access(conn, row, user)
     conn.execute("DELETE FROM scale_rules WHERE id=?", (rule_id,))
     conn.commit()
     conn.close()
@@ -430,221 +629,20 @@ from pydantic import BaseModel
 
 RULE_TEMPLATES = [
     {
-        "id": "starter",
-        "name": "🚀 新手入门套餐",
-        "desc": "适合刚开始投放的账户，基础止损保护 + 赢家提示，防止新广告乱烧钱",
-        "tags": ["推荐", "新手"],
+        "id": "default_stoploss",
+        "name": "默认止损规则",
+        "desc": "按投放目标分别设置空成效止损线；不选择账户时默认覆盖当前运营名下全部账户。",
+        "tags": ["止损", "默认"],
         "guard_rules": [
-            {
-                "rule_name": "空成效止血 $20",
-                "rule_type": "bleed_abs",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 20.0,
-                "action": "pause",
-                "note": "来自「新手入门」模板"
-            },
-            {
-                "rule_name": "CPA超标1.5倍止损",
-                "rule_type": "cpa_exceed",
-                "level": "account",
-                "target_id": "__global__",
-                "param_ratio": 1.5,
-                "action": "pause",
-                "note": "来自「新手入门」模板"
-            }
-        ]
-    },
-    {
-        "id": "aggressive",
-        "name": "⚡ 激进拉量套餐",
-        "desc": "适合已有稳定跑量广告的账户，严格止损 + 积极加量，最大化ROI",
-        "tags": ["进阶", "拉量"],
-        "guard_rules": [
-            {
-                "rule_name": "空成效止血 $15",
-                "rule_type": "bleed_abs",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 15.0,
-                "action": "pause",
-                "note": "来自「激进拉量」模板"
-            },
-            {
-                "rule_name": "CPA超标1.3倍止损",
-                "rule_type": "cpa_exceed",
-                "level": "account",
-                "target_id": "__global__",
-                "param_ratio": 1.3,
-                "action": "pause",
-                "note": "来自「激进拉量」模板"
-            },
-            {
-                "rule_name": "ROAS跌幅40%熔断",
-                "rule_type": "trend_drop",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 40.0,
-                "action": "pause",
-                "note": "来自「激进拉量」模板"
-            },
-            {
-                "rule_name": "连续2天CPA超标",
-                "rule_type": "consecutive_bad",
-                "level": "account",
-                "target_id": "__global__",
-                "param_days": 2,
-                "param_ratio": 1.3,
-                "action": "pause",
-                "note": "来自「激进拉量」模板"
-            }
-        ]
-    },
-    {
-        "id": "conservative",
-        "name": "🛡️ 保守防御套餐",
-        "desc": "适合预算紧张或测试期账户，多重止损保护，优先保住本金",
-        "tags": ["保守", "防御"],
-        "guard_rules": [
-            {
-                "rule_name": "空成效止血 $10",
-                "rule_type": "bleed_abs",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 10.0,
-                "action": "pause",
-                "note": "来自「保守防御」模板"
-            },
-            {
-                "rule_name": "CPA超标1.2倍止损",
-                "rule_type": "cpa_exceed",
-                "level": "account",
-                "target_id": "__global__",
-                "param_ratio": 1.2,
-                "action": "pause",
-                "note": "来自「保守防御」模板"
-            },
-            {
-                "rule_name": "ROAS跌幅30%熔断",
-                "rule_type": "trend_drop",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 30.0,
-                "action": "pause",
-                "note": "来自「保守防御」模板"
-            },
-            {
-                "rule_name": "连续2天CPA超标",
-                "rule_type": "consecutive_bad",
-                "level": "account",
-                "target_id": "__global__",
-                "param_days": 2,
-                "param_ratio": 1.2,
-                "action": "pause",
-                "note": "来自「保守防御」模板"
-            },
-            {
-                "rule_name": "高频点击无转化预警",
-                "rule_type": "click_no_conv",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 80.0,
-                "action": "alert_only",
-                "note": "来自「保守防御」模板"
-            }
-        ]
-    },
-    {
-        "id": "ecommerce",
-        "name": "🛒 电商专属套餐",
-        "desc": "针对电商广告优化，关注ROAS和CPA，兼顾止损与拉量",
-        "tags": ["电商", "ROAS"],
-        "guard_rules": [
-            {
-                "rule_name": "空成效止血 $20",
-                "rule_type": "bleed_abs",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 20.0,
-                "action": "pause",
-                "note": "来自「电商专属」模板"
-            },
-            {
-                "rule_name": "CPA超标1.3倍止损",
-                "rule_type": "cpa_exceed",
-                "level": "account",
-                "target_id": "__global__",
-                "param_ratio": 1.3,
-                "action": "pause",
-                "note": "来自「电商专属」模板"
-            },
-            {
-                "rule_name": "ROAS跌幅35%熔断",
-                "rule_type": "trend_drop",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 35.0,
-                "action": "pause",
-                "note": "来自「电商专属」模板"
-            },
-            {
-                "rule_name": "预算消耗过快预警",
-                "rule_type": "budget_burn_fast",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 70.0,
-                "action": "alert_only",
-                "note": "来自「电商专属」模板"
-            }
-        ]
-    },
-    {
-        "id": "lead_gen",
-        "name": "📋 线索收集套餐",
-        "desc": "针对表单/线索类广告，重点控制CPA，防止无效点击消耗预算",
-        "tags": ["线索", "表单"],
-        "guard_rules": [
-            {
-                "rule_name": "空成效止血 $25",
-                "rule_type": "bleed_abs",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 25.0,
-                "action": "pause",
-                "note": "来自「线索收集」模板"
-            },
-            {
-                "rule_name": "CPA超标1.4倍止损",
-                "rule_type": "cpa_exceed",
-                "level": "account",
-                "target_id": "__global__",
-                "param_ratio": 1.4,
-                "action": "pause",
-                "note": "来自「线索收集」模板"
-            },
-            {
-                "rule_name": "高频点击无转化预警",
-                "rule_type": "click_no_conv",
-                "level": "account",
-                "target_id": "__global__",
-                "param_value": 120.0,
-                "action": "alert_only",
-                "note": "来自「线索收集」模板"
-            },
-            {
-                "rule_name": "连续3天CPA超标",
-                "rule_type": "consecutive_bad",
-                "level": "account",
-                "target_id": "__global__",
-                "param_days": 3,
-                "param_ratio": 1.4,
-                "action": "pause",
-                "note": "来自「线索收集」模板"
-            }
-        ]
+            {"rule_name": "购买目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "account", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "purchase", "note": "来自默认止损规则"},
+            {"rule_name": "线索目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "account", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "leads", "note": "来自默认止损规则"},
+            {"rule_name": "私信目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "account", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "messenger", "note": "来自默认止损规则"},
+            {"rule_name": "联系目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "account", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "contact", "note": "来自默认止损规则"},
+            {"rule_name": "流量目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "account", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "traffic", "note": "来自默认止损规则"},
+            {"rule_name": "互动目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "account", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "engagement", "note": "来自默认止损规则"},
+        ],
     }
 ]
-
 class CustomTemplateCreate(BaseModel):
     name: str
     description: str = ""
@@ -795,7 +793,7 @@ def delete_custom_template(template_id: int, user=Depends(get_current_user)):
 @router.post('/templates/apply')
 def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_user)):
     """一键应用规则模板到指定账户（支持内置和自定义模板，支持单账户和多账户批量应用）"""
-    # 确定目标账户列表：优先用 act_ids，如无则回退到 act_id
+    # 确定目标账户列表：未选择账户时，创建“当前运营名下全部账户”的 owner 级规则。
     target_act_ids = []
     if body.act_ids and len(body.act_ids) > 0:
         target_act_ids = [a for a in body.act_ids if a]
@@ -803,9 +801,7 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
         target_act_ids = [body.act_id]
     global_mode = getattr(body, 'global_mode', False)
     if global_mode:
-        raise HTTPException(400, "Global account rules are disabled. Please choose specific ad accounts.")
-    if not target_act_ids:
-        raise HTTPException(400, '请指定账户（act_id 或 act_ids）')
+        target_act_ids = []
 
     access_conn = get_conn()
     try:
@@ -837,32 +833,66 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
             raise HTTPException(404, f'模板 {body.template_id} 不存在')
 
     conn = get_conn()
+    _ensure_rule_scope_columns(conn)
     total_guard = 0
     results = []
     try:
-        for act_id in target_act_ids:
+        targets = target_act_ids or [None]
+        for target_act_id in targets:
+            act_id, scope, owner_user_id, team_id = _rule_scope_for_body(conn, target_act_id, user)
             guard_added = 0
             if body.override_existing:
-                conn.execute("DELETE FROM guard_rules WHERE act_id=? AND note LIKE '%模板%'", (act_id,))
+                if scope == RULE_SCOPE_OWNER:
+                    conn.execute(
+                        "DELETE FROM guard_rules WHERE scope=? AND owner_user_id=? AND (note LIKE '%默认止损规则%' OR note=?)",
+                        (RULE_SCOPE_OWNER, owner_user_id, DEFAULT_OWNER_RULE_NOTE),
+                    )
+                else:
+                    conn.execute(
+                        "DELETE FROM guard_rules WHERE scope=? AND act_id=? AND (note LIKE '%默认止损规则%' OR note=?)",
+                        (RULE_SCOPE_ACCOUNT, act_id, DEFAULT_OWNER_RULE_NOTE),
+                    )
             for r in tpl.get('guard_rules', []):
+                note = r.get('note', f'来自默认止损规则「{tpl.get("name", body.template_id)}」')
+                if scope == RULE_SCOPE_OWNER and tpl.get("id") == "default_stoploss":
+                    existing = conn.execute(
+                        """SELECT id FROM guard_rules
+                           WHERE scope=? AND owner_user_id=?
+                             AND rule_type=? AND kpi_filter=?
+                             AND (note LIKE '%默认止损规则%' OR note=?)
+                           LIMIT 1""",
+                        (RULE_SCOPE_OWNER, owner_user_id, r.get('rule_type'), r.get('kpi_filter'), DEFAULT_OWNER_RULE_NOTE),
+                    ).fetchone()
+                    if existing:
+                        continue
+                    note = DEFAULT_OWNER_RULE_NOTE
                 conn.execute(
-                    'INSERT INTO guard_rules (act_id, rule_name, level, target_id, rule_type, param_value, param_ratio, param_days, action, action_value, enabled, note) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)',
-                    (act_id, r.get('rule_name'), r.get('level','account'), r.get('target_id','__global__'), r.get('rule_type'), r.get('param_value'), r.get('param_ratio',1.2), r.get('param_days',2), r.get('action','pause'), r.get('action_value'), r.get('note', f'来自模板「{tpl.get("name", body.template_id)}」'))
+                    """INSERT INTO guard_rules
+                       (act_id, rule_name, level, target_id, rule_type, param_value,
+                        param_ratio, param_days, action, action_value, enabled, note,
+                        kpi_filter, scope, owner_user_id, team_id, created_by)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)""",
+                    (act_id, r.get('rule_name'), r.get('level','account'), r.get('target_id','__global__'),
+                     r.get('rule_type'), r.get('param_value'), r.get('param_ratio',1.2),
+                     r.get('param_days',2), r.get('action','pause'), r.get('action_value'),
+                     note,
+                     r.get('kpi_filter'), scope, owner_user_id, team_id, (user or {}).get("username"))
                 )
                 guard_added += 1
             total_guard += guard_added
-            results.append({'act_id': act_id, 'guard_added': guard_added})
+            results.append({'act_id': act_id, 'scope': scope, 'guard_added': guard_added})
         conn.commit()
     finally:
         conn.close()
-    acc_count = len(target_act_ids)
+    acc_count = len(target_act_ids) if target_act_ids else 0
+    scope_text = f"{acc_count} 个账户" if target_act_ids else "当前运营名下全部账户"
     return {
         'success': True,
         'template_name': tpl.get('name'),
         'account_count': acc_count,
         'total_guard_added': total_guard,
         'results': results,
-        'message': f'已应用「{tpl.get("name")}」到 {acc_count} 个账户：共添加 {total_guard} 条止损规则'
+        'message': f'已应用「{tpl.get("name")}」到 {scope_text}：共添加 {total_guard} 条止损规则'
     }
 
 

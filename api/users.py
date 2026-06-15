@@ -12,6 +12,7 @@ from core.auth import (
     require_admin,
 )
 from core.database import get_db
+from services.default_owner_rules import ensure_operator_default_stoploss_rules
 from services.notifier import ensure_notification_schema
 
 
@@ -52,6 +53,13 @@ class MyNotifyReq(BaseModel):
     tg_chat_id: Optional[str] = None
     notify_enabled: Optional[bool] = False
     notify_types: Optional[str] = "all"
+
+
+class MyGuardReq(BaseModel):
+    sentinel_enabled: Optional[bool] = None
+    mirror_enabled: Optional[bool] = None
+    heartbeat_enabled: Optional[bool] = None
+    warmup_enabled: Optional[bool] = None
 
 
 def _ensure_team(conn, name: str) -> tuple[int, str]:
@@ -215,6 +223,11 @@ def create_user(body: CreateUserReq, user=Depends(require_admin)):
             raise exc
         raise HTTPException(status_code=500, detail=str(exc))
     conn.close()
+    if body.role == "operator":
+        try:
+            ensure_operator_default_stoploss_rules()
+        except Exception:
+            pass
     return {"success": True, "id": user_id, "username": body.username, "role": body.role, "team_id": team_id}
 
 
@@ -313,6 +326,11 @@ def update_user(user_id: int, body: UpdateUserReq, user=Depends(require_admin)):
             raise exc
         raise HTTPException(status_code=500, detail=str(exc))
     conn.close()
+    if new_role == "operator":
+        try:
+            ensure_operator_default_stoploss_rules()
+        except Exception:
+            pass
     return {"success": True}
 
 
@@ -425,6 +443,66 @@ def update_my_notify_settings(body: MyNotifyReq, user=Depends(get_current_user))
         "UPDATE users SET tg_chat_id=?, notify_enabled=?, notify_types=? WHERE id=?",
         (body.tg_chat_id or "", 1 if body.notify_enabled else 0, body.notify_types or "all", uid),
     )
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+
+@router.get("/me/guard-settings")
+def get_my_guard_settings(user=Depends(get_current_user)):
+    uid = user.get("uid", 0)
+    if uid == 0 or is_superadmin(user):
+        return {
+            "is_superadmin": True,
+            "sentinel_enabled": False,
+            "mirror_enabled": False,
+            "heartbeat_enabled": False,
+            "warmup_enabled": False,
+        }
+    conn = get_db()
+    ensure_user_guard_schema(conn)
+    row = conn.execute(
+        """SELECT COALESCE(sentinel_enabled, 0) AS sentinel_enabled,
+                  COALESCE(mirror_enabled, 0) AS mirror_enabled,
+                  COALESCE(heartbeat_enabled, 0) AS heartbeat_enabled,
+                  COALESCE(warmup_enabled, 0) AS warmup_enabled
+           FROM users WHERE id=?""",
+        (uid,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "is_superadmin": False,
+        "sentinel_enabled": bool(row["sentinel_enabled"]),
+        "mirror_enabled": bool(row["mirror_enabled"]),
+        "heartbeat_enabled": bool(row["heartbeat_enabled"]),
+        "warmup_enabled": bool(row["warmup_enabled"]),
+    }
+
+
+@router.patch("/me/guard-settings")
+def update_my_guard_settings(body: MyGuardReq, user=Depends(get_current_user)):
+    uid = user.get("uid", 0)
+    if uid == 0 or is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Superadmin does not use owner guard settings")
+    updates = []
+    params = []
+    for key in USER_GUARD_KEYS:
+        value = getattr(body, key, None)
+        if value is not None:
+            updates.append(f"{key}=?")
+            params.append(1 if value else 0)
+    if not updates:
+        return {"success": True, "message": "No changes"}
+    conn = get_db()
+    ensure_user_guard_schema(conn)
+    row = conn.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    params.append(uid)
+    conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id=?", params)
     conn.commit()
     conn.close()
     return {"success": True}

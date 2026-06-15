@@ -16,7 +16,7 @@ import requests as req
 import time
 from api.accounts import _calc_available_balance
 from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token
-from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _local_per_usd_rate
+from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _get_setting, _local_per_usd_rate
 
 router = APIRouter()
 _SUMMARY_CACHE = {}
@@ -108,7 +108,9 @@ def _count_conversions(actions: list, kpi_field: Optional[str] = None) -> int:
             value = _first_action_value(actions, _get_kpi_aliases(kpi_field) or [])
             if value:
                 return int(value)
-            return int(_first_action_value(actions, _get_kpi_fallback_aliases(kpi_field) or []))
+            if _get_setting("kpi_allow_fallback_alias_count", "0") == "1":
+                return int(_first_action_value(actions, _get_kpi_fallback_aliases(kpi_field) or []))
+            return 0
         except Exception:
             return int(_first_action_value(actions, _KPI_FIELD_TO_ACTION.get(kpi_field, [kpi_field])))
     return int(_first_action_value(actions, _DEFAULT_CONVERSION_ACTIONS))
@@ -122,7 +124,9 @@ def _count_revenue(action_values: list, kpi_field: Optional[str] = None) -> floa
             value = _first_action_value(action_values, _get_kpi_aliases(kpi_field) or [])
             if value:
                 return value
-            return _first_action_value(action_values, _get_kpi_fallback_aliases(kpi_field) or [])
+            if _get_setting("kpi_allow_fallback_alias_count", "0") == "1":
+                return _first_action_value(action_values, _get_kpi_fallback_aliases(kpi_field) or [])
+            return 0.0
         except Exception:
             return _first_action_value(action_values, _KPI_FIELD_TO_ACTION.get(kpi_field, [kpi_field]))
     return _first_action_value(action_values, _DEFAULT_CONVERSION_ACTIONS)

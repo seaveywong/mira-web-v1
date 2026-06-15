@@ -1392,8 +1392,20 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
 
     # ── 7) 规则匹配 ──
     conn2 = get_conn()
+    from api.rules import _ensure_rule_scope_columns, RULE_SCOPE_ACCOUNT, RULE_SCOPE_OWNER
+    _ensure_rule_scope_columns(conn2)
+    acc_row = conn2.execute("SELECT team_id, owner_user_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
+    owner_user_id = acc_row["owner_user_id"] if acc_row and "owner_user_id" in acc_row.keys() else None
+    rule_params = [RULE_SCOPE_ACCOUNT, act_id]
+    owner_sql = ""
+    if owner_user_id:
+        owner_sql = " OR (scope=? AND owner_user_id=?)"
+        rule_params.extend([RULE_SCOPE_OWNER, owner_user_id])
     all_rules = conn2.execute(
-        "SELECT * FROM guard_rules WHERE enabled=1 ORDER BY rule_type, id"
+        f"""SELECT * FROM guard_rules
+            WHERE enabled=1 AND ((COALESCE(scope,'account')=? AND act_id=?){owner_sql})
+            ORDER BY rule_type, id""",
+        rule_params,
     ).fetchall()
     conn2.close()
 
@@ -1446,11 +1458,11 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
     try:
         conn3 = get_conn()
         trow = conn3.execute(
-            "SELECT param_value FROM kpi_configs WHERE level='account' AND target_id=? AND kpi_field=? AND is_active=1 LIMIT 1",
+            "SELECT target_cpa FROM kpi_configs WHERE level='account' AND target_id=? AND kpi_field=? AND enabled=1 LIMIT 1",
             (act_id, kpi_field)
         ).fetchone()
         if trow:
-            target_cpa = float(trow["param_value"])
+            target_cpa = float(trow["target_cpa"])
         conn3.close()
     except Exception:
         pass

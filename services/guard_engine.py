@@ -428,6 +428,9 @@ def _ensure_sentinel_schema():
 
 TEAM_GUARD_KEYS = ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled")
 USER_GUARD_KEYS = TEAM_GUARD_KEYS
+OWNER_SCOPE_ACT_ID = "__owner__"
+RULE_SCOPE_ACCOUNT = "account"
+RULE_SCOPE_OWNER = "owner"
 
 
 def _ensure_team_guard_schema():
@@ -452,6 +455,55 @@ def _ensure_user_guard_schema():
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_rule_scope_schema():
+    conn = get_conn()
+    try:
+        for table in ("guard_rules", "scale_rules"):
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            if not cols:
+                continue
+            if "scope" not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN scope TEXT DEFAULT 'account'")
+            if "owner_user_id" not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_user_id INTEGER")
+            if "team_id" not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN team_id INTEGER")
+            if "created_by" not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN created_by TEXT")
+            conn.execute(f"UPDATE {table} SET scope='account' WHERE scope IS NULL OR scope=''")
+            conn.execute(
+                f"""UPDATE {table}
+                    SET team_id=(SELECT a.team_id FROM accounts a WHERE a.act_id={table}.act_id)
+                    WHERE team_id IS NULL AND act_id NOT IN ('__global__', ?)""",
+                (OWNER_SCOPE_ACT_ID,),
+            )
+            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_scope_owner ON {table}(scope, owner_user_id, enabled)")
+            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_scope_account ON {table}(act_id, scope, enabled)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _load_rules_for_account(conn, table: str, account: dict) -> list[dict]:
+    act_id = account.get("act_id")
+    owner_user_id = account.get("owner_user_id")
+    team_id = account.get("team_id")
+    params = [RULE_SCOPE_ACCOUNT, act_id]
+    clauses = ["(COALESCE(scope,'account')=? AND act_id=?)"]
+    if owner_user_id:
+        clauses.append("(scope=? AND owner_user_id=?)")
+        params.extend([RULE_SCOPE_OWNER, owner_user_id])
+    # Team id is only a safety fence for scoped rules; account legacy rows may have NULL.
+    rows = conn.execute(
+        f"""SELECT * FROM {table}
+            WHERE enabled=1 AND ({' OR '.join(clauses)})
+              AND (team_id IS NULL OR team_id=? OR COALESCE(scope,'account')='account')
+            ORDER BY CASE WHEN COALESCE(scope,'account')='owner' THEN 0 ELSE 1 END, id""",
+        params + [team_id],
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def _account_team_guard_enabled(account: dict, key: str) -> bool:
@@ -1108,11 +1160,13 @@ def _calc_conversions_with_audit(actions_raw: list, kpi_field: str, spend: float
             result['matched_action'] = a['action_type']
             break
 
-    # 无标准匹配时尝试兜底
+    # 默认严格贴近 Meta UI 选定目标：只统计标准目标字段。
+    # 兜底别名容易把同一成效的不同口径或上游动作算进去，造成 UI 1 个、系统 7 个这类偏差。
     if result['conversions'] == 0:
         has_purchase = any('purchase' in (a.get('action_type', '')).lower() for a in actions_raw)
         fallback_aliases = _get_kpi_fallback_aliases(kpi_field)
-        if fallback_aliases:
+        allow_fallback = _get_setting("kpi_allow_fallback_alias_count", "0") == "1"
+        if fallback_aliases and allow_fallback:
             for a in actions_raw:
                 if a.get('action_type') in fallback_aliases:
                     result['conversions'] = float(a.get('value', 0))
@@ -1129,7 +1183,9 @@ def _calc_conversions_with_audit(actions_raw: list, kpi_field: str, spend: float
                     break
 
         if result['conversions'] == 0:
-            if has_purchase and kpi_field not in ('purchase', 'offsite_conversion.fb_pixel_purchase'):
+            if fallback_aliases and not allow_fallback:
+                result['reason'] = f'fallback_alias_not_counted: {fallback_aliases[:5]}'
+            elif has_purchase and kpi_field not in ('purchase', 'offsite_conversion.fb_pixel_purchase'):
                 result['reason'] = f'kpi_mismatch: kpi={kpi_field} but ad has purchase events'
             elif result['unknown_types']:
                 result['reason'] = f'unmapped_types: {result["unknown_types"]}'
@@ -1293,6 +1349,7 @@ class GuardEngine:
                 _get_setting("mirror_enabled", "0") == "1"
                 or account.get("mirror_enabled", 0) == 1
                 or _account_team_guard_enabled(account, "mirror_enabled")
+                or _account_owner_guard_enabled(account, "mirror_enabled")
             ):
                 try:
                     mirror_result = self._mirror_patrol(account)
@@ -1530,17 +1587,11 @@ class GuardEngine:
         # ─────────────────────────────────────────────────────────────────────
 
         conn = get_conn()
-        # Rules are account-scoped. target_id="__global__" still means "all objects inside this account".
-        rules = [
-            dict(r) for r in conn.execute(
-                "SELECT * FROM guard_rules WHERE act_id=? AND enabled=1", (act_id,)
-            ).fetchall()
-        ]
-        scale_rules = [
-            dict(r) for r in conn.execute(
-                "SELECT * FROM scale_rules WHERE act_id=? AND enabled=1", (act_id,)
-            ).fetchall()
-        ]
+        _ensure_rule_scope_schema()
+        # Account-specific rules and owner-level rules are both effective here.
+        # target_id="__global__" still means "all objects inside this account".
+        rules = _load_rules_for_account(conn, "guard_rules", account)
+        scale_rules = _load_rules_for_account(conn, "scale_rules", account)
         conn.close()
 
         account_rules, object_rules = self._split_guard_rules(act_id, rules)
@@ -1584,7 +1635,7 @@ class GuardEngine:
                 account_rules.append(rule)
             else:
                 object_rules.append(rule)
-        if _get_setting("default_account_bleed_enabled", "1") == "1":
+        if _get_setting("default_account_bleed_enabled", "0") == "1":
             has_bleed = any(str(r.get("rule_type")) == "bleed_abs" for r in account_rules)
             if not has_bleed:
                 account_rules.append(self._default_account_bleed_rule(act_id))

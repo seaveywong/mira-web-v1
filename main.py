@@ -60,6 +60,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob: https:; "
+            "connect-src 'self' https://graph.facebook.com; "
+            "base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+        )
         if request.url.path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-store")
         return response
@@ -215,6 +224,14 @@ async def startup():
     except Exception as e:
         import logging
         logging.getLogger("mira").warning(f"notification schema warning: {e}")
+    try:
+        from services.default_owner_rules import ensure_operator_default_stoploss_rules
+        result = ensure_operator_default_stoploss_rules()
+        if result.get("created"):
+            logging.getLogger("mira").info(f"default owner stoploss rules created: {result['created']}")
+    except Exception as e:
+        import logging
+        logging.getLogger("mira").warning(f"default owner stoploss rules warning: {e}")
     # v3.10: 预热列自愈
     try:
         from services.warmup_engine import _ensure_schema
