@@ -4033,7 +4033,7 @@ async function loadUserList(filterGroup){
    html += '<tr style="border-bottom:1px solid var(--bd)">' +
     '<td style="padding:8px 4px"><strong>'+escHtml(u.username)+'</strong></td>' +
     '<td style="padding:8px 4px;color:var(--t2)">'+(u.display_name?escHtml(u.display_name):'-')+'</td>' +
-    '<td style="padding:8px 4px"><span style="background:var(--bg2);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--t2)">'+(u.group_name?escHtml(u.group_name):'<span style="color:var(--t3)">-</span>')+'</span></td>' +
+    '<td style="padding:8px 4px"><span style="background:var(--bg2);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--t2)">'+(u.group_name?escHtml(u.group_name):'<span style=\"color:var(--t3)\">-</span>')+'</span></td>' +
    '<td style="padding:8px 4px"><span style="color:'+roleColor+';font-weight:600">'+escHtml(u.role_label||u.role)+'</span></td>' +
    '<td style="padding:8px 4px">'+(u.is_active?'<span style="color:#22c55e">\u25cf&nbsp;\u542f\u7528</span>':'<span style="color:var(--er)">\u25cb&nbsp;\u7981\u7528</span>')+'</td>' +
     '<td style="padding:8px 4px">'+(u.tg_chat_id?(u.notify_enabled?'<span class="badge bg-ok">个人通知已启用</span>':'<span class="badge bg-mu" title="已填写 TG chat_id，但没有开启个人通知">已填，未启用通知</span>'):'<span style="color:var(--t3)">未配置</span>')+'</td>' +
@@ -7057,7 +7057,7 @@ function renderTokensView(){
    var aliasText=escHtml(t.token_alias||'');
    var noteText=t.note?(' · '+escHtml(t.note)):'';
    var rematchBtn=t.token_type==='operate'?'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();rematchOpToken('+t.id+',this)" title="重新匹配已导入账户">重新匹配</button>':'';
-    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+teamBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 负责人 '+(t.owner_user_name?escHtml(t.owner_user_name):'<span style="color:var(--t3)">未指定</span>')+' · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic role-hide-viewer" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d role-hide-viewer" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
+    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+teamBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic role-hide-viewer" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d role-hide-viewer" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
   }).join('');
   html+='</div></div>';
  });
@@ -11951,7 +11951,53 @@ var SETTINGS_CAT_LABELS = {
 };
 
 // ── 重构 renderSI 函数（带中文释义） ──
+function renderSI(s, providers, prefix) {
+ var meta = SETTINGS_META[s.key] || {};
+ var label = meta.label || s.label || s.key;
+ var hint = meta.hint || s.description || '';
+ var icon = meta.icon || '';
+ var val = s.value;
+ var isSecret = s.key.indexOf('key') >= 0 || s.key.indexOf('token') >= 0 || s.key.indexOf('secret') >= 0;
+ var isMasked = isSecret && val && val.indexOf('****') >= 0;
 
+ var inputHtml = '';
+ if (val === '0' || val === '1' || s.key.indexOf('enabled') >= 0 || s.key.indexOf('protect') >= 0 || s.key.indexOf('auto') >= 0) {
+  // 开关类
+  inputHtml = '<label class="toggle-sw" style="margin:0">' +
+   '<input type="checkbox" data-key="' + s.key + '" ' + (val === '1' || val === 'true' ? 'checked' : '') + ' onchange="markSettingChanged(this)">' +
+   '<span class="toggle-sl"></span></label>' +
+   '<span style="font-size:12px;color:var(--t3);margin-left:8px" id="si-status-' + s.key + '">' + (val === '1' ? '已开启' : '已关闭') + '</span>';
+  return '<div class="fg" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:6px;min-height:38px">' +
+   '<div style="flex:1;min-width:180px">' +
+    '<label class="fl" style="margin-bottom:2px">' + (icon ? icon + ' ' : '') + label + '</label>' +
+   (hint ? '<div class="fh" style="margin-top:2px">' + hint + '</div>' : '') +
+   '</div>' +
+   '<div style="display:flex;align-items:center;flex-shrink:0;padding-top:2px">' + inputHtml + '</div>' +
+   '</div>';
+ } else if (s.key === 'ai_provider' || s.key === 'vision_provider') {
+  // 厂商选择
+  var provOpts = {
+   ai_provider: [['deepseek','DeepSeek（推荐，性价比高）'],['openai','OpenAI GPT'],['gemini','Google Gemini'],['custom','自定义']],
+   vision_provider: [['gemini','Google Gemini（推荐）'],['openai','OpenAI GPT-4V'],['custom','自定义']],
+  };
+  var opts = (provOpts[s.key] || []).map(function(o) {
+   return '<option value="' + o[0] + '"' + (val === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+  }).join('');
+  inputHtml = '<select class="fc" data-key="' + s.key + '" onchange="markSettingChanged(this)">' + opts + '</select>';
+ } else if (isMasked) {
+  // 脱敏字段：显示占位提示，不暴露真实值
+  inputHtml = '<input class="fc" type="password" data-key="' + s.key + '" value="" placeholder="已设置 (点击输入新值替换)" data-original="' + val + '" data-was-masked="1" onfocus="this.placeholder=\'\';this.removeAttribute(\'data-was-masked\')" oninput="markSettingChanged(this)">';
+ } else {
+  // 文本/数字输入
+  inputHtml = '<input class="fc" type="' + (isSecret ? 'password' : 'text') + '" data-key="' + s.key + '" value="' + (val || '') + '" placeholder="' + (s.placeholder || '') + '" oninput="markSettingChanged(this)">';
+ }
+
+ return '<div class="fg">' +
+  '<label class="fl">' + (icon ? icon + ' ' : '') + label + '</label>' +
+  inputHtml +
+  (hint ? '<div class="fh">' + hint + '</div>' : '') +
+  '</div>';
+}
 
 // ── 重构 loadSettings 函数 ──
 async function loadSettings() {
@@ -12297,7 +12343,6 @@ function onAiProv(prov){
  if(me&&p.models){me.innerHTML=p.models.map(function(m){return'<option value="'+m+'">'+m+'</option>'}).join('')}
 }
 function renderSI(s,providers,cp){
- var meta=SETTINGS_META[s.key]||{};if(meta.label)s.label=meta.label;if(meta.hint)s.description=meta.hint||s.description;
  var isHidden=['tg_chat_id','ai_base_url','inspect_interval_min','autopilot_enabled','autopilot_test_budget','autopilot_stop_loss','autopilot_max_adsets','dispatch_max_tasks_per_run','dispatch_min_score','global_dispatch_enabled'].includes(s.key);if(isHidden)return '';
  var isToggle=['ai_enabled','ai_vision_enabled','tg_enabled','inspect_enabled','dry_run','learning_phase_protect','escalate_on_fail','mirror_enabled','warmup_enabled'].includes(s.key);
  var isModel=s.key==='ai_model'&&providers&&cp&&providers[cp];
