@@ -1197,6 +1197,7 @@ def list_tokens(user=Depends(get_current_user)):
     apply_team_scope(where, params, user, "t.team_id", include_unassigned=False)
     from core.tenancy import apply_account_owner_scope as _apply_token_owner
     _apply_token_owner(where, params, user, "t.owner_user_id")
+    where[-1] = "(" + where[-1] + " OR t.owner_user_id IS NULL)"
     rows = conn.execute(f"""
         SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
                t.last_verified_at, t.note, t.created_at, t.matrix_id,
