@@ -1740,7 +1740,8 @@ select.fc option{background:#fff;color:#1d1d1f}
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
   <label class="lc-label" style="margin-top:10px">管理员密码</label>
   <input class="lc-input" type="password" id="loginPwd" placeholder="请输入密码" onkeydown="if(event.key==='Enter')doLogin()" autocomplete="current-password">
-  <button class="lc-btn" onclick="doLogin()">登 录</button>
+  <button class="lc-btn" id="loginBtn" onclick="doLogin()">登 录</button>
+<script>document.getElementById("loginBtn").addEventListener("click",function(){if(typeof doLogin==="function")doLogin();else{fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:document.getElementById("loginUser").value.trim(),password:document.getElementById("loginPwd").value})}).then(r=>r.json()).then(d=>{if(d.token){localStorage.setItem("mira_token",d.token);location.reload()}else{document.getElementById("loginErr").textContent=d.detail||"登录失败"}}).catch(e=>{document.getElementById("loginErr").textContent="网络错误"})}});</script>
   <div class="lc-err" id="loginErr"></div>
  </div>
 </div>
