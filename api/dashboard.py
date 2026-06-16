@@ -1391,15 +1391,18 @@ def trigger_inspect(user=Depends(get_current_user)):
     from core.tenancy import is_operator_user, user_id as _uid
 
     uid = _uid(user) if is_operator_user(user) else None
-    key = str(uid) if uid else "all"
+    team_id = None if is_superadmin(user) or uid else user.get("team_id")
+    key = f"owner:{uid}" if uid else (f"team:{team_id}" if team_id else "all")
 
     def run():
         try:
             engine = GuardEngine()
             if uid:
-                engine.run_all(operator_uid=uid, ignore_cooldown=True)
+                engine.run_all(operator_uid=uid)
+            elif team_id:
+                engine.run_all(team_id=team_id)
             else:
-                engine.run_all(ignore_cooldown=True)
+                engine.run_all()
             _LAST_INSPECT[key] = {"status": "done", "error": None, "ts": _t.time()}
         except Exception as e:
             _LAST_INSPECT[key] = {"status": "error", "error": str(e)[:200], "ts": _t.time()}
@@ -1465,7 +1468,14 @@ def scheduler_status(user=Depends(get_current_user)):
     }
 
 @router.get("/trigger-inspect/status")
-def inspect_status():
+def inspect_status(user=Depends(get_current_user)):
+    from core.tenancy import is_operator_user, user_id as _uid
+    if is_operator_user(user):
+        key = f"owner:{_uid(user)}"
+        return {key: _LAST_INSPECT.get(key)} if key in _LAST_INSPECT else {}
+    if not is_superadmin(user):
+        key = f"team:{user.get('team_id')}"
+        return {key: _LAST_INSPECT.get(key)} if key in _LAST_INSPECT else {}
     return _LAST_INSPECT
 
 @router.get("/stats")

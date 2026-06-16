@@ -11322,7 +11322,7 @@ async function submitRule(){
    var type=document.getElementById('guardType').value;
    var d=rulesMeta.guard_types&&rulesMeta.guard_types.find(function(t){return t.value===type});
    var kpiFilter=document.getElementById('gp_kpi_filter')?document.getElementById('gp_kpi_filter').value||null:null;
-   var body={act_id:actId,rule_name:document.getElementById('ruleName').value.trim()||null,rule_type:type,action:document.getElementById('guardAction').value,silent_start:document.getElementById('silStart').value||null,silent_end:document.getElementById('silEnd').value||null,note:document.getElementById('ruleNote').value.trim()||null,kpi_filter:kpiFilter};
+    var body={act_id:actId,level:'ad',target_id:'__global__',rule_name:document.getElementById('ruleName').value.trim()||null,rule_type:type,action:document.getElementById('guardAction').value,silent_start:document.getElementById('silStart').value||null,silent_end:document.getElementById('silEnd').value||null,note:document.getElementById('ruleNote').value.trim()||null,kpi_filter:kpiFilter};
    if(d&&d.params)d.params.forEach(function(p){var v=document.getElementById('gp_'+p.key)&&document.getElementById('gp_'+p.key).value;if(v!==undefined&&v!=='')body[p.key]=parseFloat(v)||v});
    if(_editingRuleId){await api('PUT','/rules/guard/'+_editingRuleId,body);}
    else{await api('POST','/rules/guard',body);}
@@ -14706,6 +14706,5 @@ async function rewarmAccount(actId){
 
 </script></body>
 </html>
-
 
 

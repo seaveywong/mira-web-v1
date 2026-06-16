@@ -462,16 +462,38 @@ def assign_resources(body: ResourceAssignBody, user=Depends(require_superadmin))
 
     placeholders = ",".join(["?"] * len(ids))
     if body.kind == "accounts":
+        account_rows = conn.execute(
+            f"SELECT act_id FROM accounts WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
         conn.execute(
             f"UPDATE {cfg['table']} SET team_id=?, owner_user_id=NULL WHERE id IN ({placeholders})",
             [body.team_id] + ids,
         )
+        changed = conn.execute("SELECT changes()").fetchone()[0]
+        act_ids = [r["act_id"] for r in account_rows if r["act_id"]]
+        if act_ids:
+            act_placeholders = ",".join(["?"] * len(act_ids))
+            conn.execute(
+                f"""UPDATE guard_rules
+                    SET team_id=?, owner_user_id=NULL
+                    WHERE COALESCE(scope,'account')='account'
+                      AND act_id IN ({act_placeholders})""",
+                [body.team_id] + act_ids,
+            )
+            conn.execute(
+                f"""UPDATE scale_rules
+                    SET team_id=?, owner_user_id=NULL
+                    WHERE COALESCE(scope,'account')='account'
+                      AND act_id IN ({act_placeholders})""",
+                [body.team_id] + act_ids,
+            )
     else:
         conn.execute(
             f"UPDATE {cfg['table']} SET team_id=? WHERE id IN ({placeholders})",
             [body.team_id] + ids,
         )
-    changed = conn.execute("SELECT changes()").fetchone()[0]
+        changed = conn.execute("SELECT changes()").fetchone()[0]
     conn.commit()
     conn.close()
     return {

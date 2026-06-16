@@ -347,6 +347,35 @@ def _validate_account_owner(conn, owner_user_id: Optional[int], account_id: int,
     return int(owner_user_id)
 
 
+def _validate_token_owner(conn, owner_user_id: Optional[int], token_id: int, user: dict) -> Optional[int]:
+    if owner_user_id in (None, 0, ""):
+        return None
+    try:
+        owner_id = int(owner_user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid token owner")
+
+    token = conn.execute("SELECT team_id FROM fb_tokens WHERE id=?", (token_id,)).fetchone()
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    if token["team_id"] is None:
+        raise HTTPException(status_code=400, detail="Assign token to a team before setting owner")
+
+    owner = conn.execute(
+        "SELECT id, role, team_id, is_active FROM users WHERE id=?",
+        (owner_id,),
+    ).fetchone()
+    if not owner or not owner["is_active"]:
+        raise HTTPException(status_code=400, detail="Owner does not exist or is disabled")
+    if owner["role"] not in ("admin", "operator"):
+        raise HTTPException(status_code=400, detail="Owner must be a team admin or operator")
+    if owner["team_id"] != token["team_id"]:
+        raise HTTPException(status_code=400, detail="Owner must belong to the token team")
+    if not normalize_user_claims(user).get("is_superadmin") and owner["team_id"] != user.get("team_id"):
+        raise HTTPException(status_code=403, detail="Cannot assign owner from another team")
+    return owner_id
+
+
 def _normalize_account_info(act_id: str, raw: dict) -> dict:
     timezone_name = raw.get("timezone_name") or raw.get("timezone") or "UTC"
     return {
@@ -1693,7 +1722,8 @@ def update_token_owner(token_id: int, body: dict, user=Depends(get_current_user)
     if not user.get("is_superadmin") and row["team_id"] != user.get("team_id"):
         conn.close()
         raise HTTPException(status_code=403, detail="Token belongs to another team")
-    conn.execute("UPDATE fb_tokens SET owner_user_id=? WHERE id=?", (owner_user_id if owner_user_id else None, token_id))
+    owner_user_id = _validate_token_owner(conn, owner_user_id, token_id, user)
+    conn.execute("UPDATE fb_tokens SET owner_user_id=? WHERE id=?", (owner_user_id, token_id))
     conn.commit()
     conn.close()
     return {"success": True, "token_id": token_id, "owner_user_id": owner_user_id}

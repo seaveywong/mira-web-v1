@@ -72,6 +72,12 @@ def ensure_operator_default_stoploss_rules() -> dict:
         row = conn.execute("SELECT value FROM settings WHERE key='default_owner_rules_enabled'").fetchone()
         disabled = bool(row and row["value"] == "0")
         ensure_rule_scope_schema(conn)
+        conn.execute(
+            """UPDATE guard_rules
+               SET level='ad', target_id='__global__'
+               WHERE scope=? AND act_id=? AND COALESCE(level,'')='account'""",
+            (RULE_SCOPE_OWNER, OWNER_SCOPE_ACT_ID),
+        )
         users = conn.execute(
             """SELECT id, username, team_id
                FROM users

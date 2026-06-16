@@ -47,8 +47,14 @@ def _ensure_rule_scope_columns(conn) -> None:
                WHERE team_id IS NULL AND act_id NOT IN (?, ?)""",
             (GLOBAL_ACT_ID, OWNER_SCOPE_ACT_ID),
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_guard_rules_scope_owner ON guard_rules(scope, owner_user_id, enabled)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_guard_rules_scope_account ON guard_rules(act_id, scope, enabled)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_guard_rules_scope_owner ON guard_rules(scope, owner_user_id, enabled)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_guard_rules_scope_account ON guard_rules(act_id, scope, enabled)")
+    conn.execute(
+        """UPDATE guard_rules
+           SET level='ad', target_id='__global__'
+           WHERE scope=? AND act_id=? AND COALESCE(level,'')='account'""",
+        (RULE_SCOPE_OWNER, OWNER_SCOPE_ACT_ID),
+    )
 
     scale_cols = {r["name"] for r in conn.execute("PRAGMA table_info(scale_rules)").fetchall()}
     if scale_cols:
@@ -219,7 +225,7 @@ def _scale_rule_row_or_404(conn, rule_id: int):
 class GuardRuleIn(BaseModel):
     act_id: Optional[str] = None
     rule_name: Optional[str] = None
-    level: str = "account"
+    level: str = "ad"
     target_id: str = "__global__"
     rule_type: str
     # rule_type: bleed_abs / cpa_exceed / trend_drop / consecutive_bad / click_no_conv
