@@ -3529,7 +3529,7 @@ function _fmtActionLogTime(s){
  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)&&!(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)))return raw.replace('T',' ').slice(0,16);
  return _cst(raw);
 }
-var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null,_globalMirrorEnabled=false;
+var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],_teamResAllUsers=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null,_globalMirrorEnabled=false;
 var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',ts:0}, _adsLoadSeq=0, ADS_CACHE_MS=60000;
 
 // ── API ──
