@@ -1410,6 +1410,59 @@ def trigger_inspect(user=Depends(get_current_user)):
 
 _LAST_INSPECT = {}
 
+
+@router.get("/scheduler/status")
+def scheduler_status(user=Depends(get_current_user)):
+    """Return real scheduler timing for frontend countdowns"""
+    from core.scheduler import _job_state
+    import time as _t
+    now = _t.time()
+
+    # Get last guard inspection time
+    guard_state = _job_state.get("guard", {})
+    last_finished = guard_state.get("last_finished_at", "")
+
+    # Calculate next inspection
+    conn = get_conn()
+    interval = int(conn.execute("SELECT value FROM settings WHERE key='inspect_interval'").fetchone() or ["30"])[0]
+    try: interval = int(interval)
+    except: interval = 10
+
+    next_inspect = None
+    if last_finished:
+        try:
+            from datetime import datetime
+            last_dt = datetime.strptime(last_finished, "%Y-%m-%d %H:%M:%S")
+            next_inspect = (last_dt.timestamp() + interval * 60) * 1000  # ms for JS
+        except:
+            pass
+
+    # Heartbeat info
+    hb_enabled = conn.execute("SELECT value FROM settings WHERE key='heartbeat_enabled'").fetchone()
+    hb_timeout = conn.execute("SELECT value FROM settings WHERE key='heartbeat_timeout'").fetchone()
+    last_activity = conn.execute("SELECT value FROM settings WHERE key='last_admin_activity'").fetchone()
+    conn.close()
+
+    hb_enabled = (hb_enabled or [None])[0] == "1"
+    hb_timeout_min = int((hb_timeout or ["30"])[0]) if hb_timeout else 30
+    last_act_str = (last_activity or [None])[0]
+
+    last_activity_ts = None
+    if last_act_str:
+        try:
+            from datetime import datetime
+            last_activity_ts = datetime.strptime(last_act_str, "%Y-%m-%d %H:%M:%S").timestamp() * 1000
+        except:
+            pass
+
+    return {
+        "next_inspect_at": next_inspect,
+        "inspect_interval_min": interval,
+        "heartbeat_enabled": hb_enabled,
+        "heartbeat_timeout_min": hb_timeout_min,
+        "last_activity_at": last_activity_ts,
+    }
+
 @router.get("/trigger-inspect/status")
 def inspect_status():
     return _LAST_INSPECT

@@ -5047,7 +5047,7 @@ async function initApp(){
  }
  initSentinelHeartbeat();
 localStorage.setItem('mira_next_inspect', Date.now() + 10*60000);
-     setNextInspectTime(10);
+     loadSchedulerStatus();
 }
 
 async function loadAccounts(){
@@ -12983,7 +12983,7 @@ async function triggerInspect(){ _nextInspectTime = null; updateInspectCountdown
      if(mine.status==='done'){toast('巡检完成','ok');setTimeout(loadDash,2000)}
      else{toast('巡检异常:'+(mine.error||''),'er')}
      localStorage.setItem('mira_next_inspect', Date.now() + 10*60000);
-     setNextInspectTime(10);
+     loadSchedulerStatus();
     }
    }catch(e){}
    if(polls>60){clearInterval(iv);btn.disabled=false;btn.innerHTML='立即巡检';toast('巡检超时','wa')}
