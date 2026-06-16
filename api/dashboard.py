@@ -1424,7 +1424,8 @@ def scheduler_status(user=Depends(get_current_user)):
 
     # Calculate next inspection
     conn = get_conn()
-    interval = int(conn.execute("SELECT value FROM settings WHERE key='inspect_interval'").fetchone() or ["30"])[0]
+    row = conn.execute("SELECT value FROM settings WHERE key='inspect_interval'").fetchone()
+    interval = int(row["value"]) if row and row["value"] else 10
     try: interval = int(interval)
     except: interval = 10
 
@@ -1438,14 +1439,14 @@ def scheduler_status(user=Depends(get_current_user)):
             pass
 
     # Heartbeat info
-    hb_enabled = conn.execute("SELECT value FROM settings WHERE key='heartbeat_enabled'").fetchone()
-    hb_timeout = conn.execute("SELECT value FROM settings WHERE key='heartbeat_timeout'").fetchone()
-    last_activity = conn.execute("SELECT value FROM settings WHERE key='last_admin_activity'").fetchone()
+    hb_enabled_row = conn.execute("SELECT value FROM settings WHERE key='heartbeat_enabled'").fetchone()
+    hb_timeout_row = conn.execute("SELECT value FROM settings WHERE key='heartbeat_timeout'").fetchone()
+    last_activity_row = conn.execute("SELECT value FROM settings WHERE key='last_admin_activity'").fetchone()
     conn.close()
 
-    hb_enabled = (hb_enabled or [None])[0] == "1"
-    hb_timeout_min = int((hb_timeout or ["30"])[0]) if hb_timeout else 30
-    last_act_str = (last_activity or [None])[0]
+    hb_enabled = (hb_enabled_row["value"] if hb_enabled_row else "0") == "1"
+    hb_timeout_min = int(hb_timeout_row["value"]) if hb_timeout_row and hb_timeout_row["value"] else 30
+    last_act_str = last_activity_row["value"] if last_activity_row else None
 
     last_activity_ts = None
     if last_act_str:
