@@ -1756,7 +1756,10 @@ class GuardEngine:
             else:
                 object_rules.append(rule)
         if _get_setting("default_account_bleed_enabled", "0") == "1":
-            has_bleed = any(str(r.get("rule_type")) == "bleed_abs" for r in account_rules)
+            has_bleed = any(
+                str(r.get("rule_type")) == "bleed_abs"
+                for r in (account_rules + object_rules)
+            )
             if not has_bleed:
                 account_rules.append(self._default_account_bleed_rule(act_id))
         return account_rules, object_rules
