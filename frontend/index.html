@@ -3178,8 +3178,9 @@ select.fc option{background:#fff;color:#1d1d1f}
      </select>
     </div>
     <div class="fg">
-     <label class="fl">KPI类型筛选 <span style="color:var(--t4);font-size:11px;font-weight:400">（仅对匹配类型的广告生效，留空=全部）</span></label>
+     <label class="fl">KPI判定范围 <span style="color:var(--t4);font-size:11px;font-weight:400">（推荐主要成效；留空=不限类型）</span></label>
      <select class="fc" id="gp_kpi_filter" onchange="updateGuardPreview();updateScalePreview()">
+      <option value="primary">主要成效（按每条广告自己的 KPI）</option>
       <option value="">全部广告（不限类型）</option>
       <option value="messenger">私信对话 (Messenger)</option>
       <option value="purchase">像素购买 (Purchase)</option>
@@ -3188,7 +3189,7 @@ select.fc option{background:#fff;color:#1d1d1f}
       <option value="engagement">互动 (Engagement)</option>
       <option value="other">其他</option>
      </select>
-     <div class="fh">只对 KPI 类型匹配的广告执行此规则。例：选“私信对话”则只对 Messenger 广告生效。</div>
+     <div class="fh">“主要成效”会按每条广告自己的 KPI 字段计算转化。例：购买广告看购买，线索广告看线索。</div>
     </div>
     <div class="fr">
      <div class="fg"><label class="fl">静默开始时间</label><input class="fc" id="silStart" type="time"><div class="fh">静默时段内不执行此规则</div></div>
@@ -3643,10 +3644,12 @@ async function populateRulesKpiFilter(){
  if(!sel||sel.dataset.loaded)return;
  var opts=await loadKpiOptions();
  if(opts&&opts.ad_types&&opts.ad_types.length){
-  sel.innerHTML='<option value="">全部广告（不限类型）</option>'+
+  var current=sel.value||'';
+  sel.innerHTML='<option value="primary">主要成效（按每条广告自己的 KPI）</option><option value="">全部广告（不限类型）</option>'+
    opts.ad_types.map(function(o){
     return '<option value="'+o.value+'">'+o.label+'</option>';
    }).join('');
+  if(current!==undefined)sel.value=current;
   sel.dataset.loaded='1';
  }
 }
@@ -6724,7 +6727,7 @@ async function showDiagnose(adId, actId){
     var cdText=cd?('冷却中('+Math.ceil(r.cooldown_remaining_sec/60)+'分钟)'):'无冷却';
     var cdColor=cd?'var(--wa)':'var(--t3)';
     h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg1);border-radius:4px;margin-bottom:4px">';
-    h+='<div><strong>['+r.rule_type+']</strong> <span style="color:var(--t3);font-size:12px">'+(r.kpi_filter||'全部')+'</span>';
+    h+='<div><strong>['+r.rule_type+']</strong> <span style="color:var(--t3);font-size:12px">'+escHtml(ruleKpiFilterLabel(r.kpi_filter))+'</span>';
     if(r.param_value!==undefined)h+=' <span style="font-size:11px;color:var(--t3)">阈值:'+r.param_value+'</span>';
     h+=' <span style="font-size:11px;color:'+cdColor+'" title="'+(cd?'处于冷却期，该规则暂时不会触发':'该规则未在冷却期，可正常触发')+'">'+cdIcon+' '+cdText+'</span>';
     h+='</div><div>'+wtIcon+' '+wtText+'</div></div>';
@@ -11092,6 +11095,19 @@ function dryKpiSourceLabel(v){
  var m={manual:'人工配置',rule:'规则/KPI配置',config:'规则/KPI配置',ai:'AI 推荐',auto:'系统推断',inferred:'系统推断',account:'账户级配置',campaign:'系列级配置',adset:'广告组级配置',ad:'广告级配置'};
  return m[String(v||'').toLowerCase()]||String(v||'未标记');
 }
+function ruleKpiFilterLabel(v){
+ var key=String(v||'').trim();
+ if(!key)return'全部广告';
+ var lower=key.toLowerCase();
+ var m={
+  primary:'主要成效',main:'主要成效',auto_primary:'主要成效',
+  'dt:MESSENGER':'对话类','dt:WEBSITE':'网站转化','dt:FACEBOOK_PAGE':'主页互动','dt:INSTAGRAM_PROFILE':'IG主页','dt:UNDEFINED':'未定义',
+  'obj:OUTCOME_SALES':'销售','obj:OUTCOME_LEADS':'线索','obj:OUTCOME_ENGAGEMENT':'互动','obj:OUTCOME_TRAFFIC':'流量','obj:PAGE_LIKES':'主页赞',
+  purchase:'购买转化',purchases:'购买转化',leads:'线索收集',lead:'线索收集',messenger:'私信对话',messaging:'私信对话',
+  engagement:'帖子互动',traffic:'流量点击',contact:'联系转化',other:'其他'
+ };
+ return m[key]||m[lower]||key;
+}
 function renderDryRunResult(data){
  var box=document.getElementById('dryRunResult');if(!box)return;
  var items=data.items||[];
@@ -11116,7 +11132,7 @@ function renderDryRunResult(data){
   var bd=it.would_execute?'rgba(239,68,68,.35)':(triggered.length?'rgba(234,179,8,.35)':'rgba(34,197,94,.25)');
   var rulesText=matched.length?matched.map(function(r){
    var parts=['['+escHtml(r.rule_type||'rule')+']'];
-   if(r.kpi_filter)parts.push(escHtml(r.kpi_filter));
+   if(r.kpi_filter)parts.push(escHtml(ruleKpiFilterLabel(r.kpi_filter)));
    if(r.would_trigger)parts.push('触发'); else parts.push('未触发');
    if(r.in_cooldown)parts.push('冷却 '+Math.ceil((r.cooldown_remaining_sec||0)/60)+' 分钟');
    if(r.action_label)parts.push(escHtml(r.action_label));
@@ -11245,8 +11261,7 @@ function renderGuard(rules){
  function ruleCard(r){
    var descStr=r.rule_type==='bleed_abs'?'止血线: $'+(r.param_value||20):r.rule_type==='cpa_exceed'?'CPA > 目标×'+((r.param_ratio||1.3)*100).toFixed(0)+'%'+(r.param_value?' (目标$'+parseFloat(r.param_value).toFixed(2)+')':''):r.rule_type==='trend_drop'?'跌幅阈值: '+(r.param_value||40)+'%':r.rule_type==='consecutive_bad'?'连续 '+(r.param_days||2)+' 天超标 '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='click_no_conv'?'点击阈值: '+(r.param_value||100):r.rule_type==='low_ctr_no_conv'?'消耗 ≥ $'+(r.param_value||10)+' · CTR ≤ '+(r.param_ratio||0.5)+'%':r.rule_type==='reach_no_conv'?'覆盖 ≥ '+(r.param_value||1000)+' · 消耗 ≥ $'+(r.param_ratio||10):r.rule_type==='budget_burn_fast'?'单周期增加: $'+(r.param_value||20):'';
   var silStr=r.silent_start?' · 静默 '+r.silent_start+'-'+r.silent_end:'';
- var kpiFilterLabel={'dt:MESSENGER':'对话类','dt:WEBSITE':'网站转化','dt:FACEBOOK_PAGE':'主页互动','dt:INSTAGRAM_PROFILE':'IG主页','dt:UNDEFINED':'未定义','obj:OUTCOME_SALES':'销售','obj:OUTCOME_LEADS':'线索','obj:OUTCOME_ENGAGEMENT':'互动','obj:OUTCOME_TRAFFIC':'流量','obj:PAGE_LIKES':'主页赞','purchase':'购买转化','leads':'线索收集','messenger':'私信对话','engagement':'帖子互动','traffic':'流量点击','contact':'联系转化','other':'其他'};
-  var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+(kpiFilterLabel[r.kpi_filter]||r.kpi_filter)+'</span>':'';
+  var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+escHtml(ruleKpiFilterLabel(r.kpi_filter))+'</span>':'';
   var scopeLabel=r.scope_label||(r.scope==='owner'?'名下全部账户':'指定账户');
   var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(r.act_id||'指定账户');
   var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
@@ -11298,8 +11313,17 @@ function showAddRule(mode, opts){
  document.getElementById('saveRuleBtn')&&(document.getElementById('saveRuleBtn').textContent=mode==='guard'?'添加止损规则':'添加拉量策略');
  document.getElementById('guardFields').style.display=mode==='guard'?'block':'none';
  document.getElementById('scaleFields').style.display=mode==='scale'?'block':'none';
- // 重置KPI筛选
- var kf=document.getElementById('gp_kpi_filter');if(kf){kf.value='';populateRulesKpiFilter();}
+ // 重置KPI筛选：止损默认按每条广告自己的主要成效判断，拉量默认不限类型。
+ var kf=document.getElementById('gp_kpi_filter');
+ if(kf){
+  var defaultKpi=mode==='guard'?'primary':'';
+  kf.value=defaultKpi;
+  populateRulesKpiFilter().then(function(){
+   kf.value=defaultKpi;
+   updateGuardPreview();
+   updateScalePreview();
+  });
+ }
  ['ruleName','ruleNote','silStart','silEnd'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
  // 重置账户选择框（避免编辑后再添加时保留旧值）
  var actSel=document.getElementById('ruleAct');
@@ -11349,9 +11373,8 @@ function updateGuardPreview(){
  el.style.display='block';
  var scopeVal=(document.getElementById('ruleAct')||{}).value||'';
  var scopeLabel=scopeVal==='__owner__'?'名下全部账户':(scopeVal?'指定账户':'账户级');
- var kpiMap={purchase:'购物类',leads:'线索类',messenger:'私信类',traffic:'流量类',engagement:'互动类',contact:'联系类',other:'其他'};
  var kpiVal=(document.getElementById('gp_kpi_filter')||{}).value||'';
- var kpiLabel=kpiMap[kpiVal]||'全部类型';
+ var kpiLabel=ruleKpiFilterLabel(kpiVal);
  var actionMap={pause:'暂停广告',reduce_budget:'降预算',alert_only:'仅预警',pause_adset:'暂停广告组',pause_campaign:'暂停系列'};
  var actionLabel=actionMap[(document.getElementById('guardAction')||{}).value||'pause'];
  function gv(key,def){var inp=document.getElementById('gp_'+key);return inp&&inp.value!==''?parseFloat(inp.value):def}
@@ -11377,9 +11400,8 @@ function updateScalePreview(){
  el.style.display='block';
  var scopeVal=(document.getElementById('ruleAct')||{}).value||'';
  var scopeLabel=scopeVal==='__owner__'?'名下全部账户':(scopeVal?'指定账户':'账户级');
- var kpiMap={purchase:'购物类',leads:'线索类',messenger:'私信类',traffic:'流量类',engagement:'互动类',contact:'联系类',other:'其他'};
  var kpiVal=(document.getElementById('gp_kpi_filter')||{}).value||'';
- var kpiLabel=kpiMap[kpiVal]||'全部类型';
+ var kpiLabel=ruleKpiFilterLabel(kpiVal);
  function sv(id,def){var inp=document.getElementById(id);return inp&&inp.value!==''?parseFloat(inp.value):def}
  var r=sv('sp_cpa_ratio',0.8);
  var mc=sv('sp_min_conversions',3);

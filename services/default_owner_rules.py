@@ -13,16 +13,21 @@ OWNER_SCOPE_ACT_ID = "__owner__"
 RULE_SCOPE_OWNER = "owner"
 DEFAULT_OWNER_RULE_NOTE = "owner_default_stoploss_v2"
 DEFAULT_OWNER_INIT_SETTING_PREFIX = "default_owner_rules_initialized:"
+PRIMARY_KPI_FILTER = "primary"
+LEGACY_OWNER_KPI_FILTERS = (
+    "purchase",
+    "leads",
+    "messenger",
+    "contact",
+    "traffic",
+    "engagement",
+)
 
 DEFAULT_OWNER_STOPLOSS_RULES = [
-    ("购买目标 $20 空成效止损", "purchase", 20.0),
-    ("线索目标 $20 空成效止损", "leads", 20.0),
-    ("私信目标 $20 空成效止损", "messenger", 20.0),
-    ("联系目标 $20 空成效止损", "contact", 20.0),
-    ("流量目标 $20 空成效止损", "traffic", 20.0),
-    ("互动目标 $20 空成效止损", "engagement", 20.0),
+    ("主要成效 $20 空成效止损", PRIMARY_KPI_FILTER, 20.0),
 ]
 DEFAULT_OWNER_KPI_FILTERS = tuple(rule[1] for rule in DEFAULT_OWNER_STOPLOSS_RULES)
+SYSTEM_DEFAULT_FILTERS = DEFAULT_OWNER_KPI_FILTERS + LEGACY_OWNER_KPI_FILTERS
 
 
 def _set_setting(conn, key: str, value: str) -> None:
@@ -81,6 +86,7 @@ def ensure_rule_scope_schema(conn) -> None:
 def ensure_operator_default_stoploss_rules() -> dict:
     conn = get_conn()
     created = 0
+    migrated = 0
     initialized = 0
     skipped_initialized = 0
     skipped_existing = 0
@@ -102,7 +108,8 @@ def ensure_operator_default_stoploss_rules() -> dict:
                  AND COALESCE(is_active, 1)=1
                  AND team_id IS NOT NULL"""
         ).fetchall()
-        placeholders = ",".join("?" for _ in DEFAULT_OWNER_KPI_FILTERS)
+        placeholders = ",".join("?" for _ in SYSTEM_DEFAULT_FILTERS)
+        primary_rule_name, primary_kpi_filter, primary_amount = DEFAULT_OWNER_STOPLOSS_RULES[0]
         for user in users:
             uid = int(user["id"])
             init_key = f"{DEFAULT_OWNER_INIT_SETTING_PREFIX}{uid}"
@@ -117,37 +124,43 @@ def ensure_operator_default_stoploss_rules() -> dict:
                         OR kpi_filter IS NULL
                         OR kpi_filter NOT IN ({placeholders})
                       )""",
-                (RULE_SCOPE_OWNER, uid, DEFAULT_OWNER_RULE_NOTE, *DEFAULT_OWNER_KPI_FILTERS),
+                (RULE_SCOPE_OWNER, uid, DEFAULT_OWNER_RULE_NOTE, *SYSTEM_DEFAULT_FILTERS),
             )
 
-            # Normalize duplicate old defaults, but do not create anything once initialized.
-            for rule_name, kpi_filter, amount in DEFAULT_OWNER_STOPLOSS_RULES:
-                existing_rows = conn.execute(
-                    """SELECT id FROM guard_rules
-                       WHERE scope=? AND owner_user_id=?
-                         AND rule_type='bleed_abs' AND kpi_filter=?
-                         AND (note=? OR note LIKE '%默认止损规则%')
-                       ORDER BY id ASC""",
-                    (RULE_SCOPE_OWNER, uid, kpi_filter, DEFAULT_OWNER_RULE_NOTE),
-                ).fetchall()
-                if not existing_rows:
-                    continue
+            # Consolidate old 6 per-target defaults into one primary-KPI default.
+            existing_rows = conn.execute(
+                f"""SELECT id, kpi_filter FROM guard_rules
+                   WHERE scope=? AND owner_user_id=?
+                     AND rule_type='bleed_abs'
+                     AND COALESCE(kpi_filter, '') IN ({placeholders})
+                     AND (note=? OR note LIKE '%默认止损规则%')
+                   ORDER BY CASE WHEN kpi_filter=? THEN 0 ELSE 1 END, id ASC""",
+                (RULE_SCOPE_OWNER, uid, *SYSTEM_DEFAULT_FILTERS, DEFAULT_OWNER_RULE_NOTE, primary_kpi_filter),
+            ).fetchall()
+            if existing_rows:
                 keep_id = existing_rows[0]["id"]
+                needs_migration = (
+                    len(existing_rows) > 1
+                    or (existing_rows[0]["kpi_filter"] or "") != primary_kpi_filter
+                )
                 conn.execute(
                     """UPDATE guard_rules
                        SET act_id=?, level='ad', target_id='__global__',
-                           rule_name=COALESCE(NULLIF(rule_name, ''), ?),
+                           rule_name=?,
                            param_value=COALESCE(param_value, ?),
                            action=COALESCE(NULLIF(action, ''), 'pause'),
                            note=?,
                            team_id=COALESCE(team_id, ?)
                        WHERE id=?""",
-                    (OWNER_SCOPE_ACT_ID, rule_name, amount, DEFAULT_OWNER_RULE_NOTE, user["team_id"], keep_id),
+                    (OWNER_SCOPE_ACT_ID, primary_rule_name, primary_amount, DEFAULT_OWNER_RULE_NOTE, user["team_id"], keep_id),
                 )
+                conn.execute("UPDATE guard_rules SET kpi_filter=? WHERE id=?", (primary_kpi_filter, keep_id))
                 if len(existing_rows) > 1:
                     stale_ids = [r["id"] for r in existing_rows[1:]]
                     stale_placeholders = ",".join("?" for _ in stale_ids)
                     conn.execute(f"DELETE FROM guard_rules WHERE id IN ({stale_placeholders})", stale_ids)
+                if needs_migration:
+                    migrated += 1
 
             if _has_setting(conn, init_key):
                 skipped_initialized += 1
@@ -195,6 +208,7 @@ def ensure_operator_default_stoploss_rules() -> dict:
         conn.close()
     return {
         "created": created,
+        "migrated": migrated,
         "initialized": initialized,
         "skipped_initialized": skipped_initialized,
         "skipped_existing": skipped_existing,

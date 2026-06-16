@@ -1084,12 +1084,15 @@ def _match_kpi_filter(kpi_filter: str, ad_kpi_meta: dict) -> bool:
     判断广告是否匹配规则的 kpi_filter。
     kpi_filter 存储 ad_type 标签值（如 messenger/purchase/leads），
     多个用逗号分隔。
+    primary/main 表示按广告自身主要 KPI 计算，不按目标类型过滤。
     """
     if not kpi_filter:
         return True
     ad_type = (ad_kpi_meta.get("ad_type") or "").lower().strip()
     filters = [f.strip().lower() for f in kpi_filter.split(",") if f.strip()]
     if not filters:
+        return True
+    if any(f in ("primary", "main", "auto_primary") for f in filters):
         return True
     return ad_type in filters
 
@@ -1816,6 +1819,8 @@ class GuardEngine:
 
     def _metric_matches_rule_filter(self, act_id: str, metric: dict, kpi_filter: str | None) -> bool:
         if not kpi_filter:
+            return True
+        if str(kpi_filter or "").lower().strip() in ("primary", "main", "auto_primary"):
             return True
         try:
             meta = _get_ad_kpi_meta(act_id, metric.get("ad_id", ""))

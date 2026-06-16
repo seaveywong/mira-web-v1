@@ -674,15 +674,10 @@ RULE_TEMPLATES = [
     {
         "id": "default_stoploss",
         "name": "默认止损规则",
-        "desc": "按投放目标分别设置空成效止损线；不选择账户时默认覆盖当前运营名下全部账户。",
+        "desc": "一条主要成效空成效止损：每个广告按自己的 KPI 字段判断，消耗达到 $20 且主要成效为 0 时关闭广告。",
         "tags": ["止损", "默认"],
         "guard_rules": [
-            {"rule_name": "购买目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "ad", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "purchase", "note": "来自默认止损规则"},
-            {"rule_name": "线索目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "ad", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "leads", "note": "来自默认止损规则"},
-            {"rule_name": "私信目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "ad", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "messenger", "note": "来自默认止损规则"},
-            {"rule_name": "联系目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "ad", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "contact", "note": "来自默认止损规则"},
-            {"rule_name": "流量目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "ad", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "traffic", "note": "来自默认止损规则"},
-            {"rule_name": "互动目标 $20 空成效止损", "rule_type": "bleed_abs", "level": "ad", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "engagement", "note": "来自默认止损规则"},
+            {"rule_name": "主要成效 $20 空成效止损", "rule_type": "bleed_abs", "level": "ad", "target_id": "__global__", "param_value": 20.0, "action": "pause", "kpi_filter": "primary", "note": "来自默认止损规则"},
         ],
     }
 ]
