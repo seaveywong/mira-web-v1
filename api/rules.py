@@ -697,12 +697,232 @@ class SaveCurrentAsTemplateRequest(BaseModel):
     description: str = ""
     act_id: Optional[str] = "__all__"
 
+class RuleDryRunRequest(BaseModel):
+    act_id: Optional[str] = None
+    target_id: Optional[str] = None
+    target_level: Optional[str] = "auto"
+    max_ads: Optional[int] = 80
+
 class ApplyTemplateRequest(BaseModel):
     template_id: str
     act_id: Optional[str] = None          # 单账户（向下兼容）
     act_ids: Optional[List[str]] = None   # 多账户批量应用
     override_existing: bool = False        # 是否覆盖已有规则
     global_mode: bool = False              # Legacy field; global account rules are disabled.
+
+def _plain_id(value: str | None) -> str:
+    raw = (value or "").strip()
+    return raw[4:] if raw.startswith("act_") else raw
+
+
+def _normalize_account_id(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    return raw if raw.startswith("act_") else f"act_{raw}"
+
+
+def _same_fb_id(left: str | None, right: str | None) -> bool:
+    return bool(left and right and _plain_id(str(left)) == _plain_id(str(right)))
+
+
+def _visible_dry_run_accounts(conn, user, act_id: str | None) -> list[dict]:
+    target = _normalize_account_id(act_id)
+    if target:
+        assert_row_access(conn, "accounts", target, user, id_column="act_id")
+        row = conn.execute("SELECT act_id, name, currency FROM accounts WHERE act_id=?", (target,)).fetchone()
+        return [dict(row)] if row else []
+    ids = _team_account_act_ids(conn, user)
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"SELECT act_id, name, currency FROM accounts WHERE act_id IN ({placeholders}) ORDER BY id",
+        ids,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _dry_run_target_matches(ad: dict, account: dict, level: str, target_id: str) -> bool:
+    if not target_id:
+        return True
+    level = (level or "auto").lower()
+    if level == "account":
+        return _same_fb_id(account.get("act_id"), target_id)
+    if level == "campaign":
+        return _same_fb_id(ad.get("campaign_id"), target_id)
+    if level == "adset":
+        return _same_fb_id(ad.get("adset_id"), target_id)
+    if level == "ad":
+        return _same_fb_id(ad.get("ad_id"), target_id)
+    return (
+        _same_fb_id(account.get("act_id"), target_id)
+        or _same_fb_id(ad.get("campaign_id"), target_id)
+        or _same_fb_id(ad.get("adset_id"), target_id)
+        or _same_fb_id(ad.get("ad_id"), target_id)
+    )
+
+
+def _rule_action_label(rule: dict) -> str:
+    action = rule.get("action") or "pause"
+    if action == "pause":
+        return "暂停广告；失败时自动升级到广告组/系列"
+    if action == "pause_adset":
+        return "暂停广告组"
+    if action == "pause_campaign":
+        return "暂停系列"
+    if action == "alert_only":
+        return "仅预警"
+    if action == "reduce_budget":
+        return "降低预算"
+    return str(action)
+
+
+def _dry_run_rule_summary(rule: dict) -> dict:
+    out = {
+        "id": rule.get("id"),
+        "rule_type": rule.get("rule_type"),
+        "kpi_filter": rule.get("kpi_filter"),
+        "param_value": rule.get("param_value"),
+        "param_ratio": rule.get("param_ratio"),
+        "action": rule.get("action"),
+        "action_label": _rule_action_label(rule),
+        "scope": rule.get("scope"),
+        "note": rule.get("note"),
+        "would_trigger": bool(rule.get("would_trigger")),
+        "in_cooldown": bool(rule.get("in_cooldown")),
+        "cooldown_remaining_sec": int(rule.get("cooldown_remaining_sec") or 0),
+    }
+    for key in ("threshold", "actual_cpa", "threshold_spend", "actual_spend", "actual_conversions"):
+        if key in rule:
+            out[key] = rule.get(key)
+    return out
+
+
+@router.post("/dry-run")
+def dry_run_rules(body: RuleDryRunRequest, user=Depends(get_current_user)):
+    """Preview rule decisions for a selected account/campaign/adset/ad without writing to Meta."""
+    from datetime import date
+    from api.dashboard import get_ads_live
+    from api.kpi import diagnose_ad
+
+    target_id = (body.target_id or "").strip()
+    target_level = (body.target_level or "auto").strip().lower()
+    if target_level not in ("auto", "account", "campaign", "adset", "ad"):
+        raise HTTPException(400, "target_level must be auto/account/campaign/adset/ad")
+    if not (body.act_id or target_id):
+        raise HTTPException(400, "请至少填写账户ID或目标ID")
+    max_ads = max(1, min(int(body.max_ads or 80), 300))
+
+    act_id = _normalize_account_id(body.act_id)
+    if not act_id and target_level == "account" and target_id:
+        act_id = _normalize_account_id(target_id)
+
+    conn = get_conn()
+    try:
+        accounts = _visible_dry_run_accounts(conn, user, act_id)
+    finally:
+        conn.close()
+    if not accounts:
+        raise HTTPException(404, "没有可访问的账户")
+
+    today = date.today().isoformat()
+    candidates = []
+    scan_errors = []
+    for account in accounts:
+        try:
+            rows = get_ads_live(act_id=account["act_id"], date_from=today, date_to=today, user=user)
+        except Exception as exc:
+            scan_errors.append({
+                "act_id": account["act_id"],
+                "account_name": account.get("name") or account["act_id"],
+                "error": str(exc)[:300],
+            })
+            continue
+        for ad in rows or []:
+            if _dry_run_target_matches(ad, account, target_level, target_id):
+                candidates.append({"account": account, "ad": ad})
+                if len(candidates) >= max_ads:
+                    break
+        if len(candidates) >= max_ads:
+            break
+
+    if not candidates:
+        return {
+            "success": True,
+            "target": {"act_id": act_id, "target_id": target_id, "target_level": target_level},
+            "scanned_accounts": len(accounts),
+            "candidate_count": 0,
+            "trigger_count": 0,
+            "execute_count": 0,
+            "items": [],
+            "errors": scan_errors,
+            "message": "没有找到匹配的广告。请确认 ID 是否存在、未删除，或补充账户 ID 后重试。",
+        }
+
+    cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
+    items = []
+    for item in candidates:
+        account = item["account"]
+        ad = item["ad"]
+        try:
+            diag = diagnose_ad(account["act_id"], ad["ad_id"], user=user)
+        except Exception as exc:
+            items.append({
+                "act_id": account["act_id"],
+                "account_name": account.get("name") or account["act_id"],
+                "ad_id": ad.get("ad_id"),
+                "ad_name": ad.get("ad_name") or ad.get("ad_id"),
+                "status": "diagnose_failed",
+                "error": str(exc)[:300],
+            })
+            continue
+        rules = ((diag.get("rules") or {}).get("matching") or [])
+        matched = [_dry_run_rule_summary(r) for r in rules]
+        triggered = [r for r in matched if r.get("would_trigger")]
+        effective_status = diag.get("effective_status") or ad.get("effective_status") or ""
+        block_reasons = []
+        if effective_status in cannot_spend:
+            block_reasons.append("广告当前已不可花钱，真实巡检会跳过")
+        if any(r.get("in_cooldown") for r in triggered):
+            block_reasons.append("命中规则仍在冷却中")
+        would_execute = bool(triggered) and not block_reasons
+        items.append({
+            "act_id": account["act_id"],
+            "account_name": account.get("name") or account["act_id"],
+            "currency": account.get("currency") or ad.get("currency") or "USD",
+            "ad_id": diag.get("ad_id") or ad.get("ad_id"),
+            "ad_name": diag.get("ad_name") or ad.get("ad_name") or ad.get("ad_id"),
+            "adset_id": diag.get("adset_id") or ad.get("adset_id"),
+            "campaign_id": diag.get("campaign_id") or ad.get("campaign_id"),
+            "effective_status": effective_status,
+            "spend": (diag.get("spend") or {}).get("spend"),
+            "spend_raw": (diag.get("spend") or {}).get("spend_raw"),
+            "conversions": (diag.get("conversions") or {}).get("count"),
+            "matched_action": (diag.get("conversions") or {}).get("matched_action"),
+            "cpa": diag.get("cpa"),
+            "kpi": diag.get("kpi") or {},
+            "matched_rules": matched,
+            "triggered_rules": triggered,
+            "would_execute": would_execute,
+            "block_reasons": block_reasons,
+            "planned_actions": [_rule_action_label(r) for r in triggered],
+        })
+
+    trigger_count = sum(1 for item in items if item.get("triggered_rules"))
+    execute_count = sum(1 for item in items if item.get("would_execute"))
+    return {
+        "success": True,
+        "target": {"act_id": act_id, "target_id": target_id, "target_level": target_level},
+        "scanned_accounts": len(accounts),
+        "candidate_count": len(candidates),
+        "trigger_count": trigger_count,
+        "execute_count": execute_count,
+        "items": items,
+        "errors": scan_errors,
+        "message": f"干跑完成：匹配 {len(candidates)} 条广告，规则命中 {trigger_count} 条，当前会执行 {execute_count} 条。",
+    }
+
 
 @router.get("/templates")
 def list_rule_templates_v2(user=Depends(get_current_user)):

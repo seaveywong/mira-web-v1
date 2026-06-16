@@ -2337,6 +2337,7 @@ select.fc option{background:#fff;color:#1d1d1f}
       <div><h2>规则引擎</h2><p>止损规则与拉量策略（广告级执行，失败自动向上升级）</p></div>
       <div style="display:flex;gap:8px;align-items:center">
        <select class="fc" id="rulesAct" style="width:180px" onchange="loadRules()"><option value="">全部账户</option></select>
+       <button class="btn btn-g" onclick="openRuleDryRunModal()">规则干跑</button>
        <div style="position:relative" id="tplMenuWrap">
        <button class="btn btn-ok role-hide-viewer" onclick="toggleTplMenu()">模板管理 ▾</button>
        <div id="tplDropMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;min-width:180px;z-index:100;box-shadow:var(--sh)">
@@ -11061,6 +11062,96 @@ function resetRuleCooldown(){
   }
  });
 }
+function openRuleDryRunModal(){
+ var selected=(document.getElementById('rulesAct')||{}).value||'';
+ var mo=document.getElementById('moRuleDryRun');
+ if(!mo){mo=document.createElement('div');mo.id='moRuleDryRun';mo.className='mo';document.body.appendChild(mo);}
+ mo.innerHTML='<div class="modal modal-lg" style="max-width:860px">'+
+  '<div class="mh"><h3>规则干跑</h3><button class="mc" onclick="closeModal(&quot;moRuleDryRun&quot;)">✕</button></div>'+
+  '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
+  '<div style="display:grid;grid-template-columns:1.2fr .8fr 1.2fr .7fr;gap:10px;align-items:end">'+
+  '<div class="fg"><label class="fl">账户 ID（可选）</label><input class="fc" id="dryActId" value="'+escHtml(selected)+'" placeholder="act_123 或 123"></div>'+
+  '<div class="fg"><label class="fl">目标层级</label><select class="fc" id="dryTargetLevel"><option value="auto">自动识别</option><option value="account">账户</option><option value="campaign">系列</option><option value="adset">广告组</option><option value="ad">广告</option></select></div>'+
+  '<div class="fg"><label class="fl">目标 ID</label><input class="fc" id="dryTargetId" placeholder="系列/组/广告/账户 ID"></div>'+
+  '<div class="fg"><label class="fl">最多广告</label><input class="fc" id="dryMaxAds" type="number" value="80" min="1" max="300"></div>'+
+  '</div>'+
+  '<div class="fh">不执行关闭，只按当前 Meta 数据预演规则。只填账户 ID 会扫描该账户；填系列/广告组/广告 ID 可快速定位，补账户 ID 会更快。</div>'+
+  '<div id="dryRunResult" style="min-height:80px;border:1px solid var(--bd);border-radius:8px;padding:12px;background:var(--bg2);color:var(--t3)">等待开始干跑。</div>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moRuleDryRun&quot;)">关闭</button><button class="btn btn-p" id="btnRuleDryRun" onclick="runRuleDryRun()">开始干跑</button></div>'+
+  '</div>';
+ openModal('moRuleDryRun');
+}
+function dryMoney(v){
+ var n=parseFloat(v);
+ return isFinite(n)?('$'+n.toFixed(2)):'--';
+}
+function renderDryRunResult(data){
+ var box=document.getElementById('dryRunResult');if(!box)return;
+ var items=data.items||[];
+ var html='<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px">'+
+  '<div style="font-weight:700;color:var(--t1)">'+escHtml(data.message||'干跑完成')+'</div>'+
+  '<div style="font-size:12px;color:var(--t3)">扫描账户 '+(data.scanned_accounts||0)+' · 匹配广告 '+(data.candidate_count||0)+' · 会执行 '+(data.execute_count||0)+'</div></div>';
+ if(data.errors&&data.errors.length){
+  html+='<div style="margin-bottom:10px;color:var(--wa);font-size:12px">部分账户读取失败：'+data.errors.map(function(e){return escHtml((e.account_name||e.act_id)+': '+(e.error||''));}).join('；')+'</div>';
+ }
+ if(!items.length){box.innerHTML=html+'<div style="padding:18px;text-align:center;color:var(--t3)">没有匹配到广告。</div>';return;}
+ html+='<div style="display:flex;flex-direction:column;gap:8px;max-height:58vh;overflow:auto">';
+ items.forEach(function(it){
+  var kpi=(it.kpi&&it.kpi.label?it.kpi.label:((it.kpi&&it.kpi.field)||'--'));
+  var triggered=it.triggered_rules||[];
+  var matched=it.matched_rules||[];
+  var status=it.would_execute?'会执行':(triggered.length?'命中但不执行':'不触发');
+  var bg=it.would_execute?'rgba(239,68,68,.10)':(triggered.length?'rgba(234,179,8,.10)':'rgba(34,197,94,.08)');
+  var bd=it.would_execute?'rgba(239,68,68,.35)':(triggered.length?'rgba(234,179,8,.35)':'rgba(34,197,94,.25)');
+  var rulesText=matched.length?matched.map(function(r){
+   var parts=['['+escHtml(r.rule_type||'rule')+']'];
+   if(r.kpi_filter)parts.push(escHtml(r.kpi_filter));
+   if(r.would_trigger)parts.push('会触发'); else parts.push('不触发');
+   if(r.in_cooldown)parts.push('冷却 '+Math.ceil((r.cooldown_remaining_sec||0)/60)+' 分钟');
+   if(r.action_label)parts.push(escHtml(r.action_label));
+   return '<span class="badge" style="margin-right:5px;margin-bottom:5px;background:var(--bg3);border:1px solid var(--bd);color:var(--t2)">'+parts.join(' · ')+'</span>';
+  }).join(''):'<span style="color:var(--t3)">无匹配规则</span>';
+  html+='<div style="border:1px solid '+bd+';background:'+bg+';border-radius:8px;padding:10px">'+
+   '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'+
+   '<div><div style="font-weight:700;color:var(--t1)">'+escHtml(it.ad_name||it.ad_id||'广告')+'</div>'+
+   '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(it.account_name||it.act_id||'')+' · '+escHtml(it.act_id||'')+' · 广告 '+escHtml(it.ad_id||'')+'</div></div>'+
+   '<span class="badge" style="background:'+bg+';border:1px solid '+bd+';color:var(--t1)">'+status+'</span></div>'+
+   '<div style="display:grid;grid-template-columns:repeat(5,minmax(90px,1fr));gap:8px;margin-top:10px;font-size:12px;color:var(--t2)">'+
+   '<div>状态<br><b style="color:var(--t1)">'+escHtml(it.effective_status||'--')+'</b></div>'+
+   '<div>消耗(USD)<br><b style="color:var(--t1)">'+dryMoney(it.spend)+'</b></div>'+
+   '<div>原币消耗<br><b style="color:var(--t1)">'+(it.spend_raw==null?'--':escHtml(String(it.spend_raw)))+'</b></div>'+
+   '<div>KPI<br><b style="color:var(--t1)">'+escHtml(kpi)+'</b></div>'+
+   '<div>转化 / CPA<br><b style="color:var(--t1)">'+escHtml(String(it.conversions==null?'--':it.conversions))+' / '+dryMoney(it.cpa)+'</b></div>'+
+   '</div>'+
+   (it.block_reasons&&it.block_reasons.length?'<div style="margin-top:8px;color:var(--wa);font-size:12px">阻止原因：'+it.block_reasons.map(escHtml).join('；')+'</div>':'')+
+   '<div style="margin-top:8px">'+rulesText+'</div>'+
+   '<div style="margin-top:6px;font-size:11px;color:var(--t3)">系列 '+escHtml(it.campaign_id||'-')+' · 广告组 '+escHtml(it.adset_id||'-')+'</div>'+
+   '</div>';
+ });
+ html+='</div>';
+ box.innerHTML=html;
+}
+async function runRuleDryRun(){
+ var btn=document.getElementById('btnRuleDryRun');
+ var box=document.getElementById('dryRunResult');
+ var body={
+  act_id:(document.getElementById('dryActId')||{}).value||null,
+  target_level:(document.getElementById('dryTargetLevel')||{}).value||'auto',
+  target_id:(document.getElementById('dryTargetId')||{}).value||null,
+  max_ads:parseInt((document.getElementById('dryMaxAds')||{}).value||'80',10)||80
+ };
+ if(!body.act_id&&!body.target_id){toast('请至少填写账户ID或目标ID','wa');return;}
+ if(btn){btn.disabled=true;btn.textContent='干跑中...';}
+ if(box)box.innerHTML='<div style="padding:24px;text-align:center;color:var(--t3)">正在读取 Meta 数据并预演规则...</div>';
+ try{
+  var data=await api('POST','/rules/dry-run',body);
+  renderDryRunResult(data);
+ }catch(e){
+  if(box)box.innerHTML='<div style="color:var(--er);padding:16px">干跑失败：'+escHtml(e.message||e)+'</div>';
+ }
+ if(btn){btn.disabled=false;btn.textContent='开始干跑';}
+}
 function populateGuardTypes(){
  var sel=document.getElementById('guardType');if(!sel)return;
  sel.innerHTML=rulesMeta.guard_types.map(function(t){return'<option value="'+t.value+'">'+t.label+'</option>'}).join('');
@@ -14707,4 +14798,3 @@ async function rewarmAccount(actId){
 
 </script></body>
 </html>
-
