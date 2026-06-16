@@ -1459,8 +1459,8 @@ def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
     try:
         conn3 = get_conn()
         trow = conn3.execute(
-            "SELECT target_cpa FROM kpi_configs WHERE level='account' AND target_id=? AND kpi_field=? AND enabled=1 LIMIT 1",
-            (act_id, kpi_field)
+            "SELECT target_cpa FROM kpi_configs WHERE act_id=? AND level='account' AND target_id=? AND kpi_field=? AND enabled=1 LIMIT 1",
+            (act_id, act_id, kpi_field)
         ).fetchone()
         if trow:
             target_cpa = float(trow["target_cpa"])

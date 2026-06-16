@@ -4708,7 +4708,8 @@ async function _renderTeamResources(kind){
   var team = item.team_name ? escHtml(item.team_name) : '<span style="color:var(--wa)">未分配</span>';
   var ownerCell = '';
   if(kind==='accounts'||kind==='tokens'){
-   ownerCell = '<td style="padding:8px">'+(item.owner_user_name?escHtml(item.owner_user_name):'<span style="color:var(--t3)">未指定</span>')+'</td>';
+   var emptyOwner = kind==='tokens' ? '未指定（运营不可见）' : '未指定';
+   ownerCell = '<td style="padding:8px">'+(item.owner_user_name?escHtml(item.owner_user_name):'<span style="color:var(--t3)">'+emptyOwner+'</span>')+'</td>';
   }
   html += '<tr style="border-bottom:1px solid var(--bd)">' +
    '<td style="padding:8px"><input type="checkbox" class="team-res-check" value="'+item.id+'"></td>' +
@@ -4793,7 +4794,7 @@ async function openTokenOwnerModal(tokenId){
   var users=_usersData.filter(function(u){return String(u.team_id)===String(item.team_id)&&['admin','operator'].indexOf(u.role)>=0&&u.is_active});
   var opts='<option value="0">不指定负责人</option>'+users.map(function(u){return '<option value="'+u.id+'" '+(String(item.owner_user_id||'')===String(u.id)?'selected':'')+'>'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('');
   var mo=document.getElementById('moTokenOwner');if(!mo){mo=document.createElement('div');mo.id='moTokenOwner';mo.className='mo';document.body.appendChild(mo)}
-  mo.innerHTML='<div class="modal"><div class="mh"><h3>Token负责人</h3><button class="mc" onclick="closeModal(\'moTokenOwner\')">x</button></div><div class="mb"><div class="fg"><label class="fl">Token</label><input class="fc" value="'+escHtml(item.name||('Token '+tokenId))+'" disabled></div><div class="fg"><label class="fl">负责人</label><select class="fc" id="tokenOwnerUid">'+opts+'</select></div><div class="fh">设置后仅该负责人可见此Token。留空则团队内共享。</div></div><div class="mf"><button class="btn btn-g" onclick="closeModal(\'moTokenOwner\')">取消</button><button class="btn btn-p" onclick="saveTokenOwner('+tokenId+')">保存</button></div></div>';
+  mo.innerHTML='<div class="modal"><div class="mh"><h3>Token负责人</h3><button class="mc" onclick="closeModal(\'moTokenOwner\')">x</button></div><div class="mb"><div class="fg"><label class="fl">Token</label><input class="fc" value="'+escHtml(item.name||('Token '+tokenId))+'" disabled></div><div class="fg"><label class="fl">负责人</label><select class="fc" id="tokenOwnerUid">'+opts+'</select></div><div class="fh">设置后仅该负责人可见此Token；留空表示未指定，运营账号不可见，建议分配给具体运营。</div></div><div class="mf"><button class="btn btn-g" onclick="closeModal(\'moTokenOwner\')">取消</button><button class="btn btn-p" onclick="saveTokenOwner('+tokenId+')">保存</button></div></div>';
   openModal('moTokenOwner')
  }catch(e){toast('加载失败：'+(e.message||e),'er')}
 }
@@ -14706,5 +14707,4 @@ async function rewarmAccount(actId){
 
 </script></body>
 </html>
-
 

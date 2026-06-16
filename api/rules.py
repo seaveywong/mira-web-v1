@@ -915,7 +915,7 @@ def apply_rule_template(body: ApplyTemplateRequest, user=Depends(get_current_use
                         param_ratio, param_days, action, action_value, enabled, note,
                         kpi_filter, scope, owner_user_id, team_id, created_by)
                        VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)""",
-                    (act_id, r.get('rule_name'), r.get('level','account'), r.get('target_id','__global__'),
+                    (act_id, r.get('rule_name'), r.get('level','ad'), r.get('target_id','__global__'),
                      r.get('rule_type'), r.get('param_value'), r.get('param_ratio',1.2),
                      r.get('param_days',2), r.get('action','pause'), r.get('action_value'),
                      note,

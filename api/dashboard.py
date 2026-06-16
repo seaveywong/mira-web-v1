@@ -1014,8 +1014,8 @@ def get_ads_live(
 
     kpi_conn = get_conn()
     try:
-        kpi_rows = kpi_conn.execute('SELECT * FROM kpi_configs WHERE level="ad"').fetchall()
-        kpi_map = {r['target_id']: dict(r) for r in kpi_rows}
+        kpi_rows = kpi_conn.execute('SELECT * FROM kpi_configs WHERE level="ad" AND enabled=1').fetchall()
+        kpi_map = {(r['act_id'], r['target_id']): dict(r) for r in kpi_rows}
     except Exception:
         kpi_map = {}
     kpi_conn.close()
@@ -1076,7 +1076,7 @@ def get_ads_live(
                     roas = round(revenue / spend_orig, 2) if spend_orig > 0 and revenue > 0 else 0
                 spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
                 # v1.2.0: 根据kpi_field选择正确的转化字段
-                kpi = kpi_map.get(ad['id'], {})
+                kpi = kpi_map.get((acc['act_id'], ad['id']), {})
                 kpi_field = kpi.get('kpi_field')
                 conversions = _count_conversions(raw_actions, kpi_field)
                 cpa = round(spend_usd / conversions, 2) if conversions > 0 else 0
@@ -1364,7 +1364,7 @@ def get_ads(
             f"""SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
                FROM perf_snapshots p
                LEFT JOIN accounts a ON a.act_id = p.act_id
-               LEFT JOIN kpi_configs k ON k.target_id = p.ad_id AND k.level = 'ad'
+               LEFT JOIN kpi_configs k ON k.act_id = p.act_id AND k.target_id = p.ad_id AND k.level = 'ad' AND k.enabled=1
                WHERE {where_date} AND p.act_id = ?
                ORDER BY p.spend DESC""", (*date_range, act_id)).fetchall()
     else:
@@ -1373,7 +1373,7 @@ def get_ads(
             f"""SELECT p.*, a.name as account_name, k.target_cpa, k.kpi_field
                FROM perf_snapshots p
                LEFT JOIN accounts a ON a.act_id = p.act_id
-               LEFT JOIN kpi_configs k ON k.target_id = p.ad_id AND k.level = 'ad'
+               LEFT JOIN kpi_configs k ON k.act_id = p.act_id AND k.target_id = p.ad_id AND k.level = 'ad' AND k.enabled=1
                WHERE {where_date}{scope_sql}
                ORDER BY p.spend DESC""", tuple(date_range) + tuple(scope_params)).fetchall()
     conn.close()
