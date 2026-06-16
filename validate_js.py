@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Validate JS syntax in frontend HTML before deploying"""
-import subprocess, sys, os, tempfile, re
+"""Validate JS syntax in frontend HTML before deploying."""
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
-html_file = "/opt/mira/frontend/index.html"
-with open(html_file, "r") as f:
+repo_html = Path(__file__).resolve().parent / "frontend" / "index.html"
+html_file = Path(os.environ.get("MIRA_HTML_FILE") or (repo_html if repo_html.exists() else "/opt/mira/frontend/index.html"))
+with html_file.open("r", encoding="utf-8") as f:
     html = f.read()
 
 # Extract all inline <script> blocks (no src= attribute)

@@ -1474,7 +1474,6 @@ def get_stats(user=Depends(get_current_user)):
     where, params = [], []
     apply_team_scope(where, params, user, "a.team_id", include_unassigned=False)
     apply_account_owner_scope(where, params, user, "a.owner_user_id")
-    apply_account_owner_scope(where, params, user, "a.owner_user_id")
     scope_sql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         f"""SELECT p.* FROM perf_snapshots p

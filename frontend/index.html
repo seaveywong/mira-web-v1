@@ -4688,9 +4688,6 @@ function _teamResMain(item, kind){
 
 async function _renderTeamResources(kind){
  var wrap = document.getElementById('teamResourceWrap');
- // Populate batch owner dropdown
- if(!_teamResAllUsers||!_teamResAllUsers.length){try{var ur=await api('GET','/users');_teamResAllUsers=ur.users||[]}catch(e){} }
- var bos=document.getElementById('batchOwnerUid'); if(bos)bos.innerHTML='<option value="">批量设负责人</option>'+(_teamResAllUsers||[]).filter(function(u){return['admin','operator'].indexOf(u.role)>=0&&u.is_active}).map(function(u){return'<option value="'+u.id+'">'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('');
  if(!wrap) return;
  if(!_teamResItems.length){
   wrap.innerHTML = '<div class="team-resource-empty">暂无资源</div>';
@@ -14709,7 +14706,6 @@ async function rewarmAccount(actId){
 
 </script></body>
 </html>
-
 
 
 

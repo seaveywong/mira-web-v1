@@ -19,13 +19,10 @@ DEFAULT_OWNER_STOPLOSS_RULES = [
     ("流量目标 $20 空成效止损", "traffic", 20.0),
     ("互动目标 $20 空成效止损", "engagement", 20.0),
 ]
+DEFAULT_OWNER_KPI_FILTERS = tuple(rule[1] for rule in DEFAULT_OWNER_STOPLOSS_RULES)
 
 
 def ensure_rule_scope_schema(conn) -> None:
-    # Check if default owner rules are enabled
-    row = conn.execute("SELECT value FROM settings WHERE key='default_owner_rules_enabled'").fetchone()
-    if row and row["value"] == "0":
-        return  # Default rules disabled by admin
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(guard_rules)").fetchall()}
     if "scope" not in cols:
         conn.execute("ALTER TABLE guard_rules ADD COLUMN scope TEXT DEFAULT 'account'")
@@ -72,6 +69,8 @@ def ensure_operator_default_stoploss_rules() -> dict:
     conn = get_conn()
     created = 0
     try:
+        row = conn.execute("SELECT value FROM settings WHERE key='default_owner_rules_enabled'").fetchone()
+        disabled = bool(row and row["value"] == "0")
         ensure_rule_scope_schema(conn)
         users = conn.execute(
             """SELECT id, username, team_id
@@ -81,13 +80,20 @@ def ensure_operator_default_stoploss_rules() -> dict:
                  AND team_id IS NOT NULL"""
         ).fetchall()
         for user in users:
-            # Clean up old per-objective bleed rules (consolidated into one)
+            # Remove only system-owned legacy defaults. Operator edits must survive this helper.
             conn.execute(
                 """DELETE FROM guard_rules
-                   WHERE scope=? AND owner_user_id=? AND rule_type='bleed_abs'
-                     AND kpi_filter IS NOT NULL""",
-                (RULE_SCOPE_OWNER, user["id"]),
+                   WHERE scope=? AND owner_user_id=?
+                     AND (note=? OR note LIKE '%默认止损规则%')
+                     AND (
+                       rule_type!='bleed_abs'
+                       OR kpi_filter IS NULL
+                       OR kpi_filter NOT IN ({})
+                     )""".format(",".join("?" for _ in DEFAULT_OWNER_KPI_FILTERS)),
+                (RULE_SCOPE_OWNER, user["id"], DEFAULT_OWNER_RULE_NOTE, *DEFAULT_OWNER_KPI_FILTERS),
             )
+            if disabled:
+                continue
             for rule_name, kpi_filter, amount in DEFAULT_OWNER_STOPLOSS_RULES:
                 existing_rows = conn.execute(
                     """SELECT id FROM guard_rules
@@ -101,8 +107,11 @@ def ensure_operator_default_stoploss_rules() -> dict:
                     keep_id = existing_rows[0]["id"]
                     conn.execute(
                         """UPDATE guard_rules
-                           SET act_id=?, rule_name=?, level='ad', target_id='__global__',
-                               param_value=?, action='pause', enabled=1, note=?,
+                           SET act_id=?, level='ad', target_id='__global__',
+                               rule_name=COALESCE(NULLIF(rule_name, ''), ?),
+                               param_value=COALESCE(param_value, ?),
+                               action=COALESCE(NULLIF(action, ''), 'pause'),
+                               note=?,
                                team_id=COALESCE(team_id, ?)
                            WHERE id=?""",
                         (OWNER_SCOPE_ACT_ID, rule_name, amount, DEFAULT_OWNER_RULE_NOTE, user["team_id"], keep_id),
@@ -111,6 +120,15 @@ def ensure_operator_default_stoploss_rules() -> dict:
                         stale_ids = [r["id"] for r in existing_rows[1:]]
                         placeholders = ",".join("?" for _ in stale_ids)
                         conn.execute(f"DELETE FROM guard_rules WHERE id IN ({placeholders})", stale_ids)
+                    continue
+                custom_exists = conn.execute(
+                    """SELECT id FROM guard_rules
+                       WHERE scope=? AND owner_user_id=?
+                         AND rule_type='bleed_abs' AND kpi_filter=?
+                       LIMIT 1""",
+                    (RULE_SCOPE_OWNER, user["id"], kpi_filter),
+                ).fetchone()
+                if custom_exists:
                     continue
                 conn.execute(
                     """INSERT INTO guard_rules
@@ -136,4 +154,4 @@ def ensure_operator_default_stoploss_rules() -> dict:
         conn.commit()
     finally:
         conn.close()
-    return {"created": created}
+    return {"created": created, "disabled": disabled}
