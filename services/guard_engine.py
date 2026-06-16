@@ -854,7 +854,9 @@ def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
 def _pause_with_escalation(
     account: dict, ad_id: str, adset_id: str, campaign_id: str,
     ad_name: str, token: str, trigger_type: str, trigger_detail: str,
-    dry_run: bool
+    dry_run: bool,
+    send_notifications: bool = True,
+    details_out: Optional[dict] = None,
 ) -> Tuple[str, str]:
     """
     尝试暂停广告，失败则向上升级到广告组，再失败则升级到系列
@@ -867,6 +869,14 @@ def _pause_with_escalation(
     ad_id_line = f"广告ID：{_tg_code(ad_id)}"
     adset_id_line = f"广告组ID：{_tg_code(adset_id or '-')}"
     campaign_id_line = f"系列ID：{_tg_code(campaign_id or '-')}"
+    if details_out is not None:
+        details_out.update({
+            "ad_error": "",
+            "adset_error": "",
+            "campaign_error": "",
+            "final_level": "",
+            "final_status": "",
+        })
 
     if dry_run:
         logger.info(f"[DRY RUN] 暂停广告 {ad_id}")
@@ -874,6 +884,8 @@ def _pause_with_escalation(
                     trigger_type, f"[模拟] {trigger_detail}",
                     old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                     status="success", operator="system")
+        if details_out is not None:
+            details_out.update({"final_level": "ad", "final_status": "dry_run"})
         return "ad", "dry_run"
 
     # Step 1: 尝试暂停广告
@@ -888,8 +900,12 @@ def _pause_with_escalation(
                     old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                     status=status, operator="system")
         if verified:
+            if details_out is not None:
+                details_out.update({"final_level": "ad", "final_status": "success"})
             return "ad", "success"
         err_msg = "核验失败：广告状态未变更为PAUSED"
+    if details_out is not None:
+        details_out["ad_error"] = err_msg or "未返回原因"
 
     # 记录广告级失败
     logger.warning(f"广告 {ad_id} 无法直接暂停({err_msg})，尝试向上升级到广告组")
@@ -899,16 +915,19 @@ def _pause_with_escalation(
 
     escalate = _get_setting("escalate_on_fail", "1") == "1"
     if not escalate:
-        _send_tg(
-            f"❌ <b>Mira 暂停失败</b>\n"
-            f"{account_line}\n"
-            f"{ad_line}\n"
-            f"{ad_id_line}\n"
-            f"原因：{_tg_escape(err_msg)}\n"
-            f"⚠️ 向上升级已关闭，请手动处理！",
-            act_id=act_id,
-            event_type="guard",
-        )
+        if details_out is not None:
+            details_out.update({"final_level": "ad", "final_status": "failed"})
+        if send_notifications:
+            _send_tg(
+                f"❌ <b>Mira 暂停失败</b>\n"
+                f"{account_line}\n"
+                f"{ad_line}\n"
+                f"{ad_id_line}\n"
+                f"原因：{_tg_escape(err_msg)}\n"
+                f"⚠️ 向上升级已关闭，请手动处理！",
+                act_id=act_id,
+                event_type="guard",
+            )
         return "ad", "failed"
 
     # Step 2: 向上升级到广告组
@@ -925,28 +944,39 @@ def _pause_with_escalation(
                         old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                         status=status2, operator="system")
             if verified2:
-                _send_tg(
-                    f"⬆️ <b>Mira 升级关闭</b>\n"
-                    f"{account_line}\n"
-                    f"{ad_line}\n"
-                    f"{ad_id_line}\n"
-                    f"{adset_id_line}\n"
-                    f"触发原因：{_tg_escape(trigger_detail)}\n"
-                    f"广告无法直接关闭，已升级关闭广告组\n"
-                    f"原因：{_tg_escape(err_msg)}",
-                    act_id=act_id,
-                    event_type="guard",
-                )
+                if details_out is not None:
+                    details_out.update({
+                        "final_level": "adset",
+                        "final_status": "escalated",
+                        "ad_error": err_msg or details_out.get("ad_error") or "未返回原因",
+                    })
+                if send_notifications:
+                    _send_tg(
+                        f"⬆️ <b>Mira 升级关闭</b>\n"
+                        f"{account_line}\n"
+                        f"{ad_line}\n"
+                        f"{ad_id_line}\n"
+                        f"{adset_id_line}\n"
+                        f"触发原因：{_tg_escape(trigger_detail)}\n"
+                        f"广告无法直接关闭，已升级关闭广告组\n"
+                        f"原因：{_tg_escape(err_msg)}",
+                        act_id=act_id,
+                        event_type="guard",
+                    )
                 return "adset", "escalated"
             err2 = f"广告组核验失败: {err2}"
 
         logger.warning(f"广告组 {adset_id} 暂停失败: {err2}，尝试向上升级到系列")
         adset_error = err2
+        if details_out is not None:
+            details_out["adset_error"] = adset_error or "未返回原因"
         _log_action(act_id, "adset", adset_id, "广告组", "pause",
                     trigger_type, f"升级关闭广告组失败",
                     status="failed", error_msg=err2, operator="system")
     else:
         adset_error = "缺少广告组ID，无法升级关闭广告组"
+        if details_out is not None:
+            details_out["adset_error"] = adset_error
 
     # Step 3: 向上升级到系列
     campaign_error = ""
@@ -964,48 +994,68 @@ def _pause_with_escalation(
                         old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                         status=status3, error_msg=campaign_error or None, operator="system")
             if verified3:
-                _send_tg(
-                    f"🚨 <b>Mira 紧急升级关闭系列</b>\n"
-                    f"{account_line}\n"
-                    f"{ad_line}\n"
-                    f"{ad_id_line}\n"
-                    f"{adset_id_line}\n"
-                    f"{campaign_id_line}\n"
-                    f"广告及广告组均关闭失败\n"
-                    f"已自动关闭其所属广告系列！\n"
-                    f"请立即检查账户状态",
-                    act_id=act_id,
-                    event_type="guard",
-                )
+                if details_out is not None:
+                    details_out.update({
+                        "final_level": "campaign",
+                        "final_status": "escalated",
+                        "campaign_error": "",
+                    })
+                if send_notifications:
+                    _send_tg(
+                        f"🚨 <b>Mira 紧急升级关闭系列</b>\n"
+                        f"{account_line}\n"
+                        f"{ad_line}\n"
+                        f"{ad_id_line}\n"
+                        f"{adset_id_line}\n"
+                        f"{campaign_id_line}\n"
+                        f"广告及广告组均关闭失败\n"
+                        f"已自动关闭其所属广告系列！\n"
+                        f"请立即检查账户状态",
+                        act_id=act_id,
+                        event_type="guard",
+                    )
                 return "campaign", "escalated"
         else:
             campaign_error = err3
+            if details_out is not None:
+                details_out["campaign_error"] = campaign_error or "未返回原因"
             logger.warning(f"系列 {campaign_id} 暂停失败: {campaign_error}")
             _log_action(act_id, "campaign", campaign_id, "广告系列", "pause",
                         trigger_type, "升级关闭系列失败",
                         status="failed", error_msg=campaign_error, operator="system")
     else:
         campaign_error = "缺少系列ID，无法升级关闭系列"
+        if details_out is not None:
+            details_out["campaign_error"] = campaign_error
         _log_action(act_id, "campaign", f"missing:{ad_id}", "广告系列", "pause",
                     trigger_type, "升级关闭系列失败：缺少系列ID，本地快照也未能补齐",
                     status="failed", error_msg=campaign_error, operator="system")
 
     # 全部失败
-    _send_tg(
-        f"🆘 <b>Mira 严重告警</b>\n"
-        f"{account_line}\n"
-        f"{ad_line}\n"
-        f"{ad_id_line}\n"
-        f"{adset_id_line}\n"
-        f"{campaign_id_line}\n"
-        f"广告/广告组/系列均关闭失败！\n"
-        f"广告失败：{_tg_escape(err_msg)}\n"
-        f"广告组失败：{_tg_escape(adset_error or '未返回原因')}\n"
-        f"系列失败：{_tg_escape(campaign_error or '未返回原因')}\n"
-        f"请立即手动处理！",
-        act_id=act_id,
-        event_type="guard",
-    )
+    if details_out is not None:
+        details_out.update({
+            "final_level": "campaign",
+            "final_status": "all_failed",
+            "ad_error": err_msg or details_out.get("ad_error") or "未返回原因",
+            "adset_error": adset_error or details_out.get("adset_error") or "未返回原因",
+            "campaign_error": campaign_error or details_out.get("campaign_error") or "未返回原因",
+        })
+    if send_notifications:
+        _send_tg(
+            f"🆘 <b>Mira 严重告警</b>\n"
+            f"{account_line}\n"
+            f"{ad_line}\n"
+            f"{ad_id_line}\n"
+            f"{adset_id_line}\n"
+            f"{campaign_id_line}\n"
+            f"广告/广告组/系列均关闭失败！\n"
+            f"广告失败：{_tg_escape(err_msg)}\n"
+            f"广告组失败：{_tg_escape(adset_error or '未返回原因')}\n"
+            f"系列失败：{_tg_escape(campaign_error or '未返回原因')}\n"
+            f"请立即手动处理！",
+            act_id=act_id,
+            event_type="guard",
+        )
     return "campaign", "all_failed"
 
 
@@ -2150,7 +2200,8 @@ class GuardEngine:
                     target_cpa, kpi_label, impressions,
                     reach=reach, ctr=ctr, unique_clicks=unique_clicks,
                     account_currency=account_currency, spend_raw=spend_raw,
-                    broader_conv=broader_conv
+                    broader_conv=broader_conv,
+                    kpi_field=kpi_field,
                 )
 
             for rule in (scale_rules or []):
@@ -2383,7 +2434,7 @@ class GuardEngine:
                     target_cpa: Optional[float], kpi_label: str, impressions: int,
                     reach: int = 0, ctr: float = 0.0, unique_clicks: int = 0,
                     account_currency: str = "USD", spend_raw: float = None,
-                    broader_conv: float = 0.0):
+                    broader_conv: float = 0.0, kpi_field: str = ""):
         """
         所有金额参数（spend/cpa/target_cpa）均为 USD。
         account_currency: 账户原始货币（仅用于日志展示）
@@ -2533,25 +2584,65 @@ class GuardEngine:
             )
 
         elif action == "pause":
+            escalation_info = {}
             level, status = _pause_with_escalation(
                 account, ad_id, adset_id, campaign_id,
-                ad_name, token, rule_type, reason, self.dry_run
+                ad_name, token, rule_type, reason, self.dry_run,
+                send_notifications=False,
+                details_out=escalation_info,
             )
+            level_label = {"ad": "广告", "adset": "广告组", "campaign": "广告系列"}.get(level, level)
             if status in ("success", "escalated", "dry_run"):
                 spend_display = (f"{account_currency} {spend_raw:.2f} (~${spend:.2f} USD)"
                                  if account_currency != "USD" and spend_raw is not None
                                  else f"${spend:.2f}")
+                result_line = "模拟模式：未实际暂停" if status == "dry_run" else (
+                    f"已升级关闭{level_label}" if status == "escalated" else "已暂停广告"
+                )
+                upgrade_note = ""
+                if status == "escalated":
+                    ad_err = escalation_info.get("ad_error") or "广告无法直接关闭"
+                    upgrade_note = (
+                        f"\n升级说明：广告直关失败，已关闭{level_label}"
+                        f"\n失败原因：{_tg_escape(ad_err)}"
+                    )
                 _send_tg(
-                    f"🛑 <b>Mira 已暂停广告</b>\n"
-                    f"账户：{account.get('name', act_id)}\n"
-                    f"广告：<code>{ad_name}</code>\n"
-                    f"原因：{reason}\n"
-                    f"消耗：{spend_display} | {kpi_label}：{conversions:.0f}"
-                    + (f"\n⬆️ 已升级关闭至{level}层级" if status == "escalated" else ""),
+                    f"🛑 <b>Mira 止损处理完成</b>\n"
+                    f"账户：{_tg_escape(account.get('name', act_id))} ({_tg_code(act_id)})\n"
+                    f"处理结果：{_tg_escape(result_line)}\n"
+                    f"广告：{_tg_code(ad_name)}\n"
+                    f"广告ID：{_tg_code(ad_id)}\n"
+                    f"广告组ID：{_tg_code(adset_id or '-')}\n"
+                    f"系列ID：{_tg_code(campaign_id or '-')}\n"
+                    f"触发原因：{_tg_escape(reason)}\n"
+                    f"消耗：{_tg_escape(spend_display)} | {_tg_escape(kpi_label)}：{conversions:.0f}\n"
+                    f"KPI字段：{_tg_code(kpi_field or kpi_label)}"
+                    + upgrade_note,
                     act_id=act_id,
                     event_type="guard",
                 )
                 # 止损后实时触发素材评分
+            else:
+                spend_display = (f"{account_currency} {spend_raw:.2f} (~${spend:.2f} USD)"
+                                 if account_currency != "USD" and spend_raw is not None
+                                 else f"${spend:.2f}")
+                _send_tg(
+                    f"🆘 <b>Mira 止损处理失败</b>\n"
+                    f"账户：{_tg_escape(account.get('name', act_id))} ({_tg_code(act_id)})\n"
+                    f"广告：{_tg_code(ad_name)}\n"
+                    f"广告ID：{_tg_code(ad_id)}\n"
+                    f"广告组ID：{_tg_code(adset_id or '-')}\n"
+                    f"系列ID：{_tg_code(campaign_id or '-')}\n"
+                    f"触发原因：{_tg_escape(reason)}\n"
+                    f"消耗：{_tg_escape(spend_display)} | {_tg_escape(kpi_label)}：{conversions:.0f}\n"
+                    f"KPI字段：{_tg_code(kpi_field or kpi_label)}\n"
+                    f"广告失败：{_tg_escape(escalation_info.get('ad_error') or '未返回原因')}\n"
+                    f"广告组失败：{_tg_escape(escalation_info.get('adset_error') or '未返回原因')}\n"
+                    f"系列失败：{_tg_escape(escalation_info.get('campaign_error') or '未返回原因')}\n"
+                    f"请立即手动处理。",
+                    act_id=act_id,
+                    event_type="guard",
+                )
 
         elif action in ("pause_adset", "pause_campaign"):
             target_level = "adset" if action == "pause_adset" else "campaign"

@@ -883,7 +883,7 @@ def dry_run_rules(body: RuleDryRunRequest, user=Depends(get_current_user)):
         effective_status = diag.get("effective_status") or ad.get("effective_status") or ""
         block_reasons = []
         if effective_status in cannot_spend:
-            block_reasons.append("广告当前已不可花钱，真实巡检会跳过")
+            block_reasons.append("广告当前已停止投放，正式巡检会跳过")
         if any(r.get("in_cooldown") for r in triggered):
             block_reasons.append("命中规则仍在冷却中")
         would_execute = bool(triggered) and not block_reasons
@@ -920,7 +920,7 @@ def dry_run_rules(body: RuleDryRunRequest, user=Depends(get_current_user)):
         "execute_count": execute_count,
         "items": items,
         "errors": scan_errors,
-        "message": f"干跑完成：匹配 {len(candidates)} 条广告，规则命中 {trigger_count} 条，当前会执行 {execute_count} 条。",
+        "message": f"预演完成：匹配 {len(candidates)} 条广告，命中 {trigger_count} 条规则，正式巡检会处理 {execute_count} 条广告。",
     }
 
 
