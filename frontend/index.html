@@ -13584,6 +13584,43 @@ function resetHeartbeatTimer(){
  _heartbeatLastActivity=Date.now();
  updateHeartbeatCountdown();
 }
+var _heartbeatDeadline = null;
+function tickHeartbeatCountdown(){
+ if(!_heartbeatDeadline) return;
+ var el = document.getElementById('heartbeatCountdown');
+ if(!el) return;
+ var remain = Math.max(0, _heartbeatDeadline - Date.now());
+ if(remain <= 0){ el.textContent = '超时'; el.style.color = 'var(--er)'; return; }
+ var m = Math.floor(remain/60000), s = Math.floor((remain%60000)/1000);
+ el.textContent = '剩余 '+m+':'+(s<10?'0':'')+s;
+}
+setInterval(tickHeartbeatCountdown, 10000);
+function updateHeartbeatCountdownReal(lastActivityMs, timeoutMin){
+ var el = document.getElementById('heartbeatCountdown');
+ if(!el) return;
+ if(!lastActivityMs){ el.textContent = ''; return; }
+ _heartbeatDeadline = lastActivityMs + timeoutMin * 60000;
+ tickHeartbeatCountdown();
+}
+async function loadSchedulerStatus(){
+ try{
+  var r = await api('GET','/dashboard/scheduler/status');
+  if(!r) return;
+  if(r.next_inspect_at){
+   _nextInspectTime = r.next_inspect_at;
+   updateInspectCountdown();
+  }
+  // Heartbeat
+  var hbEl = document.getElementById('heartbeatCountdown');
+  if(r.heartbeat_enabled && r.last_activity_at){
+   if(hbEl) hbEl.style.display = '';
+   updateHeartbeatCountdownReal(r.last_activity_at, r.heartbeat_timeout_min || 30);
+  } else {
+   if(hbEl){ hbEl.textContent = ''; hbEl.style.display = 'none'; }
+  }
+ }catch(e){}
+}
+
 function setNextInspectTime(intervalMinutes){
  var stored = localStorage.getItem('mira_next_inspect');
  var now = Date.now();
