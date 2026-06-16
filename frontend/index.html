@@ -5046,7 +5046,8 @@ async function initApp(){
   setDashRange('today');
  }
  initSentinelHeartbeat();
-setNextInspectTime(10);
+localStorage.setItem('mira_next_inspect', Date.now() + 10*60000);
+     setNextInspectTime(10);
 }
 
 async function loadAccounts(){
@@ -12981,6 +12982,7 @@ async function triggerInspect(){ _nextInspectTime = null; updateInspectCountdown
      btn.disabled=false;btn.innerHTML='立即巡检';
      if(mine.status==='done'){toast('巡检完成','ok');setTimeout(loadDash,2000)}
      else{toast('巡检异常:'+(mine.error||''),'er')}
+     localStorage.setItem('mira_next_inspect', Date.now() + 10*60000);
      setNextInspectTime(10);
     }
    }catch(e){}
@@ -13583,7 +13585,16 @@ function resetHeartbeatTimer(){
  updateHeartbeatCountdown();
 }
 function setNextInspectTime(intervalMinutes){
- _nextInspectTime = Date.now() + (intervalMinutes || 30) * 60000;
+ var stored = localStorage.getItem('mira_next_inspect');
+ var now = Date.now();
+ if(stored){
+  var storedTime = parseInt(stored);
+  // If stored time is in the future, use it (persist across refreshes)
+  if(storedTime > now){ _nextInspectTime = storedTime; updateInspectCountdown(); setInterval(updateInspectCountdown, 10000); return; }
+ }
+ // No stored time or it expired - set new one
+ _nextInspectTime = now + (intervalMinutes || 10) * 60000;
+ localStorage.setItem('mira_next_inspect', _nextInspectTime);
  updateInspectCountdown();
  setInterval(updateInspectCountdown, 10000);
 }
