@@ -2337,7 +2337,7 @@ select.fc option{background:#fff;color:#1d1d1f}
       <div><h2>规则引擎</h2><p>止损规则与拉量策略（广告级执行，失败自动向上升级）</p></div>
       <div style="display:flex;gap:8px;align-items:center">
        <select class="fc" id="rulesAct" style="width:180px" onchange="loadRules()"><option value="">全部账户</option></select>
-       <button class="btn btn-g" onclick="openRuleDryRunModal()">规则干跑</button>
+       <button class="btn btn-p" onclick="openRuleDryRunModal()" title="指定账户/系列/组/广告 ID，预演当前规则是否会触发">规则预演</button>
        <div style="position:relative" id="tplMenuWrap">
        <button class="btn btn-ok role-hide-viewer" onclick="toggleTplMenu()">模板管理 ▾</button>
        <div id="tplDropMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;min-width:180px;z-index:100;box-shadow:var(--sh)">
@@ -2353,13 +2353,15 @@ select.fc option{background:#fff;color:#1d1d1f}
       <button class="rtab" data-tab="scale" onclick="switchTab('scale')">拉量策略</button>
      </div>
      <div id="guardPanel">
-      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px">
+       <button class="btn btn-g" onclick="openRuleDryRunModal()">规则预演测试</button>
        <button class="btn btn-p role-hide-viewer" onclick="showAddRule('guard')">+ 添加止损规则</button>
       </div>
       <div id="guardList"></div>
      </div>
      <div id="scalePanel" style="display:none">
-      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px">
+       <button class="btn btn-g" onclick="openRuleDryRunModal()">规则预演测试</button>
        <button class="btn btn-p role-hide-viewer" onclick="showAddRule('scale')">+ 添加拉量策略</button>
       </div>
       <div id="scaleList"></div>
@@ -11067,7 +11069,7 @@ function openRuleDryRunModal(){
  var mo=document.getElementById('moRuleDryRun');
  if(!mo){mo=document.createElement('div');mo.id='moRuleDryRun';mo.className='mo';document.body.appendChild(mo);}
  mo.innerHTML='<div class="modal modal-lg" style="max-width:860px">'+
-  '<div class="mh"><h3>规则干跑</h3><button class="mc" onclick="closeModal(&quot;moRuleDryRun&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>规则预演测试</h3><button class="mc" onclick="closeModal(&quot;moRuleDryRun&quot;)">✕</button></div>'+
   '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
   '<div style="display:grid;grid-template-columns:1.2fr .8fr 1.2fr .7fr;gap:10px;align-items:end">'+
   '<div class="fg"><label class="fl">账户 ID（可选）</label><input class="fc" id="dryActId" value="'+escHtml(selected)+'" placeholder="act_123 或 123"></div>'+
@@ -11076,9 +11078,9 @@ function openRuleDryRunModal(){
   '<div class="fg"><label class="fl">最多广告</label><input class="fc" id="dryMaxAds" type="number" value="80" min="1" max="300"></div>'+
   '</div>'+
   '<div class="fh">不执行关闭，只按当前 Meta 数据预演规则。只填账户 ID 会扫描该账户；填系列/广告组/广告 ID 可快速定位，补账户 ID 会更快。</div>'+
-  '<div id="dryRunResult" style="min-height:80px;border:1px solid var(--bd);border-radius:8px;padding:12px;background:var(--bg2);color:var(--t3)">等待开始干跑。</div>'+
+  '<div id="dryRunResult" style="min-height:80px;border:1px solid var(--bd);border-radius:8px;padding:12px;background:var(--bg2);color:var(--t3)">等待开始预演。</div>'+
   '</div>'+
-  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moRuleDryRun&quot;)">关闭</button><button class="btn btn-p" id="btnRuleDryRun" onclick="runRuleDryRun()">开始干跑</button></div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moRuleDryRun&quot;)">关闭</button><button class="btn btn-p" id="btnRuleDryRun" onclick="runRuleDryRun()">开始预演</button></div>'+
   '</div>';
  openModal('moRuleDryRun');
 }
@@ -11090,7 +11092,7 @@ function renderDryRunResult(data){
  var box=document.getElementById('dryRunResult');if(!box)return;
  var items=data.items||[];
  var html='<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px">'+
-  '<div style="font-weight:700;color:var(--t1)">'+escHtml(data.message||'干跑完成')+'</div>'+
+  '<div style="font-weight:700;color:var(--t1)">'+escHtml(data.message||'预演完成')+'</div>'+
   '<div style="font-size:12px;color:var(--t3)">扫描账户 '+(data.scanned_accounts||0)+' · 匹配广告 '+(data.candidate_count||0)+' · 会执行 '+(data.execute_count||0)+'</div></div>';
  if(data.errors&&data.errors.length){
   html+='<div style="margin-bottom:10px;color:var(--wa);font-size:12px">部分账户读取失败：'+data.errors.map(function(e){return escHtml((e.account_name||e.act_id)+': '+(e.error||''));}).join('；')+'</div>';
@@ -11142,15 +11144,15 @@ async function runRuleDryRun(){
   max_ads:parseInt((document.getElementById('dryMaxAds')||{}).value||'80',10)||80
  };
  if(!body.act_id&&!body.target_id){toast('请至少填写账户ID或目标ID','wa');return;}
- if(btn){btn.disabled=true;btn.textContent='干跑中...';}
+ if(btn){btn.disabled=true;btn.textContent='预演中...';}
  if(box)box.innerHTML='<div style="padding:24px;text-align:center;color:var(--t3)">正在读取 Meta 数据并预演规则...</div>';
  try{
   var data=await api('POST','/rules/dry-run',body);
   renderDryRunResult(data);
  }catch(e){
-  if(box)box.innerHTML='<div style="color:var(--er);padding:16px">干跑失败：'+escHtml(e.message||e)+'</div>';
+  if(box)box.innerHTML='<div style="color:var(--er);padding:16px">预演失败：'+escHtml(e.message||e)+'</div>';
  }
- if(btn){btn.disabled=false;btn.textContent='开始干跑';}
+ if(btn){btn.disabled=false;btn.textContent='开始预演';}
 }
 function populateGuardTypes(){
  var sel=document.getElementById('guardType');if(!sel)return;
