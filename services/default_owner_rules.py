@@ -81,6 +81,13 @@ def ensure_operator_default_stoploss_rules() -> dict:
                  AND team_id IS NOT NULL"""
         ).fetchall()
         for user in users:
+            # Clean up old per-objective bleed rules (consolidated into one)
+            conn.execute(
+                """DELETE FROM guard_rules
+                   WHERE scope=? AND owner_user_id=? AND rule_type='bleed_abs'
+                     AND kpi_filter IS NOT NULL""",
+                (RULE_SCOPE_OWNER, user["id"]),
+            )
             for rule_name, kpi_filter, amount in DEFAULT_OWNER_STOPLOSS_RULES:
                 existing_rows = conn.execute(
                     """SELECT id FROM guard_rules
@@ -94,7 +101,7 @@ def ensure_operator_default_stoploss_rules() -> dict:
                     keep_id = existing_rows[0]["id"]
                     conn.execute(
                         """UPDATE guard_rules
-                           SET act_id=?, rule_name=?, level='account', target_id='__global__',
+                           SET act_id=?, rule_name=?, level='ad', target_id='__global__',
                                param_value=?, action='pause', enabled=1, note=?,
                                team_id=COALESCE(team_id, ?)
                            WHERE id=?""",
@@ -110,7 +117,7 @@ def ensure_operator_default_stoploss_rules() -> dict:
                        (act_id, rule_name, level, target_id, rule_type, param_value,
                         param_ratio, param_days, action, action_value, enabled, note,
                         kpi_filter, scope, owner_user_id, team_id, created_by)
-                       VALUES (?, ?, 'account', '__global__', 'bleed_abs', ?,
+                       VALUES (?, ?, 'ad', '__global__', 'bleed_abs', ?,
                                NULL, NULL, 'pause', NULL, 1, ?,
                                ?, ?, ?, ?, ?)""",
                     (
