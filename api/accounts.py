@@ -60,6 +60,12 @@ def _owner_user_id_for_import(user: dict) -> Optional[int]:
         return user_id(user)
     return None
 
+
+def _owner_id_for_token(user: dict) -> Optional[int]:
+    if is_operator_user(user):
+        return user_id(user)
+    return None
+
 _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
 _UNLIMITED_SPEND_CAP_USD = 1_000_000.0
 
@@ -780,6 +786,9 @@ def _auto_link_tokens_for_accounts(
             token_params.append(user_team_id)
         else:
             token_where.append("team_id IS NULL")
+        if is_operator_user(user):
+            token_where.append("(owner_user_id=? OR owner_user_id IS NULL OR token_type='operate')")
+            token_params.append(user_id(user))
         token_rows = conn.execute(
             f"""
             SELECT id, token_alias, token_type, token_source, matrix_id, access_token_enc
@@ -1323,13 +1332,18 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
                 c = get_conn()
                 try:
                     # 获取系统已导入的所有账户
-                    if resource_team_id is None:
-                        imported = c.execute("SELECT id, act_id, account_status FROM accounts").fetchall()
-                    else:
-                        imported = c.execute(
-                            "SELECT id, act_id, account_status FROM accounts WHERE team_id=?",
-                            (resource_team_id,),
-                        ).fetchall()
+                    import_where = ["1=1"]
+                    import_params = []
+                    if resource_team_id is not None:
+                        import_where.append("team_id=?")
+                        import_params.append(resource_team_id)
+                    if is_operator_user(user):
+                        import_where.append("owner_user_id=?")
+                        import_params.append(user_id(user))
+                    imported = c.execute(
+                        f"SELECT id, act_id, account_status FROM accounts WHERE {' AND '.join(import_where)}",
+                        import_params,
+                    ).fetchall()
                     matched = 0
                     status_updated = 0
                     for acc in imported:

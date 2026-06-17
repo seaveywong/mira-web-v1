@@ -2860,7 +2860,13 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="modal modal-lg">
   <div class="mh"><h3 id="importTitle">导入广告账户</h3><button class="mc" onclick="closeModal('moImport')">✕</button></div>
   <div class="mb">
-   <div class="info-box" style="margin-bottom:12px">导入完成后，系统会自动扫描同团队 / 同负责人可用 Token，把能管理该账户的 Token 关联起来；无需再点到单个 Token 里手动匹配。</div>
+   <div class="info-box" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+    <div style="min-width:260px;flex:1">
+     <b>Token 自动关联</b><br>
+     导入完成后，系统会自动扫描同团队 / 同负责人可用 Token，把能管理该账户的 Token 关联起来；无需再点到单个 Token 里手动匹配。
+    </div>
+    <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队 / 同负责人可用 Token 并补齐关联">补齐已导入账户 Token</button>
+   </div>
    <!-- Tab 切换 -->
    <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:2px solid var(--bd)">
     <button id="importTabFb" onclick="switchImportTab('fb')" style="padding:8px 18px;font-size:13px;font-weight:600;background:none;border:none;border-bottom:2px solid var(--ac);margin-bottom:-2px;color:var(--ac);cursor:pointer">从 FB 拉取选择</button>
