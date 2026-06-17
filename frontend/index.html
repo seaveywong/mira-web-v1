@@ -5009,13 +5009,28 @@ function _teamResMain(item, kind){
  if(kind==='lead_forms') return [item.name||('表单模板 '+item.id), item.locale||'', item.note||'', ''];
  return [item.name||('资源 '+item.id), '', '', ''];
 }
-function _teamResourceMatrixBadges(item){
+function _matrixBadgeHtmlFromIds(ids, emptyLabel, emptyTitle, marginStyle){
  var colors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
- var ids=getAccountMatrixIds(item||{});
+ ids=(ids||[]).map(function(mid){return parseInt(mid,10);}).filter(function(mid){return mid>0;});
+ ids=Array.from(new Set(ids)).sort(function(a,b){return a-b;});
+ if(!ids.length){
+  return '<span class="badge bg-mu" style="'+(marginStyle||'')+'" title="'+escHtml(emptyTitle||'暂未识别到矩阵归属')+'">'+escHtml(emptyLabel||'未识别矩阵')+'</span>';
+ }
  return ids.map(function(mid){
   var color=colors[(mid-1)%colors.length];
-  return '<span class="badge" style="background:'+color+';color:#fff;margin-left:6px">矩阵'+mid+'</span>';
+  return '<span class="badge" style="background:'+color+';color:#fff;'+(marginStyle||'')+'">矩阵'+mid+'</span>';
  }).join('');
+}
+function _teamResourceMatrixBadges(item, kind){
+ if(['accounts','tokens','assets','pages'].indexOf(kind)<0)return '';
+ var ids=getAccountMatrixIds(item||{});
+ var hasAssetRef=!!(item&&(item.act_id||item.matrix_id||item.token_type||item.page_id||item.token_matrix_id));
+ return _matrixBadgeHtmlFromIds(
+  ids,
+  hasAssetRef?'未识别矩阵':'未绑定矩阵',
+  hasAssetRef?'该资源已有账户/Token 线索，但暂未从关联 Token 识别出矩阵':'该资源暂未绑定到账户或矩阵 Token',
+  'margin-left:6px'
+ );
 }
 
 async function _renderTeamResources(kind){
@@ -5038,7 +5053,7 @@ async function _renderTeamResources(kind){
   var parts = _teamResMain(item, kind);
   var sub = parts.slice(1).filter(Boolean).map(escHtml).join(' · ');
   var team = item.team_name ? '<span class="resource-team-pill">'+escHtml(item.team_name)+'</span>' : '<span class="resource-team-pill muted">未分配</span>';
-  var matrixBadges = _teamResourceMatrixBadges(item);
+  var matrixBadges = _teamResourceMatrixBadges(item, kind);
   var ownerCell = '';
   if(kind==='accounts'||kind==='tokens'){
    var emptyOwner = kind==='tokens' ? '未指定（运营不可见）' : '未指定';
@@ -9213,6 +9228,16 @@ function _assetScoreView(a){
  var source=hasPerfScore?'实投':(hasAiScore?'AI':'');
  return {value:value,label:label,source:source,hasScore:value!==null};
 }
+function _assetMatrixBadges(a){
+ var ids=getAccountMatrixIds(a||{});
+ var hasAct=!!(a&&(a.act_id||a.matrix_id||(Array.isArray(a.linked_matrix_ids)&&a.linked_matrix_ids.length)));
+ return _matrixBadgeHtmlFromIds(
+  ids,
+  hasAct?'未识别矩阵':'未绑定矩阵',
+  hasAct?'该素材已有关联账户线索，但暂未从账户 Token 识别出矩阵':'该素材暂未绑定到账户；上传后可在投放或账户绑定时归属矩阵',
+  ''
+ );
+}
 function _renderAssetCard(a){
  var statusMap={
   'local_saved':'<span class="badge bg-mu">已存储</span>',
@@ -9252,11 +9277,7 @@ function _renderAssetCard(a){
  var warmupBadge=warmupAsset?'<span class="badge" style="background:rgba(16,185,129,.14);color:#047857;border:1px solid rgba(16,185,129,.22)" title="预热只会使用 YE 开头图片">预热素材</span>':'';
  var archivedBadge=archived?'<span class="badge" style="background:rgba(107,114,128,.12);color:#4b5563;border:1px solid rgba(107,114,128,.2)">已归档</span>':'';
  var teamBadge=resourceTeamBadge(a);
- var assetMatrixColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
- var assetMatrixBadges=getAccountMatrixIds(a).map(function(mid){
-  var color=assetMatrixColors[(mid-1)%assetMatrixColors.length];
-  return '<span class="badge" style="background:'+color+';color:#fff">矩阵'+mid+'</span>';
- }).join('');
+ var assetMatrixBadges=_assetMatrixBadges(a);
  var tagBadges=tags.slice(0,4).map(function(t){return'<span class="badge" style="background:var(--bg3);color:var(--t2);border:1px solid var(--bd)">#'+escHtml(t)+'</span>';}).join('');
  var batchCode=getAssetBatchCode(a);
  var batchBadge=batchCode?'<span class="badge" style="background:rgba(16,185,129,.12);color:#047857;border:1px solid rgba(16,185,129,.18)">'+escHtml(_formatAssetBatchLabel(batchCode))+'</span>':'';
