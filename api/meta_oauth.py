@@ -180,6 +180,65 @@ def _clean_scopes(value: Optional[str]) -> str:
     return ",".join(scopes) or DEFAULT_SCOPES
 
 
+def _scope_parts(value: Optional[str]) -> list[str]:
+    raw = str(value or DEFAULT_SCOPES).replace("\n", ",").strip()
+    out = []
+    seen = set()
+    for part in raw.split(","):
+        scope = part.strip()
+        if scope and scope not in seen:
+            seen.add(scope)
+            out.append(scope)
+    return out
+
+
+def _check(status: str, key: str, label: str, detail: str) -> dict:
+    return {"status": status, "key": key, "label": label, "detail": detail}
+
+
+def _diagnose_app_credentials(app_id: str, app_secret: str, graph_version: str) -> dict:
+    try:
+        resp = requests.get(
+            f"https://graph.facebook.com/{graph_version}/{app_id}",
+            params={
+                "fields": "id,name,link",
+                "access_token": f"{app_id}|{app_secret}",
+            },
+            timeout=10,
+        )
+        data = resp.json()
+    except requests.exceptions.RequestException as exc:
+        return _check("warn", "app_credentials", "App ID / Secret", f"Graph network check failed: {exc}")
+    except ValueError:
+        return _check("warn", "app_credentials", "App ID / Secret", f"Graph returned non-json response: HTTP {resp.status_code}")
+    if resp.status_code >= 400 or (isinstance(data, dict) and data.get("error")):
+        err = data.get("error") if isinstance(data, dict) else {}
+        msg = (err or {}).get("message") or f"HTTP {resp.status_code}"
+        return _check("fail", "app_credentials", "App ID / Secret", msg)
+    name = data.get("name") if isinstance(data, dict) else ""
+    return _check("pass", "app_credentials", "App ID / Secret", f"Graph can read App {name or app_id}")
+
+
+def _diagnose_redirect_uri(redirect_uri: str) -> list[dict]:
+    checks = []
+    uri = (redirect_uri or "").strip()
+    if not uri:
+        return [_check("fail", "redirect_uri", "OAuth callback", "Redirect URI is empty")]
+    if not uri.endswith("/api/meta-oauth/callback"):
+        checks.append(_check("warn", "redirect_path", "OAuth callback", "Callback path should end with /api/meta-oauth/callback"))
+    if not (uri.startswith("https://") or uri.startswith("http://localhost") or uri.startswith("http://127.0.0.1")):
+        checks.append(_check("warn", "redirect_https", "OAuth callback", "Meta production OAuth should use HTTPS"))
+    try:
+        resp = requests.get(uri, timeout=8, allow_redirects=False)
+        if resp.status_code < 500:
+            checks.append(_check("pass", "redirect_reachable", "OAuth callback", f"Callback route is reachable: HTTP {resp.status_code}"))
+        else:
+            checks.append(_check("fail", "redirect_reachable", "OAuth callback", f"Callback returned HTTP {resp.status_code}"))
+    except requests.exceptions.RequestException as exc:
+        checks.append(_check("warn", "redirect_reachable", "OAuth callback", f"Server could not reach callback URL: {exc}"))
+    return checks
+
+
 def _default_redirect_uri(request: Request) -> str:
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
@@ -356,6 +415,80 @@ def save_meta_oauth_config(body: MetaOAuthConfigIn, request: Request, user=Depen
         conn.commit()
         row = conn.execute("SELECT * FROM meta_oauth_configs WHERE config_scope=?", (config_scope,)).fetchone()
         return _public_config(row, request, False, config_scope, config_scope)
+    finally:
+        conn.close()
+
+
+@router.get("/diagnose")
+def diagnose_meta_oauth_config(request: Request, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _ensure_schema(conn)
+        current_scope, _team_id = _scope_for_user(user)
+        row, effective_scope, inherited = _fallback_config_row(conn, user)
+        data = _public_config(row, request, inherited, effective_scope, current_scope)
+        checks = []
+        checks.append(_check("pass" if row else "fail", "configured", "Meta App config", "Configured" if row else "No Meta App config found"))
+        if inherited:
+            checks.append(_check("warn", "scope", "Config scope", "Using global App config because this team has no dedicated config"))
+        else:
+            checks.append(_check("pass", "scope", "Config scope", f"Using {effective_scope} config"))
+
+        app_id = (data.get("app_id") or "").strip()
+        if app_id and app_id.isdigit():
+            checks.append(_check("pass", "app_id", "App ID", app_id))
+        elif app_id:
+            checks.append(_check("warn", "app_id", "App ID", "App ID is present but does not look numeric"))
+        else:
+            checks.append(_check("fail", "app_id", "App ID", "Missing App ID"))
+
+        has_secret = bool(row and row["app_secret_enc"])
+        checks.append(_check("pass" if has_secret else "fail", "app_secret", "App Secret", "Saved on server" if has_secret else "Missing App Secret"))
+        graph_version = _clean_graph_version(data.get("graph_version"))
+        if graph_version.startswith("v") and "." in graph_version:
+            checks.append(_check("pass", "graph_version", "Graph version", graph_version))
+        else:
+            checks.append(_check("warn", "graph_version", "Graph version", f"Unusual Graph version: {graph_version}"))
+
+        scopes = _scope_parts(data.get("scopes"))
+        blocked = [s for s in scopes if s in BLOCKED_SCOPES]
+        required = {"ads_read", "ads_management"}
+        recommended = {"business_management", "pages_show_list", "pages_manage_ads"}
+        missing_required = sorted(required - set(scopes))
+        missing_recommended = sorted(recommended - set(scopes))
+        if blocked:
+            detail = "；".join(BLOCKED_SCOPES[s] for s in blocked)
+            checks.append(_check("fail", "scopes", "OAuth scopes", detail))
+        elif missing_required:
+            checks.append(_check("fail", "scopes", "OAuth scopes", "Missing required scopes: " + ", ".join(missing_required)))
+        elif missing_recommended:
+            checks.append(_check("warn", "scopes", "OAuth scopes", "Recommended scopes missing: " + ", ".join(missing_recommended)))
+        else:
+            checks.append(_check("pass", "scopes", "OAuth scopes", ", ".join(scopes)))
+
+        checks.extend(_diagnose_redirect_uri(data.get("redirect_uri") or _default_redirect_uri(request)))
+        if row and app_id and has_secret:
+            app_secret = _decrypt_secret(row["app_secret_enc"])
+            checks.append(_diagnose_app_credentials(app_id, app_secret, graph_version))
+
+        recent = [
+            dict(r)
+            for r in conn.execute(
+                """SELECT status, token_type, token_id, error, created_at, completed_at
+                   FROM meta_oauth_states
+                   WHERE user_id=?
+                   ORDER BY created_at DESC LIMIT 8""",
+                (user.get("uid"),),
+            ).fetchall()
+        ]
+        return {
+            "success": not any(c["status"] == "fail" for c in checks),
+            "checks": checks,
+            "recent": recent,
+            "configured": data.get("configured"),
+            "effective_scope": effective_scope,
+            "current_scope": current_scope,
+        }
     finally:
         conn.close()
 
