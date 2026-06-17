@@ -105,33 +105,54 @@ RESOURCE_CONFIG: dict[str, dict[str, Any]] = {
 TEAM_GUARD_KEYS = ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled")
 
 
+def _act_id_variants(act_id: str) -> list[str]:
+    raw = str(act_id or "").strip()
+    if not raw:
+        return []
+    num = raw[4:] if raw.startswith("act_") else raw
+    variants = [raw]
+    if num and num not in variants:
+        variants.append(num)
+    prefixed = f"act_{num}" if num else ""
+    if prefixed and prefixed not in variants:
+        variants.append(prefixed)
+    return variants
+
+
 def _matrix_map_for_acts(conn, act_ids: list[str]) -> dict[str, list[int]]:
     clean = sorted({str(x or "").strip() for x in act_ids if str(x or "").strip()})
     if not clean:
         return {}
-    placeholders = ",".join("?" for _ in clean)
+    variant_to_assets: dict[str, set[str]] = {}
+    for act in clean:
+        for variant in _act_id_variants(act):
+            variant_to_assets.setdefault(variant, set()).add(act)
+    variants = sorted(variant_to_assets)
+    placeholders = ",".join("?" for _ in variants)
     rows = conn.execute(
         f"""
-        SELECT a.act_id, t.matrix_id
+        SELECT a.act_id AS matched_act_id, t.matrix_id
         FROM accounts a
         JOIN fb_tokens t ON t.id=a.token_id
         WHERE a.act_id IN ({placeholders}) AND t.matrix_id IS NOT NULL
         UNION
-        SELECT aot.act_id, t.matrix_id
+        SELECT aot.act_id AS matched_act_id, t.matrix_id
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id=aot.token_id
         WHERE aot.act_id IN ({placeholders})
           AND aot.status='active'
           AND t.matrix_id IS NOT NULL
         """,
-        clean + clean,
+        variants + variants,
     ).fetchall()
     out: dict[str, set[int]] = {act: set() for act in clean}
     for row in rows:
         try:
-            out.setdefault(str(row["act_id"]), set()).add(int(row["matrix_id"]))
+            mid = int(row["matrix_id"])
         except (TypeError, ValueError):
             continue
+        for source_act in variant_to_assets.get(str(row["matched_act_id"]), set()):
+            out.setdefault(source_act, set()).add(mid)
     return {act: sorted(ids) for act, ids in out.items()}
 
 

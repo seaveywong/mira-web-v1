@@ -2421,7 +2421,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        </select>
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
-        <button class="btn btn-g btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取的管理号 Token 并补齐关联">智能导入</button>
+        <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取的管理号 Token，并补齐同团队 / 同负责人可用 Token 关联">导入账户</button>
         <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
@@ -8028,7 +8028,7 @@ function parseDirectIds(){
 }
 function openSmartImportAccounts(){
  importAutoMode=true;importTkId=null;selAccs.clear();_allFetchedAccs=[];
- var title=document.getElementById('importTitle');if(title)title.textContent='智能导入广告账户';
+ var title=document.getElementById('importTitle');if(title)title.textContent='导入广告账户（自动识别 Token）';
  var fbTab=document.getElementById('importTabFb');if(fbTab)fbTab.style.display='none';
  var directTab=document.getElementById('importTabDirect');if(directTab){directTab.style.display='inline-block';directTab.textContent='直接输入 ID';}
  var input=document.getElementById('directActIds');if(input)input.value='';
@@ -8117,7 +8117,7 @@ async function loadAccsPage(){
   accounts=accs;
   allAccsData=accs;
   if(!accs.length){
-   el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>还没有导入任何广告账户<br>请先在「Token 管理」中添加 Token，然后导入账户</p></div>';
+   el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>还没有导入任何广告账户<br>添加 Token 后，可直接输入账户 ID，系统会自动识别并关联可用 Token。</p><button class="btn btn-p role-hide-viewer" onclick="openSmartImportAccounts()">导入账户</button></div>';
    return;
   }
   filterAccs();
