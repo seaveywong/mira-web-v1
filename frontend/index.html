@@ -2710,7 +2710,7 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后会尝试绑定到 Pages；只有域名明确可用时才作为账户主链接，否则先使用 Pages 备用域。</div></div>
+     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后会尝试绑定到 Pages；域名待验证时先绑定 Pages 备用域，复检可用后自动回绑自定义域。</div></div>
      <div class="fg"><label class="fl">Cloudflare API</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
      <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
@@ -2731,8 +2731,9 @@ select.fc option{background:#fff;color:#1d1d1f}
      <label><input type="checkbox" id="lpFormEnabled"> 表单链接标记</label>
      <label><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
      <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用防护</label>
-     <select class="fc" id="lpRotation"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
+     <select class="fc" id="lpRotation" onchange="updateLandingRotationHint()"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
     </div>
+    <div id="lpRotationHint" class="landing-help" style="margin-top:10px">顺序轮询由 Mira 服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。</div>
     <div id="lpRulesBox" class="landing-rules-box" style="display:none">
      <div class="landing-section-title">防护规则</div>
      <div class="landing-form-grid">
@@ -15643,6 +15644,19 @@ function toggleLandingProtectionRules(){
  var on=!!((document.getElementById('lpProtectionEnabled')||{}).checked);
  if(box)box.style.display=on?'block':'none';
 }
+function updateLandingRotationHint(){
+ var el=document.getElementById('lpRotationHint');
+ if(!el)return;
+ var kind=(document.getElementById('lpKind')||{}).value||'landing';
+ var mode=(document.getElementById('lpRotation')||{}).value||'sequential';
+ var prefix=kind==='form'
+  ?'表单投放链接访问即跳转；'
+  :'普通落地页会展示页面正文，按钮点击后跳转；';
+ var detail='顺序轮询由 Mira 服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。';
+ if(mode==='random')detail='随机轮询会在每次访问时随机选择一个目标链接，适合均匀分散到多个 WhatsApp 或外部链接。';
+ if(mode==='first')detail='固定第一个只使用第一条目标链接，适合临时验证，不适合多链接分流。';
+ el.textContent=prefix+detail;
+}
 function onLandingKindChanged(){
  var kind=(document.getElementById('lpKind')||{}).value||'landing';
  var formFlag=document.getElementById('lpFormEnabled');
@@ -15654,17 +15668,18 @@ function onLandingKindChanged(){
  if(kind==='form'){
   if(formFlag){formFlag.checked=true;formFlag.disabled=true;formFlag.dataset.autoForm='1';}
   if(bind&&(bind.value==='landing'||bind.value==='none'))bind.value='form';
-  if(kindHint)kindHint.textContent='表单投放链接访问首页即轮询跳转，适合 Lead Form / WhatsApp 聊单；发布包为轻量直跳页，不展示落地页正文。';
-  if(bindHint)bindHint.textContent='表单链接建议绑定到账户表单链接，铺 Lead Form 时会优先使用。';
+  if(kindHint)kindHint.textContent='表单投放链接访问首页即由 Worker 302 跳转，适合 Lead Form / WhatsApp 聊单；发布包为轻量直跳页，不展示落地页正文。';
+  if(bindHint)bindHint.textContent='表单链接建议绑定到账户表单链接；铺 Lead Form / 聊单时优先读取这里。';
   if(targetLabel)targetLabel.textContent='直跳轮询链接';
-  if(targets)targets.placeholder='每行一个 WhatsApp / 表单提交后回跳链接；访问发布链接时会直接按策略跳转';
+  if(targets)targets.placeholder='每行一个 WhatsApp / 表单提交后回跳链接；访问发布链接时由服务端按策略选择目标';
 }else{
   if(formFlag){formFlag.disabled=false;if(formFlag.dataset.autoForm==='1'){formFlag.checked=false;formFlag.dataset.autoForm='';}}
-  if(kindHint)kindHint.textContent='普通落地页会展示模板正文，按钮点击后按轮询策略跳转。';
+  if(kindHint)kindHint.textContent='普通落地页会展示模板正文，按钮点击后由 Worker 按轮询策略跳转。';
   if(bindHint)bindHint.textContent='普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。';
   if(targetLabel)targetLabel.textContent='按钮跳转链接';
-  if(targets)targets.placeholder='每行一个 WhatsApp / 跳转链接；发布后页面按轮询策略跳转';
+  if(targets)targets.placeholder='每行一个 WhatsApp / 跳转链接；发布后按钮点击由服务端按策略选择目标';
  }
+ updateLandingRotationHint();
 }
 function _landingPublishPayload(){
  var kind=(document.getElementById('lpKind')||{}).value||'landing';
@@ -15715,7 +15730,10 @@ async function publishLandingPage(){
   var skipped=(res&&res.page&&res.page.binding&&res.page.binding.skipped||[]).length;
   var domainError=res&&res.page&&res.page.domain_error;
   var domainNotice=res&&res.page&&res.page.domain_notice;
-  toast('发布成功'+(bound?'，已绑定 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':'')+(domainError?'，但域名绑定需处理':(domainNotice?'，自定义域待验证，已先用备用域':'')),(domainError||domainNotice)?'wa':'ok');
+  var msg='发布成功'+(bound?'，已绑定 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':'');
+  if(domainError)msg+='，自定义域绑定失败，请查看发布记录';
+  else if(domainNotice)msg+='，自定义域待验证，账户已先写入 Pages 备用域；域名可用后点复检会自动回绑';
+  toast(msg,(domainError||domainNotice)?'wa':'ok');
   if(res&&res.page&&(res.page.public_url||res.page.pages_url))copyText(encodeURIComponent(res.page.public_url||res.page.pages_url),true);
   markPageStale('landing_center');
   await loadLandingCenter(true);

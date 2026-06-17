@@ -967,6 +967,13 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
             "label": "自定义域名",
             "detail": f"{custom_domain} 将绑定到 Cloudflare Pages；请确保域名已在 Cloudflare 可管理并完成 DNS 指向。",
         })
+        project_hint = sanitize_project_name(body.project_name or title or "mira-landing")
+        checks.append({
+            "key": "custom_domain_dns",
+            "status": "warn",
+            "label": "DNS 提示",
+            "detail": f"通常配置 CNAME {custom_domain} -> {project_hint}.pages.dev；域名未激活前系统只会把 Pages 备用域写入账户，复检可用后自动回绑自定义域。",
+        })
     checks.append({"key": "title", "status": "pass" if title else "fail", "label": "发布名称", "detail": title or "不能为空"})
     if urls:
         bad_urls = [u for u in urls if not (u.startswith("http://") or u.startswith("https://"))]
@@ -979,6 +986,13 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
             checks.append({"key": "bind_target", "status": "warn", "label": "绑定位置", "detail": "当前是表单链接模式，建议绑定到账户表单链接，避免铺 Lead Form 时取不到链接"})
     else:
         checks.append({"key": "link_kind", "status": "pass", "label": "普通落地页", "detail": "访问时展示模板，按钮点击后按轮询策略跳转"})
+    rotation_mode = (body.rotation_mode or "sequential").strip().lower()
+    if rotation_mode == "sequential":
+        checks.append({"key": "rotation", "status": "pass", "label": "轮询方式", "detail": "服务端全局游标轮询；所有访客共享同一顺序，不依赖单个浏览器缓存。"})
+    elif rotation_mode == "random":
+        checks.append({"key": "rotation", "status": "pass", "label": "轮询方式", "detail": "每次访问随机选择一个跳转目标。"})
+    else:
+        checks.append({"key": "rotation", "status": "warn", "label": "轮询方式", "detail": "固定第一个跳转目标，适合临时验证，不适合多链接分流。"})
     if body.tracking_enabled:
         checks.append({"key": "tracking", "status": "pass", "label": "边缘统计", "detail": "将通过 Cloudflare Worker 同域采集访问、点击、跳转、拦截事件"})
     if body.protection_enabled:
