@@ -1811,9 +1811,28 @@ select.fc option{background:#fff;color:#1d1d1f}
 #page-settings .ss,#page-team_admin .ss,#page-kpi .ss,#page-rules .ss{overflow:visible!important}
 #page-kpi .kc,#page-rules .rc,#page-tokens .tkc,#page-accounts .acc-card{min-width:0!important}
 #page-kpi .kc *,#page-rules .rc *,#page-tokens .tkc *,#page-accounts .acc-card *{max-width:100%}
+.guard-ops-panel{display:grid;grid-template-columns:1.05fr 1fr 1.4fr;gap:12px;margin:0 0 14px}
+.guard-ops-card{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:14px;min-width:0}
+.guard-ops-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-weight:760;color:var(--t1)}
+.guard-ops-sub{font-size:12px;color:var(--t3);font-weight:500}
+.guard-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.guard-stat{border:1px solid var(--bd);border-radius:10px;background:var(--bg3);padding:10px;min-width:0}
+.guard-stat small{display:block;color:var(--t3);font-size:11px;margin-bottom:4px}
+.guard-stat b{display:block;color:var(--t1);font-size:20px;line-height:1.1}
+.guard-health-row,.guard-replay-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:9px 0}
+.guard-health-row:first-child,.guard-replay-row:first-child{border-top:0;padding-top:0}
+.guard-replay-main{min-width:0;flex:1}
+.guard-replay-title{font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.guard-replay-meta{font-size:11px;color:var(--t3);margin-top:2px;line-height:1.45}
+.guard-step-line{font-size:11px;color:var(--t2);line-height:1.55;margin-top:5px}
 @media(max-width:1100px){
  #teamAdminContent .owner-log-filters{display:flex!important}
  .page>.ph:first-child>div:last-child:not(.ph-acts){justify-content:flex-start!important}
+ .guard-ops-panel{grid-template-columns:1fr}
+ .guard-stat-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:640px){
+ .guard-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2442,6 +2461,20 @@ select.fc option{background:#fff;color:#1d1d1f}
          <div class="tpl-menu-item" onclick="openSaveTplModal();toggleTplMenu()">将当前规则存为模板</div>
         </div>
        </div>
+      </div>
+     </div>
+     <div class="guard-ops-panel" id="guardOpsPanel">
+      <div class="guard-ops-card">
+       <div class="guard-ops-title"><span>巡检健康</span><button class="btn btn-g btn-sm" onclick="loadGuardObservability()">刷新</button></div>
+       <div id="guardOpsHealth" class="guard-ops-sub">等待加载。</div>
+      </div>
+      <div class="guard-ops-card">
+       <div class="guard-ops-title"><span>关闭统计</span><span class="guard-ops-sub">近 24 小时</span></div>
+       <div id="guardOpsStats" class="guard-stat-grid"></div>
+      </div>
+      <div class="guard-ops-card">
+       <div class="guard-ops-title"><span>关闭链路复盘</span><span class="guard-ops-sub">最近执行</span></div>
+       <div id="guardOpsReplay" class="guard-ops-sub">等待加载。</div>
       </div>
      </div>
      <div class="rtabs">
@@ -11395,7 +11428,100 @@ async function loadRules(){
   renderGuard(guard||[]);
   renderScale(scale||[]);
   populateRulesKpiFilter();
+  loadGuardObservability();
  }catch(e){}
+}
+function guardOpsBadge(status){
+ status=String(status||'scheduled');
+ var cls=status==='ok'||status==='success'?'bg-ok':status==='escalated'?'bg-wa':status==='running'?'bg-cy':status==='failed'||status==='error'?'bg-er':status==='skipped'?'bg-wa':status==='disabled'?'bg-mu':'bg-mu';
+ var txt={ok:'正常',success:'成功',escalated:'已升级',running:'运行中',failed:'失败',error:'异常',skipped:'已跳过',disabled:'已关闭',scheduled:'待运行'}[status]||status;
+ return '<span class="badge '+cls+'">'+escHtml(txt)+'</span>';
+}
+function guardOpsTime(v){
+ if(!v)return'-';
+ try{if(typeof _fmtActionLogTime==='function')return _fmtActionLogTime(v);}catch(e){}
+ return String(v).replace('T',' ').slice(0,19);
+}
+function guardOpsStat(label,value,sub,tone){
+ var color=tone==='danger'?'var(--er)':tone==='warn'?'var(--wa)':tone==='ok'?'var(--ok)':'var(--ac)';
+ return '<div class="guard-stat"><small>'+escHtml(label)+'</small><b style="color:'+color+'">'+escHtml(value)+'</b>'+(sub?'<div class="guard-ops-sub" style="margin-top:4px">'+escHtml(sub)+'</div>':'')+'</div>';
+}
+function renderGuardOpsHealth(health){
+ var el=document.getElementById('guardOpsHealth');if(!el)return;
+ var jobs=(health&&health.jobs)||[];
+ var names={guard:'巡检/镜像',sentinel_patrol:'哨兵',heartbeat_check:'心跳',warmup_check:'预热',op_heartbeat:'操作号心跳',account_sync:'账户同步'};
+ var wanted=['guard','sentinel_patrol','heartbeat_check','warmup_check'];
+ var by={};jobs.forEach(function(j){by[j.id]=j;});
+ var html='<div style="font-size:12px;color:var(--t3);margin-bottom:8px">调度器 '+(health&&health.running?'<span style="color:var(--ok)">运行中</span>':'<span style="color:var(--wa)">未确认运行</span>')+'</div>';
+ html+=wanted.map(function(id){
+  var j=by[id]||{id:id,status:'scheduled'};
+  var msg=j.last_error||j.last_message||'';
+  return '<div class="guard-health-row"><div style="min-width:0"><div style="font-weight:700;color:var(--t1)">'+(names[id]||id)+'</div>'+
+   '<div class="guard-ops-sub">上次 '+escHtml(guardOpsTime(j.last_finished_at||j.last_started_at))+' · 下次 '+escHtml(guardOpsTime(j.next_run_time))+'</div>'+
+   (msg?'<div class="guard-ops-sub" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(msg)+'">'+escHtml(msg)+'</div>':'')+
+   '</div><div>'+guardOpsBadge(j.status)+'</div></div>';
+ }).join('');
+ el.innerHTML=html;
+}
+function renderGuardOpsStats(summary){
+ var el=document.getElementById('guardOpsStats');if(!el)return;
+ summary=summary||{};
+ var failClasses=summary.failure_classes||{};
+ var failText=Object.keys(failClasses).length?Object.keys(failClasses).map(function(k){return k+' '+failClasses[k]}).join(' / '):'无失败分类';
+ var adFailed=parseInt(summary.ad_level_failed||0,10)||0;
+ var adSuccess=parseInt(summary.ad_level_success||0,10)||0;
+ var attempts=parseInt(summary.pause_attempts||0,10)||0;
+ var escalated=parseInt(summary.escalated||0,10)||0;
+ el.innerHTML=[
+  guardOpsStat('暂停尝试',String(attempts),'含广告/组/系列','info'),
+  guardOpsStat('广告级成功',String(adSuccess),adFailed?'广告级失败 '+adFailed:'直接关闭成功','ok'),
+  guardOpsStat('升级关闭',String(escalated),escalated?'需要复盘是否为 FB 限制':'暂无升级','warn'),
+  guardOpsStat('失败分类',String(summary.failed||0),failText,summary.failed?'danger':'ok')
+ ].join('');
+}
+function renderGuardOpsReplay(rows){
+ var el=document.getElementById('guardOpsReplay');if(!el)return;
+ rows=rows||[];
+ if(!rows.length){el.innerHTML='<div style="padding:18px;text-align:center;color:var(--t3)">近 24 小时没有关闭链路记录。</div>';return;}
+ el.innerHTML=rows.slice(0,8).map(function(r){
+  var steps=(r.steps||[]).map(function(s){
+   var err=s.error_msg?(' · '+s.error_msg):'';
+   return (s.level||'-')+' '+(s.status||'-')+err;
+  }).join(' / ');
+  var tone=(r.final_status==='failed'||r.final_status==='error')?'danger':(r.final_status==='escalated'?'warn':'ok');
+  var badgeCls=tone==='danger'?'bg-er':tone==='warn'?'bg-wa':'bg-ok';
+  return '<div class="guard-replay-row">'+
+   '<div class="guard-replay-main">'+
+    '<div class="guard-replay-title" title="'+escHtml(r.target_name||r.target_id||'')+'">'+escHtml(r.target_name||r.target_id||'关闭对象')+'</div>'+
+    '<div class="guard-replay-meta">'+escHtml(r.account_name||r.act_id||'--')+' · '+escHtml(r.act_id||'')+' · '+escHtml(guardOpsTime(r.created_at))+'</div>'+
+    '<div class="guard-replay-meta">原因：'+escHtml(r.trigger_detail||'--')+'</div>'+
+    '<div class="guard-step-line" title="'+escHtml(steps)+'">链路：'+escHtml(steps||'--')+'</div>'+
+   '</div>'+
+   '<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end"><span class="badge '+badgeCls+'">'+escHtml(r.classification||r.final_status||'--')+'</span><span class="guard-ops-sub">'+escHtml(r.final_level||'--')+'</span></div>'+
+  '</div>';
+ }).join('');
+}
+async function loadGuardObservability(){
+ var healthEl=document.getElementById('guardOpsHealth');
+ var statsEl=document.getElementById('guardOpsStats');
+ var replayEl=document.getElementById('guardOpsReplay');
+ if(!healthEl&&!statsEl&&!replayEl)return;
+ if(healthEl)healthEl.innerHTML='<div style="color:var(--t3)">加载中...</div>';
+ if(statsEl)statsEl.innerHTML=guardOpsStat('暂停尝试','--','加载中','info')+guardOpsStat('广告级成功','--','','ok')+guardOpsStat('升级关闭','--','','warn')+guardOpsStat('失败分类','--','','danger');
+ if(replayEl)replayEl.innerHTML='<div style="color:var(--t3)">加载中...</div>';
+ var act=(document.getElementById('rulesAct')||{}).value||'';
+ var qs='?limit=180';
+ if(act)qs+='&act_id='+encodeURIComponent(act);
+ try{
+  var data=await api('GET','/logs/guard-observability'+qs);
+  renderGuardOpsHealth(data.health||{});
+  renderGuardOpsStats(data.summary||{});
+  renderGuardOpsReplay(data.replay||[]);
+ }catch(e){
+  if(healthEl)healthEl.innerHTML='<div style="color:var(--er)">加载失败：'+escHtml(e.message||e)+'</div>';
+  if(statsEl)statsEl.innerHTML='';
+  if(replayEl)replayEl.innerHTML='<div style="color:var(--er)">加载失败：'+escHtml(e.message||e)+'</div>';
+ }
 }
 function resetRuleCooldown(){
  showConfirm('确定重置所有冷却状态？重置后已触发的规则可立即重新触发。', async function(){
