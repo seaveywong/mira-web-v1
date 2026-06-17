@@ -5520,6 +5520,7 @@ function showPage(name){
 // ── Dashboard ──
 // ── Dashboard date range ──
 var dashDateFrom='',dashDateTo='';
+var _dashLoadSeq=0;
 
 // 账户级明细展开/切换
 var _accDetailMode='';
@@ -5734,12 +5735,15 @@ function setDashRange(v){
  loadDash();
 }
 async function loadDash(){
+ var seq=++_dashLoadSeq;
  if(!(token||localStorage.getItem('mira_token'))){
   var lastEl=document.getElementById('lastTime');
   if(lastEl)lastEl.textContent='请先登录';
   return;
  }
  try{
+  var lastEl=document.getElementById('lastTime');
+  if(lastEl)lastEl.textContent='更新中...';
   var a=document.getElementById('dashAct')&&document.getElementById('dashAct').value||'';
   var kpiFilter=(document.getElementById('dashKpi')&&document.getElementById('dashKpi').value)||'';
   // Build query params
@@ -5753,6 +5757,7 @@ async function loadDash(){
    api('GET','/dashboard/trend'+trendQ),
    api('GET','/dashboard/ads?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):''))
   ]);
+  if(seq!==_dashLoadSeq)return;
   var sum=results[0],trend=results[1],top=results[2];
   if(sum){
    document.getElementById('s-spend').textContent='$'+(sum.total_spend||0).toFixed(2);
@@ -5777,13 +5782,14 @@ async function loadDash(){
    window._accDetails=sum.account_details||[];
    if(_accDetailMode&&_accDetailMode!=='balance'){var keepMode=_accDetailMode;_accDetailMode='';toggleAccDetail(keepMode);}
    if(window._accDetails&&window._accDetails.length){
-    renderBalanceCardFromAccounts(window._accDetails);
+   renderBalanceCardFromAccounts(window._accDetails);
    }
    // 余额/额度明细以账户接口为准，避免看板指标缺少 spend_cap / amount_spent 时显示不完整。
    api('GET','/accounts').then(function(accs){
+    if(seq!==_dashLoadSeq)return;
     window._balanceDetails=accs||[];
     renderBalanceCardFromAccounts(window._balanceDetails);
-   }).catch(function(){if(!(window._accDetails&&window._accDetails.length))document.getElementById('s-balance').textContent='--';});
+   }).catch(function(){if(seq===_dashLoadSeq&&!(window._accDetails&&window._accDetails.length))document.getElementById('s-balance').textContent='--';});
   }
   var tt=document.getElementById('topAdsTitle');
   if(tt){
@@ -5799,6 +5805,7 @@ async function loadDash(){
   if(top)renderTopAds(top.slice(0,kpiFilter?20:10));
   document.getElementById('lastTime').textContent='已更新 '+_cst(new Date().toISOString().replace('T',' ').slice(0,16));
  }catch(e){
+  if(seq!==_dashLoadSeq)return;
   console.error('loadDash error',e);
   var lt=document.getElementById('lastTime');
   if(lt)lt.textContent='加载失败，请刷新';
