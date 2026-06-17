@@ -13,7 +13,9 @@ import urllib.parse
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Tuple, Optional
+from core.auth import is_superadmin
 from core.database import get_conn, decrypt_token
+from core.tenancy import is_operator_user, team_id_for_create, user_id
 from services.guard_engine import _local_per_usd_rate
 from services.token_manager import get_exec_token, ACTION_CREATE, ACTION_READ, ACTION_UPDATE
 from services.notifier import notify_account, notify_global, notify_team
@@ -935,28 +937,57 @@ def _followup_completed():
         logger.info(f"warmup: {changed} 个账户转入 dormant (7天沉睡)")
 
 
-def check_and_warmup():
+def _manual_scope_clause(user: Optional[dict]) -> tuple[str, list, str]:
+    if not user or is_superadmin(user):
+        return "", [], "global"
+    team_id = team_id_for_create(user)
+    if is_operator_user(user):
+        return " AND accounts.team_id=? AND accounts.owner_user_id=?", [team_id, user_id(user)], "owner"
+    return " AND accounts.team_id=?", [team_id], "team"
+
+
+def check_and_warmup(user: Optional[dict] = None):
     if not _warmup_lock.acquire(blocking=False):
         return {"status": "skipped", "reason": "warmup already running"}
     try:
-        return _check_and_warmup_unlocked()
+        return _check_and_warmup_unlocked(user=user)
     finally:
         _warmup_lock.release()
 
 
-def _check_and_warmup_unlocked():
+def _check_and_warmup_unlocked(user: Optional[dict] = None):
     """主入口：扫描并预热符合条件的账户"""
     _ensure_schema()
+    manual_scope_sql, manual_scope_params, manual_scope = _manual_scope_clause(user)
 
     # 1. 全局或团队预热开关
     global_warmup_enabled = _get_setting("warmup_enabled", "0") == "1"
     conn = get_conn()
-    team_warmup_enabled = bool(conn.execute(
-        "SELECT 1 FROM teams WHERE COALESCE(warmup_enabled, 0)=1 LIMIT 1"
-    ).fetchone())
-    owner_warmup_enabled = bool(conn.execute(
-        "SELECT 1 FROM users WHERE COALESCE(warmup_enabled, 0)=1 AND COALESCE(is_active, 1)=1 LIMIT 1"
-    ).fetchone())
+    if manual_scope == "team":
+        team_warmup_enabled = bool(conn.execute(
+            "SELECT 1 FROM teams WHERE id=? AND COALESCE(warmup_enabled, 0)=1 LIMIT 1",
+            manual_scope_params[:1],
+        ).fetchone())
+        owner_warmup_enabled = bool(conn.execute(
+            "SELECT 1 FROM users WHERE team_id=? AND COALESCE(warmup_enabled, 0)=1 AND COALESCE(is_active, 1)=1 LIMIT 1",
+            manual_scope_params[:1],
+        ).fetchone())
+    elif manual_scope == "owner":
+        team_warmup_enabled = bool(conn.execute(
+            "SELECT 1 FROM teams WHERE id=? AND COALESCE(warmup_enabled, 0)=1 LIMIT 1",
+            manual_scope_params[:1],
+        ).fetchone())
+        owner_warmup_enabled = bool(conn.execute(
+            "SELECT 1 FROM users WHERE id=? AND COALESCE(warmup_enabled, 0)=1 AND COALESCE(is_active, 1)=1 LIMIT 1",
+            manual_scope_params[1:2],
+        ).fetchone())
+    else:
+        team_warmup_enabled = bool(conn.execute(
+            "SELECT 1 FROM teams WHERE COALESCE(warmup_enabled, 0)=1 LIMIT 1"
+        ).fetchone())
+        owner_warmup_enabled = bool(conn.execute(
+            "SELECT 1 FROM users WHERE COALESCE(warmup_enabled, 0)=1 AND COALESCE(is_active, 1)=1 LIMIT 1"
+        ).fetchone())
     conn.close()
     if not global_warmup_enabled and not team_warmup_enabled and not owner_warmup_enabled:
         return {"status": "disabled", "reason": "warmup disabled"}
@@ -974,7 +1005,7 @@ def _check_and_warmup_unlocked():
     _followup_completed()
 
     # 4. 查候选账户
-    diagnostics = _warmup_scan_diagnostics()
+    diagnostics = _warmup_scan_diagnostics() if manual_scope == "global" else {"scope": manual_scope}
     conn = get_conn()
     good_page_sql = _tw_page_good_sql("p")
     bad_page_sql = _tw_page_bad_sql("p")
@@ -989,6 +1020,7 @@ def _check_and_warmup_unlocked():
         LEFT JOIN teams tm ON tm.id=accounts.team_id
         LEFT JOIN users ou ON ou.id=accounts.owner_user_id AND COALESCE(ou.is_active, 1)=1
         WHERE enabled=1
+          {manual_scope_sql}
           AND (?=1 OR COALESCE(tm.warmup_enabled, 0)=1 OR COALESCE(ou.warmup_enabled, 0)=1)
           AND COALESCE(account_status, 1) NOT IN (3, 7, 9, 100, 101)
           AND (
@@ -1031,7 +1063,7 @@ def _check_and_warmup_unlocked():
               )
           )
         ORDER BY CASE WHEN warmup_state='dormant' THEN 1 WHEN warmup_state='recent_spend' THEN 2 ELSE 0 END, created_at ASC
-    """, (1 if global_warmup_enabled else 0,)).fetchall()
+    """, (*manual_scope_params, 1 if global_warmup_enabled else 0)).fetchall()
     conn.close()
 
     if not candidates:

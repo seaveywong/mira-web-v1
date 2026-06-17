@@ -6,7 +6,7 @@ GET  /status      — 查看预热状态
 """
 from fastapi import APIRouter, Depends, HTTPException
 from core.database import get_conn
-from core.auth import get_current_user, is_superadmin
+from core.auth import get_current_user
 from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row_access
 
 router = APIRouter()
@@ -15,10 +15,10 @@ router = APIRouter()
 @router.post("/scan")
 def manual_scan(user=Depends(get_current_user)):
     """手动批量扫描所有符合条件的账户并预热"""
-    if not is_superadmin(user):
-        raise HTTPException(403, "Superadmin only")
+    if user.get("role") not in ("admin", "operator", "superadmin"):
+        raise HTTPException(403, "仅管理员和运营可执行预热扫描")
     from services.warmup_engine import check_and_warmup
-    return check_and_warmup()
+    return check_and_warmup(user=user)
 
 
 @router.post("/{act_id}/rewarm")

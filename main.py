@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import os, time, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -49,7 +49,17 @@ _mira_logger.propagate = False
 class TimingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start = time.time()
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except RuntimeError as exc:
+            if "No response returned" in str(exc):
+                logging.getLogger("mira").info(
+                    "client disconnected before response: %s %s",
+                    request.method,
+                    request.url.path,
+                )
+                return Response(status_code=499)
+            raise
         response.headers["x-process-time"] = f"{time.time()-start:.4f}"
         return response
 

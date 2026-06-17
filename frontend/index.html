@@ -15111,7 +15111,7 @@ function formatWarmupScanResult(data){
 }
 
 async function runWarmupScan(btn){
-  if(!hasRole('superadmin')){toast('仅超级管理员可执行预热扫描','wa');return null;}
+  if(!(hasRole('superadmin')||hasRole('admin')||hasRole('operator'))){toast('当前账号没有预热扫描权限','wa');return null;}
   if(window._warmupScanRunning){
   toast('预热扫描正在执行，请等待本轮结果','wa');
   return null;
