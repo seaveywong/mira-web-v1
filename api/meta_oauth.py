@@ -599,6 +599,45 @@ def _oauth_html(title: str, message: str, ok: bool = False, payload: Optional[di
     )
 
 
+def _oauth_failure_message(prefix: str, *parts: Optional[str]) -> str:
+    details = [str(p).strip() for p in parts if p and str(p).strip()]
+    text = "\n".join(details) if details else "Meta 没有返回具体错误。"
+    lower = text.lower()
+    hints = []
+    if "invalid scopes" in lower or "invalid scope" in lower:
+        hints.append("从授权范围移除 leads_retrieval，只保留 ads_read、ads_management、business_management、pages_show_list、pages_manage_ads。")
+        hints.append("确认 Meta App 已添加 Facebook Login，并且 App 处于 Live；开发模式下该个号必须加入开发者或测试用户。")
+    if "redirect" in lower and "uri" in lower:
+        hints.append("检查 Meta App 的 Valid OAuth Redirect URIs，必须和 Mira 配置的回调地址完全一致。")
+    if "app not active" in lower or "not available" in lower:
+        hints.append("开发模式下只有开发者/测试用户可授权；给运营使用前需要 App Live 和权限审核。")
+    if not hints:
+        hints.append("回到 Mira 的 Meta 官方授权中心，点击“诊断配置”查看 App、回调地址和授权范围。")
+    return prefix + "：\n" + text + "\n\n排查建议：\n- " + "\n- ".join(hints)
+
+
+def _oauth_html(title: str, message: str, ok: bool = False, payload: Optional[dict] = None) -> HTMLResponse:
+    payload_json = json.dumps(payload or {}, ensure_ascii=False)
+    color = "#0f766e" if ok else "#b91c1c"
+    bg = "#ecfdf5" if ok else "#fef2f2"
+    border = "#99f6e4" if ok else "#fecaca"
+    script = ""
+    if ok:
+        script = f"""
+        <script>
+        try {{
+          if (window.opener) window.opener.postMessage(Object.assign({payload_json}, {{type:'mira_meta_oauth_success'}}), '*');
+        }} catch (e) {{}}
+        setTimeout(function() {{ try {{ window.close(); }} catch(e) {{}} }}, 1800);
+        </script>
+        """
+    return HTMLResponse(
+        f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
+        <style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f6f7fb;margin:0;display:grid;place-items:center;min-height:100vh;color:#111827}}.box{{width:min(560px,92vw);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:28px;box-shadow:0 18px 60px rgba(15,23,42,.12)}}.msg{{background:{bg};border:1px solid {border};color:{color};border-radius:12px;padding:14px 16px;line-height:1.7;white-space:pre-wrap}}h1{{font-size:22px;margin:0 0 14px}}p{{color:#6b7280;font-size:13px}}</style>
+        </head><body><div class="box"><h1>{html.escape(title)}</h1><div class="msg">{html.escape(message)}</div><p>可以关闭此窗口并返回 Mira。</p></div>{script}</body></html>"""
+    )
+
+
 @router.get("/callback", name="meta_oauth_callback")
 def meta_oauth_callback(
     request: Request,
@@ -609,6 +648,20 @@ def meta_oauth_callback(
     error_message: Optional[str] = None,
     error_code: Optional[str] = None,
 ):
+    if not state:
+        if error or error_description or error_message or error_code:
+            return _oauth_html(
+                "授权失败",
+                _oauth_failure_message(
+                    "Meta 返回授权错误",
+                    error_message,
+                    error_description,
+                    error,
+                    f"code={error_code}" if error_code else "",
+                ),
+            )
+        return _oauth_html("授权失败", "缺少 state，无法确认请求来源。请回到 Mira 重新生成授权链接。")
+
     if not state:
         if error or error_description or error_message or error_code:
             parts = [p for p in (error_message, error_description, error, f"code={error_code}" if error_code else "") if p]
@@ -632,6 +685,26 @@ def meta_oauth_callback(
             if status == "failed":
                 return _oauth_html("授权失败", st["error"] or "该授权请求已失败，请回到 Mira 重新生成。")
             return _oauth_html("授权已处理", "该授权请求已经处理过，请回到 Mira 查看 Token。")
+        if not st:
+            return _oauth_html("授权失败", "授权状态不存在或已过期，请回到 Mira 重新发起授权。")
+        if st["status"] != "pending":
+            status = st["status"]
+            if status == "completed":
+                return _oauth_html("授权已完成", "该授权请求已经完成，请回到 Mira 查看 Token。", ok=True)
+            if status == "replaced":
+                return _oauth_html("授权链接已失效", "你已经生成了新的授权链接，请使用最新链接授权。")
+            if status == "expired":
+                return _oauth_html("授权超时", "授权链接已超过 15 分钟，请回到 Mira 重新生成。")
+            if status == "failed":
+                return _oauth_html("授权失败", st["error"] or "该授权请求已失败，请回到 Mira 重新生成。")
+            return _oauth_html("授权已处理", "该授权请求已经处理过，请回到 Mira 查看 Token。")
+        if int(st["expires_at"] or 0) < int(time.time()):
+            conn.execute(
+                f"UPDATE meta_oauth_states SET status='expired', error=?, completed_at={_now_cst_expr()} WHERE state=?",
+                ("OAuth state expired", state),
+            )
+            conn.commit()
+            return _oauth_html("授权超时", "授权链接已超过 15 分钟，请回到 Mira 重新生成。")
         if int(st["expires_at"] or 0) < int(time.time()):
             conn.execute(
                 f"UPDATE meta_oauth_states SET status='expired', error=?, completed_at={_now_cst_expr()} WHERE state=?",
@@ -646,7 +719,17 @@ def meta_oauth_callback(
                 (msg, state),
             )
             conn.commit()
+            return _oauth_html("授权被取消", _oauth_failure_message("Meta 返回授权错误", msg))
+        if error:
+            msg = error_message or error_description or error
+            conn.execute(
+                f"UPDATE meta_oauth_states SET status='failed', error=?, completed_at={_now_cst_expr()} WHERE state=?",
+                (msg, state),
+            )
+            conn.commit()
             return _oauth_html("授权被取消", msg)
+        if not code:
+            return _oauth_html("授权失败", "Meta 没有返回授权 code，请回到 Mira 重新生成授权链接。")
         if not code:
             return _oauth_html("授权失败", "Meta 没有返回授权 code。")
 
@@ -692,6 +775,14 @@ def meta_oauth_callback(
         snapshot = _build_token_permission_snapshot(access_token, info if isinstance(info, dict) else None)
         token_type = (st["token_type"] or "operate").strip().lower()
         if token_type == "operate" and not _has_granted_scope(snapshot, "ads_management"):
+            msg = "授权成功，但没有授予 ads_management，不能作为铺广告、改预算或关停广告的操作号。请确认 Meta App 权限审核和授权勾选后重试。"
+            conn.execute(
+                f"UPDATE meta_oauth_states SET status='failed', error=?, completed_at={_now_cst_expr()} WHERE state=?",
+                (msg, state),
+            )
+            conn.commit()
+            return _oauth_html("授权权限不足", msg)
+        if token_type == "operate" and not _has_granted_scope(snapshot, "ads_management"):
             msg = "授权成功，但没有授予 ads_management，不能作为铺广告/改预算/关停的操作号。请确认 Meta App 权限审核和授权勾选后重试。"
             conn.execute(
                 f"UPDATE meta_oauth_states SET status='failed', error=?, completed_at={_now_cst_expr()} WHERE state=?",
@@ -699,6 +790,54 @@ def meta_oauth_callback(
             )
             conn.commit()
             return _oauth_html("授权权限不足", msg)
+
+        ensure_token_source_columns(conn)
+        _ensure_fb_token_permission_columns(conn)
+        enc = encrypt_token(access_token)
+        note_parts = [
+            "Meta OAuth 官方授权",
+            f"授权用户:{st['username'] or st['user_id'] or '-'}",
+        ]
+        if expires_in:
+            note_parts.append(f"expires_in:{expires_in}")
+        cursor = conn.execute(
+            f"""INSERT INTO fb_tokens (
+                   token_alias, access_token_enc, token_type, token_source, status,
+                   last_verified_at, note, matrix_id, permission_snapshot, permission_checked_at,
+                   team_id, owner_user_id
+               ) VALUES (?, ?, ?, ?, 'active', {_now_cst_expr()}, ?, ?, ?, {_now_cst_expr()}, ?, ?)""",
+            (
+                st["token_alias"] or "Meta OAuth 授权",
+                enc,
+                token_type,
+                TOKEN_SOURCE_OAUTH_USER,
+                "；".join(note_parts),
+                st["matrix_id"] if token_type == "operate" else None,
+                json.dumps(snapshot, ensure_ascii=False),
+                st["team_id"],
+                st["owner_user_id"],
+            ),
+        )
+        token_id = cursor.lastrowid
+        match_result = {}
+        if token_type in ("operate", "manage"):
+            match_result = _link_existing_accounts(conn, token_id, access_token, st["team_id"], st["owner_user_id"])
+        conn.execute(
+            f"UPDATE meta_oauth_states SET status='completed', token_id=?, completed_at={_now_cst_expr()} WHERE state=?",
+            (token_id, state),
+        )
+        conn.commit()
+        message = (
+            f"Meta 官方授权完成。\nToken ID: {token_id}\n"
+            f"已扫描 FB 账户: {match_result.get('fb_total', 0)} 个\n"
+            f"自动关联已导入账户: {match_result.get('matched', 0)} 个"
+        )
+        return _oauth_html(
+            "授权成功",
+            message,
+            ok=True,
+            payload={"token_id": token_id, "matched": match_result.get("matched", 0), "fb_total": match_result.get("fb_total", 0)},
+        )
 
         ensure_token_source_columns(conn)
         _ensure_fb_token_permission_columns(conn)
