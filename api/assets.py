@@ -2273,10 +2273,11 @@ def search_accounts(
            LIMIT ?""",
         params + [limit]
     ).fetchall()
-    conn.close()
     items = []
     for r in rows:
         d = dict(r)
         d["status"] = d.get("account_status")
+        d["linked_matrix_ids"] = _matrix_ids_for_act(conn, d.get("act_id"))
         items.append(d)
+    conn.close()
     return items

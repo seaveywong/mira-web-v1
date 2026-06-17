@@ -54,11 +54,11 @@ RESOURCE_CONFIG: dict[str, dict[str, Any]] = {
         "alias": "r",
         "label": "Tokens",
         "select": """r.id, r.token_alias AS name, r.token_type, r.token_source,
-                       r.status, r.account_count, r.last_verified_at, r.created_at,
+                       r.status, r.account_count, r.matrix_id, r.last_verified_at, r.created_at,
                        r.team_id, t.name AS team_name, r.owner_user_id,
                        COALESCE(NULLIF(u.display_name,''), u.username) AS owner_user_name""",
         "joins": " LEFT JOIN users u ON u.id = r.owner_user_id",
-        "search": ("r.token_alias", "r.token_type", "r.token_source", "r.status"),
+        "search": ("r.token_alias", "r.token_type", "r.token_source", "r.status", "r.matrix_id"),
         "order": "r.created_at DESC, r.id DESC",
     },
     "assets": {
@@ -66,9 +66,9 @@ RESOURCE_CONFIG: dict[str, dict[str, Any]] = {
         "alias": "r",
         "label": "Assets",
         "select": """r.id, COALESCE(NULLIF(r.display_name,''), NULLIF(r.file_name,''), r.asset_code) AS name,
-                       r.file_name, r.asset_code, r.file_type, r.source, r.upload_status,
+                       r.file_name, r.asset_code, r.act_id, r.file_type, r.source, r.upload_status,
                        r.score_label, r.created_at, r.team_id, t.name AS team_name""",
-        "search": ("r.display_name", "r.file_name", "r.asset_code", "r.tags", "r.source"),
+        "search": ("r.display_name", "r.file_name", "r.asset_code", "r.act_id", "r.tags", "r.source"),
         "order": "r.created_at DESC, r.id DESC",
     },
     "pages": {
@@ -103,6 +103,36 @@ RESOURCE_CONFIG: dict[str, dict[str, Any]] = {
 
 
 TEAM_GUARD_KEYS = ("sentinel_enabled", "mirror_enabled", "heartbeat_enabled", "warmup_enabled")
+
+
+def _matrix_map_for_acts(conn, act_ids: list[str]) -> dict[str, list[int]]:
+    clean = sorted({str(x or "").strip() for x in act_ids if str(x or "").strip()})
+    if not clean:
+        return {}
+    placeholders = ",".join("?" for _ in clean)
+    rows = conn.execute(
+        f"""
+        SELECT a.act_id, t.matrix_id
+        FROM accounts a
+        JOIN fb_tokens t ON t.id=a.token_id
+        WHERE a.act_id IN ({placeholders}) AND t.matrix_id IS NOT NULL
+        UNION
+        SELECT aot.act_id, t.matrix_id
+        FROM account_op_tokens aot
+        JOIN fb_tokens t ON t.id=aot.token_id
+        WHERE aot.act_id IN ({placeholders})
+          AND aot.status='active'
+          AND t.matrix_id IS NOT NULL
+        """,
+        clean + clean,
+    ).fetchall()
+    out: dict[str, set[int]] = {act: set() for act in clean}
+    for row in rows:
+        try:
+            out.setdefault(str(row["act_id"]), set()).add(int(row["matrix_id"]))
+        except (TypeError, ValueError):
+            continue
+    return {act: sorted(ids) for act, ids in out.items()}
 
 
 def ensure_team_guard_schema(conn) -> None:
@@ -429,6 +459,11 @@ def list_resources(
             LIMIT ? OFFSET ?""",
         params + [limit, offset],
     ).fetchall()
+    items = [dict(row) for row in rows]
+    if kind in ("accounts", "assets"):
+        matrix_map = _matrix_map_for_acts(conn, [item.get("act_id") for item in items])
+        for item in items:
+            item["linked_matrix_ids"] = matrix_map.get(str(item.get("act_id") or "").strip(), [])
     teams = conn.execute("SELECT id, name, status FROM teams ORDER BY status, name").fetchall()
     conn.close()
     return {
@@ -437,7 +472,7 @@ def list_resources(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "items": [dict(row) for row in rows],
+        "items": items,
         "teams": [dict(row) for row in teams],
     }
 
