@@ -3,7 +3,7 @@
 Mira 内部测试套件 v1.1.0
 覆盖：单元测试 + 前后端联动测试
 """
-import sys, os, json, time, sqlite3, requests
+import sys, os, json, time, sqlite3, subprocess, requests
 
 BASE = "http://127.0.0.1:8000/api"
 TOKEN = None
@@ -298,6 +298,24 @@ try:
     conn.close()
 except Exception as e:
     fail("数据库一致性检查", str(e))
+
+# 15. 落地页发布器本地生成检查
+print("\n[15] 落地页发布器")
+try:
+    test_path = os.path.join(os.path.dirname(__file__), "test_landing_publisher.py")
+    result = subprocess.run(
+        [sys.executable, "-B", test_path],
+        cwd=os.path.dirname(os.path.dirname(__file__)),
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    if result.returncode == 0:
+        ok("Cloudflare 表单直跳 / 普通落地页生成检查")
+    else:
+        fail("Cloudflare 表单直跳 / 普通落地页生成检查", (result.stderr or result.stdout)[:300])
+except Exception as e:
+    fail("落地页发布器检查", str(e))
 
 # 汇总
 print("\n" + "="*60)
