@@ -2461,7 +2461,15 @@ def smart_import_accounts(body: AccountImport, user=Depends(get_current_user)):
     finally:
         conn.close()
 
-    auto_match_result = {"matched": 0, "restored": 0, "already_linked": 0, "token_checked": 0, "token_failed": 0}
+    auto_match_result = {
+        "matched": 0,
+        "restored": 0,
+        "already_linked": 0,
+        "token_checked": 0,
+        "token_failed": 0,
+        "accounts": [],
+        "failed_tokens": [],
+    }
     for team_id, group_act_ids in match_groups.items():
         try:
             result = _auto_link_tokens_for_accounts(
@@ -2472,8 +2480,11 @@ def smart_import_accounts(body: AccountImport, user=Depends(get_current_user)):
             )
             for key in ("matched", "restored", "already_linked", "token_checked", "token_failed"):
                 auto_match_result[key] += int(result.get(key) or 0)
+            auto_match_result["accounts"].extend(result.get("accounts") or [])
+            auto_match_result["failed_tokens"].extend(result.get("failed_tokens") or [])
         except Exception as exc:
             logger.warning("[SmartImport] auto match failed team_id=%s: %s", team_id, exc)
+    auto_match_result["failed_tokens"] = auto_match_result["failed_tokens"][:20]
 
     if failed and not imported and not skipped:
         first = failed[0]

@@ -2758,10 +2758,22 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="card landing-stats-card" id="landingStatsPanel" style="display:none"></div>
  <div class="card landing-record-card">
   <div class="landing-card-head">
-   <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。仍被引用的页面只能归档，未引用的页面可删除 Cloudflare 项目。</p></div>
+   <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。仍被引用的页面只能归档，未引用的页面可删除 Cloudflare 项目。</p><div id="landingPageCountHint" style="font-size:12px;color:var(--t3);margin-top:4px"></div></div>
    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+    <input class="fc" id="landingPageSearch" style="width:210px;height:34px" placeholder="搜索名称/域名/发布人" oninput="renderLandingPages()">
     <select class="fc" id="landingPageMatrixFilter" style="width:132px;height:34px" onchange="renderLandingPages()">
      <option value="all">全部矩阵</option>
+    </select>
+    <select class="fc" id="landingPageKindFilter" style="width:120px;height:34px" onchange="renderLandingPages()">
+     <option value="all">全部类型</option>
+     <option value="landing">普通落地页</option>
+     <option value="form">表单直跳</option>
+    </select>
+    <select class="fc" id="landingPageStatusFilter" style="width:120px;height:34px" onchange="renderLandingPages()">
+     <option value="all">全部状态</option>
+     <option value="published">已发布</option>
+     <option value="failed">失败</option>
+     <option value="archived">已归档</option>
     </select>
     <button class="btn btn-g btn-sm role-hide-viewer" onclick="refreshLandingDomains()" title="批量复检已发布页面的自定义域名；域名可用后会自动回绑原账户链接">复检全部域名</button>
    </div>
@@ -8310,6 +8322,19 @@ async function doImport(){
    if((autoMatch.token_failed||0)>0)msg+='，'+autoMatch.token_failed+' 个Token失败';
   }
   toast(msg,failedCount>0?'wa':'ok');
+  if(importAutoMode&&autoMatch&&Array.isArray(autoMatch.accounts)){
+   var detailRows=autoMatch.accounts.map(function(a){
+    var tokens=(a.matched_tokens||[]).map(function(t){return escHtml((t.alias||('Token '+t.token_id))+' · '+(t.token_type||'token'));}).join('、');
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--bd)"><b>'+escHtml(a.act_id||'')+'</b><div style="color:var(--t3);margin-top:3px">'+(a.matched_count?('已关联 '+a.matched_count+' 个 Token：'+tokens):'未发现可关联 Token')+'</div></div>';
+   }).join('');
+   var failedTokens=(autoMatch.failed_tokens||[]).slice(0,6).map(function(t){
+    return '<li>'+escHtml(t.alias||('Token '+t.token_id))+': '+escHtml(t.error||'检查失败')+'</li>';
+   }).join('');
+   var html='<div style="margin-bottom:8px">智能导入完成。后续铺广告、预热、预算和关闭会优先使用这些已关联 Token。</div>'+
+    (detailRows||'<div style="color:var(--t3)">没有账户匹配明细。</div>')+
+    (failedTokens?'<div style="margin-top:12px;color:var(--wa)">部分 Token 检查失败：</div><ul style="margin:6px 0 0 18px;color:var(--t2)">'+failedTokens+'</ul>':'');
+   showInfo(html,'账户 Token 自动关联');
+  }
   closeModal('moImport');loadAccounts();loadAccsPage();
  }catch(e){toast('导入失败：'+e.message,'er')}
  btn.disabled=false;btn.textContent=importAutoMode?'智能导入并关联':'导入选中账户';
@@ -15471,17 +15496,44 @@ function _refreshLandingPageMatrixFilter(){
  sel.value=current;
  return current;
 }
+function _landingPageSearchText(page){
+ var usage=(page&&page.usage)||{};
+ var accounts=(usage.accounts||[]).map(function(a){return [a.act_id,a.name,(a.linked_matrix_ids||[]).join(' ')].join(' ');}).join(' ');
+ return [
+  page&&page.title,
+  page&&page.project_name,
+  page&&page.custom_domain,
+  page&&page.pages_url,
+  page&&page.public_url,
+  page&&page.cf_account_name,
+  page&&page.token_name,
+  page&&page.created_by,
+  page&&page.created_at,
+  page&&page.status,
+  page&&page.link_kind,
+  ((page&&page.bound_act_ids)||[]).join(' '),
+  _landingMatrixIdsFromPage(page).map(function(mid){return '矩阵'+mid+' matrix'+mid;}).join(' '),
+  accounts
+ ].join(' ').toLowerCase();
+}
 function renderLandingPages(){
  var tb=document.getElementById('landingPagesList'); if(!tb)return;
  var matrixFilter=_refreshLandingPageMatrixFilter();
+ var kindFilter=(document.getElementById('landingPageKindFilter')||{}).value||'all';
+ var statusFilter=(document.getElementById('landingPageStatusFilter')||{}).value||'all';
+ var searchText=((document.getElementById('landingPageSearch')||{}).value||'').trim().toLowerCase();
  var pages=(_landingPages||[]).filter(function(p){
-  if(matrixFilter==='all')return true;
   var ids=_landingMatrixIdsFromPage(p);
-  if(matrixFilter==='unassigned')return !ids.length;
-  return ids.indexOf(parseInt(matrixFilter,10))>=0;
+  var matrixOk=matrixFilter==='all'||(matrixFilter==='unassigned'&&!ids.length)||ids.indexOf(parseInt(matrixFilter,10))>=0;
+  var kindOk=kindFilter==='all'||String(p.link_kind||'landing')===kindFilter;
+  var statusOk=statusFilter==='all'||String(p.status||'')===statusFilter;
+  var searchOk=!searchText||_landingPageSearchText(p).indexOf(searchText)>=0;
+  return matrixOk&&kindOk&&statusOk&&searchOk;
  });
+ var hint=document.getElementById('landingPageCountHint');
+ if(hint)hint.textContent=_landingPages.length?('显示 '+pages.length+' / '+_landingPages.length+' 条发布记录'):'';
  if(!_landingPages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">暂无发布记录</td></tr>';return;}
- if(!pages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">当前矩阵筛选下暂无发布记录</td></tr>';return;}
+ if(!pages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">当前筛选下暂无发布记录</td></tr>';return;}
  tb.innerHTML=pages.map(function(p){
   var urls=Array.isArray(p.target_urls)?p.target_urls:[];
   var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
