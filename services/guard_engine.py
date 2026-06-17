@@ -311,11 +311,6 @@ def _verify_status(obj_id: str, token: str, expected: str = "PAUSED") -> bool:
     try:
         result = _fb_get(obj_id, token, {"fields": "status,effective_status"})
         actual = result.get("status", "")
-        effective = result.get("effective_status", "")
-        if expected == "PAUSED":
-            cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED",
-                           "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
-            return actual == "PAUSED" and effective in cannot_spend
         return actual == expected
     except Exception:
         return False
@@ -343,6 +338,14 @@ def _check_cooldown(ad_id: str, rule_type: str, cooldown_min: int = 60) -> bool:
 def _set_cooldown(ad_id: str, rule_type: str):
     key = f"{ad_id}:{rule_type}"
     _action_cooldown[key] = time.time()
+
+
+def _set_retry_cooldown(ad_id: str, rule_type: str, retry_after_min: int = 5, normal_cooldown_min: int = 60):
+    """Shorten cooldown after a failed close so the next patrol retries soon."""
+    key = f"{ad_id}:{rule_type}"
+    retry_after_min = max(1, int(retry_after_min or 5))
+    normal_cooldown_min = max(retry_after_min, int(normal_cooldown_min or 60))
+    _action_cooldown[key] = time.time() - (normal_cooldown_min - retry_after_min) * 60
 
 
 # ── 镜像模式辅助函数 ───────────────────────────────────────────────────────────
@@ -849,6 +852,52 @@ def _get_token_for_account(account: dict, action_type: str = "PAUSE") -> str:
     return ""
 
 
+def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
+    """Return PAUSE candidates in the same order used by manual ad controls."""
+    act_id = account.get("act_id", "")
+    candidates = []
+    seen = set()
+
+    def _add(token: str, label: str):
+        if not token or token in seen:
+            return
+        seen.add(token)
+        candidates.append({"token": token, "label": label or "token"})
+
+    _add(primary_token, "primary")
+    try:
+        from services.token_manager import ACTION_PAUSE, get_exec_token_candidates
+        for cand in get_exec_token_candidates(
+            act_id,
+            ACTION_PAUSE,
+            notify_exhausted=False,
+            reserve=True,
+        ):
+            _add(
+                cand.get("token_plain") or cand.get("token") or "",
+                cand.get("label") or cand.get("alias") or cand.get("source") or "token",
+            )
+    except Exception as exc:
+        logger.warning("Failed to load PAUSE token candidates for %s: %s", act_id, _sanitize_error_text(exc))
+
+    if not candidates:
+        fallback = _get_token_for_account(account, "PAUSE")
+        _add(fallback, "fallback")
+    return candidates
+
+
+def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str) -> tuple:
+    """Try to pause a target with all available PAUSE tokens before escalating."""
+    errors = []
+    for cand in _pause_token_candidates(account, primary_token):
+        ok, err = _fb_post(target_id, cand["token"], {"status": "PAUSED"})
+        if ok:
+            return True, "", cand["token"], cand["label"]
+        if err:
+            errors.append(f"{cand['label']}: {err}")
+    return False, "; ".join(errors) or "all token candidates failed", primary_token, ""
+
+
 # ── 核心关闭逻辑（含向上升级）──────────────────────────────────────────────
 
 def _pause_with_escalation(
@@ -889,11 +938,11 @@ def _pause_with_escalation(
         return "ad", "dry_run"
 
     # Step 1: 尝试暂停广告
-    ok, err_msg = _fb_post(ad_id, token, {"status": "PAUSED"})
+    ok, err_msg, write_token, write_label = _fb_pause_with_candidates(account, ad_id, token)
     if ok:
         # 核验
-        time.sleep(2)
-        verified = _verify_status(ad_id, token, "PAUSED")
+        time.sleep(0.8)
+        verified = _verify_status(ad_id, write_token, "PAUSED")
         status = "success" if verified else "failed"
         _log_action(act_id, "ad", ad_id, ad_name, "pause",
                     trigger_type, trigger_detail,
@@ -933,10 +982,10 @@ def _pause_with_escalation(
     # Step 2: 向上升级到广告组
     adset_error = ""
     if adset_id:
-        ok2, err2 = _fb_post(adset_id, token, {"status": "PAUSED"})
+        ok2, err2, write_token2, write_label2 = _fb_pause_with_candidates(account, adset_id, token)
         if ok2:
-            time.sleep(2)
-            verified2 = _verify_status(adset_id, token, "PAUSED")
+            time.sleep(0.8)
+            verified2 = _verify_status(adset_id, write_token2, "PAUSED")
             status2 = "escalated" if verified2 else "failed"
             _log_action(act_id, "adset", adset_id, f"[升级关闭] {ad_name}的广告组",
                         "pause", trigger_type,
@@ -982,10 +1031,10 @@ def _pause_with_escalation(
     campaign_error = ""
     campaign_error = ""
     if campaign_id:
-        ok3, err3 = _fb_post(campaign_id, token, {"status": "PAUSED"})
+        ok3, err3, write_token3, write_label3 = _fb_pause_with_candidates(account, campaign_id, token)
         if ok3:
-            time.sleep(2)
-            verified3 = _verify_status(campaign_id, token, "PAUSED")
+            time.sleep(0.8)
+            verified3 = _verify_status(campaign_id, write_token3, "PAUSED")
             status3 = "escalated" if verified3 else "failed"
             campaign_error = "" if verified3 else "系列核验失败：状态未变更为PAUSED"
             _log_action(act_id, "campaign", campaign_id, f"[升级关闭] {ad_name}的系列",
@@ -2058,6 +2107,8 @@ class GuardEngine:
                 successes.append(f"{ad_name}({level})")
             else:
                 failures.append(f"{ad_name}: {status}")
+        if failures and not successes:
+            _set_retry_cooldown(f"{act_id}:account", rule_type)
 
     def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None):
             from services.kpi_resolver import get_kpi_for_ad
@@ -2628,6 +2679,7 @@ class GuardEngine:
                 )
                 # 止损后实时触发素材评分
             else:
+                _set_retry_cooldown(ad_id, rule_type)
                 spend_display = (f"{account_currency} {spend_raw:.2f} (~${spend:.2f} USD)"
                                  if account_currency != "USD" and spend_raw is not None
                                  else f"${spend:.2f}")
@@ -2669,14 +2721,16 @@ class GuardEngine:
             if self.dry_run:
                 ok, err_msg, verified = True, "", True
             else:
-                ok, err_msg = _fb_post(target_id, token, {"status": "PAUSED"})
+                ok, err_msg, write_token_direct, write_label_direct = _fb_pause_with_candidates(account, target_id, token)
                 verified = False
                 if ok:
-                    time.sleep(2)
-                    verified = _verify_status(target_id, token, "PAUSED")
+                    time.sleep(0.8)
+                    verified = _verify_status(target_id, write_token_direct, "PAUSED")
                     if not verified:
                         err_msg = f"{target_label}状态校验失败"
             action_status = "success" if (ok and verified) else "failed"
+            if action_status == "failed":
+                _set_retry_cooldown(ad_id, rule_type)
             _log_action(act_id, target_level, target_id, f"[规则暂停] {ad_name}", "pause",
                         rule_type, reason,
                         old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
