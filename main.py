@@ -26,6 +26,7 @@ from api.admin import router as admin_router
 from api.mirror import router as mirror_router
 from api.warmup import router as warmup_router
 from api.ad_ops import router as ad_ops_router
+from api.landing_pages import router as landing_pages_router
 from core.scheduler import start_scheduler
 import logging
 import sys
@@ -260,6 +261,7 @@ app.include_router(admin_router,       prefix="/api/admin",       tags=["admin"]
 app.include_router(mirror_router,      prefix="/api/mirror",     tags=["mirror"])
 app.include_router(warmup_router,      prefix="/api/warmup",     tags=["warmup"])
 app.include_router(ad_ops_router,      prefix="/api/ad-ops",     tags=["ad-ops"])
+app.include_router(landing_pages_router, prefix="/api/landing-pages", tags=["landing-pages"])
 app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
 
 
