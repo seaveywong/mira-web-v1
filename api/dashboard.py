@@ -16,7 +16,7 @@ import requests as req
 import time
 from api.accounts import _calc_available_balance
 from core.perf_history import ensure_perf_snapshot_history_schema
-from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token
+from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token, is_operate_token_eligible
 from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _get_setting, _local_per_usd_rate
 
 router = APIRouter()
@@ -1260,10 +1260,7 @@ def get_ads_live(
                     meta["read_token_ok"] = True
                 elif row["token_type"] in ("operate", "user"):
                     meta["read_token_ok"] = True
-                if (
-                    row["token_type"] == "operate"
-                    and (row["token_source"] or TOKEN_SOURCE_SYSTEM_USER) == TOKEN_SOURCE_SYSTEM_USER
-                ):
+                if is_operate_token_eligible(row["token_type"], row["token_source"] or TOKEN_SOURCE_SYSTEM_USER):
                     meta["write_token_ok"] = True
         except Exception:
             pass

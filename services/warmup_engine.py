@@ -666,7 +666,7 @@ def _warmup_scan_diagnostics() -> dict:
               AND aot.status='active'
               AND t.status='active'
               AND t.token_type='operate'
-              AND COALESCE(t.token_source, 'system_user')='system_user'
+              AND COALESCE(t.token_source, 'system_user') IN ('system_user','oauth_user')
         )"""
         with_create_token = mirror_off + create_token_clause
         new_ready = with_create_token + " AND COALESCE(warmup_state, '')='' AND COALESCE(warmup_campaign_id, '')=''"
@@ -1049,7 +1049,7 @@ def _check_and_warmup_unlocked(user: Optional[dict] = None):
                 AND aot.status='active'
                 AND t.status='active'
                 AND t.token_type='operate'
-                AND COALESCE(t.token_source, 'system_user')='system_user'
+                AND COALESCE(t.token_source, 'system_user') IN ('system_user','oauth_user')
           )
           AND (
               (COALESCE(warmup_state, '')='' AND COALESCE(warmup_campaign_id, '')='')

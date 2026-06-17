@@ -31,11 +31,13 @@ logger = logging.getLogger("mira.token_manager")
 
 TOKEN_SOURCE_SYSTEM_USER = "system_user"
 TOKEN_SOURCE_PERSONAL = "personal"
+TOKEN_SOURCE_OAUTH_USER = "oauth_user"
 TOKEN_SOURCE_PAGE = "page"
 TOKEN_SOURCE_UNKNOWN = "unknown"
 ALLOWED_TOKEN_SOURCES = {
     TOKEN_SOURCE_SYSTEM_USER,
     TOKEN_SOURCE_PERSONAL,
+    TOKEN_SOURCE_OAUTH_USER,
     TOKEN_SOURCE_PAGE,
     TOKEN_SOURCE_UNKNOWN,
 }
@@ -53,6 +55,11 @@ def normalize_token_source(value, default: str = TOKEN_SOURCE_UNKNOWN) -> str:
         "person": TOKEN_SOURCE_PERSONAL,
         "human": TOKEN_SOURCE_PERSONAL,
         "user": TOKEN_SOURCE_PERSONAL,
+        "oauth": TOKEN_SOURCE_OAUTH_USER,
+        "oauth_user": TOKEN_SOURCE_OAUTH_USER,
+        "official_oauth": TOKEN_SOURCE_OAUTH_USER,
+        "business_login": TOKEN_SOURCE_OAUTH_USER,
+        "meta_oauth": TOKEN_SOURCE_OAUTH_USER,
         "page": TOKEN_SOURCE_PAGE,
         "page_token": TOKEN_SOURCE_PAGE,
         "unknown": TOKEN_SOURCE_UNKNOWN,
@@ -72,10 +79,13 @@ def default_token_source_for_type(token_type: Optional[str]) -> str:
 
 
 def is_operate_token_eligible(token_type: Optional[str], token_source: Optional[str]) -> bool:
-    return str(token_type or "").strip().lower() == "operate" and normalize_token_source(
+    if str(token_type or "").strip().lower() != "operate":
+        return False
+    source = normalize_token_source(
         token_source,
         default_token_source_for_type(token_type),
-    ) == TOKEN_SOURCE_SYSTEM_USER
+    )
+    return source in {TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER}
 
 
 def ensure_token_source_columns(conn) -> None:
@@ -106,7 +116,7 @@ def ensure_token_source_columns(conn) -> None:
         """
         UPDATE fb_tokens
         SET token_source = ?
-        WHERE LOWER(TRIM(COALESCE(token_source, ''))) NOT IN ('system_user','personal','page','unknown')
+        WHERE LOWER(TRIM(COALESCE(token_source, ''))) NOT IN ('system_user','personal','oauth_user','page','unknown')
         """,
         (TOKEN_SOURCE_UNKNOWN,),
     )
@@ -286,10 +296,10 @@ def _get_op_tokens(act_id: str) -> list[dict]:
           AND aot.status = 'active'
           AND t.status = 'active'
           AND t.token_type = 'operate'
-          AND t.token_source = ?
+          AND t.token_source IN (?, ?)
           {token_team_sql}
         ORDER BY aot.priority DESC, t.id ASC
-    """, [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params).fetchall()
+    """, [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
     conn.close()
 
     result = []
@@ -635,10 +645,10 @@ def get_op_token_status(act_id: str) -> dict:
         JOIN fb_tokens t ON t.id = aot.token_id
         WHERE aot.act_id = ?
           AND t.token_type = 'operate'
-          AND t.token_source = ?
+          AND t.token_source IN (?, ?)
           {token_team_sql}
         ORDER BY aot.priority DESC
-    """, [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params).fetchall()
+    """, [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
 
     legacy_rows = conn.execute(f"""
         SELECT t.id as token_id, t.status as token_status,
@@ -647,10 +657,10 @@ def get_op_token_status(act_id: str) -> dict:
         JOIN fb_tokens t ON t.id = aot.token_id
         WHERE aot.act_id = ?
           AND t.token_type = 'operate'
-          AND COALESCE(t.token_source, '') != ?
+          AND COALESCE(t.token_source, '') NOT IN (?, ?)
           {token_team_sql}
         ORDER BY aot.priority DESC
-    """, [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params).fetchall()
+    """, [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
 
     # 2. 管理号：从 account_op_tokens 查（按 token_type=manage 过滤，与动态发现机制一致）
     mg_rows = conn.execute(f"""
@@ -825,11 +835,11 @@ def get_matrix_tokens(act_id: str) -> list[dict]:
         rows = conn.execute(
             f"""SELECT id as token_id, token_alias, access_token_enc
                FROM fb_tokens t
-               WHERE matrix_id=? AND token_type='operate' AND token_source=? AND status='active'
+               WHERE matrix_id=? AND token_type='operate' AND token_source IN (?, ?) AND status='active'
                AND id != ?
                {token_team_sql}
                ORDER BY id ASC""",
-            [matrix_id, TOKEN_SOURCE_SYSTEM_USER, current_token_id] + token_team_params,
+            [matrix_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER, current_token_id] + token_team_params,
         ).fetchall()
         conn.close()
 
@@ -864,13 +874,13 @@ def get_matrix_id_for_account(act_id: str) -> Optional[int]:
               AND aot.status='active'
               AND ft.status='active'
               AND ft.token_type='operate'
-              AND ft.token_source=?
+              AND ft.token_source IN (?, ?)
               AND ft.matrix_id IS NOT NULL
               {token_team_sql}
             ORDER BY aot.priority ASC, aot.id ASC
             LIMIT 1
             """,
-            [act_id, TOKEN_SOURCE_SYSTEM_USER] + token_team_params,
+            [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params,
         ).fetchone()
         if op_row and op_row["matrix_id"] is not None:
             conn.close()

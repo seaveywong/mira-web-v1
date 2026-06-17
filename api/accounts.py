@@ -30,6 +30,7 @@ from core.tenancy import (
 )
 from services.token_manager import (
     ALLOWED_TOKEN_SOURCES,
+    TOKEN_SOURCE_OAUTH_USER,
     TOKEN_SOURCE_SYSTEM_USER,
     default_token_source_for_type,
     ensure_token_source_columns,
@@ -767,9 +768,9 @@ def _auto_link_tokens_for_accounts(
             "status='active'",
             "access_token_enc IS NOT NULL",
             "token_type IN ('manage','operate','user')",
-            "(token_type!='operate' OR token_source=?)",
+            "(token_type!='operate' OR token_source IN (?, ?))",
         ]
-        token_params = [TOKEN_SOURCE_SYSTEM_USER]
+        token_params = [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER]
         if team_id is not None:
             token_where.append("team_id=?")
             token_params.append(team_id)
@@ -1027,7 +1028,7 @@ def _validate_token_role_source(token_type: Optional[str], token_source: Optiona
     if resolved_source not in ALLOWED_TOKEN_SOURCES:
         raise HTTPException(400, f"token_source 必须是 {sorted(ALLOWED_TOKEN_SOURCES)} 之一")
     if str(token_type or "").strip().lower() == "operate" and not is_operate_token_eligible(token_type, resolved_source):
-        raise HTTPException(400, "操作号必须使用 System User 来源；如需保留个人号，请改为管理号或旧版个人号类型")
+        raise HTTPException(400, "操作号必须使用 System User 或 Meta 官方授权来源；如需保留个人号，请改为管理号或旧版个人号类型")
     return resolved_source
 
 
@@ -1281,7 +1282,7 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
         """INSERT INTO fb_tokens (
                token_alias, access_token_enc, token_type, token_source, status,
                last_verified_at, note, matrix_id, permission_snapshot, permission_checked_at, team_id, owner_user_id
-           ) VALUES (?,?,?,?,?,datetime('now','+8 hours'),?,?,?,datetime('now','+8 hours'),?)""",
+           ) VALUES (?,?,?,?,?,datetime('now','+8 hours'),?,?,?,datetime('now','+8 hours'),?,?)""",
         (body.token_alias, enc,
          actual_type_for_insert,
          resolved_source,
@@ -2389,7 +2390,8 @@ def list_accounts(user=Depends(get_current_user)):
         ]
         writable_tokens = [
             t for t in active_linked_tokens
-            if t.get("type") == "operate" and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) == TOKEN_SOURCE_SYSTEM_USER
+            if t.get("type") == "operate"
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER)
         ]
         d['manage_token_ok'] = any(t.get("type") == "manage" for t in active_linked_tokens)
         d['write_token_ok'] = bool(writable_tokens)
@@ -2397,11 +2399,13 @@ def list_accounts(user=Depends(get_current_user)):
         d['operate_token_total'] = sum(1 for t in d['linked_tokens'] if t.get("type") == "operate")
         d['write_token_total'] = sum(
             1 for t in d['linked_tokens']
-            if t.get("type") == "operate" and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) == TOKEN_SOURCE_SYSTEM_USER
+            if t.get("type") == "operate"
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER)
         )
         d['legacy_operate_token_total'] = sum(
             1 for t in d['linked_tokens']
-            if t.get("type") == "operate" and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) != TOKEN_SOURCE_SYSTEM_USER
+            if t.get("type") == "operate"
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) not in (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER)
         )
         d['primary_token_invalid'] = bool(
             d.get("token_alias") and d.get("token_status") and d.get("token_status") != "active"
@@ -2428,7 +2432,7 @@ def list_accounts(user=Depends(get_current_user)):
         elif not d['read_token_ok']:
             token_issue_reasons.append("没有可读取账户信息或关停兜底的活动 Token")
         if d['read_token_ok'] and not d['write_token_ok']:
-            token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 操作号")
+            token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 或 Meta 官方授权操作号")
         if d['legacy_operate_token_total']:
             token_issue_reasons.append("旧版个人操作号只参与读取展示，不参与写操作")
         d['token_issue_reasons'] = token_issue_reasons
@@ -2995,7 +2999,7 @@ def _compact_diag_error(error: object) -> str:
 @router.get("/{act_id}/permission-diagnostic")
 def diagnose_account_permission(act_id: str, user=Depends(get_current_user)):
     """Probe each relevant token for an account without creating or updating ads."""
-    from services.token_manager import TOKEN_SOURCE_SYSTEM_USER
+    from services.token_manager import TOKEN_SOURCE_OAUTH_USER, TOKEN_SOURCE_SYSTEM_USER
 
     conn = get_conn()
     ensure_token_source_columns(conn)
@@ -3131,13 +3135,13 @@ def diagnose_account_permission(act_id: str, user=Depends(get_current_user)):
             FROM fb_tokens t
             WHERE t.status='active'
               AND t.token_type='operate'
-              AND t.token_source=?
+              AND t.token_source IN (?, ?)
               AND t.matrix_id IN ({matrix_placeholders})
               {matrix_team_sql}
             ORDER BY t.matrix_id ASC, t.id ASC
             LIMIT 20
             """,
-            [TOKEN_SOURCE_SYSTEM_USER] + matrix_ids + matrix_team_params,
+            [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + matrix_ids + matrix_team_params,
         ).fetchall()
         for row in matrix_rows:
             if row["token_id"] not in by_token_id:
@@ -3158,7 +3162,7 @@ def diagnose_account_permission(act_id: str, user=Depends(get_current_user)):
         is_team_manage = "team_manage" in origins and is_manage
         is_system_operate = (
             item.get("type") == "operate"
-            and item.get("source") == TOKEN_SOURCE_SYSTEM_USER
+            and item.get("source") in (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER)
         )
         read = active and (is_bound or is_primary or is_manage or is_team_manage)
         pause = active and ((is_bound and is_system_operate) or is_manage or is_team_manage or is_primary)
@@ -3366,11 +3370,11 @@ def diagnose_account_permission(act_id: str, user=Depends(get_current_user)):
     elif not read_ok:
         recommended = "当前系统实际可用候选 Token 都读不到该广告账户；优先检查 BM 授权、账户归属和 Token 权限。"
     elif not create_ok:
-        recommended = "读取和巡检链路可用，但没有绑定可写的 System User 操作号；自动铺广告、预热、改预算会失败。"
+        recommended = "读取和巡检链路可用，但没有绑定可写的 System User 或 Meta 官方授权操作号；自动铺广告、预热、改预算会失败。"
     elif acc["page_id"] and not lead_ok:
         recommended = "广告账户写入候选可用，但主页或 Lead Form 条件不足；创建线索广告前请检查主页权限和表单权限。"
     else:
-        recommended = "权限链路正常：账户可读，且存在可写 System User 操作号。"
+        recommended = "权限链路正常：账户可读，且存在可写操作号。"
 
     return {
         "success": True,
@@ -3433,7 +3437,7 @@ def get_fb_pages(act_id: str, user=Depends(get_current_user)):
     """
     拉取自动铺广告可用主页列表。
 
-    注意：自动铺广告只会使用 ACTION_CREATE 的 System User 操作号，不会使用管理号或浏览器里的个人号。
+    注意：自动铺广告只会使用 ACTION_CREATE 的可写操作号（System User 或 Meta 官方授权），不会使用管理号或浏览器里的个人号。
     这里必须和创建广告的 Token 池保持一致，否则会出现“页面能选，AdSet 创建时报主页权限不足”。
     返回格式：[{id, name, category, can_use}]
     """
@@ -3533,7 +3537,7 @@ def get_fb_pages(act_id: str, user=Depends(get_current_user)):
         reserve=False,
     )
     if not create_candidates:
-        raise HTTPException(400, "该账户没有可用于自动铺广告的 System User 操作号，无法拉取可投主页")
+        raise HTTPException(400, "该账户没有可用于自动铺广告的可写操作号，无法拉取可投主页")
 
     # 只用自动铺广告实际可用的 CREATE token 拉取，合并去重。
     merged = {}

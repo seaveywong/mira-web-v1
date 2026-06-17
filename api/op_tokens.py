@@ -53,7 +53,7 @@ def _require_system_operate_token(conn, token_id: int, user, account_team_id=Non
     if token_row["status"] != "active":
         raise HTTPException(400, "该 Token 当前不是有效状态，不能加入操作号池")
     if not is_operate_token_eligible(token_row["token_type"], token_row["token_source"]):
-        raise HTTPException(400, "只有来源为 System User 的操作号 Token 才能加入操作号池")
+        raise HTTPException(400, "只有 System User 或 Meta 官方授权操作号 Token 才能加入操作号池")
     token_team_id = token_row["team_id"]
     if not _teams_compatible(account_team_id, token_team_id):
         raise HTTPException(403, "该 Token 与账户不属于同一团队，不能加入操作号池")
@@ -150,7 +150,7 @@ def bind_op_token(act_id: str, body: BindOpToken, user=Depends(get_current_user)
         conn.close()
 
     invalidate_token_cache(body.token_id)
-    return {"success": True, "message": f"System User 操作号已绑定到账户 {act_id}"}
+    return {"success": True, "message": f"可写操作号已绑定到账户 {act_id}"}
 
 
 @router.put("/{act_id}/{token_id}")

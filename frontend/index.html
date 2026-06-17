@@ -2291,7 +2291,10 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="page" id="page-tokens">
      <div class="ph">
       <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
-      <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
+      <div class="ph-acts">
+       <button class="btn btn-g role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
+       <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
+      </div>
      </div>
      <div id="tokensList"></div>
     </div>
@@ -2805,12 +2808,25 @@ select.fc option{background:#fff;color:#1d1d1f}
    <div class="fg"><label class="fl">Access Token <span class="req">*</span></label><input class="fc" id="tkVal" type="password" placeholder="EAAxxxx..."></div>
    <div class="fr">
     <div class="fg"><label class="fl">Token 类型</label><select class="fc" id="tkType" onchange="syncTokenTypeSource('tkType','tkSource','tkMatrix','tkMatrixCustom')"><option value="manage">管理号 Token（已绑定账户的主 Token）</option><option value="operate">操作号 Token（可加入操作号池）</option><option value="user">个人号（旧版兼容）</option></select></div>
-    <div class="fg"><label class="fl">Token 来源</label><select class="fc" id="tkSource"><option value="personal">个人用户</option><option value="system_user">System User</option><option value="page">主页 Token</option><option value="unknown">待确认</option></select><div style="font-size:11px;color:var(--t3);margin-top:4px">操作号必须使用 System User 来源</div></div>
+    <div class="fg"><label class="fl">Token 来源</label><select class="fc" id="tkSource"><option value="personal">个人用户</option><option value="system_user">System User</option><option value="oauth_user">Meta 官方授权</option><option value="page">主页 Token</option><option value="unknown">待确认</option></select><div style="font-size:11px;color:var(--t3);margin-top:4px">操作号必须使用 System User 或 Meta 官方授权来源</div></div>
     <div class="fg"><label class="fl">归属矩阵</label><select class="fc" id="tkMatrix" onchange="onMatrixSelectChanged('tkMatrix','tkMatrixCustom')"><option value="">-- 不分配矩阵 --</option><option value="1">矩阵 1</option><option value="2">矩阵 2</option><option value="3">矩阵 3</option></select><input class="fc" id="tkMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged('tkMatrix','tkMatrixCustom')"><div style="font-size:11px;color:var(--t3);margin-top:4px">可直接输入新的矩阵编号，不受预设矩阵限制</div></div>
    </div>
    <div class="fg"><label class="fl">备注</label><input class="fc" id="tkNote" placeholder="可选"></div>
   </div>
   <div class="mf"><button class="btn btn-g" onclick="closeModal('moAddToken')">取消</button><button class="btn btn-p" onclick="submitToken()">验证并添加</button></div>
+ </div>
+</div>
+<!-- Modal: Import Accounts -->
+<div class="mo" id="moMetaOAuth">
+ <div class="modal modal-lg">
+  <div class="mh"><h3>Meta 官方授权中心</h3><button class="mc" onclick="closeModal('moMetaOAuth')">✕</button></div>
+  <div class="mb" id="metaOAuthBody">
+   <div style="text-align:center;padding:30px;color:var(--t3)"><div class="spin" style="margin:0 auto 12px"></div>加载授权配置...</div>
+  </div>
+  <div class="mf">
+   <button class="btn btn-g" onclick="closeModal('moMetaOAuth')">关闭</button>
+   <button class="btn btn-p role-hide-viewer" id="metaOAuthStartBtn" onclick="startMetaOAuthConnect()">生成授权链接</button>
+  </div>
  </div>
 </div>
 <!-- Modal: Import Accounts -->
@@ -6301,7 +6317,7 @@ function _adsReasonText(r){
  var m={
   no_pause_token:'没有可用暂停 Token',
   no_update_token:'没有可写操作号',
-  no_system_user_operate_token:'没有 System User 操作号',
+  no_system_user_operate_token:'没有可写操作号',
   target_archived_or_deleted:'对象已归档/删除',
   already_paused:'已经暂停',
   already_active:'已经开启',
@@ -6935,7 +6951,7 @@ function _adsSkipLabel(reason){
  return {
   no_pause_token:'无暂停 Token',
   no_update_token:'无写操作号',
-  no_system_user_operate_token:'无 System User 操作号',
+  no_system_user_operate_token:'无可写操作号',
   target_archived_or_deleted:'已归档/删除',
   already_paused:'已经暂停',
   already_active:'已经开启',
@@ -7229,12 +7245,19 @@ async function loadLogs(){
 // ── Tokens ──
 var allTokensData=[];
 var tokenUiState={q:'',status:'all',type:'all',source:'all',open:{}};
+var _metaOAuthConfig=null;
+var _metaOAuthPopup=null;
+function isWritableOperateSourceKey(source){
+ var key=(source||'').toString().trim().toLowerCase();
+ return key==='system_user'||key==='oauth_user';
+}
 function getTokenSourceKey(t){
  return ((t&&t.token_source)||'').toString().trim().toLowerCase()||'unknown';
 }
 function getTokenSourceLabel(source){
  var key=(source||'unknown').toString().trim().toLowerCase();
  if(key==='system_user')return 'System User';
+ if(key==='oauth_user')return 'Meta 官方授权';
  if(key==='personal')return '个人用户';
  if(key==='page')return '主页 Token';
  return '待确认';
@@ -7242,24 +7265,125 @@ function getTokenSourceLabel(source){
 function getTokenSourceBadgeStyle(source){
  var key=(source||'unknown').toString().trim().toLowerCase();
  if(key==='system_user')return 'background:rgba(16,185,129,.14);color:#059669;border:1px solid rgba(16,185,129,.28)';
+ if(key==='oauth_user')return 'background:rgba(20,184,166,.14);color:#0f766e;border:1px solid rgba(20,184,166,.28)';
  if(key==='personal')return 'background:rgba(59,130,246,.12);color:#2563eb;border:1px solid rgba(59,130,246,.24)';
  if(key==='page')return 'background:rgba(245,158,11,.12);color:#d97706;border:1px solid rgba(245,158,11,.24)';
  return 'background:rgba(107,114,128,.12);color:#6b7280;border:1px solid rgba(107,114,128,.24)';
 }
 function isTokenOperateEligible(t){
- return (t&&t.token_type)==='operate'&&getTokenSourceKey(t)==='system_user';
+ return (t&&t.token_type)==='operate'&&isWritableOperateSourceKey(getTokenSourceKey(t));
 }
 function syncTokenTypeSource(typeId, sourceId, matrixSelId, matrixCustomId){
  var typeEl=document.getElementById(typeId);
  var sourceEl=document.getElementById(sourceId);
  if(!typeEl||!sourceEl)return;
- if(typeEl.value==='operate'){
+ if(typeEl.value==='operate'&&!isWritableOperateSourceKey(sourceEl.value)){
   sourceEl.value='system_user';
  }
  if(typeEl.value!=='operate'&&matrixSelId&&matrixCustomId){
   try{resetMatrixPicker(matrixSelId,matrixCustomId);}catch(e){}
  }
 }
+async function openMetaOAuthModal(){
+ openModal('moMetaOAuth');
+ var body=document.getElementById('metaOAuthBody');
+ if(body)body.innerHTML='<div style="text-align:center;padding:30px;color:var(--t3)"><div class="spin" style="margin:0 auto 12px"></div>加载授权配置...</div>';
+ try{
+  _metaOAuthConfig=await api('GET','/meta-oauth/config');
+  renderMetaOAuthModal(_metaOAuthConfig||{});
+ }catch(e){
+  if(body)body.innerHTML='<div class="empty"><p>加载 Meta 授权配置失败：'+escHtml(e.message||e)+'</p></div>';
+ }
+}
+function renderMetaOAuthModal(cfg){
+ cfg=cfg||{};
+ var body=document.getElementById('metaOAuthBody');
+ var startBtn=document.getElementById('metaOAuthStartBtn');
+ if(startBtn)startBtn.disabled=!cfg.configured;
+ var inherited=cfg.inherited_from_global?'<span class="badge bg-wa">使用全局 App</span>':'';
+ var status=cfg.configured?'<span class="badge bg-ok">已配置</span>':'<span class="badge bg-er">未配置</span>';
+ var configHtml='';
+ if(cfg.can_configure){
+  configHtml='<div class="panel-card" style="margin-bottom:14px">'+
+   '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px"><div><div style="font-weight:800">Meta App 配置</div><div style="font-size:12px;color:var(--t3);margin-top:3px">超管配置全局 App；团队管理员配置当前团队 App。App 需要 Live 且通过 ads_management / ads_read 等权限审核。</div></div><div>'+status+inherited+'</div></div>'+
+   '<div class="fr">'+
+    '<div class="fg"><label class="fl">配置名称</label><input class="fc" id="metaAppName" value="'+escHtml(cfg.name||'')+'" placeholder="如：Mira 官方授权 App"></div>'+
+    '<div class="fg"><label class="fl">App ID</label><input class="fc" id="metaAppId" value="'+escHtml(cfg.app_id||'')+'" placeholder="Facebook App ID"></div>'+
+    '<div class="fg"><label class="fl">App Secret</label><input class="fc" id="metaAppSecret" type="password" placeholder="'+(cfg.has_app_secret?'已保存，留空不修改':'Facebook App Secret')+'"></div>'+
+    '<div class="fg"><label class="fl">Graph 版本</label><input class="fc" id="metaGraphVersion" value="'+escHtml(cfg.graph_version||'v22.0')+'" placeholder="v22.0"></div>'+
+   '</div>'+
+   '<div class="fg"><label class="fl">回调地址</label><input class="fc" id="metaRedirectUri" value="'+escHtml(cfg.redirect_uri||'')+'"><div class="fh">需要在 Meta App OAuth Valid Redirect URIs 中完全一致填写。</div></div>'+
+   '<div class="fg"><label class="fl">授权范围</label><textarea class="fc" id="metaScopes" rows="2" style="resize:vertical">'+escHtml(cfg.scopes||'')+'</textarea><div class="fh">铺广告至少需要 ads_management；读取需要 ads_read；主页/表单建议保留 pages_show_list、pages_manage_ads、leads_retrieval。</div></div>'+
+   '<button class="btn btn-p" onclick="saveMetaOAuthConfig()">保存配置</button>'+
+  '</div>';
+ }else{
+  configHtml='<div class="panel-card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div style="font-weight:800">Meta App 配置</div><div style="font-size:12px;color:var(--t3);margin-top:3px">由超管或团队管理员维护。运营只需要点击授权。</div></div><div>'+status+inherited+'</div></div><div class="fh" style="margin-top:10px">回调地址：'+escHtml(cfg.redirect_uri||'--')+'</div></div>';
+ }
+ var connectHtml='<div class="panel-card">'+
+  '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px"><div><div style="font-weight:800">运营账号授权</div><div style="font-size:12px;color:var(--t3);margin-top:3px">授权成功后会生成 Meta 官方授权 Token，并自动匹配本团队/本人已导入账户。铺广告逻辑仍走现有账户和素材流程。</div></div><span class="badge" style="'+getTokenSourceBadgeStyle('oauth_user')+'">oauth_user</span></div>'+
+  '<div class="fr">'+
+   '<div class="fg"><label class="fl">Token 别名</label><input class="fc" id="metaTokenAlias" placeholder="如：vv 官方授权 / BM5 授权"></div>'+
+   '<div class="fg"><label class="fl">授权用途</label><select class="fc" id="metaTokenType"><option value="operate">操作号：铺广告/预热/预算/关停</option><option value="manage">管理号：读取/导入/兜底</option><option value="user">个人号：仅兼容保留</option></select></div>'+
+  '</div>'+
+  '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2)"><input type="checkbox" id="metaForceReauth" checked> 每次强制重新确认权限，避免缺少 ads_management 还误判可用</label>'+
+  '<div class="info-box" style="margin-top:12px">注意：这不是绕过 Meta API，而是标准 OAuth/Business Login。App 处于开发模式时，非开发者/测试用户仍可能无法授权；上线稳定使用需要 App 切到 Live 并完成权限审核。</div>'+
+ '</div>';
+ body.innerHTML=configHtml+connectHtml;
+}
+async function saveMetaOAuthConfig(){
+ var payload={
+  name:(document.getElementById('metaAppName')||{}).value||'',
+  app_id:(document.getElementById('metaAppId')||{}).value||'',
+  app_secret:(document.getElementById('metaAppSecret')||{}).value||'',
+  redirect_uri:(document.getElementById('metaRedirectUri')||{}).value||'',
+  scopes:(document.getElementById('metaScopes')||{}).value||'',
+  graph_version:(document.getElementById('metaGraphVersion')||{}).value||''
+ };
+ if(!payload.app_id.trim()){toast('请填写 App ID','wa');return}
+ if(!_metaOAuthConfig||!_metaOAuthConfig.has_app_secret){
+  if(!payload.app_secret.trim()){toast('请填写 App Secret','wa');return}
+ }
+ try{
+  toast('正在保存 Meta App 配置...','ac');
+  _metaOAuthConfig=await api('PATCH','/meta-oauth/config',payload);
+  toast('Meta App 配置已保存','ok');
+  renderMetaOAuthModal(_metaOAuthConfig||{});
+ }catch(e){toast('保存失败：'+(e.message||e),'er')}
+}
+async function startMetaOAuthConnect(){
+ if(!_metaOAuthConfig||!_metaOAuthConfig.configured){
+  toast('请先配置 Meta App','wa');
+  return;
+ }
+ var popup=window.open('about:blank','mira_meta_oauth');
+ if(!popup){
+  toast('浏览器拦截了授权窗口，请允许弹窗后重试','er');
+  return;
+ }
+ try{
+  popup.document.write('<div style="font-family:sans-serif;padding:24px">正在生成 Meta 授权链接...</div>');
+ }catch(e){}
+ var payload={
+  token_alias:(document.getElementById('metaTokenAlias')||{}).value||'',
+  token_type:(document.getElementById('metaTokenType')||{}).value||'operate',
+  force_reauth:!!((document.getElementById('metaForceReauth')||{}).checked)
+ };
+ try{
+  var r=await api('POST','/meta-oauth/connect-url',payload);
+  popup.location.href=r.auth_url;
+  toast('已打开 Meta 授权窗口，请完成授权','ok');
+ }catch(e){
+  try{popup.close();}catch(_e){}
+  toast('生成授权链接失败：'+(e.message||e),'er');
+ }
+}
+window.addEventListener('message',function(ev){
+ var data=ev&&ev.data?ev.data:{};
+ if(!data||data.type!=='mira_meta_oauth_success')return;
+ toast('Meta 官方授权完成，已自动匹配 '+(data.matched||0)+' 个账户','ok');
+ loadTokens();
+ if(typeof loadAccounts==='function')loadAccounts();
+});
 function syncTokenFiltersFromDom(){
  var qEl=document.getElementById('tokenSearch');
  var statusEl=document.getElementById('tokenStatusFilter');
@@ -7405,6 +7529,7 @@ function renderTokensView(){
    '<select class="fc" id="tokenSourceFilter" onchange="syncTokenFiltersFromDom();renderTokensView()" style="width:150px">'+
     '<option value="all"'+((tokenUiState.source||'all')==='all'?' selected':'')+'>全部来源</option>'+
     '<option value="system_user"'+((tokenUiState.source||'all')==='system_user'?' selected':'')+'>System User</option>'+
+    '<option value="oauth_user"'+((tokenUiState.source||'all')==='oauth_user'?' selected':'')+'>Meta 官方授权</option>'+
     '<option value="personal"'+((tokenUiState.source||'all')==='personal'?' selected':'')+'>个人用户</option>'+
     '<option value="page"'+((tokenUiState.source||'all')==='page'?' selected':'')+'>主页 Token</option>'+
     '<option value="unknown"'+((tokenUiState.source||'all')==='unknown'?' selected':'')+'>待确认</option>'+
@@ -7456,7 +7581,7 @@ function renderTokensView(){
    var sourceKey=getTokenSourceKey(t);
    var sourceLabel=getTokenSourceLabel(sourceKey);
    var sourceBadge='<span class="badge" style="'+getTokenSourceBadgeStyle(sourceKey)+'">'+sourceLabel+'</span>';
-   var operateWarning=t.token_type==='operate'&&!isTokenOperateEligible(t)?'<span class="badge bg-er" title="操作号现在只允许 System User 来源">需改为 System User</span>':'';
+   var operateWarning=t.token_type==='operate'&&!isTokenOperateEligible(t)?'<span class="badge bg-er" title="操作号只允许 System User 或 Meta 官方授权来源">需改来源</span>':'';
    var matrixLabel=t.matrix_id?'矩阵'+t.matrix_id:'';
    var matrixColor=t.matrix_id?(matrixColors[(t.matrix_id-1)%matrixColors.length]):'transparent';
    var matrixBadge=t.matrix_id?('<span style="background:'+matrixColor+';color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px">'+matrixLabel+'</span>'):'<span style="background:#374151;color:#9ca3af;border-radius:4px;padding:1px 7px;font-size:11px">未分配</span>';
@@ -7496,7 +7621,7 @@ async function submitToken(){
  var alias=document.getElementById('tkAlias').value.trim(),val=document.getElementById('tkVal').value.trim(),type=document.getElementById('tkType').value,source=document.getElementById('tkSource').value,note=document.getElementById('tkNote').value.trim();
  var matrixId=null;
  if(!alias||!val){toast('请填写别名和 Token','er');return}
- if(type==='operate'&&source!=='system_user'){toast('操作号必须使用 System User 来源','er');return}
+ if(type==='operate'&&!isWritableOperateSourceKey(source)){toast('操作号必须使用 System User 或 Meta 官方授权来源','er');return}
  try{matrixId=resolveMatrixId('tkMatrix','tkMatrixCustom');}catch(e){toast(e.message,'er');return}
  var payload={token_alias:alias,access_token:val,token_type:type,token_source:source,note:note};
  if(matrixId)payload.matrix_id=matrixId;
@@ -7505,7 +7630,7 @@ async function submitToken(){
   await api('POST','/accounts/tokens',payload);
   _cachedMatrices = null;
   resetMatrixPicker('tkMatrix','tkMatrixCustom');
-  var sourceEl=document.getElementById('tkSource');if(sourceEl)sourceEl.value='personal';
+ var sourceEl=document.getElementById('tkSource');if(sourceEl)sourceEl.value='personal';
   await fillMatrixSelects();
   toast('Token 添加成功！','ok');
   closeModal('moAddToken');
@@ -7542,7 +7667,7 @@ async function editTk(id, aliasEncoded, currentType, currentSource, noteEncoded,
    '<div class="fg"><label class="fl">新的 Access Token <span class="req">*</span></label><input class="fc" id="'+tokenId+'" type="password" placeholder="粘贴重新授权后的 Token"></div>'+
    '<div class="fr">'+
     '<div class="fg"><label class="fl">Token 类型</label><select class="fc" id="'+typeId+'" onchange="syncTokenTypeSource(\''+typeId+'\',\''+sourceId+'\',\''+matrixSelId+'\',\''+matrixCustomId+'\')"><option value="manage"'+(currentType==='manage'?' selected':'')+'>管理号 Token</option><option value="operate"'+(currentType==='operate'?' selected':'')+'>操作号 Token</option><option value="user"'+(currentType==='user'?' selected':'')+'>个人号</option></select></div>'+
-    '<div class="fg"><label class="fl">Token 来源</label><select class="fc" id="'+sourceId+'"><option value="personal"'+(sourceKey==='personal'?' selected':'')+'>个人用户</option><option value="system_user"'+(sourceKey==='system_user'?' selected':'')+'>System User</option><option value="page"'+(sourceKey==='page'?' selected':'')+'>主页 Token</option><option value="unknown"'+(sourceKey==='unknown'?' selected':'')+'>待确认</option></select><div style="font-size:11px;color:var(--t3);margin-top:4px">操作号必须使用 System User 来源</div></div>'+
+    '<div class="fg"><label class="fl">Token 来源</label><select class="fc" id="'+sourceId+'"><option value="personal"'+(sourceKey==='personal'?' selected':'')+'>个人用户</option><option value="system_user"'+(sourceKey==='system_user'?' selected':'')+'>System User</option><option value="oauth_user"'+(sourceKey==='oauth_user'?' selected':'')+'>Meta 官方授权</option><option value="page"'+(sourceKey==='page'?' selected':'')+'>主页 Token</option><option value="unknown"'+(sourceKey==='unknown'?' selected':'')+'>待确认</option></select><div style="font-size:11px;color:var(--t3);margin-top:4px">操作号必须使用 System User 或 Meta 官方授权来源</div></div>'+
     '<div class="fg"><label class="fl">归属矩阵</label><select class="fc" id="'+matrixSelId+'" onchange="onMatrixSelectChanged(\''+matrixSelId+'\',\''+matrixCustomId+'\')">'+matrixOptions+'</select><input class="fc" id="'+matrixCustomId+'" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\''+matrixSelId+'\',\''+matrixCustomId+'\')"></div>'+
    '</div>'+
    '<div class="fg"><label class="fl">备注</label><input class="fc" id="'+noteId+'" value="'+escHtml(note)+'" placeholder="可选"></div>'+
@@ -7573,7 +7698,7 @@ async function editTk(id, aliasEncoded, currentType, currentSource, noteEncoded,
   var newMatrix = null;
   if (!accessToken) { toast('请粘贴新的 Access Token', 'er'); return; }
   if (!newAlias) { toast('请填写 Token 别名', 'er'); return; }
-  if (newType === 'operate' && newSource !== 'system_user') { toast('操作号必须使用 System User 来源', 'er'); return; }
+  if (newType === 'operate' && !isWritableOperateSourceKey(newSource)) { toast('操作号必须使用 System User 或 Meta 官方授权来源', 'er'); return; }
   if (newType === 'operate') {
    try {
     newMatrix = resolveMatrixId(matrixSelId, matrixCustomId);
@@ -7634,11 +7759,11 @@ async function delTk(id){
  });
 }
 async function changeTkType(id,current){
- var opts=['manage:管理号（已绑定账户的主 Token）','operate:操作号（仅允许 System User）','user:个人号（旧版兼容）'];
+ var opts=['manage:管理号（已绑定账户的主 Token）','operate:操作号（System User / Meta 官方授权）','user:个人号（旧版兼容）'];
  var labels=opts.map(function(o,i){return (i+1)+'. '+o.split(':')[1]}).join('\n');
  var cur=current==='manage'?'1':current==='operate'?'2':'3';
  // 使用选择弹窗替代 prompt
- var _tkTypeMap={'manage':'管理号（已绑定账户的主 Token）','operate':'操作号（仅允许 System User）','user':'个人号（旧版兼容）'};
+ var _tkTypeMap={'manage':'管理号（已绑定账户的主 Token）','operate':'操作号（System User / Meta 官方授权）','user':'个人号（旧版兼容）'};
  var _tkTypeKeys=['manage','operate','user'];
  var _tkTypeSel=await new Promise(function(resolve){
   var moId='moTkType_'+Date.now();
@@ -7665,17 +7790,18 @@ async function changeTkType(id,current){
 async function changeTkSource(id,current,currentType){
  var sourceMap={
   system_user:'System User',
+  oauth_user:'Meta 官方授权',
   personal:'个人用户',
   page:'主页 Token',
   unknown:'待确认'
  };
- var sourceKeys=['system_user','personal','page','unknown'];
+ var sourceKeys=['system_user','oauth_user','personal','page','unknown'];
  var selected=await new Promise(function(resolve){
   var moId='moTkSource_'+Date.now();
   var mo=document.createElement('div');mo.className='mo';mo.id=moId;
   mo.innerHTML='<div class="modal" style="max-width:380px;width:92%">'+
    '<div class="mh"><h3 style="margin:0;font-size:15px">修改 Token 来源</h3><button class="mc">✕</button></div>'+
-   '<div class="mb" style="padding:16px 20px"><div style="font-size:12px;color:var(--t3);margin-bottom:10px">当前来源：<strong>'+escHtml(getTokenSourceLabel(current))+'</strong>'+(currentType==='operate'?'<br><span style="color:#d97706">操作号必须保持 System User 来源</span>':'')+'</div>'+
+   '<div class="mb" style="padding:16px 20px"><div style="font-size:12px;color:var(--t3);margin-bottom:10px">当前来源：<strong>'+escHtml(getTokenSourceLabel(current))+'</strong>'+(currentType==='operate'?'<br><span style="color:#d97706">操作号必须保持 System User 或 Meta 官方授权来源</span>':'')+'</div>'+
    sourceKeys.map(function(k){return '<button class="btn btn-g" style="width:100%;text-align:left;margin-bottom:8px;padding:10px 14px;font-size:13px" id="tkSourceBtn_'+k+'">'+sourceMap[k]+'</button>';}).join('')+
    '</div></div>';
   document.body.appendChild(mo);openModal(moId);
@@ -7685,7 +7811,7 @@ async function changeTkSource(id,current,currentType){
   document.getElementById(moId).querySelector('.mc').onclick=function(){closeModal(moId);setTimeout(function(){mo.remove();},300);resolve(null);};
  });
  if(!selected)return;
- if(currentType==='operate'&&selected!=='system_user'){toast('操作号必须使用 System User 来源','er');return;}
+ if(currentType==='operate'&&!isWritableOperateSourceKey(selected)){toast('操作号必须使用 System User 或 Meta 官方授权来源','er');return;}
  try{
   await api('PATCH','/accounts/tokens/'+id+'/source',{token_source:selected});
   toast('来源已更新','ok');
@@ -7876,7 +8002,7 @@ function getAccountTokenHealth(a){
  var linked=Array.isArray(a.linked_tokens)?a.linked_tokens:[];
  function isActive(t){return (t.active===true)||((t.bind_status||'active')==='active'&&(t.token_status||'active')==='active');}
  var manageOk=a.manage_token_ok===true||linked.some(function(t){return t.type==='manage'&&isActive(t);});
- var writeOk=a.write_token_ok===true||a.create_token_ok===true||a.update_token_ok===true||linked.some(function(t){return t.type==='operate'&&(t.source||'system_user')==='system_user'&&isActive(t);});
+ var writeOk=a.write_token_ok===true||a.create_token_ok===true||a.update_token_ok===true||linked.some(function(t){return t.type==='operate'&&isWritableOperateSourceKey(t.source||'system_user')&&isActive(t);});
  var operateOk=writeOk;
  var operateTotal=(a.operate_token_total!=null)?parseInt(a.operate_token_total,10):linked.filter(function(t){return t.type==='operate';}).length;
  if(!isFinite(operateTotal))operateTotal=0;
@@ -7903,7 +8029,7 @@ function renderAccountTokenStatusBadge(a){
  }
  if(!h.writeOk){
   var writeLabel=h.operateTotal>0?'写操作不可用':'无操作号';
-  badges.push('<span class="badge bg-wa" title="'+escHtml(reasons||'读取、巡检、关停可继续；创建广告、预算、限额需要有效的 System User 操作号')+'">'+writeLabel+'</span>');
+  badges.push('<span class="badge bg-wa" title="'+escHtml(reasons||'读取、巡检、关停可继续；创建广告、预算、限额需要有效的可写操作号')+'">'+writeLabel+'</span>');
  }
  return badges.join('');
 }
@@ -8128,7 +8254,7 @@ function _diagProbeBadge(probe, label){
 }
 function _diagTokenTypeLabel(t){
  var tm={manage:'管理号',operate:'操作号',user:'个人号',page:'主页Token',unknown:'未知'};
- var sm={system_user:'System User',personal:'个人',page:'主页',unknown:'未知'};
+ var sm={system_user:'System User',oauth_user:'Meta官方授权',personal:'个人',page:'主页',unknown:'未知'};
  return (tm[t.type]||t.type||'Token')+' · '+(sm[t.source]||t.source||'未知');
 }
 function _diagOriginText(origins){
@@ -8220,7 +8346,7 @@ async function showAccountPermissionDiagnostic(actId){
 async function repairAccountPermissionDiagnostic(actId){
  if(!actId)return;
  var ok=await confirmAsync(
-  '确定重新匹配账户 <b>'+escHtml(actId)+'</b> 的 Token 吗？<br><span style="color:var(--t3)">系统只会补齐同团队可见的管理号、System User 操作号和读取 Token，不会创建广告或修改预算。</span>',
+  '确定重新匹配账户 <b>'+escHtml(actId)+'</b> 的 Token 吗？<br><span style="color:var(--t3)">系统只会补齐同团队可见的管理号、可写操作号和读取 Token，不会创建广告或修改预算。</span>',
   '重新匹配',
   '取消',
   '权限修复'
@@ -8310,7 +8436,7 @@ async function loadOpPoolStatus(actId){
     :(opActive>0?'<span class="badge bg-ok">操作号：可用</span>':'<span class="badge bg-er">操作号：不可用</span>'));
   html+=opBadge+'<span style="font-size:11px;color:var(--t3);margin-left:4px">共 '+opTotal+' 个，可用 '+opActive+'，不可用 '+opInvalid+'</span>';
   if(opActive<=0){
-   html+='<span class="badge bg-wa" title="创建广告、改预算、设限额都需要有效的 System User 操作号" style="margin-left:8px">写操作不可用</span>';
+   html+='<span class="badge bg-wa" title="创建广告、改预算、设限额都需要有效的可写操作号" style="margin-left:8px">写操作不可用</span>';
   }
   el.innerHTML=html;
  }catch(e){
@@ -8584,14 +8710,14 @@ async function loadOpTokenOptions(){
  if(!sel)return;
  try{
   var tks=await api('GET','/accounts/tokens')||[];
-  var eligible=tks.filter(function(t){return t.status==='active'&&t.token_type==='operate'&&getTokenSourceKey(t)==='system_user';});
+  var eligible=tks.filter(function(t){return t.status==='active'&&t.token_type==='operate'&&isWritableOperateSourceKey(getTokenSourceKey(t));});
   var opts=eligible.map(function(t){
    var matrixText=t.matrix_id?(' · 矩阵'+t.matrix_id):'';
-   return '<option value="'+t.id+'">'+t.token_alias+' (System User 操作号'+matrixText+')</option>';
+   return '<option value="'+t.id+'">'+t.token_alias+' ('+getTokenSourceLabel(getTokenSourceKey(t))+' 操作号'+matrixText+')</option>';
   });
-  sel.innerHTML='<option value="">— 选择 System User 操作号 —</option>'+opts.join('');
+  sel.innerHTML='<option value="">— 选择可写操作号 —</option>'+opts.join('');
   if(!eligible.length){
-   sel.innerHTML='<option value="">暂无可绑定的 System User 操作号</option>';
+   sel.innerHTML='<option value="">暂无可绑定的可写操作号</option>';
   }
  }catch(e){}
 }

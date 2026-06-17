@@ -479,7 +479,7 @@ class AutoPilotEngine:
         detail = "；".join(failures[:5]) if failures else "没有可用操作号"
         raise Exception(
             f"当前自动铺广告操作号没有主页 {page_id} 的投放权限。"
-            "请在 BM 中把该主页的广告权限分配给 System User 操作号，"
+            "请在 BM 中把该主页的广告权限分配给 System User 或 Meta 官方授权操作号，"
             "或换一个操作号可投放的主页。检测结果："
             f"{detail}"
         )
