@@ -15184,11 +15184,22 @@ function renderLandingPublishOptions(){
  if(tp)tp.innerHTML=_lpTemplates.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('模板 '+t.id))+'</option>';}).join('');
  onLandingKindChanged();
 }
-function _landingMatrixBadgesFromUsage(usage){
+function _landingMatrixBadgesFromPage(page){
  var colors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
  var ids=[];
+ ((page&&page.linked_matrix_ids)||[]).forEach(function(mid){
+  mid=parseInt(mid,10);
+  if(mid>0&&ids.indexOf(mid)<0)ids.push(mid);
+ });
+ var usage=(page&&page.usage)||{};
  ((usage&&usage.accounts)||[]).forEach(function(a){
   (a.linked_matrix_ids||[]).forEach(function(mid){
+   mid=parseInt(mid,10);
+   if(mid>0&&ids.indexOf(mid)<0)ids.push(mid);
+  });
+ });
+ ((usage&&usage.campaigns)||[]).forEach(function(c){
+  (c.linked_matrix_ids||[]).forEach(function(mid){
    mid=parseInt(mid,10);
    if(mid>0&&ids.indexOf(mid)<0)ids.push(mid);
   });
@@ -15209,7 +15220,7 @@ function renderLandingPages(){
   var usage=p.usage||{};
   var usageTotal=parseInt(usage.total||0,10)||0;
   var usageBadge=usageTotal>0?'<span class="badge bg-wa" title="账户或投放任务仍在引用该链接">引用 '+usageTotal+'</span>':'<span class="badge bg-mu">未引用</span>';
-  var matrixBadges=_landingMatrixBadgesFromUsage(usage);
+  var matrixBadges=_landingMatrixBadgesFromPage(p);
   var link=p.public_url||(p.pages_url||'');
   var pagesUrl=p.pages_url||'';
   var linkHtml=link?'<a href="'+escHtml(link)+'" target="_blank" style="color:var(--ac)">'+escHtml(link)+'</a>':'<span style="color:var(--t3)">--</span>';

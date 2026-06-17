@@ -499,14 +499,20 @@ def _matrix_ids_for_account(conn, act_id: str) -> list[int]:
     candidates = [num, f"act_{num}"]
     try:
         rows = conn.execute(
-            """SELECT DISTINCT t.matrix_id
+            """SELECT t.matrix_id
+               FROM accounts a
+               JOIN fb_tokens t ON t.id=a.token_id
+               WHERE a.act_id IN (?,?)
+                 AND t.matrix_id IS NOT NULL
+               UNION
+               SELECT t.matrix_id
                FROM account_op_tokens aot
                JOIN fb_tokens t ON t.id=aot.token_id
                WHERE aot.act_id IN (?,?)
                  AND COALESCE(aot.status,'active')='active'
                  AND t.matrix_id IS NOT NULL
-               ORDER BY t.matrix_id""",
-            candidates,
+               ORDER BY matrix_id""",
+            candidates + candidates,
         ).fetchall()
     except Exception:
         return []
@@ -521,6 +527,17 @@ def _matrix_ids_for_account(conn, act_id: str) -> list[int]:
             seen.add(mid)
             out.append(mid)
     return out
+
+
+def _matrix_ids_for_accounts(conn, act_ids: list[str]) -> list[int]:
+    out = []
+    seen = set()
+    for act_id in _clean_act_ids(act_ids):
+        for mid in _matrix_ids_for_account(conn, act_id):
+            if mid > 0 and mid not in seen:
+                seen.add(mid)
+                out.append(mid)
+    return sorted(out)
 
 
 def _has_table(conn, table_name: str) -> bool:
@@ -884,6 +901,7 @@ def list_landing_pages(user=Depends(get_current_user)):
     pages = []
     for row in rows:
         item = _public_page(row)
+        item["linked_matrix_ids"] = _matrix_ids_for_accounts(conn, item.get("bound_act_ids") or [])
         item["usage"] = _landing_page_usage(conn, item, user)
         pages.append(item)
     conn.close()
