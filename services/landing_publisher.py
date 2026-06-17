@@ -98,6 +98,30 @@ def add_pages_custom_domain(api_token: str, account_id: str, project_name: str, 
         raise
 
 
+def list_pages_custom_domains(api_token: str, account_id: str, project_name: str) -> list[dict[str, Any]]:
+    project_name = sanitize_project_name(project_name)
+    result = cf_request(api_token, "GET", f"/accounts/{account_id}/pages/projects/{project_name}/domains")
+    if isinstance(result, list):
+        return [x for x in result if isinstance(x, dict)]
+    if isinstance(result, dict):
+        items = result.get("result") or result.get("domains") or []
+        if isinstance(items, list):
+            return [x for x in items if isinstance(x, dict)]
+    return []
+
+
+def get_pages_custom_domain_status(api_token: str, account_id: str, project_name: str, domain: str) -> dict:
+    domain = normalize_custom_domain(domain)
+    if not domain:
+        return {}
+    domains = list_pages_custom_domains(api_token, account_id, project_name)
+    for item in domains:
+        name = str(item.get("name") or item.get("domain") or "").strip().lower()
+        if name == domain:
+            return item
+    return {"name": domain, "status": "not_found"}
+
+
 def ensure_project(api_token: str, account_id: str, project_name: str) -> dict:
     project_name = sanitize_project_name(project_name)
     try:

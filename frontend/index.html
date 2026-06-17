@@ -5261,6 +5261,7 @@ async function fillMatrixSelects(){
  }
  applyOptions('tkMatrix', 'tkMatrixCustom', false);
  applyOptions('twNewMatrix2', 'twNewMatrixCustom2', true);
+ applyOptions('metaTokenMatrix', 'metaTokenMatrixCustom', false);
 }
 
 async function doLogin(){
@@ -7352,7 +7353,7 @@ function renderMetaOAuthModal(cfg){
   '<div class="meta-oauth-grid">'+
    '<div class="fg"><label class="fl">Token 别名</label><input class="fc" id="metaTokenAlias" placeholder="如：vv 官方授权 / BM5 授权"></div>'+
    '<div class="fg"><label class="fl">授权用途</label><select class="fc" id="metaTokenType"><option value="operate">操作号：铺广告/预热/预算/关停</option><option value="manage">管理号：读取/导入/兜底</option><option value="user">个人号：仅兼容保留</option></select></div>'+
-   '<div class="fg"><label class="fl">归属矩阵（可选）</label><input class="fc" id="metaTokenMatrix" type="number" min="1" step="1" placeholder="如：3"><div class="fh">仅操作号使用。用于同矩阵轮换/兜底，不填也会自动匹配已导入账户。</div></div>'+
+   '<div class="fg"><label class="fl">归属矩阵（可选）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh">仅操作号使用。用于同矩阵轮换/兜底，不填也会自动匹配已导入账户。</div></div>'+
   '</div>'+
   '<label class="meta-oauth-check"><input type="checkbox" id="metaForceReauth" checked><span>每次强制重新确认权限，避免账号没有勾选 ads_management 却被误判可用。</span></label>'+
   '<div class="meta-oauth-note">这是 Meta 标准 OAuth / Business Login，不是绕过 API。App 开发模式下仍需要手动把个号加入开发者/测试用户；正式稳定使用需要 App Live 和权限审核。</div>'+
@@ -7367,6 +7368,7 @@ function renderMetaOAuthModal(cfg){
   '</div>'+
  '</div>';
  body.innerHTML='<div class="meta-oauth-shell">'+configHtml+connectHtml+'</div>';
+ fillMatrixSelects();
 }
 async function saveMetaOAuthConfig(){
  var payload={
@@ -7398,9 +7400,12 @@ async function startMetaOAuthConnect(){
   token_type:(document.getElementById('metaTokenType')||{}).value||'operate',
   force_reauth:!!((document.getElementById('metaForceReauth')||{}).checked)
  };
- var matrixRaw=(document.getElementById('metaTokenMatrix')||{}).value||'';
- var matrixId=parseInt(matrixRaw,10);
- if(payload.token_type==='operate'&&isFinite(matrixId)&&matrixId>0)payload.matrix_id=matrixId;
+ if(payload.token_type==='operate'){
+  try{
+   var matrixId=resolveMatrixId('metaTokenMatrix','metaTokenMatrixCustom');
+   if(matrixId)payload.matrix_id=matrixId;
+  }catch(e){toast(e.message,'er');return;}
+ }
  try{
   toast('正在生成 Meta 授权链接...','ac');
   var r=await api('POST','/meta-oauth/connect-url',payload);
@@ -10013,7 +10018,7 @@ function filterLaunchAccounts(q){
  var kw=(q||'').toLowerCase();
  var filtered=kw?all.filter(function(a){
   var accId=a.act_id||a.id||'';
-  var matrix=(Array.isArray(a.linked_matrix_ids)?a.linked_matrix_ids:[]).map(function(mid){return '矩阵'+mid;}).join(' ');
+  var matrix=getAccountMatrixIds(a).map(function(mid){return '矩阵'+mid;}).join(' ');
   var reasons=Array.isArray(a.token_issue_reasons)?a.token_issue_reasons.join(' '):'';
   return [a.name||'',accId,a.currency||'',matrix,reasons].join(' ').toLowerCase().includes(kw);
  }):all;
@@ -10058,7 +10063,8 @@ function renderLaunchAccounts(){
    window._launchSelectedIds&&window._launchSelectedIds.delete(accId);
   }
   var checked=selIds.has(accId)?'checked':'';
-  var matrix=(Array.isArray(a.linked_matrix_ids)&&a.linked_matrix_ids.length)?('矩阵'+a.linked_matrix_ids.join('/')):'';
+  var matrixIds=getAccountMatrixIds(a);
+  var matrix=matrixIds.length?('矩阵'+matrixIds.join('/')):'';
   var statusText=blockReason||((a.currency||'USD').toUpperCase()+(matrix?' · '+matrix:''));
   htmlStr+='<label title="'+escHtml(blockReason||accId)+'" style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:'+(blockReason?'not-allowed':'pointer')+';font-size:13px;border-bottom:1px solid var(--bd);'+(blockReason?'opacity:.58;background:var(--bg3)':'')+'">'+
    '<input type="checkbox" class="launch-act-cb" value="'+escHtml(accId)+'" '+checked+' '+disabled+' onchange="_onLaunchActCbChange(\''+accId+'\',this.checked)" style="width:14px;height:14px;cursor:'+(blockReason?'not-allowed':'pointer')+'">'+
@@ -15113,11 +15119,19 @@ function renderLandingPages(){
   var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
   var status=p.status==='published'?'<span class="badge bg-ok">已发布</span>':p.status==='failed'?'<span class="badge bg-er">失败</span>':p.status==='archived'?'<span class="badge bg-mu">已归档</span>':'<span class="badge bg-wa">'+escHtml(p.status||'草稿')+'</span>';
   var flags=(p.worker_enabled?'<span class="badge bg-ac">Worker</span> ':'')+(p.tracking_enabled?'<span class="badge bg-ok">统计</span> ':'')+(p.protection_enabled?'<span class="badge bg-wa">防护</span> ':'');
+  var usage=p.usage||{};
+  var usageTotal=parseInt(usage.total||0,10)||0;
+  var usageBadge=usageTotal>0?'<span class="badge bg-wa" title="账户或投放任务仍在引用该链接">引用 '+usageTotal+'</span>':'<span class="badge bg-mu">未引用</span>';
   var link=p.public_url||(p.custom_domain?('https://'+p.custom_domain):(p.pages_url||''));
   var pagesUrl=p.pages_url||'';
   var linkHtml=link?'<a href="'+escHtml(link)+'" target="_blank" style="color:var(--ac)">'+escHtml(link)+'</a>':'<span style="color:var(--t3)">--</span>';
   if(p.custom_domain&&pagesUrl&&link!==pagesUrl){
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">Pages: '+escHtml(pagesUrl)+'</div>';
+  }
+  if(p.domain_status){
+   var ds=p.domain_status||{};
+   var dsText=ds.status||ds.verified||ds.validation_status||ds.name||'已复检';
+   linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">域名状态：'+escHtml(String(dsText))+'</div>';
   }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
@@ -15125,12 +15139,13 @@ function renderLandingPages(){
    '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单链接</span>':'<span class="badge bg-mu">普通落地页</span>')+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+escHtml(p.rotation_mode||'sequential')+(bound.length?' · 已绑定 '+bound.length:'')+'</td>'+
+   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+escHtml(p.rotation_mode||'sequential')+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px">'+usageBadge+'</div></td>'+
    '<td style="padding:10px 12px">'+status+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
     (link?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(link)+'\')">复制</button>':'')+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingStats('+p.id+')">统计</button>'+
-    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="archiveLandingPage('+p.id+')">归档</button>'+
+    (p.custom_domain?'<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="refreshLandingDomain('+p.id+')">域名</button>':'')+
+    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="archiveLandingPage('+p.id+','+(usageTotal>0?'false':'true')+')">'+(usageTotal>0?'归档':'删除记录')+'</button>'+
    '</td>'+
   '</tr>';
  }).join('');
@@ -15250,10 +15265,27 @@ async function publishLandingPage(){
   await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}
 }
-async function archiveLandingPage(id){
- var ok=await confirmDialog('确认归档这个落地页记录？Cloudflare 项目不会被删除，避免误删正在投放的链接。');
+async function refreshLandingDomain(id){
+ try{
+  toast('正在复检 Cloudflare 域名状态...','ac');
+  var r=await api('POST','/landing-pages/pages/'+id+'/refresh-domain',{});
+  var st=(r&&r.domain_status)||{};
+  var label=st.status||st.verified||st.name||'已获取';
+  toast('域名状态：'+label,'ok');
+  await loadLandingCenter(true);
+ }catch(e){toast('域名复检失败：'+(e.message||e),'er')}
+}
+async function archiveLandingPage(id,cleanup){
+ var msg=cleanup
+  ?'确认删除这个未引用的发布记录？Cloudflare Pages 项目不会被删除。'
+  :'确认归档这个仍被引用的落地页记录？Cloudflare 项目和账户链接不会被删除。';
+ var ok=await confirmDialog(msg);
  if(!ok)return;
- try{await api('DELETE','/landing-pages/pages/'+id);toast('已归档','ok');await loadLandingCenter(true)}catch(e){toast('归档失败：'+(e.message||e),'er')}
+ try{
+  await api('DELETE','/landing-pages/pages/'+id+(cleanup?'?cleanup=1':''));
+  toast(cleanup?'记录已删除':'已归档','ok');
+  await loadLandingCenter(true);
+ }catch(e){toast((cleanup?'删除':'归档')+'失败：'+(e.message||e),'er')}
 }
 async function showLandingStats(id){
  var panel=document.getElementById('landingStatsPanel');

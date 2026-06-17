@@ -17,6 +17,7 @@ from services.landing_publisher import (
     CloudflareError,
     add_pages_custom_domain,
     deploy_pages_static,
+    get_pages_custom_domain_status,
     list_pages_projects,
     normalize_custom_domain,
     prepare_template,
@@ -427,9 +428,110 @@ def _public_page(row) -> dict:
     item["worker_enabled"] = bool(item.get("worker_enabled"))
     custom_domain = (item.get("custom_domain") or "").strip()
     item["public_url"] = f"https://{custom_domain}" if custom_domain else (item.get("pages_url") or "")
+    raw_response = _json_loads(item.get("raw_response"), {})
+    if isinstance(raw_response, dict):
+        item["domain_status"] = raw_response.get("domain_status") or raw_response.get("custom_domain_result") or None
     item.pop("raw_response", None)
     item.pop("ingest_secret", None)
     return item
+
+
+def _normalize_url_for_match(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    return raw.rstrip("/").lower()
+
+
+def _page_url_candidates(item: dict) -> list[str]:
+    urls = []
+    pages_url = (item.get("pages_url") or "").strip()
+    custom_domain = (item.get("custom_domain") or "").strip()
+    public_url = (item.get("public_url") or "").strip()
+    if public_url:
+        urls.append(public_url)
+    if pages_url:
+        urls.append(pages_url)
+    if custom_domain:
+        urls.append(f"https://{custom_domain}")
+    out, seen = [], set()
+    for url in urls:
+        key = _normalize_url_for_match(url)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(url)
+    return out
+
+
+def _has_table(conn, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def _landing_page_usage(conn, item: dict, user) -> dict:
+    candidates = {_normalize_url_for_match(v) for v in _page_url_candidates(item)}
+    candidates.discard("")
+    usage = {"total": 0, "accounts": [], "campaigns": []}
+    if not candidates:
+        return usage
+
+    account_where, account_params = ["(COALESCE(a.landing_url,'')!='' OR COALESCE(a.form_link,'')!='')"], []
+    scoped_where, scoped_params = _scope_where(user, "a")
+    account_where.extend(scoped_where)
+    account_params.extend(scoped_params)
+    for row in conn.execute(
+        f"""SELECT a.id, a.act_id, a.name, a.landing_url, a.form_link
+            FROM accounts a
+            WHERE {' AND '.join(account_where)}
+            ORDER BY a.updated_at DESC LIMIT 800""",
+        account_params,
+    ).fetchall():
+        matched_fields = []
+        if _normalize_url_for_match(row["landing_url"]) in candidates:
+            matched_fields.append("landing_url")
+        if _normalize_url_for_match(row["form_link"]) in candidates:
+            matched_fields.append("form_link")
+        if matched_fields:
+            usage["accounts"].append({
+                "id": row["id"],
+                "act_id": row["act_id"],
+                "name": row["name"] or row["act_id"],
+                "fields": matched_fields,
+            })
+
+    if _has_table(conn, "auto_campaigns"):
+        try:
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(auto_campaigns)").fetchall()}
+        except Exception:
+            cols = set()
+        if "landing_url" in cols:
+            campaign_where, campaign_params = ["COALESCE(c.landing_url,'')!=''"], []
+            if not is_superadmin(user):
+                scoped_where, scoped_params = _scope_where(user, "a")
+                campaign_where.extend(scoped_where)
+                campaign_params.extend(scoped_params)
+            for row in conn.execute(
+                f"""SELECT c.id, c.act_id, c.name, c.status, c.landing_url
+                    FROM auto_campaigns c
+                    LEFT JOIN accounts a ON a.act_id=c.act_id
+                    WHERE {' AND '.join(campaign_where)}
+                    ORDER BY c.updated_at DESC LIMIT 800""",
+                campaign_params,
+            ).fetchall():
+                if _normalize_url_for_match(row["landing_url"]) in candidates:
+                    usage["campaigns"].append({
+                        "id": row["id"],
+                        "act_id": row["act_id"],
+                        "name": row["name"] or f"Campaign {row['id']}",
+                        "status": row["status"] or "",
+                    })
+    usage["total"] = len(usage["accounts"]) + len(usage["campaigns"])
+    usage["accounts"] = usage["accounts"][:20]
+    usage["campaigns"] = usage["campaigns"][:20]
+    return usage
 
 
 def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
@@ -709,8 +811,13 @@ def list_landing_pages(user=Depends(get_current_user)):
     sql += " ORDER BY p.id DESC LIMIT 200"
     conn = get_conn()
     rows = conn.execute(sql, params).fetchall()
+    pages = []
+    for row in rows:
+        item = _public_page(row)
+        item["usage"] = _landing_page_usage(conn, item, user)
+        pages.append(item)
     conn.close()
-    return [_public_page(r) for r in rows]
+    return pages
 
 
 @router.post("/publish")
@@ -895,14 +1002,74 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         conn.close()
 
 
-@router.delete("/pages/{page_id}")
-def archive_landing_page(page_id: int, user=Depends(get_current_user)):
+@router.post("/pages/{page_id}/refresh-domain")
+def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
     conn = get_conn()
-    _assert_page_access(conn, page_id, user)
+    page = _assert_page_access(conn, page_id, user)
+    custom_domain = (page.get("custom_domain") or "").strip()
+    if not custom_domain:
+        conn.close()
+        raise HTTPException(status_code=400, detail="This landing page has no custom domain")
+    token_id = page.get("cf_token_id")
+    if not token_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="This landing page has no Cloudflare token")
+    token_row = _assert_token_access(conn, int(token_id), user)
+    try:
+        raw_token = decrypt_token(token_row["access_token_enc"])
+        status = get_pages_custom_domain_status(
+            raw_token,
+            page.get("cf_account_id") or token_row.get("cf_account_id"),
+            page.get("project_name") or "",
+            custom_domain,
+        )
+        raw_payload = _json_loads(page.get("raw_response"), {})
+        if not isinstance(raw_payload, dict):
+            raw_payload = {}
+        raw_payload["domain_status"] = status
+        detail = json.dumps(status, ensure_ascii=False)
+        last_error = "" if (status.get("status") or "").lower() not in {"not_found", "error"} else detail
+        conn.execute(
+            """UPDATE landing_pages
+               SET last_error=?, raw_response=?, updated_at=datetime('now','+8 hours')
+               WHERE id=?""",
+            (last_error, json.dumps(raw_payload, ensure_ascii=False), page_id),
+        )
+        conn.commit()
+        updated = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
+        item = _public_page(updated)
+        item["domain_status"] = status
+        item["usage"] = _landing_page_usage(conn, item, user)
+        return {"success": True, "page": item, "domain_status": status}
+    except Exception as exc:
+        conn.execute(
+            "UPDATE landing_pages SET last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+            (f"Domain status refresh failed: {exc}", page_id),
+        )
+        conn.commit()
+        raise HTTPException(status_code=400, detail=f"Domain status refresh failed: {exc}") from exc
+    finally:
+        conn.close()
+
+
+@router.delete("/pages/{page_id}")
+def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_current_user)):
+    conn = get_conn()
+    page = _assert_page_access(conn, page_id, user)
+    item = _public_page(page)
+    usage = _landing_page_usage(conn, item, user)
+    if cleanup:
+        if usage["total"] > 0:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Landing page is still in use by {usage['total']} resource(s)")
+        conn.execute("DELETE FROM landing_pages WHERE id=?", (page_id,))
+        conn.commit()
+        conn.close()
+        return {"success": True, "deleted": True, "usage": usage}
     conn.execute("UPDATE landing_pages SET status='archived', updated_at=datetime('now','+8 hours') WHERE id=?", (page_id,))
     conn.commit()
     conn.close()
-    return {"success": True}
+    return {"success": True, "archived": True, "usage": usage}
 
 
 @router.post("/events/ingest")
