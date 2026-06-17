@@ -597,6 +597,81 @@ def _resolve_account_info(
     return {"ok": False, "act_id": normalized_act_id, "error": reason, "errors": errors}
 
 
+def _resolve_account_info_for_smart_import(act_id: str, user: dict) -> dict:
+    normalized_act_id = _normalize_act_id(act_id)
+    claims = normalize_user_claims(user)
+    if not claims.get("is_superadmin"):
+        team_id = team_id_for_create(user)
+        result = _resolve_account_info(
+            normalized_act_id,
+            require_manage_read=True,
+            team_id=team_id,
+        )
+        if result.get("ok"):
+            result["read_team_id"] = team_id
+        return result
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, access_token_enc, token_alias, token_type, token_source, team_id
+            FROM fb_tokens
+            WHERE status='active'
+              AND token_type='manage'
+              AND access_token_enc IS NOT NULL
+            ORDER BY CASE WHEN team_id IS NULL THEN 1 ELSE 0 END, id ASC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return {"ok": False, "act_id": normalized_act_id, "error": "no_manage_read_token", "errors": []}
+
+    def _try_row(row):
+        try:
+            plain = decrypt_token(row["access_token_enc"])
+            info = _fetch_single_account(normalized_act_id, plain)
+            if "error" not in info:
+                return {
+                    "ok": True,
+                    "info": info,
+                    "read_token_id": row["id"],
+                    "read_token_type": row["token_type"],
+                    "read_source": "smart_manage_pool",
+                    "read_alias": row["token_alias"],
+                    "read_team_id": row["team_id"],
+                }
+            return {
+                "ok": False,
+                "token_id": row["id"],
+                "type": row["token_type"],
+                "source": "smart_manage_pool",
+                "error": info.get("error"),
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "token_id": row["id"],
+                "type": row["token_type"],
+                "source": "smart_manage_pool",
+                "error": str(exc),
+            }
+
+    errors = []
+    with ThreadPoolExecutor(max_workers=min(8, len(rows))) as executor:
+        futures = [executor.submit(_try_row, row) for row in rows]
+        for future in as_completed(futures):
+            result = future.result()
+            if result.get("ok"):
+                return result
+            errors.append(result)
+
+    reason = errors[-1].get("error") if errors else "no_manage_read_token"
+    return {"ok": False, "act_id": normalized_act_id, "error": reason or "no_manage_read_token", "errors": errors}
+
+
 def _extract_graph_error(data: dict, fallback: str = "FB API error") -> str:
     if not isinstance(data, dict):
         return fallback
@@ -946,6 +1021,17 @@ class AccountImport(BaseModel):
     token_id: Optional[int] = None  # 路由参数已包含 token_id，body 中可选
     page_id: Optional[str] = None    # 批量导入时统一设置主页ID
     pixel_id: Optional[str] = None   # 批量导入时统一设置像素ID
+
+
+def _normalize_import_act_ids(raw_act_ids: List[str]) -> List[str]:
+    act_ids = []
+    seen_act_ids = set()
+    for raw_act_id in raw_act_ids or []:
+        act_id = _normalize_act_id(raw_act_id)
+        if act_id and act_id not in seen_act_ids:
+            seen_act_ids.add(act_id)
+            act_ids.append(act_id)
+    return act_ids
 
 
 class AccountUpdate(BaseModel):
@@ -1927,13 +2013,7 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
     """
     if not body.act_ids:
         return {"success": True, "imported": [], "skipped": []}
-    act_ids = []
-    seen_act_ids = set()
-    for raw_act_id in body.act_ids:
-        act_id = _normalize_act_id(raw_act_id)
-        if act_id and act_id not in seen_act_ids:
-            seen_act_ids.add(act_id)
-            act_ids.append(act_id)
+    act_ids = _normalize_import_act_ids(body.act_ids)
     if not act_ids:
         return {"success": True, "imported": [], "skipped": []}
 
@@ -2182,6 +2262,156 @@ def import_accounts(token_id: int, body: AccountImport, user=Depends(get_current
     if failed and not imported and not skipped:
         first = failed[0]
         raise HTTPException(400, f"导入失败：无法读取账户 {first.get('act_id')}（{first.get('error')}）")
+    return {"success": True, "imported": imported, "skipped": skipped, "failed": failed, "auto_match": auto_match_result}
+
+
+@router.post("/import-accounts-auto")
+def smart_import_accounts(body: AccountImport, user=Depends(get_current_user)):
+    """Import accounts by ad account id without forcing the operator to pick a token first."""
+    if not body.act_ids:
+        return {"success": True, "imported": [], "skipped": [], "failed": [], "auto_match": {}}
+    act_ids = _normalize_import_act_ids(body.act_ids)
+    if not act_ids:
+        return {"success": True, "imported": [], "skipped": [], "failed": [], "auto_match": {}}
+
+    account_infos = {}
+    read_meta = {}
+    failed = []
+    with ThreadPoolExecutor(max_workers=min(10, len(act_ids))) as executor:
+        futures = {
+            executor.submit(_resolve_account_info_for_smart_import, act_id, user): act_id
+            for act_id in act_ids
+        }
+        for future in as_completed(futures):
+            act_id = futures[future]
+            resolved = future.result()
+            if resolved.get("ok"):
+                account_infos[act_id] = resolved["info"]
+                read_meta[act_id] = resolved
+            else:
+                failed.append({"act_id": act_id, "error": resolved.get("error") or "no_manage_read_token"})
+
+    imported = []
+    skipped = []
+    import_owner_user_id = _owner_user_id_for_import(user)
+    claims = normalize_user_claims(user)
+    fixed_team_id = None if claims.get("is_superadmin") else team_id_for_create(user)
+    match_groups: dict[Optional[int], list[str]] = {}
+
+    conn = get_conn()
+    try:
+        _ensure_account_read_columns(conn)
+        existing_rows = {
+            r["act_id"]: dict(r)
+            for r in conn.execute("SELECT id, act_id, team_id, owner_user_id FROM accounts").fetchall()
+        }
+
+        for act_id in act_ids:
+            info = account_infos.get(act_id)
+            if not info:
+                continue
+            meta = read_meta.get(act_id, {})
+            resolved_team_id = fixed_team_id if fixed_team_id is not None else meta.get("read_team_id")
+            read_token_id = meta.get("read_token_id")
+            existing = existing_rows.get(act_id)
+            if existing:
+                existing_team_id = existing.get("team_id")
+                if (
+                    fixed_team_id is not None
+                    and existing_team_id is not None
+                    and existing_team_id != fixed_team_id
+                ):
+                    failed.append({"act_id": act_id, "error": "account_belongs_to_another_team"})
+                    continue
+                existing_owner_id = existing.get("owner_user_id")
+                if (
+                    import_owner_user_id is not None
+                    and existing_owner_id is not None
+                    and int(existing_owner_id) != import_owner_user_id
+                ):
+                    failed.append({"act_id": act_id, "error": "account_belongs_to_another_operator"})
+                    continue
+                updates = []
+                update_params = []
+                if resolved_team_id is not None and existing_team_id is None:
+                    updates.append("team_id=?")
+                    update_params.append(resolved_team_id)
+                if read_token_id:
+                    updates.append("token_id=COALESCE(token_id,?)")
+                    update_params.append(read_token_id)
+                if import_owner_user_id is not None and existing_owner_id is None:
+                    updates.append("owner_user_id=?")
+                    update_params.append(import_owner_user_id)
+                if updates:
+                    updates.append("updated_at=datetime('now')")
+                    update_params.append(existing["id"])
+                    conn.execute(
+                        f"UPDATE accounts SET {', '.join(updates)} WHERE id=?",
+                        update_params,
+                    )
+                skipped.append(act_id)
+                match_team_id = existing_team_id if existing_team_id is not None else resolved_team_id
+                match_groups.setdefault(match_team_id, []).append(act_id)
+                continue
+
+            conn.execute(
+                """INSERT INTO accounts (
+                       act_id, name, currency, timezone, timezone_name, timezone_offset_hours_utc,
+                       token_id, enabled, balance, account_status, spend_cap, page_id, pixel_id,
+                       amount_spent, spending_limit, team_id, owner_user_id
+                   )
+                   VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
+                (
+                    act_id,
+                    info.get("name", act_id),
+                    info.get("currency", "USD"),
+                    info.get("timezone", "UTC"),
+                    info.get("timezone_name") or info.get("timezone", "UTC"),
+                    info.get("timezone_offset_hours_utc"),
+                    read_token_id,
+                    info.get("balance"),
+                    info.get("account_status", 1),
+                    info.get("spend_cap"),
+                    body.page_id or info.get("page_id"),
+                    body.pixel_id or info.get("pixel_id"),
+                    info.get("amount_spent"),
+                    info.get("spending_limit"),
+                    resolved_team_id,
+                    import_owner_user_id,
+                ),
+            )
+            imported.append({
+                "act_id": act_id,
+                "name": info.get("name", act_id),
+                "read_token_id": read_token_id,
+                "read_token_type": meta.get("read_token_type"),
+                "read_source": meta.get("read_source"),
+            })
+            match_groups.setdefault(resolved_team_id, []).append(act_id)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, f"smart import failed: {str(e)}")
+    finally:
+        conn.close()
+
+    auto_match_result = {"matched": 0, "restored": 0, "already_linked": 0, "token_checked": 0, "token_failed": 0}
+    for team_id, group_act_ids in match_groups.items():
+        try:
+            result = _auto_link_tokens_for_accounts(
+                group_act_ids,
+                user,
+                team_id=team_id,
+                note="smart_import_auto_match",
+            )
+            for key in ("matched", "restored", "already_linked", "token_checked", "token_failed"):
+                auto_match_result[key] += int(result.get(key) or 0)
+        except Exception as exc:
+            logger.warning("[SmartImport] auto match failed team_id=%s: %s", team_id, exc)
+
+    if failed and not imported and not skipped:
+        first = failed[0]
+        raise HTTPException(400, f"smart import failed: cannot read account {first.get('act_id')} ({first.get('error')})")
     return {"success": True, "imported": imported, "skipped": skipped, "failed": failed, "auto_match": auto_match_result}
 
 

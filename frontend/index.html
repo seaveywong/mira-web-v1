@@ -2420,7 +2420,8 @@ select.fc option{background:#fff;color:#1d1d1f}
        </select>
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
-       <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
+        <button class="btn btn-g btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取的管理号 Token 并补齐关联">智能导入</button>
+        <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
        <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
@@ -3832,7 +3833,7 @@ function _fmtActionLogTime(s){
  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)&&!(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)))return raw.replace('T',' ').slice(0,16);
  return _cst(raw);
 }
-var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],_teamResAllUsers=[],ruleMode='guard',importTkId=null,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null,_globalMirrorEnabled=false;
+var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],_teamResAllUsers=[],ruleMode='guard',importTkId=null,importAutoMode=false,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null,_globalMirrorEnabled=false;
 var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',ts:0}, _adsLoadSeq=0, ADS_CACHE_MS=60000;
 
 // ── API ──
@@ -7965,6 +7966,7 @@ function clearAllSel(){
  document.getElementById('btnImport').disabled=true;
 }
 function switchImportTab(tab){
+ if(importAutoMode&&tab==='fb')tab='direct';
  var isFb=tab==='fb';
  document.getElementById('importPanelFb').style.display=isFb?'block':'none';
  document.getElementById('importPanelDirect').style.display=isFb?'none':'block';
@@ -8001,12 +8003,28 @@ function parseDirectIds(){
   infoEl.style.color='var(--t3)';
   btnEl.disabled=true;
   cntEl.textContent='\u5df2\u9009 0 \u4e2a';
-  btnEl.textContent='\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
+  btnEl.textContent=importAutoMode?'智能导入账户':'\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
  }
  return ids;
 }
+function openSmartImportAccounts(){
+ importAutoMode=true;importTkId=null;selAccs.clear();_allFetchedAccs=[];
+ var title=document.getElementById('importTitle');if(title)title.textContent='智能导入广告账户';
+ var fbTab=document.getElementById('importTabFb');if(fbTab)fbTab.style.display='none';
+ var directTab=document.getElementById('importTabDirect');if(directTab){directTab.style.display='inline-block';directTab.textContent='直接输入 ID';}
+ var input=document.getElementById('directActIds');if(input)input.value='';
+ var info=document.getElementById('directParseInfo');if(info){info.textContent='输入账户 ID 后，系统会自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联';info.style.color='var(--t3)';}
+ openModal('moImport');
+ switchImportTab('direct');
+ parseDirectIds();
+ var hint=document.getElementById('directParseInfo');
+ if(hint){hint.textContent='输入账户 ID 后，系统会自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联';hint.style.color='var(--t3)';}
+}
 async function fetchAccs(tkId){
- importTkId=tkId;selAccs.clear();_allFetchedAccs=[];
+ importAutoMode=false;importTkId=tkId;selAccs.clear();_allFetchedAccs=[];
+ var title=document.getElementById('importTitle');if(title)title.textContent='导入广告账户';
+ var fbTab=document.getElementById('importTabFb');if(fbTab)fbTab.style.display='inline-block';
+ var directTab=document.getElementById('importTabDirect');if(directTab){directTab.style.display='inline-block';directTab.textContent='⌨ 直接输入 ID';}
  switchImportTab('fb');
  document.getElementById('importInfo').textContent='\u6b63\u5728\u62c9\u53d6\u8d26\u6237\u5217\u8868\uff0c\u8bf7\u7a0d\u5019...';
  document.getElementById('accPicker').innerHTML='<div style="text-align:center;padding:30px"><div class="spin" style="margin:0 auto"></div></div>';
@@ -8048,9 +8066,10 @@ async function doImport(){
   if(!selAccs.size){toast('请先选择账户','er');return}
   ids=Array.from(selAccs);
  }
- btn.disabled=true;btn.textContent='导入中...';
- try{
-  var r=await api('POST','/accounts/tokens/'+importTkId+'/import-accounts',{act_ids:ids});
+  btn.disabled=true;btn.textContent='导入中...';
+  try{
+   var endpoint=(isDirect&&(importAutoMode||!importTkId))?'/accounts/import-accounts-auto':'/accounts/tokens/'+importTkId+'/import-accounts';
+   var r=await api('POST',endpoint,{act_ids:ids});
   var importedCount=(r.imported&&r.imported.length!=null)?r.imported.length:(r.count||ids.length);
   var skippedCount=(r.skipped&&r.skipped.length)||0;
   var failedCount=(r.failed&&r.failed.length)||0;
@@ -8065,7 +8084,7 @@ async function doImport(){
   toast(msg,failedCount>0?'wa':'ok');
   closeModal('moImport');loadAccounts();loadAccsPage();
  }catch(e){toast('导入失败：'+e.message,'er')}
- btn.disabled=false;btn.textContent='导入选中账户';
+ btn.disabled=false;btn.textContent=importAutoMode?'智能导入账户':'导入选中账户';
 }
 
 // ── Accounts Page ──
