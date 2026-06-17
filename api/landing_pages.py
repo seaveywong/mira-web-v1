@@ -464,6 +464,38 @@ def _page_url_candidates(item: dict) -> list[str]:
     return out
 
 
+def _matrix_ids_for_account(conn, act_id: str) -> list[int]:
+    raw = str(act_id or "").strip()
+    if not raw:
+        return []
+    num = raw[4:] if raw.startswith("act_") else raw
+    candidates = [num, f"act_{num}"]
+    try:
+        rows = conn.execute(
+            """SELECT DISTINCT t.matrix_id
+               FROM account_op_tokens aot
+               JOIN fb_tokens t ON t.id=aot.token_id
+               WHERE aot.act_id IN (?,?)
+                 AND COALESCE(aot.status,'active')='active'
+                 AND t.matrix_id IS NOT NULL
+               ORDER BY t.matrix_id""",
+            candidates,
+        ).fetchall()
+    except Exception:
+        return []
+    out = []
+    seen = set()
+    for row in rows:
+        try:
+            mid = int(row["matrix_id"])
+        except Exception:
+            continue
+        if mid > 0 and mid not in seen:
+            seen.add(mid)
+            out.append(mid)
+    return out
+
+
 def _has_table(conn, table_name: str) -> bool:
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -501,6 +533,7 @@ def _landing_page_usage(conn, item: dict, user) -> dict:
                 "act_id": row["act_id"],
                 "name": row["name"] or row["act_id"],
                 "fields": matched_fields,
+                "linked_matrix_ids": _matrix_ids_for_account(conn, row["act_id"]),
             })
 
     if _has_table(conn, "auto_campaigns"):
@@ -528,6 +561,7 @@ def _landing_page_usage(conn, item: dict, user) -> dict:
                         "act_id": row["act_id"],
                         "name": row["name"] or f"Campaign {row['id']}",
                         "status": row["status"] or "",
+                        "linked_matrix_ids": _matrix_ids_for_account(conn, row["act_id"]),
                     })
     usage["total"] = len(usage["accounts"]) + len(usage["campaigns"])
     usage["accounts"] = usage["accounts"][:20]
@@ -735,6 +769,8 @@ def preflight_landing_page(body: LandingPublishReq, user=Depends(get_current_use
     title = (body.title or "").strip()
     urls = [u.strip() for u in body.target_urls if u and u.strip()]
     rules = _safe_rules(body.protection_rules)
+    link_kind = (body.link_kind or "landing").strip().lower()
+    bind_target = (body.bind_target or "none").strip().lower()
     custom_domain = ""
     custom_domain_error = ""
     try:
@@ -757,6 +793,12 @@ def preflight_landing_page(body: LandingPublishReq, user=Depends(get_current_use
         checks.append({"key": "target_urls", "status": "fail" if bad_urls else "pass", "label": "按钮跳转链接", "detail": f"{len(urls)} 个链接" + (f"，{len(bad_urls)} 个格式异常" if bad_urls else "")})
     else:
         checks.append({"key": "target_urls", "status": "fail", "label": "按钮跳转链接", "detail": "至少填写一个跳转链接"})
+    if link_kind == "form":
+        checks.append({"key": "link_kind", "status": "pass", "label": "表单投放链接", "detail": "访问根路径会直接按轮询策略 302 跳转，不展示落地页正文"})
+        if bind_target == "landing":
+            checks.append({"key": "bind_target", "status": "warn", "label": "绑定位置", "detail": "当前是表单链接模式，建议绑定到账户表单链接，避免铺 Lead Form 时取不到链接"})
+    else:
+        checks.append({"key": "link_kind", "status": "pass", "label": "普通落地页", "detail": "访问时展示模板，按钮点击后按轮询策略跳转"})
     if body.tracking_enabled:
         checks.append({"key": "tracking", "status": "pass", "label": "边缘统计", "detail": "将通过 Cloudflare Worker 同域采集访问、点击、跳转、拦截事件"})
     if body.protection_enabled:
@@ -868,7 +910,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
             (
                 title,
                 link_kind,
-                1 if body.form_link_enabled else 0,
+                1 if (body.form_link_enabled or link_kind == "form") else 0,
                 body.template_id,
                 body.token_id,
                 cf_account_id,
@@ -967,7 +1009,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
                 (
                     title,
                     link_kind,
-                    1 if body.form_link_enabled else 0,
+                    1 if (body.form_link_enabled or link_kind == "form") else 0,
                     body.template_id,
                     body.token_id,
                     cf_account_id,
@@ -1179,6 +1221,13 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
             params,
         ).fetchall()
     ]
+    by_hour = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT substr(created_at,1,13) || ':00' AS hour, event_type, COUNT(*) AS cnt FROM landing_events WHERE page_id=? AND created_at>=? GROUP BY hour,event_type ORDER BY hour",
+            params,
+        ).fetchall()
+    ]
     recent = [
         dict(r)
         for r in conn.execute(
@@ -1204,5 +1253,6 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
         "by_country": by_country,
         "by_device": by_device,
         "by_day": by_day,
+        "by_hour": by_hour,
         "recent": recent,
     }
