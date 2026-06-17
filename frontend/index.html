@@ -2716,7 +2716,7 @@ select.fc option{background:#fff;color:#1d1d1f}
    </div>
    <div class="landing-form-section">
     <div class="landing-section-title">跳转与绑定</div>
-    <div class="fg"><label class="fl">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个 WhatsApp / 跳转链接；发布后页面按轮询策略跳转"></textarea></div>
+    <div class="fg"><label class="fl" id="lpTargetsLabel">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个 WhatsApp / 跳转链接；发布后页面按轮询策略跳转"></textarea></div>
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select><div class="fh" id="lpBindHint">普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。</div></div>
      <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，可写 act_ 前缀"></textarea></div>
@@ -15370,6 +15370,15 @@ function renderLandingPages(){
    var dsText=ds.status||ds.verified||ds.validation_status||ds.name||'已复检';
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">域名状态：'+escHtml(String(dsText))+'</div>';
   }
+  var copyBtns='';
+  if(link)copyBtns+='<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(link)+'\')" title="复制当前会被绑定到账户的主链接">复制主链接</button>';
+  if(p.custom_domain){
+   var customUrl='https://'+p.custom_domain;
+   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(customUrl)+'\')" title="复制自定义域名链接，域名未验证时请先完成 DNS/复检">复制自定义域</button>';
+  }
+  if(p.pages_url&&(!link||link!==p.pages_url)){
+   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.pages_url)+'\')" title="复制 Cloudflare Pages 备用域">复制备用域</button>';
+  }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
    '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+(matrixBadges?' '+matrixBadges:'')+'</div>'+err+'</td>'+
@@ -15379,7 +15388,7 @@ function renderLandingPages(){
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px">'+usageBadge+'</div></td>'+
    '<td style="padding:10px 12px">'+status+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
-    (link?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(link)+'\')">复制</button>':'')+
+    copyBtns+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingStats('+p.id+')">统计</button>'+
     (usageTotal>0?'<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingUsage('+p.id+')">引用</button>':'')+
     (p.custom_domain?'<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="refreshLandingDomain('+p.id+')">域名</button>':'')+
@@ -15495,15 +15504,21 @@ function onLandingKindChanged(){
  var bind=document.getElementById('lpBindTarget');
  var kindHint=document.getElementById('lpKindHint');
  var bindHint=document.getElementById('lpBindHint');
+ var targetLabel=document.getElementById('lpTargetsLabel');
+ var targets=document.getElementById('lpTargets');
  if(kind==='form'){
   if(formFlag){formFlag.checked=true;formFlag.disabled=true;formFlag.dataset.autoForm='1';}
-  if(bind&&(bind.value==='landing'))bind.value='form';
+  if(bind&&(bind.value==='landing'||bind.value==='none'))bind.value='form';
   if(kindHint)kindHint.textContent='表单投放链接访问首页即轮询跳转，适合 Lead Form / WhatsApp 聊单；发布包为轻量直跳页，不展示落地页正文。';
   if(bindHint)bindHint.textContent='表单链接建议绑定到账户表单链接，铺 Lead Form 时会优先使用。';
+  if(targetLabel)targetLabel.textContent='直跳轮询链接';
+  if(targets)targets.placeholder='每行一个 WhatsApp / 表单提交后回跳链接；访问发布链接时会直接按策略跳转';
 }else{
   if(formFlag){formFlag.disabled=false;if(formFlag.dataset.autoForm==='1'){formFlag.checked=false;formFlag.dataset.autoForm='';}}
   if(kindHint)kindHint.textContent='普通落地页会展示模板正文，按钮点击后按轮询策略跳转。';
   if(bindHint)bindHint.textContent='普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。';
+  if(targetLabel)targetLabel.textContent='按钮跳转链接';
+  if(targets)targets.placeholder='每行一个 WhatsApp / 跳转链接；发布后页面按轮询策略跳转';
  }
 }
 function _landingPublishPayload(){

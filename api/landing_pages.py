@@ -1067,6 +1067,16 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         if custom_domain:
             try:
                 domain_result = add_pages_custom_domain(raw_token, cf_account_id, project_name, custom_domain)
+                if str((domain_result or {}).get("status") or "").lower() == "already_exists":
+                    try:
+                        domain_result = get_pages_custom_domain_status(
+                            raw_token,
+                            cf_account_id,
+                            project_name,
+                            custom_domain,
+                        )
+                    except Exception:
+                        pass
                 if _domain_status_usable(domain_result, None):
                     public_url = f"https://{custom_domain}"
                 else:
