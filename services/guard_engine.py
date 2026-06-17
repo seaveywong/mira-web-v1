@@ -903,64 +903,6 @@ def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str)
     return False, f"已尝试{len(candidates)}个写入Token({labels})，均失败：{reason}", primary_token, ""
 
 
-_ESCALATION_ACTIVE_AD_STATUSES = {
-    "ACTIVE", "IN_PROCESS", "PENDING_REVIEW", "PREAPPROVED", "PENDING_BILLING_INFO"
-}
-
-
-def _adset_sibling_active_summary(account: dict, adset_id: str, target_ad_id: str, primary_token: str) -> dict:
-    """
-    Check whether an adset contains other ads that may still be spending.
-    Used before escalating an ad-level pause failure to avoid collateral shutdowns.
-    """
-    summary = {
-        "checked": False,
-        "blocked": False,
-        "active_sibling_count": 0,
-        "active_sibling_names": [],
-        "error": "",
-    }
-    if not adset_id or not target_ad_id:
-        summary["error"] = "缺少广告组ID或广告ID，无法检查同组广告"
-        return summary
-    errors = []
-    try:
-        candidates = _pause_token_candidates(account, primary_token)
-    except Exception:
-        candidates = [{"token": primary_token, "label": "primary"}] if primary_token else []
-    for cand in candidates:
-        try:
-            result = _fb_get(
-                f"{adset_id}/ads",
-                cand["token"],
-                {"fields": "id,name,status,effective_status", "limit": 200},
-                paginate=True,
-                max_pages=5,
-            )
-        except Exception as exc:
-            errors.append(f"{cand.get('label') or 'token'}: {_sanitize_error_text(str(exc))}")
-            continue
-        ads = result.get("data", []) if isinstance(result, dict) else []
-        siblings = []
-        for ad in ads:
-            ad_obj = ad if isinstance(ad, dict) else {}
-            ad_id = str(ad_obj.get("id") or "")
-            if not ad_id or ad_id == str(target_ad_id):
-                continue
-            status = str(ad_obj.get("effective_status") or ad_obj.get("status") or "").upper()
-            if status in _ESCALATION_ACTIVE_AD_STATUSES:
-                siblings.append(ad_obj)
-        summary["checked"] = True
-        summary["active_sibling_count"] = len(siblings)
-        summary["active_sibling_names"] = [
-            f"{s.get('name') or s.get('id')}({s.get('id')})" for s in siblings[:5]
-        ]
-        summary["blocked"] = len(siblings) > 0
-        return summary
-    summary["error"] = "; ".join(errors) or "没有可用Token检查同组广告"
-    return summary
-
-
 # ── 核心关闭逻辑（含向上升级）──────────────────────────────────────────────
 
 def _pause_with_escalation(
@@ -1045,50 +987,6 @@ def _pause_with_escalation(
     # Step 2: 向上升级到广告组
     adset_error = ""
     if adset_id:
-        sibling_summary = _adset_sibling_active_summary(account, adset_id, ad_id, write_token or token)
-        if sibling_summary.get("blocked"):
-            names = sibling_summary.get("active_sibling_names") or []
-            count = int(sibling_summary.get("active_sibling_count") or 0)
-            names_text = "；".join(names) if names else "未返回名称"
-            adset_error = (
-                f"广告级关闭失败，但广告组内还有 {count} 条其他活跃广告，"
-                f"已阻止自动升级关闭广告组以避免误伤。其他广告：{names_text}"
-            )
-            logger.warning("阻止广告组升级关闭 %s: %s", adset_id, adset_error)
-            if details_out is not None:
-                details_out.update({
-                    "adset_error": adset_error,
-                    "campaign_error": "已阻止继续升级到系列，避免误伤同组/同系列其他广告",
-                    "final_level": "ad",
-                    "final_status": "blocked_multi_adset",
-                })
-            _log_action(act_id, "adset", adset_id, f"[阻止升级] {ad_name}的广告组",
-                        "pause", trigger_type,
-                        f"广告{ad_id}关闭失败，但同组仍有其他活跃广告，未自动关闭广告组。原因：{err_msg}",
-                        status="skipped", error_msg=adset_error, operator="system")
-            if send_notifications:
-                _send_tg(
-                    f"🆘 <b>Mira 升级关闭已阻止</b>\n"
-                    f"{account_line}\n"
-                    f"{ad_line}\n"
-                    f"{ad_id_line}\n"
-                    f"{adset_id_line}\n"
-                    f"{campaign_id_line}\n"
-                    f"触发原因：{_tg_escape(trigger_detail)}\n"
-                    f"广告级关闭失败：{_tg_escape(err_msg)}\n"
-                    f"安全兜底：广告组内还有 {_tg_escape(str(count))} 条其他活跃广告，未自动关闭广告组/系列。\n"
-                    f"其他广告：{_tg_escape(names_text)}\n"
-                    f"请手动处理该广告，避免误伤正常广告。",
-                    act_id=act_id,
-                    event_type="guard",
-                )
-            return "ad", "blocked_multi_adset"
-        elif sibling_summary.get("error"):
-            logger.warning(
-                "广告组 %s 同组广告检查失败，继续按原升级逻辑处理: %s",
-                adset_id,
-                sibling_summary.get("error"),
-            )
         ok2, err2, write_token2, write_label2 = _fb_pause_with_candidates(account, adset_id, token)
         if ok2:
             time.sleep(0.8)
