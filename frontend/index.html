@@ -15526,10 +15526,11 @@ function renderLandingPages(){
    copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.custom_domain_dns_hint)+'\')" title="复制自定义域 DNS 配置">复制DNS</button>';
   }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
+  var createdLine=(p.created_by||p.created_at)?'<div style="font-size:11px;color:var(--t3);margin-top:4px">发布：'+escHtml(p.created_by||'system')+(p.created_at?' · '+escHtml(p.created_at):'')+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
    '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+' '+matrixBadges+'</div>'+err+'</td>'+
    '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span><div style="font-size:11px;color:var(--t3);margin-top:4px">访问即跳转</div>':'<span class="badge bg-mu">普通落地页</span><div style="font-size:11px;color:var(--t3);margin-top:4px">按钮跳转</div>')+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+'</td>'+
+   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+createdLine+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px">'+usageBadge+'</div></td>'+
    '<td style="padding:10px 12px">'+status+'</td>'+
@@ -15785,8 +15786,17 @@ async function showLandingStats(id){
  try{
  var r=await api('GET','/landing-pages/pages/'+id+'/stats?days=7');
  var s=r.summary||{};
+  var visits=Number(s.visits||0), clicks=Number(s.clicks||0), redirects=Number(s.redirects||0), blocks=Number(s.blocks||0), errors=Number(s.errors||0);
   var passDenom=(Number(s.redirects||0)+Number(s.blocks||0));
   var passRate=passDenom?Math.round(Number(s.redirects||0)*100/passDenom)+'%':'--';
+  var clickRate=visits?Math.round(clicks*100/visits)+'%':'--';
+  var blockRate=(redirects+blocks)?Math.round(blocks*100/(redirects+blocks))+'%':'--';
+  var redirectRate=(clicks||visits)?Math.round(redirects*100/Math.max(clicks,visits,1))+'%':'--';
+  var health='暂无数据', healthClass='bg-mu', healthDesc='还没有采集到访问、点击或跳转事件。发布后可以先打开链接或等待投放流量回传。';
+  if(errors>0){health='需要排查';healthClass='bg-er';healthDesc='存在回传或 Worker 错误，请查看最近事件和跳转目标分布。';}
+  else if(blocks>0&&redirects===0){health='拦截过高';healthClass='bg-wa';healthDesc='已有访问被防护拦截，但没有通过跳转。请检查国家、设备、UA 或必填参数规则。';}
+  else if(redirects>0||clicks>0){health='运行中';healthClass='bg-ok';healthDesc='已采集到点击或跳转事件，链接正在工作。';}
+  else if(visits>0){health='有访问';healthClass='bg-ac';healthDesc='页面已有访问，但还没有按钮点击或直跳事件。普通落地页可检查按钮位置和跳转配置。';}
   function trendTable(rows, limit, label){
    var map={};
    (rows||[]).forEach(function(x){
@@ -15811,10 +15821,22 @@ async function showLandingStats(id){
   var recent=(r.recent||[]).slice(0,12).map(function(x){
    return '<tr><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.created_at||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.event_type||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.country||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.reason||x.target_url||'')+'</td></tr>';
   }).join('');
+  var metricCards=[
+   {label:'访问',value:visits},
+   {label:'点击',value:clicks},
+   {label:'跳转',value:redirects},
+   {label:'拦截',value:blocks},
+   {label:'通过率',value:passRate},
+   {label:'点击率',value:clickRate},
+   {label:'跳转率',value:redirectRate},
+   {label:'拦截率',value:blockRate},
+   {label:'错误',value:errors}
+  ];
   if(panel)panel.innerHTML=
    '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div class="card-title">落地页统计 · '+escHtml((r.page||{}).title||'')+'</div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
+   '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:12px;margin:10px 0"><div><div style="font-size:13px;font-weight:800;margin-bottom:4px">运行诊断 <span class="badge '+healthClass+'" style="margin-left:6px">'+health+'</span></div><div style="font-size:12px;color:var(--t3);line-height:1.55">'+healthDesc+'</div></div><div style="font-size:12px;color:var(--t3);white-space:nowrap">统计周期：近 '+escHtml(String(r.days||7))+' 天</div></div>'+
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:10px 0">'+
-    ['访问 '+(s.visits||0),'点击 '+(s.clicks||0),'跳转 '+(s.redirects||0),'拦截 '+(s.blocks||0),'通过率 '+passRate,'错误 '+(s.errors||0)].map(function(t){var p=t.split(' ');return '<div class="ss"><div style="font-size:12px;color:var(--t3)">'+p[0]+'</div><div style="font-size:22px;font-weight:800;margin-top:4px">'+p[1]+'</div></div>';}).join('')+
+    metricCards.map(function(m){return '<div class="ss"><div style="font-size:12px;color:var(--t3)">'+escHtml(m.label)+'</div><div style="font-size:22px;font-weight:800;margin-top:4px">'+escHtml(String(m.value))+'</div></div>';}).join('')+
    '</div>'+
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0"><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 24 小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 7 天趋势</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
    '<div style="margin:10px 0;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-weight:800;font-size:13px;margin-bottom:8px">跳转目标分布</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">目标链接</th><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">事件</th><th style="text-align:right;padding:7px;border-bottom:1px solid var(--bd)">次数</th></tr></thead><tbody>'+(targetRows||'<tr><td colspan="3" style="padding:12px;color:var(--t3)">暂无跳转目标数据</td></tr>')+'</tbody></table></div>'+
