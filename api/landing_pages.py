@@ -419,6 +419,27 @@ def _public_token(row) -> dict:
     }
 
 
+def _domain_status_usable(domain_status: Any, last_error: Optional[str]) -> bool:
+    err = str(last_error or "").strip().lower()
+    if err and "custom domain" in err:
+        return False
+    if not domain_status:
+        return not err
+    if isinstance(domain_status, dict):
+        raw_values = [
+            domain_status.get("status"),
+            domain_status.get("validation_status"),
+            domain_status.get("verification_status"),
+            domain_status.get("state"),
+        ]
+        text = " ".join(str(v or "").strip().lower() for v in raw_values if v is not None)
+        if any(bad in text for bad in ("not_found", "error", "failed", "rejected", "missing")):
+            return False
+        if text:
+            return True
+    return not err
+
+
 def _public_page(row) -> dict:
     item = dict(row)
     item["target_urls"] = _json_loads(item.get("target_urls"), [])
@@ -428,10 +449,16 @@ def _public_page(row) -> dict:
     item["protection_enabled"] = bool(item.get("protection_enabled"))
     item["worker_enabled"] = bool(item.get("worker_enabled"))
     custom_domain = (item.get("custom_domain") or "").strip()
-    item["public_url"] = f"https://{custom_domain}" if custom_domain else (item.get("pages_url") or "")
+    pages_url = (item.get("pages_url") or "").strip()
     raw_response = _json_loads(item.get("raw_response"), {})
+    domain_status = None
     if isinstance(raw_response, dict):
-        item["domain_status"] = raw_response.get("domain_status") or raw_response.get("custom_domain_result") or None
+        domain_status = raw_response.get("domain_status") or raw_response.get("custom_domain_result") or None
+        item["domain_status"] = domain_status
+    custom_domain_usable = bool(custom_domain and _domain_status_usable(domain_status, item.get("last_error")))
+    item["custom_domain_usable"] = custom_domain_usable
+    item["public_url"] = f"https://{custom_domain}" if custom_domain_usable else pages_url
+    item["public_url_source"] = "custom_domain" if custom_domain_usable else ("pages_url" if pages_url else "")
     item.pop("raw_response", None)
     item.pop("ingest_secret", None)
     return item

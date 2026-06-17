@@ -15209,10 +15209,16 @@ function renderLandingPages(){
   var usageTotal=parseInt(usage.total||0,10)||0;
   var usageBadge=usageTotal>0?'<span class="badge bg-wa" title="账户或投放任务仍在引用该链接">引用 '+usageTotal+'</span>':'<span class="badge bg-mu">未引用</span>';
   var matrixBadges=_landingMatrixBadgesFromUsage(usage);
-  var link=p.public_url||(p.custom_domain?('https://'+p.custom_domain):(p.pages_url||''));
+  var link=p.public_url||(p.pages_url||'');
   var pagesUrl=p.pages_url||'';
   var linkHtml=link?'<a href="'+escHtml(link)+'" target="_blank" style="color:var(--ac)">'+escHtml(link)+'</a>':'<span style="color:var(--t3)">--</span>';
-  if(p.custom_domain&&pagesUrl&&link!==pagesUrl){
+  if(p.custom_domain&&p.custom_domain_usable){
+   linkHtml+='<div style="font-size:11px;color:var(--ok);margin-top:3px">自定义域已作为主链接</div>';
+  }else if(p.custom_domain&&pagesUrl){
+   linkHtml+='<div style="font-size:11px;color:var(--wa);margin-top:3px">自定义域未生效，当前复制 Pages 备用域</div>';
+   linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">自定义域: https://'+escHtml(p.custom_domain)+'</div>';
+  }
+  if(p.custom_domain&&pagesUrl&&link!==pagesUrl&&p.custom_domain_usable){
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">Pages: '+escHtml(pagesUrl)+'</div>';
   }
   if(p.domain_status){
