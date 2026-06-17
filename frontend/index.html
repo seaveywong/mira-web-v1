@@ -2707,7 +2707,7 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后发布时会尝试绑定到 Pages，账户绑定优先使用该域名。</div></div>
+     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后会尝试绑定到 Pages；只有域名明确可用时才作为账户主链接，否则先使用 Pages 备用域。</div></div>
      <div class="fg"><label class="fl">Cloudflare API</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
      <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
@@ -15221,13 +15221,15 @@ function renderLandingPages(){
   var usageTotal=parseInt(usage.total||0,10)||0;
   var usageBadge=usageTotal>0?'<span class="badge bg-wa" title="账户或投放任务仍在引用该链接">引用 '+usageTotal+'</span>':'<span class="badge bg-mu">未引用</span>';
   var matrixBadges=_landingMatrixBadgesFromPage(p);
+  var rotationMap={sequential:'顺序轮询',random:'随机轮询',first:'固定第一个'};
+  var modeText=rotationMap[p.rotation_mode]||escHtml(p.rotation_mode||'sequential');
   var link=p.public_url||(p.pages_url||'');
   var pagesUrl=p.pages_url||'';
   var linkHtml=link?'<a href="'+escHtml(link)+'" target="_blank" style="color:var(--ac)">'+escHtml(link)+'</a>':'<span style="color:var(--t3)">--</span>';
   if(p.custom_domain&&p.custom_domain_usable){
    linkHtml+='<div style="font-size:11px;color:var(--ok);margin-top:3px">自定义域已作为主链接</div>';
   }else if(p.custom_domain&&pagesUrl){
-   linkHtml+='<div style="font-size:11px;color:var(--wa);margin-top:3px">自定义域未生效，当前复制 Pages 备用域</div>';
+   linkHtml+='<div style="font-size:11px;color:var(--wa);margin-top:3px">自定义域待验证，当前复制 Pages 备用域</div>';
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">自定义域: https://'+escHtml(p.custom_domain)+'</div>';
   }
   if(p.custom_domain&&pagesUrl&&link!==pagesUrl&&p.custom_domain_usable){
@@ -15241,10 +15243,10 @@ function renderLandingPages(){
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
    '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+(matrixBadges?' '+matrixBadges:'')+'</div>'+err+'</td>'+
-   '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单链接</span>':'<span class="badge bg-mu">普通落地页</span>')+'</td>'+
+   '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span><div style="font-size:11px;color:var(--t3);margin-top:4px">访问即跳转</div>':'<span class="badge bg-mu">普通落地页</span><div style="font-size:11px;color:var(--t3);margin-top:4px">按钮跳转</div>')+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+escHtml(p.rotation_mode||'sequential')+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px">'+usageBadge+'</div></td>'+
+   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px">'+usageBadge+'</div></td>'+
    '<td style="padding:10px 12px">'+status+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
     (link?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(link)+'\')">复制</button>':'')+
@@ -15422,7 +15424,8 @@ async function publishLandingPage(){
   var bound=(res&&res.page&&res.page.binding&&res.page.binding.bound||[]).length;
   var skipped=(res&&res.page&&res.page.binding&&res.page.binding.skipped||[]).length;
   var domainError=res&&res.page&&res.page.domain_error;
-  toast('发布成功'+(bound?'，已绑定 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':'')+(domainError?'，但域名绑定需处理':''),domainError?'wa':'ok');
+  var domainNotice=res&&res.page&&res.page.domain_notice;
+  toast('发布成功'+(bound?'，已绑定 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':'')+(domainError?'，但域名绑定需处理':(domainNotice?'，自定义域待验证，已先用备用域':'')),(domainError||domainNotice)?'wa':'ok');
   if(res&&res.page&&(res.page.public_url||res.page.pages_url))copyText(encodeURIComponent(res.page.public_url||res.page.pages_url),true);
   markPageStale('landing_center');
   await loadLandingCenter(true);
@@ -15460,7 +15463,7 @@ async function showLandingStats(id){
  var s=r.summary||{};
   var passDenom=(Number(s.redirects||0)+Number(s.blocks||0));
   var passRate=passDenom?Math.round(Number(s.redirects||0)*100/passDenom)+'%':'--';
-  function trendTable(rows){
+  function trendTable(rows, limit, label){
    var map={};
    (rows||[]).forEach(function(x){
     var day=x.day||x.hour||'';
@@ -15468,9 +15471,9 @@ async function showLandingStats(id){
     if(!map[day])map[day]={visit:0,click:0,redirect:0,block:0,error:0};
     map[day][x.event_type]=Number(x.cnt||0);
    });
-   var keys=Object.keys(map).sort().slice(-7);
+   var keys=Object.keys(map).sort().slice(-(limit||7));
    if(!keys.length)return '<div style="color:var(--t3);font-size:12px">暂无趋势数据</div>';
-   return '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:6px;border-bottom:1px solid var(--bd)">日期</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">访问</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">点击</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">跳转</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">拦截</th></tr></thead><tbody>'+
+   return '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:6px;border-bottom:1px solid var(--bd)">'+(label||'日期')+'</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">访问</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">点击</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">跳转</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">拦截</th></tr></thead><tbody>'+
     keys.map(function(k){
      var v=map[k]||{};
      return '<tr><td style="padding:6px;border-bottom:1px solid var(--bd)">'+escHtml(k)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.visit||0)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.click||0)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.redirect||0)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.block||0)+'</td></tr>';
@@ -15478,6 +15481,9 @@ async function showLandingStats(id){
   }
   var countries=(r.by_country||[]).slice(0,8).map(function(x){return '<span class="badge bg-mu">'+escHtml(x.country||'未知')+' '+(x.cnt||0)+'</span>';}).join(' ');
   var devices=(r.by_device||[]).slice(0,8).map(function(x){return '<span class="badge bg-ac">'+escHtml(x.device_type||'未知')+' '+(x.cnt||0)+'</span>';}).join(' ');
+  var targetRows=(r.by_target||[]).slice(0,10).map(function(x){
+   return '<tr><td style="padding:7px;border-top:1px solid var(--bd);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(x.target_url||'')+'">'+escHtml(x.target_url||'--')+'</td><td style="padding:7px;border-top:1px solid var(--bd)">'+escHtml(x.event_type||'')+'</td><td style="padding:7px;text-align:right;border-top:1px solid var(--bd)">'+(x.cnt||0)+'</td></tr>';
+  }).join('');
   var recent=(r.recent||[]).slice(0,12).map(function(x){
    return '<tr><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.created_at||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.event_type||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.country||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.reason||x.target_url||'')+'</td></tr>';
   }).join('');
@@ -15486,7 +15492,8 @@ async function showLandingStats(id){
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:10px 0">'+
     ['访问 '+(s.visits||0),'点击 '+(s.clicks||0),'跳转 '+(s.redirects||0),'拦截 '+(s.blocks||0),'通过率 '+passRate,'错误 '+(s.errors||0)].map(function(t){var p=t.split(' ');return '<div class="ss"><div style="font-size:12px;color:var(--t3)">'+p[0]+'</div><div style="font-size:22px;font-weight:800;margin-top:4px">'+p[1]+'</div></div>';}).join('')+
    '</div>'+
-   '<div style="margin:10px 0;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 7 天趋势</div>'+trendTable(r.by_day||[])+'</div>'+
+   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0"><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 24 小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 7 天趋势</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
+   '<div style="margin:10px 0;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-weight:800;font-size:13px;margin-bottom:8px">跳转目标分布</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">目标链接</th><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">事件</th><th style="text-align:right;padding:7px;border-bottom:1px solid var(--bd)">次数</th></tr></thead><tbody>'+(targetRows||'<tr><td colspan="3" style="padding:12px;color:var(--t3)">暂无跳转目标数据</td></tr>')+'</tbody></table></div>'+
    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px"><div><b>国家</b><div style="margin-top:6px">'+(countries||'<span style="color:var(--t3)">暂无</span>')+'</div></div><div><b>设备</b><div style="margin-top:6px">'+(devices||'<span style="color:var(--t3)">暂无</span>')+'</div></div></div>'+
    '<div class="table-wrap"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">时间</th><th style="text-align:left;padding:8px">事件</th><th style="text-align:left;padding:8px">国家</th><th style="text-align:left;padding:8px">说明</th></tr></thead><tbody>'+(recent||'<tr><td colspan="4" style="padding:14px;color:var(--t3)">暂无事件</td></tr>')+'</tbody></table></div>';
  }catch(e){

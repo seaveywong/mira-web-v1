@@ -431,13 +431,27 @@ def _domain_status_usable(domain_status: Any, last_error: Optional[str]) -> bool
             domain_status.get("validation_status"),
             domain_status.get("verification_status"),
             domain_status.get("state"),
+            domain_status.get("ssl_status"),
         ]
         text = " ".join(str(v or "").strip().lower() for v in raw_values if v is not None)
-        if any(bad in text for bad in ("not_found", "error", "failed", "rejected", "missing")):
+        if any(bad in text for bad in ("not_found", "error", "failed", "rejected", "missing", "pending", "verifying", "initializing", "inactive")):
             return False
-        if text:
+        if any(ok in text for ok in ("active", "verified", "success", "complete", "deployed")):
             return True
-    return not err
+        if text:
+            return False
+    return False
+
+
+def _domain_status_text(domain_status: Any) -> str:
+    if isinstance(domain_status, dict):
+        for key in ("status", "validation_status", "verification_status", "state", "ssl_status", "name"):
+            value = domain_status.get(key)
+            if value not in (None, ""):
+                return str(value)
+    if domain_status:
+        return str(domain_status)
+    return ""
 
 
 def _public_page(row) -> dict:
@@ -999,20 +1013,32 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         pages_url = response.get("url") or response.get("aliases", [None])[0] or ""
         public_url = pages_url
         domain_error = ""
+        domain_notice = ""
         domain_result = None
         if custom_domain:
             try:
                 domain_result = add_pages_custom_domain(raw_token, cf_account_id, project_name, custom_domain)
-                public_url = f"https://{custom_domain}"
+                if _domain_status_usable(domain_result, None):
+                    public_url = f"https://{custom_domain}"
+                else:
+                    status_text = _domain_status_text(domain_result) or "pending"
+                    domain_notice = (
+                        f"Custom domain {custom_domain} is {status_text}; "
+                        "auto-binding used the Pages fallback URL until the domain is active."
+                    )
             except CloudflareError as exc:
                 domain_error = f"Custom domain binding failed: {exc}"
         binding = _bind_page_to_accounts(conn, body.bind_act_ids, body.bind_target, public_url, user)
         response_payload = dict(response)
         if domain_result is not None:
             response_payload["custom_domain_result"] = domain_result
+        if domain_notice:
+            response_payload["custom_domain_notice"] = domain_notice
         note_text = (body.note or "")
         if domain_error:
             note_text += ("\n" if note_text else "") + domain_error
+        if domain_notice:
+            note_text += ("\n" if note_text else "") + domain_notice
         if binding.get("skipped"):
             note_text += ("\n" if note_text else "") + "Binding skipped: " + json.dumps(binding.get("skipped", []), ensure_ascii=False)
         conn.execute(
@@ -1036,6 +1062,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         item = _public_page(saved)
         item["binding"] = binding
         item["domain_error"] = domain_error
+        item["domain_notice"] = domain_notice
         return {"success": True, "page": item}
     except Exception as exc:
         if page_id:
@@ -1273,6 +1300,17 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
             params,
         ).fetchall()
     ]
+    by_target = [
+        dict(r)
+        for r in conn.execute(
+            """SELECT COALESCE(NULLIF(target_url,''),'--') AS target_url, event_type, COUNT(*) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND created_at>=? AND event_type IN ('redirect','click')
+               GROUP BY target_url,event_type
+               ORDER BY cnt DESC LIMIT 30""",
+            params,
+        ).fetchall()
+    ]
     recent = [
         dict(r)
         for r in conn.execute(
@@ -1299,5 +1337,6 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
         "by_device": by_device,
         "by_day": by_day,
         "by_hour": by_hour,
+        "by_target": by_target,
         "recent": recent,
     }
