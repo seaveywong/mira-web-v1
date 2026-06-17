@@ -2316,6 +2316,7 @@ select.fc option{background:#fff;color:#1d1d1f}
       <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
       <div class="ph-acts token-actions">
        <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
+       <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
        <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
       </div>
      </div>
@@ -2420,7 +2421,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
        <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
-       <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动补齐同团队可用 Token 关联">匹配Token</button>
+       <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
        <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
       </div>
@@ -2704,10 +2705,11 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
+     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后发布时会尝试绑定到 Pages，账户绑定优先使用该域名。</div></div>
      <div class="fg"><label class="fl">Cloudflare API</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
      <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
-     <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind"><option value="landing">普通落地页</option><option value="form">表单投放链接</option></select></div>
+     <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind"><option value="landing">普通落地页：展示模板，按钮轮询跳转</option><option value="form">表单投放链接：访问即轮询跳转</option></select><div class="fh">表单链接适合 Lead Form 跳转 WhatsApp/外链，不展示落地页正文。</div></div>
     </div>
    </div>
    <div class="landing-form-section">
@@ -2858,6 +2860,7 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="modal modal-lg">
   <div class="mh"><h3 id="importTitle">导入广告账户</h3><button class="mc" onclick="closeModal('moImport')">✕</button></div>
   <div class="mb">
+   <div class="info-box" style="margin-bottom:12px">导入完成后，系统会自动扫描同团队 / 同负责人可用 Token，把能管理该账户的 Token 关联起来；无需再点到单个 Token 里手动匹配。</div>
    <!-- Tab 切换 -->
    <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:2px solid var(--bd)">
     <button id="importTabFb" onclick="switchImportTab('fb')" style="padding:8px 18px;font-size:13px;font-weight:600;background:none;border:none;border-bottom:2px solid var(--ac);margin-bottom:-2px;color:var(--ac);cursor:pointer">从 FB 拉取选择</button>
@@ -8308,8 +8311,8 @@ async function rematchAllAccountTokens(btn){
   if(typeof loadTokens==='function')loadTokens();
  }catch(e){
   toast('匹配Token失败：'+(e.message||e),'er');
- }finally{
-  if(btn){btn.disabled=false;btn.textContent=oldText||'匹配Token';}
+}finally{
+  if(btn){btn.disabled=false;btn.textContent=oldText||'自动关联Token';}
  }
 }
 
@@ -14005,6 +14008,10 @@ function getAccountMatrixIds(a){
   var parsed = parseInt(mid, 10);
   if (parsed >0) ids.push(parsed);
  });
+ (Array.isArray(a && a.linked_tokens) ? a.linked_tokens : []).forEach(function(t){
+  var parsed = parseInt(t && t.matrix_id, 10);
+  if (parsed >0) ids.push(parsed);
+ });
  return Array.from(new Set(ids)).sort(function(x, y){ return x - y; });
 }
 function renderAccMatrixFilterOptions(list){
@@ -15106,8 +15113,12 @@ function renderLandingPages(){
   var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
   var status=p.status==='published'?'<span class="badge bg-ok">已发布</span>':p.status==='failed'?'<span class="badge bg-er">失败</span>':p.status==='archived'?'<span class="badge bg-mu">已归档</span>':'<span class="badge bg-wa">'+escHtml(p.status||'草稿')+'</span>';
   var flags=(p.worker_enabled?'<span class="badge bg-ac">Worker</span> ':'')+(p.tracking_enabled?'<span class="badge bg-ok">统计</span> ':'')+(p.protection_enabled?'<span class="badge bg-wa">防护</span> ':'');
-  var link=p.pages_url||p.custom_domain||'';
+  var link=p.public_url||(p.custom_domain?('https://'+p.custom_domain):(p.pages_url||''));
+  var pagesUrl=p.pages_url||'';
   var linkHtml=link?'<a href="'+escHtml(link)+'" target="_blank" style="color:var(--ac)">'+escHtml(link)+'</a>':'<span style="color:var(--t3)">--</span>';
+  if(p.custom_domain&&pagesUrl&&link!==pagesUrl){
+   linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">Pages: '+escHtml(pagesUrl)+'</div>';
+  }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
    '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+'</div>'+err+'</td>'+
@@ -15192,6 +15203,7 @@ function _landingPublishPayload(){
   template_id:parseInt((document.getElementById('lpTemplate')||{}).value||'1',10)||1,
   title:((document.getElementById('lpTitle')||{}).value||'').trim(),
   project_name:((document.getElementById('lpProject')||{}).value||'').trim()||null,
+  custom_domain:((document.getElementById('lpCustomDomain')||{}).value||'').trim(),
   pixel_id:((document.getElementById('lpPixel')||{}).value||'').trim(),
   target_urls:_landingTargetLines(),
   rotation_mode:(document.getElementById('lpRotation')||{}).value||'sequential',
@@ -15231,8 +15243,9 @@ async function publishLandingPage(){
   var res=await api('POST','/landing-pages/publish',payload);
   var bound=(res&&res.page&&res.page.binding&&res.page.binding.bound||[]).length;
   var skipped=(res&&res.page&&res.page.binding&&res.page.binding.skipped||[]).length;
-  toast('发布成功'+(bound?'，已绑定 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':''),'ok');
-  if(res&&res.page&&res.page.pages_url)copyText(encodeURIComponent(res.page.pages_url),true);
+  var domainError=res&&res.page&&res.page.domain_error;
+  toast('发布成功'+(bound?'，已绑定 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':'')+(domainError?'，但域名绑定需处理':''),domainError?'wa':'ok');
+  if(res&&res.page&&(res.page.public_url||res.page.pages_url))copyText(encodeURIComponent(res.page.public_url||res.page.pages_url),true);
   markPageStale('landing_center');
   await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}

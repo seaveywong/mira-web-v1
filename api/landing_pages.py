@@ -15,8 +15,10 @@ from core.tenancy import assert_row_access, is_operator_user, team_id_for_create
 from services.landing_publisher import (
     DEFAULT_TEMPLATE_DIR,
     CloudflareError,
+    add_pages_custom_domain,
     deploy_pages_static,
     list_pages_projects,
+    normalize_custom_domain,
     prepare_template,
     sanitize_project_name,
     verify_token_and_accounts,
@@ -44,6 +46,7 @@ class LandingPublishReq(BaseModel):
     template_id: int = 1
     title: str
     project_name: Optional[str] = None
+    custom_domain: Optional[str] = ""
     pixel_id: Optional[str] = ""
     target_urls: list[str] = []
     rotation_mode: str = "sequential"
@@ -179,6 +182,7 @@ def _ensure_schema():
         page_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_pages)").fetchall()}
         page_alters = {
             "template_id": "INTEGER DEFAULT 1",
+            "custom_domain": "TEXT",
             "bound_act_ids": "TEXT DEFAULT '[]'",
             "bind_target": "TEXT DEFAULT 'none'",
             "tracking_enabled": "INTEGER DEFAULT 1",
@@ -421,6 +425,8 @@ def _public_page(row) -> dict:
     item["tracking_enabled"] = bool(item.get("tracking_enabled"))
     item["protection_enabled"] = bool(item.get("protection_enabled"))
     item["worker_enabled"] = bool(item.get("worker_enabled"))
+    custom_domain = (item.get("custom_domain") or "").strip()
+    item["public_url"] = f"https://{custom_domain}" if custom_domain else (item.get("pages_url") or "")
     item.pop("raw_response", None)
     item.pop("ingest_secret", None)
     return item
@@ -626,7 +632,22 @@ def preflight_landing_page(body: LandingPublishReq, user=Depends(get_current_use
     title = (body.title or "").strip()
     urls = [u.strip() for u in body.target_urls if u and u.strip()]
     rules = _safe_rules(body.protection_rules)
+    custom_domain = ""
+    custom_domain_error = ""
+    try:
+        custom_domain = normalize_custom_domain(body.custom_domain)
+    except ValueError as exc:
+        custom_domain_error = str(exc)
     checks = []
+    if custom_domain_error:
+        checks.append({"key": "custom_domain", "status": "fail", "label": "自定义域名", "detail": custom_domain_error})
+    elif custom_domain:
+        checks.append({
+            "key": "custom_domain",
+            "status": "warn",
+            "label": "自定义域名",
+            "detail": f"{custom_domain} 将绑定到 Cloudflare Pages；请确保域名已在 Cloudflare 可管理并完成 DNS 指向。",
+        })
     checks.append({"key": "title", "status": "pass" if title else "fail", "label": "发布名称", "detail": title or "不能为空"})
     if urls:
         bad_urls = [u for u in urls if not (u.startswith("http://") or u.startswith("https://"))]
@@ -705,6 +726,10 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
     link_kind = (body.link_kind or "landing").strip().lower()
     if link_kind not in ("landing", "form"):
         raise HTTPException(status_code=400, detail="link_kind must be landing or form")
+    try:
+        custom_domain = normalize_custom_domain(body.custom_domain)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     conn = get_conn()
     token_row = _assert_token_access(conn, body.token_id, user)
@@ -720,7 +745,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         team_id = token_row.get("team_id")
     project_name = sanitize_project_name(body.project_name or title)
     protection_rules = _safe_rules(body.protection_rules)
-    worker_enabled = bool(body.tracking_enabled or body.protection_enabled)
+    worker_enabled = bool(body.tracking_enabled or body.protection_enabled or link_kind == "form")
     ingest_secret = secrets.token_urlsafe(32)
     work_dir = None
     page_id = None
@@ -728,10 +753,10 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         conn.execute(
             """INSERT INTO landing_pages
                (title, link_kind, form_link_enabled, template_id, cf_token_id, cf_account_id, cf_account_name,
-                project_name, pixel_id, target_urls, rotation_mode, bound_act_ids, bind_target,
+                project_name, custom_domain, pixel_id, target_urls, rotation_mode, bound_act_ids, bind_target,
                 tracking_enabled, protection_enabled, protection_rules, ingest_secret, worker_enabled,
                 status, note, team_id, owner_user_id, created_by)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'deploying', ?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'deploying', ?,?,?,?)""",
             (
                 title,
                 link_kind,
@@ -741,6 +766,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
                 cf_account_id,
                 cf_account_name,
                 project_name,
+                custom_domain,
                 body.pixel_id or "",
                 json.dumps(urls, ensure_ascii=False),
                 body.rotation_mode,
@@ -764,6 +790,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
             pixel_id=body.pixel_id or "",
             target_urls=urls,
             rotation_mode=body.rotation_mode,
+            link_kind=link_kind,
             worker_enabled=worker_enabled,
             tracking_enabled=body.tracking_enabled,
             protection_enabled=body.protection_enabled,
@@ -775,18 +802,37 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
         deployment_id = str(response.get("id") or "")
         pages_url = response.get("url") or response.get("aliases", [None])[0] or ""
-        binding = _bind_page_to_accounts(conn, body.bind_act_ids, body.bind_target, pages_url, user)
+        public_url = pages_url
+        domain_error = ""
+        domain_result = None
+        if custom_domain:
+            try:
+                domain_result = add_pages_custom_domain(raw_token, cf_account_id, project_name, custom_domain)
+                public_url = f"https://{custom_domain}"
+            except CloudflareError as exc:
+                domain_error = f"Custom domain binding failed: {exc}"
+        binding = _bind_page_to_accounts(conn, body.bind_act_ids, body.bind_target, public_url, user)
+        response_payload = dict(response)
+        if domain_result is not None:
+            response_payload["custom_domain_result"] = domain_result
+        note_text = (body.note or "")
+        if domain_error:
+            note_text += ("\n" if note_text else "") + domain_error
+        if binding.get("skipped"):
+            note_text += ("\n" if note_text else "") + "Binding skipped: " + json.dumps(binding.get("skipped", []), ensure_ascii=False)
         conn.execute(
             """UPDATE landing_pages
-               SET deployment_id=?, pages_url=?, bound_act_ids=?, status='published',
-                   raw_response=?, note=?, updated_at=datetime('now','+8 hours')
+               SET deployment_id=?, pages_url=?, custom_domain=?, bound_act_ids=?, status='published',
+                   raw_response=?, last_error=?, note=?, updated_at=datetime('now','+8 hours')
                WHERE id=?""",
             (
                 deployment_id,
                 pages_url,
+                custom_domain,
                 json.dumps([x["act_id"] for x in binding.get("bound", [])], ensure_ascii=False),
-                json.dumps(response, ensure_ascii=False),
-                (body.note or "") + (("\nBinding skipped: " + json.dumps(binding.get("skipped", []), ensure_ascii=False)) if binding.get("skipped") else ""),
+                json.dumps(response_payload, ensure_ascii=False),
+                domain_error,
+                note_text,
                 page_id,
             ),
         )
@@ -794,6 +840,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
         saved = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
         item = _public_page(saved)
         item["binding"] = binding
+        item["domain_error"] = domain_error
         return {"success": True, "page": item}
     except Exception as exc:
         if page_id:
@@ -805,10 +852,10 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
             conn.execute(
                 """INSERT INTO landing_pages
                    (title, link_kind, form_link_enabled, template_id, cf_token_id, cf_account_id, cf_account_name,
-                    project_name, pixel_id, target_urls, rotation_mode, bound_act_ids, bind_target,
+                    project_name, custom_domain, pixel_id, target_urls, rotation_mode, bound_act_ids, bind_target,
                     tracking_enabled, protection_enabled, protection_rules, worker_enabled,
                     status, last_error, note, team_id, owner_user_id, created_by)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'failed', ?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'failed', ?,?,?,?,?)""",
                 (
                     title,
                     link_kind,
@@ -818,6 +865,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
                     cf_account_id,
                     cf_account_name,
                     project_name,
+                    custom_domain,
                     body.pixel_id or "",
                     json.dumps(urls, ensure_ascii=False),
                     body.rotation_mode,

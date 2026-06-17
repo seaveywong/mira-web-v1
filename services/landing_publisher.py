@@ -77,6 +77,27 @@ def list_pages_projects(api_token: str, account_id: str) -> list:
     return result if isinstance(result, list) else result.get("result", [])
 
 
+def add_pages_custom_domain(api_token: str, account_id: str, project_name: str, domain: str) -> dict:
+    domain = normalize_custom_domain(domain)
+    if not domain:
+        return {}
+    project_name = sanitize_project_name(project_name)
+    payload = {"name": domain}
+    try:
+        return cf_request(
+            api_token,
+            "POST",
+            f"/accounts/{account_id}/pages/projects/{project_name}/domains",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+    except CloudflareError as exc:
+        msg = str(exc).lower()
+        if "already" in msg or "exists" in msg or "duplicate" in msg:
+            return {"name": domain, "status": "already_exists"}
+        raise
+
+
 def ensure_project(api_token: str, account_id: str, project_name: str) -> dict:
     project_name = sanitize_project_name(project_name)
     try:
@@ -107,11 +128,28 @@ def sanitize_project_name(value: str) -> str:
     return cleaned
 
 
+def normalize_custom_domain(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    raw = re.sub(r"^https?://", "", raw, flags=re.I)
+    raw = raw.split("/")[0].split("?")[0].split("#")[0].strip().strip(".").lower()
+    if not raw:
+        return ""
+    if len(raw) > 253 or "." not in raw:
+        raise ValueError("Custom domain must be a full host name, for example go.example.com")
+    label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    if not re.fullmatch(rf"{label}(?:\.{label})+", raw):
+        raise ValueError("Custom domain contains unsupported characters")
+    return raw
+
+
 def prepare_template(
     template_dir: str | os.PathLike,
     pixel_id: str,
     target_urls: list[str],
     rotation_mode: str = "sequential",
+    link_kind: str = "landing",
     worker_enabled: bool = False,
     tracking_enabled: bool = True,
     protection_enabled: bool = False,
@@ -129,26 +167,30 @@ def prepare_template(
     work = Path(tempfile.mkdtemp(prefix="mira_landing_"))
     shutil.copytree(src, work, dirs_exist_ok=True)
     landing = work / "landing.html"
-    if not landing.exists():
+    redirect_only = (link_kind or "landing").strip().lower() == "form"
+    if not redirect_only and not landing.exists():
         raise ValueError("Template missing landing.html")
 
-    html = landing.read_text(encoding="utf-8", errors="ignore")
-    html = re.sub(
-        r'var\s+RH_PIXEL_ID\s*=\s*"[^"]*"\s*;',
-        f'var RH_PIXEL_ID = {json.dumps(pixel_id or "")};',
-        html,
-        count=1,
-    )
     if worker_enabled:
         primary = "/__mira/redirect"
     else:
         primary = urls[0]
-    html = re.sub(
-        r'var\s+RH_TARGET_URL\s*=\s*"[^"]*"\s*;',
-        f'var RH_TARGET_URL = {json.dumps(primary)};',
-        html,
-        count=1,
-    )
+    if redirect_only:
+        html = _form_redirect_html(primary)
+    else:
+        html = landing.read_text(encoding="utf-8", errors="ignore")
+        html = re.sub(
+            r'var\s+RH_PIXEL_ID\s*=\s*"[^"]*"\s*;',
+            f'var RH_PIXEL_ID = {json.dumps(pixel_id or "")};',
+            html,
+            count=1,
+        )
+        html = re.sub(
+            r'var\s+RH_TARGET_URL\s*=\s*"[^"]*"\s*;',
+            f'var RH_TARGET_URL = {json.dumps(primary)};',
+            html,
+            count=1,
+        )
     if worker_enabled:
         html = _inject_client_tracker(html, page_id or 0)
         _write_worker(
@@ -175,6 +217,39 @@ def prepare_template(
     landing.write_text(html, encoding="utf-8")
     (work / "index.html").write_text(html, encoding="utf-8")
     return str(work)
+
+
+def _form_redirect_html(target_url: str) -> str:
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Opening...</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f8fafc;color:#0f172a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    a{color:#0b74de;font-weight:700;text-decoration:none}
+  </style>
+</head>
+<body>
+  <main>
+    <div style="font-size:14px;color:#64748b;margin-bottom:10px">Opening secure link...</div>
+    <a id="fallback" href="#">Continue</a>
+  </main>
+  <script>
+  (function(){
+    var target = __TARGET__;
+    if (target.indexOf('/__mira/redirect') === 0) {
+      target += (location.search || '');
+      if (location.hash) target += location.hash;
+    }
+    document.getElementById('fallback').href = target;
+    setTimeout(function(){ location.replace(target); }, 80);
+  })();
+  </script>
+</body>
+</html>""".replace("__TARGET__", json.dumps(target_url or "/__mira/redirect"))
 
 
 def _inject_client_tracker(html: str, page_id: int) -> str:
