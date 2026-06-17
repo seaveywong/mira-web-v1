@@ -1329,22 +1329,7 @@ def list_tokens(user=Depends(get_current_user)):
                t.owner_user_id,
                COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name,
                t.permission_snapshot, t.permission_checked_at,
-               (
-                   (SELECT COUNT(DISTINCT aot.act_id)
-                      FROM account_op_tokens aot
-                     WHERE aot.token_id = t.id AND aot.status = 'active')
-                   +
-                   (SELECT COUNT(DISTINCT a2.act_id)
-                      FROM accounts a2
-                     WHERE a2.token_id = t.id
-                       AND NOT EXISTS (
-                           SELECT 1
-                             FROM account_op_tokens aot2
-                            WHERE aot2.token_id = t.id
-                              AND aot2.act_id = a2.act_id
-                              AND aot2.status = 'active'
-                       ))
-               ) as account_count
+               0 as account_count
         FROM fb_tokens t
         LEFT JOIN accounts a ON a.token_id = t.id
         LEFT JOIN teams tm ON tm.id = t.team_id
@@ -1357,6 +1342,27 @@ def list_tokens(user=Depends(get_current_user)):
     apply_team_scope(matrix_where, matrix_params, user, "a.team_id", include_unassigned=False)
     _apply_token_owner(matrix_where, matrix_params, user, "a.owner_user_id")
     matrix_scope_sql = " AND ".join(matrix_where)
+    token_account_count_map = {}
+    for cr in conn.execute(f"""
+        WITH rel AS (
+            SELECT token_id, act_id
+              FROM account_op_tokens
+             WHERE status = 'active'
+            UNION
+            SELECT token_id, act_id
+              FROM accounts
+             WHERE token_id IS NOT NULL
+        )
+        SELECT rel.token_id, COUNT(DISTINCT rel.act_id) AS account_count
+          FROM rel
+          JOIN accounts a ON a.act_id = rel.act_id
+         WHERE {matrix_scope_sql}
+         GROUP BY rel.token_id
+    """, matrix_params).fetchall():
+        try:
+            token_account_count_map[int(cr["token_id"])] = int(cr["account_count"] or 0)
+        except (TypeError, ValueError):
+            continue
     token_matrix_map = {}
     for mr in conn.execute(f"""
         WITH rel AS (
@@ -1401,7 +1407,9 @@ def list_tokens(user=Depends(get_current_user)):
                 item["permission_snapshot"] = None
         else:
             item["permission_snapshot"] = None
-        item["linked_matrix_ids"] = sorted(token_matrix_map.get(int(item["id"]), set()))
+        token_id_int = int(item["id"])
+        item["account_count"] = token_account_count_map.get(token_id_int, 0)
+        item["linked_matrix_ids"] = sorted(token_matrix_map.get(token_id_int, set()))
         data.append(item)
     return data
 
