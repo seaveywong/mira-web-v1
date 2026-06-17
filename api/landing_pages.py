@@ -16,6 +16,7 @@ from services.landing_publisher import (
     DEFAULT_TEMPLATE_DIR,
     CloudflareError,
     add_pages_custom_domain,
+    delete_pages_project,
     deploy_pages_static,
     get_pages_custom_domain_status,
     list_pages_projects,
@@ -1067,10 +1068,29 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
         if usage["total"] > 0:
             conn.close()
             raise HTTPException(status_code=400, detail=f"Landing page is still in use by {usage['total']} resource(s)")
+        cloudflare_cleanup = {"skipped": True, "reason": "no published Cloudflare project"}
+        project_name = (page.get("project_name") or "").strip()
+        has_remote_project = bool(project_name and (page.get("pages_url") or page.get("deployment_id") or page.get("status") == "published"))
+        if has_remote_project:
+            token_id = page.get("cf_token_id")
+            if not token_id:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Cloudflare project exists but token is missing; archive it instead or restore the API token")
+            token_row = _assert_token_access(conn, int(token_id), user)
+            cf_account_id = (page.get("cf_account_id") or token_row.get("selected_account_id") or token_row.get("cf_account_id") or "").strip()
+            if not cf_account_id:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Cloudflare account is missing; choose the API account before deleting the project")
+            try:
+                raw_token = decrypt_token(token_row["access_token_enc"])
+                cloudflare_cleanup = delete_pages_project(raw_token, cf_account_id, project_name)
+            except CloudflareError as exc:
+                conn.close()
+                raise HTTPException(status_code=400, detail=f"Cloudflare project delete failed: {exc}") from exc
         conn.execute("DELETE FROM landing_pages WHERE id=?", (page_id,))
         conn.commit()
         conn.close()
-        return {"success": True, "deleted": True, "usage": usage}
+        return {"success": True, "deleted": True, "cloudflare": cloudflare_cleanup, "usage": usage}
     conn.execute("UPDATE landing_pages SET status='archived', updated_at=datetime('now','+8 hours') WHERE id=?", (page_id,))
     conn.commit()
     conn.close()

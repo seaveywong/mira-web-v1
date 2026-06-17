@@ -122,6 +122,24 @@ def get_pages_custom_domain_status(api_token: str, account_id: str, project_name
     return {"name": domain, "status": "not_found"}
 
 
+def delete_pages_project(api_token: str, account_id: str, project_name: str) -> dict:
+    project_name = sanitize_project_name(project_name)
+    if not project_name:
+        raise CloudflareError("Pages project name is required")
+    try:
+        result = cf_request(
+            api_token,
+            "DELETE",
+            f"/accounts/{account_id}/pages/projects/{project_name}",
+        )
+        return result if isinstance(result, dict) else {"result": result, "status": "deleted"}
+    except CloudflareError as exc:
+        lower = str(exc).lower()
+        if "not found" in lower or "does not exist" in lower or "could not find" in lower:
+            return {"status": "not_found", "name": project_name}
+        raise
+
+
 def ensure_project(api_token: str, account_id: str, project_name: str) -> dict:
     project_name = sanitize_project_name(project_name)
     try:

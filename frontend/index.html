@@ -15199,7 +15199,7 @@ function renderLandingPages(){
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingStats('+p.id+')">统计</button>'+
     (usageTotal>0?'<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingUsage('+p.id+')">引用</button>':'')+
     (p.custom_domain?'<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="refreshLandingDomain('+p.id+')">域名</button>':'')+
-    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="archiveLandingPage('+p.id+','+(usageTotal>0?'false':'true')+')">'+(usageTotal>0?'归档':'删除记录')+'</button>'+
+    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="archiveLandingPage('+p.id+','+(usageTotal>0?'false':'true')+')">'+(usageTotal>0?'归档':'删除项目')+'</button>'+
    '</td>'+
   '</tr>';
  }).join('');
@@ -15364,15 +15364,17 @@ async function refreshLandingDomain(id){
 }
 async function archiveLandingPage(id,cleanup){
  var msg=cleanup
-  ?'确认删除这个未引用的发布记录？Cloudflare Pages 项目不会被删除。'
+  ?'确认删除这个未引用的落地页？系统会删除 Cloudflare Pages 项目和本地记录，操作不可恢复。'
   :'确认归档这个仍被引用的落地页记录？Cloudflare 项目和账户链接不会被删除。';
  var ok=await confirmDialog(msg);
  if(!ok)return;
  try{
-  await api('DELETE','/landing-pages/pages/'+id+(cleanup?'?cleanup=1':''));
-  toast(cleanup?'记录已删除':'已归档','ok');
+  var r=await api('DELETE','/landing-pages/pages/'+id+(cleanup?'?cleanup=1':''));
+  var cf=(r&&r.cloudflare)||{};
+  var cfText=cleanup?(cf.status==='not_found'?'，Cloudflare 项目已不存在':(cf.skipped?'，没有远程项目':'，Cloudflare 项目已删除')):'';
+  toast((cleanup?'落地页已删除':'已归档')+cfText,'ok');
   await loadLandingCenter(true);
- }catch(e){toast((cleanup?'删除':'归档')+'失败：'+(e.message||e),'er')}
+ }catch(e){toast((cleanup?'删除项目':'归档')+'失败：'+(e.message||e),'er')}
 }
 async function showLandingStats(id){
  var panel=document.getElementById('landingStatsPanel');
