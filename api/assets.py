@@ -474,6 +474,7 @@ def list_assets(
     target_country: Optional[str] = Query(None),
     folder_name: Optional[str] = Query(None),
     batch_code: Optional[str] = Query(None),
+    matrix_id: Optional[int] = Query(None),
     asset_status: Optional[str] = Query("active"),
     tag: Optional[str] = Query(None),
     performance_filter: Optional[str] = Query(None),
@@ -508,6 +509,27 @@ def list_assets(
         where.append("COALESCE(folder_name,'')=?"); params.append(folder_name)
     if batch_code:
         where.append("COALESCE(batch_code,'')=?"); params.append(batch_code)
+    if matrix_id:
+        where.append(
+            """(
+                EXISTS (
+                    SELECT 1
+                      FROM accounts aa
+                      JOIN fb_tokens mt ON mt.id=aa.token_id
+                     WHERE mt.matrix_id=?
+                       AND REPLACE(COALESCE(aa.act_id,''),'act_','')=REPLACE(COALESCE(a.act_id,''),'act_','')
+                )
+                OR EXISTS (
+                    SELECT 1
+                      FROM account_op_tokens aot
+                      JOIN fb_tokens ot ON ot.id=aot.token_id
+                     WHERE aot.status='active'
+                       AND ot.matrix_id=?
+                       AND REPLACE(COALESCE(aot.act_id,''),'act_','')=REPLACE(COALESCE(a.act_id,''),'act_','')
+                )
+            )"""
+        )
+        params.extend([int(matrix_id), int(matrix_id)])
     if tag and tag.strip():
         where.append("COALESCE(tags,'') LIKE ?"); params.append(f"%{tag.strip()}%")
     if performance_filter:

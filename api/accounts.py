@@ -1450,7 +1450,7 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
     token_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    # v4.1: 操作号自动匹配已导入账户并加入操作号池（后台线程，不阻塞响应）
+    # v4.1: 新增可用 Token 后自动匹配已导入账户并加入账户 Token 池（后台线程，不阻塞响应）
     actual_type = actual_type_for_insert
     if actual_type in ("operate", "manage"):  # 管理号和操作号都触发自动匹配
         import threading
@@ -1458,10 +1458,10 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
         _token_id_copy = token_id
         def _auto_match_op_bg():
             """
-            操作号自动匹配逻辑：
-            1. 调用 FB API 获取该操作号有权限的所有广告账户
+            Token 自动匹配逻辑：
+            1. 调用 FB API 获取该 Token 有权限的所有广告账户
             2. 与系统已导入账户做交集匹配
-            3. 匹配到的账户自动将该操作号加入操作号池
+            3. 匹配到的账户自动将该 Token 加入账户 Token 池
             4. 同步更新账户状态（回收/禁用等）
             """
             try:
@@ -1471,7 +1471,7 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
                     timeout=30,
                 )
                 if not fb_accounts:
-                    logger.info(f"[OpAutoMatch] 操作号 {_token_id_copy} 无可匹配账户")
+                    logger.info(f"[TokenAutoMatch] token {_token_id_copy} 无可匹配账户")
                     return
                 # 构建 FB 账户字典 {act_id: data}
                 fb_map = {a["id"]: a for a in fb_accounts}
@@ -1496,7 +1496,7 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
                         act_id = acc["act_id"]
                         fb_info = fb_map.get(act_id)
                         if fb_info:
-                            # 匹配成功：将操作号加入该账户的操作号池（如未已存在）
+                            # 匹配成功：将 Token 加入该账户 Token 池（如未已存在）
                             existing_op = c.execute(
                                 "SELECT id FROM account_op_tokens WHERE act_id=? AND token_id=?",
                                 (act_id, _token_id_copy)
@@ -1525,16 +1525,22 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
                             # 不强制更新状态（可能只是操作号权限不够，不代表账户真的被禁）
                             pass
                     c.commit()
-                    logger.info(f"[OpAutoMatch] 操作号 {_token_id_copy} 自动匹配 {matched} 个账户加入操作号池，更新 {status_updated} 个账户状态")
+                    logger.info(f"[TokenAutoMatch] token {_token_id_copy} 自动匹配 {matched} 个账户加入账户 Token 池，更新 {status_updated} 个账户状态")
                 except Exception as e:
                     c.rollback()
-                    logger.error(f"[OpAutoMatch] 写入失败: {e}")
+                    logger.error(f"[TokenAutoMatch] 写入失败: {e}")
                 finally:
                     c.close()
             except Exception as e:
-                logger.error(f"[OpAutoMatch] 操作号自动匹配失败: {e}")
+                logger.error(f"[TokenAutoMatch] Token 自动匹配失败: {e}")
         threading.Thread(target=_auto_match_op_bg, daemon=True).start()
-    return {"success": True, "token_id": token_id, "user_info": info, "auto_match_started": actual_type == "operate"}
+    return {
+        "success": True,
+        "token_id": token_id,
+        "user_info": info,
+        "auto_match_started": actual_type in ("operate", "manage"),
+        "auto_match_token_type": actual_type,
+    }
 
 
 @router.put("/tokens/{token_id}")

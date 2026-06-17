@@ -2332,6 +2332,9 @@ select.fc option{background:#fff;color:#1d1d1f}
        <select class="fc" id="assetsActFilter" style="width:180px" onchange="loadAssets(true)">
         <option value="">全部账户</option>
        </select>
+       <select class="fc" id="assetsMatrixFilter" style="width:120px" onchange="loadAssets(true)">
+        <option value="">全部矩阵</option>
+       </select>
        <select class="fc" id="assetsTypeFilter" style="width:110px" onchange="loadAssets(true)">
         <option value="">全部类型</option>
         <option value="image"> 图片</option>
@@ -2833,6 +2836,9 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="modal">
   <div class="mh"><h3>添加 Token</h3><button class="mc" onclick="closeModal('moAddToken')">✕</button></div>
   <div class="mb">
+   <div class="info-box" style="margin-bottom:12px">
+    保存后系统会自动扫描同团队 / 同负责人已导入账户，能管理该账户的 Token 会自动补齐关联；无需再点到单个 Token 里手动匹配。
+   </div>
    <div class="fg"><label class="fl">别名 <span class="req">*</span></label><input class="fc" id="tkAlias" placeholder="便于识别，如：主账号Token"></div>
    <div class="fg"><label class="fl">Access Token <span class="req">*</span></label><input class="fc" id="tkVal" type="password" placeholder="EAAxxxx..."></div>
    <div class="fr">
@@ -5280,6 +5286,15 @@ async function fillMatrixSelects(){
  applyOptions('tkMatrix', 'tkMatrixCustom', false);
  applyOptions('twNewMatrix2', 'twNewMatrixCustom2', true);
  applyOptions('metaTokenMatrix', 'metaTokenMatrixCustom', false);
+ var assetMatrixSel = document.getElementById('assetsMatrixFilter');
+ if(assetMatrixSel){
+  var currentAssetMatrix = assetMatrixSel.value || '';
+  var assetMatrices = normalizeMatrixIds(matrices, currentAssetMatrix ? [currentAssetMatrix] : []);
+  assetMatrixSel.innerHTML = '<option value="">全部矩阵</option>' + assetMatrices.map(function(m){
+   return '<option value="'+m+'">矩阵 '+m+'</option>';
+  }).join('');
+  assetMatrixSel.value = currentAssetMatrix;
+ }
 }
 
 async function doLogin(){
@@ -5793,7 +5808,7 @@ function _pageAutoKey(name){
  if(name==='dashboard')return [_val('dashAct'),_val('dashKpi'),dashDateFrom||'',dashDateTo||''].join('|');
  if(name==='ads')return [_val('adsAct'),_val('adsDateFrom'),_val('adsDateTo')].join('|');
  if(name==='logs')return [_val('logAct'),_val('logType'),_val('logStatus'),logsPage].join('|');
- if(name==='assets')return [_val('assetAct'),_val('assetType'),_val('assetStatus'),_val('assetQ'),window.assetsPage||1].join('|');
+ if(name==='assets')return [_val('assetsActFilter'),_val('assetsMatrixFilter'),_val('assetsTypeFilter'),_val('assetsStatusFilter'),_val('assetsSearch'),_val('assetsFolderFilter'),_val('assetsBatchFilter'),_val('assetsPerfFilter'),_val('assetsSortBy'),(_assetsMeta&&_assetsMeta.page)||1].join('|');
  if(name==='kpi')return [_val('kpiAct'),_val('kpiLevel')].join('|');
  if(name==='rules')return [_val('rulesAct')].join('|');
  return name;
@@ -7868,7 +7883,11 @@ async function submitToken(){
   resetMatrixPicker('tkMatrix','tkMatrixCustom');
  var sourceEl=document.getElementById('tkSource');if(sourceEl)sourceEl.value='personal';
   await fillMatrixSelects();
-  toast(res&&res.auto_match_started?'Token 添加成功，已开始自动匹配已有账户':'Token 添加成功','ok');
+  var msg='Token 添加成功';
+  if(res&&res.auto_match_started){
+   msg+='，正在自动补齐已有账户关联';
+  }
+  toast(msg,'ok');
   closeModal('moAddToken');
   loadTokens();
   loadAccounts();
@@ -9314,12 +9333,16 @@ async function loadAssets(resetPage){
    });
   }catch(e){}
  }
+ if(document.getElementById('assetsMatrixFilter')){
+  try{await fillMatrixSelects();}catch(e){}
+ }
  try{
   if(resetPage!==false){
    _assetsMeta.offset=0;
    _assetsMeta.page=1;
   }
   var actId=document.getElementById('assetsActFilter').value||'';
+  var matrixId=document.getElementById('assetsMatrixFilter')?document.getElementById('assetsMatrixFilter').value||'':'';
   var ftype=document.getElementById('assetsTypeFilter').value||'';
   var country=document.getElementById('assetsCountryFilter')?document.getElementById('assetsCountryFilter').value||'':'';
   var folder=document.getElementById('assetsFolderFilter')?document.getElementById('assetsFolderFilter').value||'':'';
@@ -9332,6 +9355,7 @@ async function loadAssets(resetPage){
   var offset=parseInt((_assetsMeta&&_assetsMeta.offset)||0,10)||0;
   var qs='?limit='+limit+'&offset='+offset
    +(actId?'&act_id='+encodeURIComponent(actId):'')
+   +(matrixId?'&matrix_id='+encodeURIComponent(matrixId):'')
    +(ftype?'&file_type='+encodeURIComponent(ftype):'')
    +(country?'&target_country='+encodeURIComponent(country):'')
    +(folder?'&folder_name='+encodeURIComponent(folder):'')
@@ -9920,6 +9944,11 @@ async function openAssetDetail(assetId){
   var safeBatchCode=String(a.batch_code||'').replace(/"/g,'&quot;');
   var safeNote=String(a.note||'').replace(/"/g,'&quot;');
   var safeTags=String(tags.join(', ')).replace(/"/g,'&quot;');
+  var detailMatrixColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
+  var detailMatrixBadges=getAccountMatrixIds(a).map(function(mid){
+   var color=detailMatrixColors[(mid-1)%detailMatrixColors.length];
+   return '<span class="badge" style="background:'+color+';color:#fff">矩阵'+mid+'</span>';
+  }).join('');
   // 有实投数据时优先看实投综合分；未投放的新素材才看 AI 冷启动分。
   var scoreView=_assetScoreView(a);
   var scoreVal=scoreView.hasScore?scoreView.value:0;
@@ -9981,6 +10010,7 @@ async function openAssetDetail(assetId){
   html+='<div class="acc-detail-item"><div class="acc-detail-label">上传时间</div><div class="acc-detail-val">'+_cst(a.created_at)+'</div></div>';
   html+='<div class="acc-detail-item"><div class="acc-detail-label">素材组</div><div class="acc-detail-val">'+getAssetFolderLabel(a)+'</div></div>';
   if(a.batch_code)html+='<div class="acc-detail-item"><div class="acc-detail-label">上传批次</div><div class="acc-detail-val">'+_formatAssetBatchLabel(a.batch_code)+'</div><div class="acc-detail-sub" style="font-family:monospace;color:var(--t3)">'+a.batch_code+'</div></div>';
+  if(detailMatrixBadges)html+='<div class="acc-detail-item"><div class="acc-detail-label">矩阵归属</div><div class="acc-detail-val" style="display:flex;gap:4px;flex-wrap:wrap">'+detailMatrixBadges+'</div></div>';
   html+='</div>';
 
   html+='<div style="border-top:1px solid var(--bd);padding-top:12px">';
