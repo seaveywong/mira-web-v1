@@ -1811,6 +1811,13 @@ select.fc option{background:#fff;color:#1d1d1f}
 #page-settings .ss,#page-team_admin .ss,#page-kpi .ss,#page-rules .ss{overflow:visible!important}
 #page-kpi .kc,#page-rules .rc,#page-tokens .tkc,#page-accounts .acc-card{min-width:0!important}
 #page-kpi .kc *,#page-rules .rc *,#page-tokens .tkc *,#page-accounts .acc-card *{max-width:100%}
+.task-center-wrap{background:var(--bg2);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;margin:-6px 0 18px}
+.task-center-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.task-center-title{font-size:13px;font-weight:800;color:var(--t1);line-height:1.2}
+.task-center-meta{font-size:11px;color:var(--t3);margin-top:3px}
+.task-center-wrap .task-center{margin:0!important;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
+.task-center-wrap .task-card{background:var(--bg3);min-height:76px;padding:12px 14px;border-radius:12px}
+.task-center-wrap .task-desc{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .guard-ops-panel{display:grid;grid-template-columns:1.05fr 1fr 1.4fr;gap:12px;margin:0 0 14px}
 .guard-ops-card{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:14px;min-width:0}
 .guard-ops-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-weight:760;color:var(--t1)}
@@ -1833,6 +1840,8 @@ select.fc option{background:#fff;color:#1d1d1f}
 }
 @media(max-width:640px){
  .guard-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .task-center-head{align-items:flex-start}
+ .task-center-wrap .task-center{grid-template-columns:1fr}
 }
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2052,7 +2061,16 @@ select.fc option{background:#fff;color:#1d1d1f}
        <div class="sc-icon"></div>
       </div>
      </div>
-     <div class="task-center" id="taskCenter" style="display:none"></div>
+     <div class="task-center-wrap" id="taskCenterWrap" style="display:none">
+      <div class="task-center-head">
+       <div>
+        <div class="task-center-title">待处理事项</div>
+        <div class="task-center-meta" id="taskCenterMeta">充值 / 权限 / 账户状态 / 数据拉取</div>
+       </div>
+       <button class="btn btn-g btn-sm" onclick="loadDash()">刷新</button>
+      </div>
+      <div class="task-center" id="taskCenter"></div>
+     </div>
      <div class="chart-card" style="margin-bottom:24px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
        <span style="font-size:13px;font-weight:600;color:var(--t1)">趋势分析</span>
@@ -5532,38 +5550,47 @@ function classifyDashboardAccounts(accounts){
 
 function renderTaskCenter(sum,accounts){
  var el=document.getElementById('taskCenter');
+ var wrap=document.getElementById('taskCenterWrap');
+ var meta=document.getElementById('taskCenterMeta');
  if(!el)return;
  var groups=classifyDashboardAccounts(accounts||[]);
  var cards=[];
+ var metaParts=[];
  if(groups.critical.length){
   cards.push(taskCard('danger','充值提醒',groups.critical.length+' 个已阻断','已达消费上限或可用额度为 0：'+taskAccountNames(groups.critical,3),'查看余额','toggleAccDetail(\'balance\')'));
+  metaParts.push(groups.critical.length+' 个已阻断');
  }
  if(groups.recharge.length){
   cards.push(taskCard('warn','建议充值',groups.recharge.length+' 个账户','可用额度低于 100 USD 或低于账户上限 10%：'+taskAccountNames(groups.recharge,3),'查看余额','toggleAccDetail(\'balance\')'));
+  metaParts.push(groups.recharge.length+' 个建议充值');
  }
  if(groups.low.length&&!groups.recharge.length&&!groups.critical.length){
   cards.push(taskCard('info','额度偏低',groups.low.length+' 个账户','可用额度低于 300 USD 或低于账户上限 20%：'+taskAccountNames(groups.low,3),'查看账户','showPage(\'accounts\')'));
- }
- if(sum&&(sum.paused_in_range||0)>0){
-  cards.push(taskCard('danger','今日止损',sum.paused_in_range+' 条','已有广告被规则暂停，建议复查是否需要补预算、换素材或回归。','看明细','togglePauseDetail()'));
+  metaParts.push(groups.low.length+' 个额度偏低');
  }
  if(groups.readIssues.length){
   cards.push(taskCard('danger','读取权限异常',groups.readIssues.length+' 个账户','巡检或数据拉取可能失败：'+taskAccountNames(groups.readIssues,3),'去处理','showPage(\'accounts\')'));
+  metaParts.push(groups.readIssues.length+' 个读取异常');
  }
  if(groups.writeIssues.length){
   cards.push(taskCard('warn','写操作待处理',groups.writeIssues.length+' 个账户','创建广告、调预算或关停可能受限：'+taskAccountNames(groups.writeIssues,3),'去处理','showPage(\'accounts\')'));
+  metaParts.push(groups.writeIssues.length+' 个写入待处理');
  }
  if(groups.statusIssues.length){
   cards.push(taskCard('warn','账户状态异常',groups.statusIssues.length+' 个账户','存在禁用、支付、政策或 BM 异常账户：'+taskAccountNames(groups.statusIssues,3),'查看账户','showPage(\'accounts\')'));
+  metaParts.push(groups.statusIssues.length+' 个账户异常');
  }
  if(sum&&(sum.error_accounts||0)>0){
   cards.push(taskCard('warn','数据拉取异常',sum.error_accounts+' 个账户','本次看板有账户没有成功返回数据，建议检查 Token 或账户状态。','查看账户','showPage(\'accounts\')'));
+  metaParts.push(sum.error_accounts+' 个拉取异常');
  }
  if(!cards.length){
-  cards.push(taskCard('ok','今日任务清爽','暂无紧急事项','当前筛选范围没有止损、权限或充值风险。','刷新','loadDash()'));
+  cards.push(taskCard('ok','今日任务清爽','暂无紧急事项','当前筛选范围没有充值、权限、账户状态或数据拉取风险。','刷新','loadDash()'));
+  metaParts.push('暂无紧急事项');
  }
  el.innerHTML=cards.slice(0,6).join('');
- el.style.display='grid';
+ if(meta)meta.textContent=metaParts.slice(0,4).join(' / ');
+ if(wrap)wrap.style.display='block';
 }
 
 function trimFutureHourlyTrend(labels,seriesList){
