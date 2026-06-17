@@ -627,6 +627,55 @@ def _landing_page_usage(conn, item: dict, user) -> dict:
     return usage
 
 
+def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
+    custom_domain = (page.get("custom_domain") or "").strip()
+    if not custom_domain:
+        raise HTTPException(status_code=400, detail="This landing page has no custom domain")
+    token_id = page.get("cf_token_id")
+    if not token_id:
+        raise HTTPException(status_code=400, detail="This landing page has no Cloudflare token")
+    token_row = _assert_token_access(conn, int(token_id), user)
+    raw_token = decrypt_token(token_row["access_token_enc"])
+    cf_account_id = page.get("cf_account_id") or token_row.get("cf_account_id")
+    if not cf_account_id:
+        raise HTTPException(status_code=400, detail="Cloudflare token has no selected account; choose a Cloudflare account first")
+    status = get_pages_custom_domain_status(
+        raw_token,
+        cf_account_id,
+        page.get("project_name") or "",
+        custom_domain,
+    )
+    raw_payload = _json_loads(page.get("raw_response"), {})
+    if not isinstance(raw_payload, dict):
+        raw_payload = {}
+    raw_payload["domain_status"] = status
+    detail = json.dumps(status, ensure_ascii=False)
+    last_error = "" if (status.get("status") or "").lower() not in {"not_found", "error"} else detail
+    conn.execute(
+        """UPDATE landing_pages
+           SET last_error=?, raw_response=?, updated_at=datetime('now','+8 hours')
+           WHERE id=?""",
+        (last_error, json.dumps(raw_payload, ensure_ascii=False), page["id"]),
+    )
+    conn.commit()
+    updated = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page["id"],)).fetchone()
+    item = _public_page(updated)
+    item["domain_status"] = status
+    binding = None
+    if item.get("custom_domain_usable") and item.get("public_url"):
+        binding = _bind_page_to_accounts(
+            conn,
+            item.get("bound_act_ids") or [],
+            item.get("bind_target") or "none",
+            item.get("public_url"),
+            user,
+        )
+        if binding and binding.get("bound"):
+            conn.commit()
+    item["usage"] = _landing_page_usage(conn, item, user)
+    return {"page": item, "domain_status": status, "binding": binding}
+
+
 def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(rules, dict):
         return {}
@@ -1121,55 +1170,9 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
 def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     page = _assert_page_access(conn, page_id, user)
-    custom_domain = (page.get("custom_domain") or "").strip()
-    if not custom_domain:
-        conn.close()
-        raise HTTPException(status_code=400, detail="This landing page has no custom domain")
-    token_id = page.get("cf_token_id")
-    if not token_id:
-        conn.close()
-        raise HTTPException(status_code=400, detail="This landing page has no Cloudflare token")
-    token_row = _assert_token_access(conn, int(token_id), user)
     try:
-        raw_token = decrypt_token(token_row["access_token_enc"])
-        cf_account_id = page.get("cf_account_id") or token_row.get("cf_account_id")
-        if not cf_account_id:
-            raise HTTPException(status_code=400, detail="Cloudflare token has no selected account; choose a Cloudflare account first")
-        status = get_pages_custom_domain_status(
-            raw_token,
-            cf_account_id,
-            page.get("project_name") or "",
-            custom_domain,
-        )
-        raw_payload = _json_loads(page.get("raw_response"), {})
-        if not isinstance(raw_payload, dict):
-            raw_payload = {}
-        raw_payload["domain_status"] = status
-        detail = json.dumps(status, ensure_ascii=False)
-        last_error = "" if (status.get("status") or "").lower() not in {"not_found", "error"} else detail
-        conn.execute(
-            """UPDATE landing_pages
-               SET last_error=?, raw_response=?, updated_at=datetime('now','+8 hours')
-               WHERE id=?""",
-            (last_error, json.dumps(raw_payload, ensure_ascii=False), page_id),
-        )
-        conn.commit()
-        updated = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
-        item = _public_page(updated)
-        item["domain_status"] = status
-        binding = None
-        if item.get("custom_domain_usable") and item.get("public_url"):
-            binding = _bind_page_to_accounts(
-                conn,
-                item.get("bound_act_ids") or [],
-                item.get("bind_target") or "none",
-                item.get("public_url"),
-                user,
-            )
-            if binding and binding.get("bound"):
-                conn.commit()
-        item["usage"] = _landing_page_usage(conn, item, user)
-        return {"success": True, "page": item, "domain_status": status, "binding": binding}
+        result = _refresh_landing_domain_record(conn, page, user)
+        return {"success": True, **result}
     except HTTPException:
         raise
     except Exception as exc:
@@ -1179,6 +1182,61 @@ def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
         )
         conn.commit()
         raise HTTPException(status_code=400, detail=f"Domain status refresh failed: {exc}") from exc
+    finally:
+        conn.close()
+
+
+@router.post("/pages/refresh-domains")
+def refresh_landing_page_domains(limit: int = 50, user=Depends(get_current_user)):
+    limit = max(1, min(int(limit or 50), 100))
+    conn = get_conn()
+    where, params = _scope_where(user, "p")
+    clauses = ["COALESCE(p.custom_domain,'')!=''", "COALESCE(p.status,'')!='archived'"]
+    clauses.extend(where)
+    rows = conn.execute(
+        f"""SELECT p.*
+            FROM landing_pages p
+            WHERE {' AND '.join(clauses)}
+            ORDER BY p.updated_at DESC, p.id DESC
+            LIMIT ?""",
+        params + [limit],
+    ).fetchall()
+    items = []
+    summary = {"checked": 0, "usable": 0, "pending": 0, "failed": 0, "rebound_accounts": 0}
+    try:
+        for row in rows:
+            page = dict(row)
+            summary["checked"] += 1
+            try:
+                result = _refresh_landing_domain_record(conn, page, user)
+                item = result["page"]
+                binding = result.get("binding") or {}
+                rebound = len(binding.get("bound") or [])
+                summary["rebound_accounts"] += rebound
+                status_text = _domain_status_text(result.get("domain_status")) or "unknown"
+                usable = bool(item.get("custom_domain_usable"))
+                summary["usable" if usable else "pending"] += 1
+                items.append({
+                    "id": item.get("id"),
+                    "title": item.get("title"),
+                    "custom_domain": item.get("custom_domain"),
+                    "status": status_text,
+                    "usable": usable,
+                    "public_url": item.get("public_url"),
+                    "rebound_accounts": rebound,
+                })
+            except Exception as exc:
+                summary["failed"] += 1
+                items.append({
+                    "id": page.get("id"),
+                    "title": page.get("title"),
+                    "custom_domain": page.get("custom_domain"),
+                    "status": "failed",
+                    "usable": False,
+                    "error": str(getattr(exc, "detail", exc)),
+                    "rebound_accounts": 0,
+                })
+        return {"success": True, **summary, "items": items}
     finally:
         conn.close()
 

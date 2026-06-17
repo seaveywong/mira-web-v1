@@ -2755,6 +2755,7 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="card landing-record-card">
   <div class="landing-card-head">
    <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。仍被引用的页面只能归档，未引用的页面可删除 Cloudflare 项目。</p></div>
+   <button class="btn btn-g btn-sm role-hide-viewer" onclick="refreshLandingDomains()" title="批量复检已发布页面的自定义域名；域名可用后会自动回绑原账户链接">复检全部域名</button>
   </div>
   <div class="table-wrap">
    <table style="width:100%;border-collapse:collapse;min-width:980px">
@@ -7394,13 +7395,36 @@ function renderMetaOAuthModal(cfg){
  body.innerHTML='<div class="meta-oauth-shell">'+configHtml+connectHtml+'</div>';
  fillMatrixSelects();
 }
+function normalizeMetaOAuthScopes(raw){
+ var blocked={leads_retrieval:1};
+ var seen={}, removed=[], kept=[];
+ String(raw||'').split(/[,\s]+/).forEach(function(part){
+  var scope=part.trim();
+  if(!scope)return;
+  if(blocked[scope]){
+   if(removed.indexOf(scope)<0)removed.push(scope);
+   return;
+  }
+  if(!seen[scope]){
+   seen[scope]=1;
+   kept.push(scope);
+  }
+ });
+ return {scopes:kept.join(','),removed:removed};
+}
 async function saveMetaOAuthConfig(){
+ var scopesEl=document.getElementById('metaScopes');
+ var scopeClean=normalizeMetaOAuthScopes(scopesEl?scopesEl.value:'');
+ if(scopesEl&&scopeClean.removed.length){
+  scopesEl.value=scopeClean.scopes;
+  toast('已移除不适合当前授权的范围：'+scopeClean.removed.join(', '),'wa');
+ }
  var payload={
   name:(document.getElementById('metaAppName')||{}).value||'',
   app_id:(document.getElementById('metaAppId')||{}).value||'',
   app_secret:(document.getElementById('metaAppSecret')||{}).value||'',
   redirect_uri:(document.getElementById('metaRedirectUri')||{}).value||'',
-  scopes:(document.getElementById('metaScopes')||{}).value||'',
+  scopes:scopeClean.scopes,
   graph_version:(document.getElementById('metaGraphVersion')||{}).value||''
  };
  if(!payload.app_id.trim()){toast('请填写 App ID','wa');return}
@@ -15025,7 +15049,16 @@ var _landingUrlAccs = [];
 var _launchLandingUrlAutoMeta = { actId:'', mode:'', value:'' };
 function getAccountMatrixLabel(a){
  var ids = getAccountMatrixIds(a);
- return ids.length ? ids.map(function(mid){ return '矩阵' + mid; }).join(' / ') : '未分配';
+ return ids.length ? ids.map(function(mid){ return '矩阵' + mid; }).join(' / ') : '未识别矩阵';
+}
+function getAccountMatrixBadgeHtml(a){
+ var ids = getAccountMatrixIds(a);
+ var colors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
+ if(!ids.length)return '<span class="badge bg-mu" title="该账户暂未从主 Token 或关联 Token 识别出矩阵">未识别矩阵</span>';
+ return ids.map(function(mid){
+  var color=colors[(mid-1)%colors.length];
+  return '<span class="badge" style="background:'+color+';color:#fff;margin-right:4px">矩阵'+mid+'</span>';
+ }).join('');
 }
 function _buildLaunchLinkOptionLabel(a, url){
  return '[' + getAccountMatrixLabel(a) + '] ' + (a.name || a.act_id) + ' → ' + url;
@@ -15075,9 +15108,8 @@ function renderLandingUrlTable(accs) {
   var actIdShort = (a.act_id || '').replace('act_', '');
   var url = a.landing_url || '';
   var formUrl = a.form_link || '';
-  var matrixLabel = getAccountMatrixLabel(a);
   return '<tr style="border-top:1px solid var(--bd)">' +
-   '<td style="padding:10px 14px;font-size:12px"><span class="badge bg-ac">' + matrixLabel + '</span></td>' +
+   '<td style="padding:10px 14px;font-size:12px;white-space:nowrap">' + getAccountMatrixBadgeHtml(a) + '</td>' +
    '<td style="padding:10px 14px;font-size:13px;font-weight:500">' + (a.name || '未命名') + '</td>' +
    '<td style="padding:10px 14px;font-size:12px;color:var(--t3);font-family:monospace">' + actIdShort + '</td>' +
    '<td style="padding:8px 14px">' +
@@ -15511,8 +15543,21 @@ async function refreshLandingDomain(id){
   var bound=(binding.bound||[]).length;
   var skipped=(binding.skipped||[]).length;
   toast('域名状态：'+label+(bound?'，已回绑 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':''),'ok');
-  await loadLandingCenter(true);
+ await loadLandingCenter(true);
  }catch(e){toast('域名复检失败：'+(e.message||e),'er')}
+}
+async function refreshLandingDomains(){
+ try{
+  toast('正在批量复检自定义域名...','ac');
+  var r=await api('POST','/landing-pages/pages/refresh-domains?limit=100',{});
+  var msg='已复检 '+(r.checked||0)+' 个域名';
+  msg+='，可用 '+(r.usable||0)+' 个';
+  if((r.pending||0)>0)msg+='，待验证 '+r.pending+' 个';
+  if((r.rebound_accounts||0)>0)msg+='，已回绑 '+r.rebound_accounts+' 个账户';
+  if((r.failed||0)>0)msg+='，失败 '+r.failed+' 个';
+  toast(msg,(r.failed||0)>0?'wa':'ok');
+  await loadLandingCenter(true);
+ }catch(e){toast('批量复检失败：'+(e.message||e),'er')}
 }
 async function archiveLandingPage(id,cleanup){
  var msg=cleanup
