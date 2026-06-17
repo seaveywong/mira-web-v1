@@ -469,6 +469,8 @@ def _ensure_user_guard_schema():
         for key in USER_GUARD_KEYS:
             if key not in cols:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {key} INTEGER DEFAULT 0")
+        if "heartbeat_timeout_min" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN heartbeat_timeout_min INTEGER DEFAULT 30")
         conn.commit()
     finally:
         conn.close()
@@ -3365,7 +3367,8 @@ def heartbeat_check() -> dict:
     ).fetchall()
     user_rows = conn.execute(
         """SELECT u.id, COALESCE(NULLIF(u.display_name, ''), u.username) AS name,
-                  u.team_id, t.name AS team_name, u.last_active_at AS last_activity
+                  u.team_id, t.name AS team_name, u.last_active_at AS last_activity,
+                  COALESCE(u.heartbeat_timeout_min, 30) AS heartbeat_timeout_min
            FROM users u
            LEFT JOIN teams t ON t.id=u.team_id
            WHERE COALESCE(u.heartbeat_enabled, 0)=1
@@ -3496,9 +3499,14 @@ def heartbeat_check() -> dict:
         if last_dt is None:
             continue
         owner_minutes = int((now_bj - last_dt).total_seconds() / 60)
-        if owner_minutes < timeout_min:
+        try:
+            owner_timeout_min = int(owner["heartbeat_timeout_min"] or timeout_min)
+        except (ValueError, TypeError):
+            owner_timeout_min = timeout_min
+        owner_timeout_min = max(1, min(owner_timeout_min, 1440))
+        if owner_minutes < owner_timeout_min:
             continue
-        logger.warning(f"[Heartbeat] Owner {owner_id} activity timeout: {owner_minutes} minutes")
+        logger.warning(f"[Heartbeat] Owner {owner_id} activity timeout: {owner_minutes} minutes (threshold={owner_timeout_min})")
         if _is_dry_run():
             result = {"total": 0, "success": 0, "failed": 0, "dry_run": True}
         else:
@@ -3526,6 +3534,7 @@ def heartbeat_check() -> dict:
             "team_id": owner["team_id"],
             "team_name": owner["team_name"],
             "minutes_since": owner_minutes,
+            "timeout_min": owner_timeout_min,
             "result": result,
         })
     if team_timeouts or owner_timeouts:

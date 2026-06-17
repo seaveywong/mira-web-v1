@@ -14035,12 +14035,13 @@ function onKpiTgtSel(){
 }
 
 // ── Mirror Mode ──
-async function updateMyGuardMode(key, enabled, updateFn, label, hintText){
- var body={};
+async function updateMyGuardMode(key, enabled, updateFn, label, hintText, extraBody){
+ var body=Object.assign({}, extraBody||{});
  body[key]=!!enabled;
- await api('PATCH','/users/me/guard-settings',body);
+ var res=await api('PATCH','/users/me/guard-settings',body);
  if(typeof updateFn==='function')updateFn(enabled?'1':'0',hintText);
  toast(label+(enabled?'已开启':'已关闭')+'，仅作用于你名下账户','ok');
+ return res;
 }
 async function toggleMirrorMode(){
   var el=document.getElementById('toggleMirror');
@@ -14128,15 +14129,56 @@ function toggleSentinelMode(){
   el.disabled=false;
  }).catch(function(e){el.checked=!el.checked;el.disabled=false;_updateSentinelUI(el.checked?'1':'0');showErr(e);});
 }
-function toggleHeartbeatMode(){
+async function askHeartbeatTimeoutMinutes(current){
+ var raw=await promptAsync(
+  '开启心跳模式',
+  '请输入无人操作多久后自动暂停你名下账户（分钟，1-1440）',
+  current || 30,
+  '例如 30'
+ );
+ if(raw===null)return null;
+ var minutes=parseInt(String(raw).trim(),10);
+ if(!isFinite(minutes)||minutes<1||minutes>1440){
+  toast('心跳倒计时需填写 1-1440 分钟之间的数字','wa');
+  return askHeartbeatTimeoutMinutes(current);
+ }
+ return minutes;
+}
+async function toggleHeartbeatMode(){
   var el=document.getElementById('toggleHeartbeat');
   if(!el)return;
   var v=el.checked?'1':'0';
  if(!isSuperadminRole()){
-  el.disabled=true;
-  updateMyGuardMode('heartbeat_enabled',el.checked,_updateHeartbeatUI,'心跳模式')
-   .catch(function(e){el.checked=!el.checked;_updateHeartbeatUI(el.checked?'1':'0');showErr(e);})
-   .finally(function(){el.disabled=false;});
+  if(el.checked){
+   var minutes=await askHeartbeatTimeoutMinutes(_heartbeatTimeout||30);
+   if(!minutes){
+    el.checked=false;
+    clearHeartbeatCountdown();
+    _updateHeartbeatUI('0');
+    return;
+   }
+   el.disabled=true;
+   try{
+    _heartbeatTimeout=minutes;
+    await updateMyGuardMode('heartbeat_enabled',true,_updateHeartbeatUI,'心跳模式',null,{heartbeat_timeout_min:minutes});
+    setHeartbeatDeadlineFromNow(minutes);
+   }catch(e){
+    el.checked=false;
+    clearHeartbeatCountdown();
+    _updateHeartbeatUI('0');
+    showErr(e);
+   }finally{el.disabled=false;}
+  }else{
+   el.disabled=true;
+   try{
+    await updateMyGuardMode('heartbeat_enabled',false,_updateHeartbeatUI,'心跳模式');
+    clearHeartbeatCountdown();
+   }catch(e){
+    el.checked=true;
+    _updateHeartbeatUI('1');
+    showErr(e);
+   }finally{el.disabled=false;}
+  }
   return;
  }
  toast('超管不使用个人心跳开关，请在团队或账户层级管理','wa');
@@ -14187,36 +14229,55 @@ function updateInspectCountdown(){
  el.textContent = '下次巡检 ' + mins + ':' + (secs < 10 ? '0' : '') + secs;
  el.style.color = 'var(--t3)';
 }
-var _heartbeatTimeout=30,_heartbeatLastActivity=Date.now();
+var _heartbeatTimeout=30,_heartbeatLastActivity=Date.now(),_heartbeatDeadline=null;
+function isHeartbeatUiOn(){
+ var el=document.getElementById('toggleHeartbeat');
+ return !!(el&&el.checked);
+}
 function updateHeartbeatCountdown(){
- var el=document.getElementById('heartbeatCountdown');
- if(!el) return;
- var remain=Math.max(0,(_heartbeatLastActivity+_heartbeatTimeout*60000)-Date.now());
- if(remain<=0){el.textContent='超时';el.style.color='var(--er)';return}
- var m=Math.floor(remain/60000),s=Math.floor((remain%60000)/1000);
- el.textContent='剩余 '+m+':'+(s<10?'0':'')+s;
- el.style.color='var(--t3)';
+ tickHeartbeatCountdown();
 }
 function resetHeartbeatTimer(){
  _heartbeatLastActivity=Date.now();
- updateHeartbeatCountdown();
+ if(isHeartbeatUiOn())setHeartbeatDeadlineFromNow(_heartbeatTimeout||30);
 }
-var _heartbeatDeadline = null;
+function clearHeartbeatCountdown(){
+ _heartbeatDeadline=null;
+ var el=document.getElementById('heartbeatCountdown');
+ if(el){el.textContent='';el.style.display='none';el.style.color='var(--t3)';}
+}
+function setHeartbeatDeadlineFromNow(timeoutMin){
+ var minutes=parseInt(timeoutMin||30,10);
+ if(!isFinite(minutes)||minutes<1)minutes=30;
+ _heartbeatTimeout=minutes;
+ _heartbeatLastActivity=Date.now();
+ _heartbeatDeadline=_heartbeatLastActivity+minutes*60000;
+ var el=document.getElementById('heartbeatCountdown');
+ if(el)el.style.display='';
+ tickHeartbeatCountdown();
+}
 function tickHeartbeatCountdown(){
- if(!_heartbeatDeadline) return;
  var el = document.getElementById('heartbeatCountdown');
  if(!el) return;
+ if(!_heartbeatDeadline||!isHeartbeatUiOn()){clearHeartbeatCountdown();return;}
  var remain = Math.max(0, _heartbeatDeadline - Date.now());
  if(remain <= 0){ el.textContent = '超时'; el.style.color = 'var(--er)'; return; }
  var m = Math.floor(remain/60000), s = Math.floor((remain%60000)/1000);
+ el.style.display='';
  el.textContent = '剩余 '+m+':'+(s<10?'0':'')+s;
+ el.style.color = remain<60000?'var(--wa)':'var(--t3)';
 }
-setInterval(tickHeartbeatCountdown, 10000);
+setInterval(tickHeartbeatCountdown, 1000);
 function updateHeartbeatCountdownReal(lastActivityMs, timeoutMin){
  var el = document.getElementById('heartbeatCountdown');
  if(!el) return;
- if(!lastActivityMs){ el.textContent = ''; return; }
- _heartbeatDeadline = lastActivityMs + timeoutMin * 60000;
+ if(!lastActivityMs){ clearHeartbeatCountdown(); return; }
+ var minutes=parseInt(timeoutMin||30,10);
+ if(!isFinite(minutes)||minutes<1)minutes=30;
+ _heartbeatTimeout=minutes;
+ _heartbeatLastActivity=lastActivityMs;
+ _heartbeatDeadline = lastActivityMs + minutes * 60000;
+ el.style.display='';
  tickHeartbeatCountdown();
 }
 async function loadSchedulerStatus(){
@@ -14227,13 +14288,15 @@ async function loadSchedulerStatus(){
    _nextInspectTime = r.next_inspect_at;
    updateInspectCountdown();
   }
-  // Heartbeat
-  var hbEl = document.getElementById('heartbeatCountdown');
-  if(r.heartbeat_enabled && r.last_activity_at){
-   if(hbEl) hbEl.style.display = '';
-   updateHeartbeatCountdownReal(r.last_activity_at, r.heartbeat_timeout_min || 30);
-  } else {
-   if(hbEl){ hbEl.textContent = ''; hbEl.style.display = 'none'; }
+  // Global heartbeat status is only meaningful for superadmin. Operators use /users/me/guard-settings.
+  if(isSuperadminRole()){
+   var hbEl = document.getElementById('heartbeatCountdown');
+   if(r.heartbeat_enabled && r.last_activity_at){
+    if(hbEl) hbEl.style.display = '';
+    updateHeartbeatCountdownReal(r.last_activity_at, r.heartbeat_timeout_min || 30);
+   } else {
+    if(hbEl){ hbEl.textContent = ''; hbEl.style.display = 'none'; }
+   }
   }
  }catch(e){}
 }
@@ -14255,15 +14318,13 @@ function setNextInspectTime(intervalMinutes){
 
 function initSentinelHeartbeat(){
  _heartbeatTimeout=parseInt(_heartbeatTimeout||30);
- resetHeartbeatTimer();
- setInterval(updateHeartbeatCountdown,10000);
- // Reset heartbeat on user activity
- document.addEventListener('click',function(){_heartbeatLastActivity=Date.now()});
- document.addEventListener('keypress',function(){_heartbeatLastActivity=Date.now()});
+ // 用户继续操作时，本地倒计时立即回满；后端由 ActivityAuditMiddleware 同步刷新。
+ document.addEventListener('click',resetHeartbeatTimer);
+ document.addEventListener('keypress',resetHeartbeatTimer);
  if(!isSuperadminRole()){
   api('GET','/users/me/guard-settings').then(function(s){
    _sentinelInterval='3';
-   _heartbeatTimeout='30';
+   _heartbeatTimeout=parseInt(s.heartbeat_timeout_min||30,10)||30;
    var sv=s.sentinel_enabled?'1':'0';
    var hv=s.heartbeat_enabled?'1':'0';
    var mv=s.mirror_enabled?'1':'0';
@@ -14274,6 +14335,11 @@ function initSentinelHeartbeat(){
    var wel=document.getElementById('toggleWarmup');if(wel)wel.checked=wv==='1';
    _updateSentinelUI(sv);
    _updateHeartbeatUI(hv);
+   if(hv==='1'){
+    updateHeartbeatCountdownReal(s.heartbeat_last_activity_ms||Date.now(),_heartbeatTimeout);
+   }else{
+    clearHeartbeatCountdown();
+   }
    _updateMirrorUI(mv,mv==='1'?'个人镜像已开启':null);
    _updateWarmupUI(wv,wv==='1'?'个人预热已开启':null);
   }).catch(function(){});
@@ -14294,6 +14360,7 @@ function initSentinelHeartbeat(){
   var mel=document.getElementById('toggleMirror');if(mel)mel.checked=mv==='1';
   _updateSentinelUI(sv);
   _updateHeartbeatUI(hv);
+  if(hv!=='1')clearHeartbeatCountdown();
   _updateMirrorUI(mv);
   var wv=s.warmup_enabled||"0";
   var wel=document.getElementById("toggleWarmup");if(wel)wel.checked=wv=="1";

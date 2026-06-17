@@ -2,6 +2,7 @@ import hashlib
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 from core.auth import (
     ADMIN_USERNAME,
@@ -59,6 +60,7 @@ class MyGuardReq(BaseModel):
     sentinel_enabled: Optional[bool] = None
     mirror_enabled: Optional[bool] = None
     heartbeat_enabled: Optional[bool] = None
+    heartbeat_timeout_min: Optional[int] = None
     warmup_enabled: Optional[bool] = None
 
 
@@ -104,7 +106,18 @@ def ensure_user_guard_schema(conn) -> None:
     for key in USER_GUARD_KEYS:
         if key not in cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {key} INTEGER DEFAULT 0")
+    if "heartbeat_timeout_min" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN heartbeat_timeout_min INTEGER DEFAULT 30")
     conn.commit()
+
+
+def _heartbeat_activity_ms(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(datetime.strptime(str(value)[:19], "%Y-%m-%d %H:%M:%S").timestamp() * 1000)
+    except (TypeError, ValueError):
+        return None
 
 
 def _actor_team(user: dict) -> tuple[int, str | None]:
@@ -464,6 +477,9 @@ def get_my_guard_settings(user=Depends(get_current_user)):
             "sentinel_enabled": False,
             "mirror_enabled": False,
             "heartbeat_enabled": False,
+            "heartbeat_timeout_min": 30,
+            "heartbeat_last_activity_at": None,
+            "heartbeat_last_activity_ms": None,
             "warmup_enabled": False,
         }
     conn = get_db()
@@ -472,7 +488,9 @@ def get_my_guard_settings(user=Depends(get_current_user)):
         """SELECT COALESCE(sentinel_enabled, 0) AS sentinel_enabled,
                   COALESCE(mirror_enabled, 0) AS mirror_enabled,
                   COALESCE(heartbeat_enabled, 0) AS heartbeat_enabled,
-                  COALESCE(warmup_enabled, 0) AS warmup_enabled
+                  COALESCE(heartbeat_timeout_min, 30) AS heartbeat_timeout_min,
+                  COALESCE(warmup_enabled, 0) AS warmup_enabled,
+                  last_active_at
            FROM users WHERE id=?""",
         (uid,),
     ).fetchone()
@@ -484,6 +502,9 @@ def get_my_guard_settings(user=Depends(get_current_user)):
         "sentinel_enabled": bool(row["sentinel_enabled"]),
         "mirror_enabled": bool(row["mirror_enabled"]),
         "heartbeat_enabled": bool(row["heartbeat_enabled"]),
+        "heartbeat_timeout_min": int(row["heartbeat_timeout_min"] or 30),
+        "heartbeat_last_activity_at": row["last_active_at"],
+        "heartbeat_last_activity_ms": _heartbeat_activity_ms(row["last_active_at"]),
         "warmup_enabled": bool(row["warmup_enabled"]),
     }
 
@@ -500,6 +521,14 @@ def update_my_guard_settings(body: MyGuardReq, user=Depends(get_current_user)):
         if value is not None:
             updates.append(f"{key}=?")
             params.append(1 if value else 0)
+    if body.heartbeat_timeout_min is not None:
+        timeout_min = int(body.heartbeat_timeout_min)
+        if timeout_min < 1 or timeout_min > 1440:
+            raise HTTPException(status_code=400, detail="Heartbeat timeout must be between 1 and 1440 minutes")
+        updates.append("heartbeat_timeout_min=?")
+        params.append(timeout_min)
+    if body.heartbeat_enabled is True:
+        updates.append("last_active_at=datetime('now','+8 hours')")
     if not updates:
         return {"success": True, "message": "No changes"}
     conn = get_db()
