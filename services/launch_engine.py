@@ -493,6 +493,32 @@ class AutoPilotEngine:
         except Exception:
             return default
 
+    def _setting_enabled(self, key: str, default: str = "1") -> bool:
+        return str(self._get_setting(key, default)).strip().lower() in ("1", "true", "yes", "on")
+
+    def _launch_ad_variant_count(self, headlines: list, bodies: list, budget_usd: float, one_ad_per_adset: bool) -> int:
+        count = min(len(headlines), len(bodies), 3)
+        if count <= 0:
+            return 0
+        if not one_ad_per_adset:
+            return count
+        try:
+            min_budget_usd = float(self._get_setting("autopilot_min_adset_budget_usd", "3") or 3)
+        except Exception:
+            min_budget_usd = 3.0
+        if min_budget_usd > 0 and budget_usd > 0:
+            affordable_count = int(float(budget_usd) // min_budget_usd)
+            if affordable_count > 0:
+                count = min(count, affordable_count)
+            else:
+                count = 1
+        return max(1, count)
+
+    def _split_adset_budget(self, daily_budget: float, ad_count: int, one_ad_per_adset: bool) -> float:
+        if one_ad_per_adset and ad_count > 1:
+            return round(float(daily_budget) / float(ad_count), 2)
+        return float(daily_budget)
+
     def _load_account(self, act_id: str) -> Optional[dict]:
         conn = get_conn()
         row = conn.execute(
@@ -891,6 +917,7 @@ class AutoPilotEngine:
             ad_language = campaign.get("ad_language") or "en"
             # 出价策略
             bid_strategy = campaign.get("bid_strategy") or "LOWEST_COST_WITHOUT_CAP"
+            one_ad_per_adset = self._setting_enabled("autopilot_one_ad_per_adset", "1")
 
             # 落地页链接：三层优先级
             # 层內1：铺广告弹窗手动填写
@@ -1043,6 +1070,148 @@ class AutoPilotEngine:
                         # desktop 不支持 instagram，移除
                         effective_placements.pop("instagram_positions", None)
                     # all: 使用自动版位（不覆盖）
+                    ad_count = self._launch_ad_variant_count(headlines, bodies, budget_usd, one_ad_per_adset)
+                    if ad_count <= 0:
+                        logger.warning(f"[AutoPilot] AdSet {group_idx+1}: 文案不足，跳过")
+                        continue
+                    if one_ad_per_adset:
+                        split_budget = self._split_adset_budget(test_budget, ad_count, True)
+                        logger.info(
+                            "[AutoPilot] 一广告一组已启用: audience=%s, ads=%s, budget_per_adset=%s %s",
+                            group_idx + 1, ad_count, split_budget, _acc_currency
+                        )
+                        for ad_idx in range(ad_count):
+                            headline = headlines[ad_idx]
+                            body = bodies[ad_idx]
+                            asset_code = asset.get("asset_code") or f"AST-{asset['id']:04d}"
+                            ad_name = f"{_ast_code}-{_aud_type}-C{ad_idx+1}"
+                            variant_adset_name = f"{adset_name}-C{ad_idx+1}" if ad_count > 1 else adset_name
+                            variant_audience = audience
+                            fb_adset_id = None
+                            try:
+                                fb_adset_id, _adset_token_candidate = self._run_with_token_fallback(
+                                    _token_candidates,
+                                    token,
+                                    f"创建 AdSet {group_idx + 1}-{ad_idx + 1}",
+                                    lambda try_token, _: self._create_adset(
+                                        act_id, fb_campaign_id, variant_adset_name,
+                                        variant_audience, split_budget, campaign["target_cpa"],
+                                        campaign["objective"], pixel_id, try_token,
+                                        bid_strategy=bid_strategy,
+                                        placements=effective_placements if effective_placements else None,
+                                        conversion_event=campaign.get("conversion_event") or "PURCHASE",
+                                        beneficiary=beneficiary,
+                                        payer=payer,
+                                        tw_verified_id=tw_verified_id,
+                                        page_id=page_id,
+                                        conversion_goal=campaign.get("conversion_goal") or ""
+                                    ),
+                                )
+                                token = _adset_token_candidate["token_plain"]
+                                total_adsets += 1
+                                self._update_progress(campaign_id, f"adset_{group_idx+1}_{ad_idx+1}", f"AdSet {group_idx+1}-{ad_idx+1}/{len(audience_groups)} 创建成功，正在创建广告...")
+                                logger.info(f"[AutoPilot] ✅ AdSet {group_idx+1}-{ad_idx+1} 创建成功: {fb_adset_id}")
+                            except Exception as adset_err:
+                                audience_targeting = audience.get("targeting", {})
+                                has_interests = bool(
+                                    audience_targeting.get("flexible_spec") or
+                                    audience_targeting.get("interests")
+                                )
+                                if has_interests:
+                                    logger.warning(f"[AutoPilot] AdSet {group_idx+1}-{ad_idx+1} 创建失败，尝试降级宽泛受众: {adset_err}")
+                                    try:
+                                        variant_audience = {
+                                            "name": audience.get("name", f"宽泛受众-{group_idx+1}") + "（降级）",
+                                            "targeting": {k: v for k, v in audience_targeting.items() if k not in ("interests", "flexible_spec")}
+                                        }
+                                        fb_adset_id, _fallback_adset_token_candidate = self._run_with_token_fallback(
+                                            _token_candidates,
+                                            token,
+                                            f"降级创建 AdSet {group_idx + 1}-{ad_idx + 1}",
+                                            lambda try_token, _: self._create_adset(
+                                                act_id, fb_campaign_id, variant_adset_name + "-FB",
+                                                variant_audience, split_budget, campaign["target_cpa"],
+                                                campaign["objective"], pixel_id, try_token,
+                                                bid_strategy=bid_strategy,
+                                                placements=effective_placements if effective_placements else None,
+                                                conversion_event=campaign.get("conversion_event") or "PURCHASE",
+                                                beneficiary=beneficiary,
+                                                payer=payer,
+                                                tw_verified_id=tw_verified_id,
+                                                page_id=page_id,
+                                                conversion_goal=campaign.get("conversion_goal") or ""
+                                            ),
+                                        )
+                                        token = _fallback_adset_token_candidate["token_plain"]
+                                        total_adsets += 1
+                                        ad_name = f"{_ast_code}-BROAD-C{ad_idx+1}-FB"
+                                        logger.info(f"[AutoPilot] ✅ AdSet {group_idx+1}-{ad_idx+1} 降级宽泛受众创建成功: {fb_adset_id}")
+                                    except Exception as fallback_err:
+                                        logger.error(f"[AutoPilot] AdSet {group_idx+1}-{ad_idx+1} 降级宽泛受众也失败: {fallback_err}")
+                                        self._insert_campaign_ad(
+                                            campaign_id, act_id, campaign["asset_id"],
+                                            headline, body,
+                                            json.dumps(variant_audience, ensure_ascii=False),
+                                            None, None,
+                                            status="error", error_msg=f"原始错误: {adset_err}; 降级错误: {fallback_err}",
+                                            adset_name=variant_adset_name, ad_name=ad_name
+                                        )
+                                        continue
+                                else:
+                                    logger.error(f"[AutoPilot] AdSet {group_idx+1}-{ad_idx+1} 创建失败: {adset_err}")
+                                    self._insert_campaign_ad(
+                                        campaign_id, act_id, campaign["asset_id"],
+                                        headline, body,
+                                        json.dumps(variant_audience, ensure_ascii=False),
+                                        None, None,
+                                        status="error", error_msg=str(adset_err),
+                                        adset_name=variant_adset_name, ad_name=ad_name
+                                    )
+                                    continue
+                            try:
+                                fb_ad_id, _ad_token_candidate = self._run_with_token_fallback(
+                                    _token_candidates,
+                                    token,
+                                    f"创建广告 {group_idx + 1}-{ad_idx + 1}",
+                                    lambda try_token, _: self._create_ad(
+                                        act_id, fb_adset_id, ad_name,
+                                        headline, body, page_id,
+                                        fb_asset_ref, asset["file_type"], try_token,
+                                        landing_url=landing_url,
+                                        conversion_goal=campaign.get("conversion_goal") or "",
+                                        message_template=campaign.get("message_template") or "",
+                                        lead_form_id=campaign.get("lead_form_id") or "",
+                                        form_link=form_link or "",
+                                        asset_info=asset,
+                                        cta_type=campaign.get("cta_type") or "",
+                                        pixel_id=pixel_id or "",
+                                        ad_language=ad_language,
+                                        target_countries=target_countries,
+                                    ),
+                                )
+                                token = _ad_token_candidate["token_plain"]
+                                total_ads += 1
+                                self._insert_campaign_ad(
+                                    campaign_id, act_id, campaign["asset_id"],
+                                    headline, body,
+                                    json.dumps(variant_audience, ensure_ascii=False),
+                                    fb_adset_id, fb_ad_id,
+                                    adset_name=variant_adset_name, ad_name=ad_name
+                                )
+                                logger.info(f"[AutoPilot] ✅ Ad {group_idx+1}-{ad_idx+1} 创建成功: {fb_ad_id}")
+                                time.sleep(0.1)
+                            except Exception as ad_err:
+                                logger.error(f"[AutoPilot] Ad {group_idx+1}-{ad_idx+1} 创建失败: {ad_err}")
+                                self._insert_campaign_ad(
+                                    campaign_id, act_id, campaign["asset_id"],
+                                    headline, body,
+                                    json.dumps(variant_audience, ensure_ascii=False),
+                                    fb_adset_id, None,
+                                    status="error", error_msg=str(ad_err),
+                                    adset_name=variant_adset_name, ad_name=ad_name
+                                )
+                        time.sleep(0.1)
+                        continue
                     fb_adset_id, _adset_token_candidate = self._run_with_token_fallback(
                         _token_candidates,
                         token,
