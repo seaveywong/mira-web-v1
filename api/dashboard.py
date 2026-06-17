@@ -15,6 +15,7 @@ from datetime import date, timedelta, datetime
 import requests as req
 import time
 from api.accounts import _calc_available_balance
+from core.perf_history import ensure_perf_snapshot_history_schema
 from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token
 from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _get_setting, _local_per_usd_rate
 
@@ -316,6 +317,127 @@ def _get_token_for_account(acc: dict) -> Optional[str]:
 
 def _get_rate(currency: str, conn) -> float:
     return _local_per_usd_rate(currency)
+
+
+def _beijing_today() -> date:
+    return (datetime.utcnow() + timedelta(hours=8)).date()
+
+
+def _hourly_trend_from_local_snapshots(conn, user, target_day: str, act_id: Optional[str], kpi_filter: str) -> dict:
+    labels = [f"{h:02d}:00" for h in range(24)]
+    ensure_perf_snapshot_history_schema(conn)
+    accs = _fetch_visible_accounts(conn, user, act_id)
+    act_ids = [r["act_id"] for r in accs]
+    spend_arr = [0.0 for _ in range(24)]
+    cpa_arr = [None for _ in range(24)]
+    conv_arr = [0.0 for _ in range(24)]
+    sample_counts = [0 for _ in range(24)]
+    if not act_ids:
+        return {
+            "date_from": target_day,
+            "date_to": target_day,
+            "granularity": "hour",
+            "labels": labels,
+            "full_hours": [f"{target_day} {label}" for label in labels],
+            "spend": spend_arr,
+            "cpa": cpa_arr,
+            "conversions": conv_arr,
+            "sample_counts": sample_counts,
+            "has_data": False,
+            "source": "local_perf_snapshot_history",
+        }
+
+    placeholders = ",".join("?" for _ in act_ids)
+    params = [target_day] + act_ids
+    rows = conn.execute(
+        f"""SELECT h.*, CAST(substr(h.snapshot_at, 12, 2) AS INTEGER) AS hour_no
+            FROM perf_snapshot_history h
+            WHERE h.snapshot_date=? AND h.act_id IN ({placeholders})
+            ORDER BY hour_no, h.act_id, h.ad_id, h.snapshot_at, h.id""",
+        params,
+    ).fetchall()
+
+    per_ad: dict[tuple[str, str], list] = {}
+
+    def add_row(row, hour_no: int) -> None:
+        if hour_no < 0 or hour_no > 23:
+            return
+        if kpi_filter and not _kpi_field_matches_filter(row["kpi_field"], kpi_filter):
+            return
+        key = (
+            row["act_id"],
+            row["ad_id"] or row["adset_id"] or row["campaign_id"] or str(row["id"]),
+        )
+        if key not in per_ad:
+            per_ad[key] = [None for _ in range(24)]
+        per_ad[key][hour_no] = (
+            float(row["spend"] or 0),
+            float(row["conversions"] or 0),
+        )
+
+    for row in rows:
+        try:
+            add_row(row, int(row["hour_no"]))
+        except (TypeError, ValueError):
+            continue
+
+    today = _beijing_today()
+    try:
+        target_date = datetime.strptime(target_day, "%Y-%m-%d").date()
+    except ValueError:
+        target_date = today
+    now_bj = datetime.utcnow() + timedelta(hours=8)
+    fallback_hour = now_bj.hour if target_date == today else 23
+
+    latest_rows = conn.execute(
+        f"""SELECT p.*, NULL AS hour_no
+            FROM perf_snapshots p
+            WHERE p.snapshot_date=? AND p.act_id IN ({placeholders})""",
+        params,
+    ).fetchall()
+    for row in latest_rows:
+        add_row(row, fallback_hour)
+
+    max_hour = 23
+    if target_date == today:
+        max_hour = now_bj.hour
+    elif target_date > today:
+        max_hour = -1
+
+    has_data = bool(per_ad)
+    for series in per_ad.values():
+        last = None
+        for hour_no in range(24):
+            if series[hour_no] is not None:
+                last = series[hour_no]
+            if last is None or hour_no > max_hour:
+                continue
+            spend_arr[hour_no] += last[0]
+            conv_arr[hour_no] += last[1]
+            sample_counts[hour_no] += 1
+
+    for hour_no in range(24):
+        if hour_no > max_hour:
+            spend_arr[hour_no] = None
+            cpa_arr[hour_no] = None
+            continue
+        spend_arr[hour_no] = round(spend_arr[hour_no], 2)
+        conv_arr[hour_no] = round(conv_arr[hour_no], 2)
+        cpa_arr[hour_no] = round(spend_arr[hour_no] / conv_arr[hour_no], 2) if conv_arr[hour_no] > 0 else None
+
+    return {
+        "date_from": target_day,
+        "date_to": target_day,
+        "granularity": "hour",
+        "labels": labels,
+        "full_hours": [f"{target_day} {label}" for label in labels],
+        "spend": spend_arr,
+        "cpa": cpa_arr,
+        "conversions": conv_arr,
+        "sample_counts": sample_counts,
+        "has_data": has_data,
+        "source": "local_perf_snapshot_history",
+    }
 
 
 _ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
@@ -771,13 +893,20 @@ def get_trend(
         day_list.append(cur.isoformat())
         cur += timedelta(days=1)
 
+    kpi_filter = _normalize_dash_kpi_filter(kpi)
+    if len(day_list) == 1:
+        conn = get_conn()
+        try:
+            return _hourly_trend_from_local_snapshots(conn, user, day_list[0], act_id, kpi_filter)
+        finally:
+            conn.close()
+
     conn = get_conn()
     accs = _fetch_visible_accounts(conn, user, act_id)
     conn.close()
 
     daily_spend = {d: 0.0 for d in day_list}
     daily_conv = {d: 0 for d in day_list}
-    kpi_filter = _normalize_dash_kpi_filter(kpi)
 
     for acc in accs:
         acc = dict(acc)

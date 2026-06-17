@@ -5788,7 +5788,7 @@ function renderCharts(trend){
  }else{
   labels=trend.labels||[];
   sp=trend.spend||[];
-  cp=(trend.cpa||[]).map(function(v){return v||0});
+  cp=(trend.cpa||[]).map(function(v){return(v===null||v===undefined)?null:v});
  }
  var base={responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#8ba3c7',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#8ba3c7',font:{size:11}}}}};
  var csEl=document.getElementById('chartSpend'),ccEl=document.getElementById('chartCpa');

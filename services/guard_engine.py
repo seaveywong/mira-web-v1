@@ -14,6 +14,7 @@ import requests
 
 from core.database import get_conn, decrypt_token
 from core.account_access import note_account_read_failure, note_account_read_success
+from core.perf_history import append_perf_snapshot_history
 from services.notifier import notify_account, notify_global, notify_team
 
 logger = logging.getLogger("mira.guard")
@@ -2955,7 +2956,8 @@ class GuardEngine:
     def _save_snapshot(self, act_id, ad_id, adset_id, campaign_id, ad_name,
                        spend, impressions, clicks, conversions, cpa, roas,
                        kpi_field, actions_raw):
-        today = date.today().isoformat()
+        today = (datetime.utcnow() + timedelta(hours=8)).date().isoformat()
+        raw_actions_json = json.dumps(actions_raw)
         conn = get_conn()
         conn.execute(
             """INSERT OR REPLACE INTO perf_snapshots
@@ -2966,7 +2968,25 @@ class GuardEngine:
             (act_id, ad_id, adset_id, campaign_id, ad_name,
              today, spend, impressions, clicks,
              conversions, cpa, roas, kpi_field,
-             json.dumps(actions_raw))
+             raw_actions_json)
+        )
+        append_perf_snapshot_history(
+            conn,
+            act_id=act_id,
+            ad_id=ad_id,
+            adset_id=adset_id,
+            campaign_id=campaign_id,
+            ad_name=ad_name,
+            snapshot_date=today,
+            spend=spend,
+            impressions=impressions,
+            clicks=clicks,
+            conversions=conversions,
+            cpa=cpa,
+            roas=roas,
+            kpi_field=kpi_field,
+            raw_actions=raw_actions_json,
+            currency="USD",
         )
         conn.commit()
         conn.close()
