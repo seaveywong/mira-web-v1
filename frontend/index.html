@@ -5123,9 +5123,10 @@ async function initApp(){
  initDateSelectors();
  checkAi();
  setInterval(function(){
+  if(document.visibilityState&&document.visibilityState!=='visible')return;
   var pg=document.querySelector('.page.active');
   if(pg&&pg.id==='page-dashboard')loadDash();
- },60000);
+ },120000);
  // 恢复上次所在页面，否则默认显示看板
  var lastPage=pageFromHash()||localStorage.getItem('mira_last_page')||'dashboard';
   if(APP_PAGES.indexOf(lastPage)>=0&&lastPage!=='dashboard'&&canOpenPage(lastPage)){

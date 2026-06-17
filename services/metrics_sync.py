@@ -37,7 +37,7 @@ def _get_active_accounts() -> list:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT act_id, name FROM accounts WHERE enabled=1"
+            "SELECT act_id, name, currency FROM accounts WHERE enabled=1"
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
@@ -258,6 +258,7 @@ def run_metrics_sync():
 
     for acc in accounts:
         act_id = acc["act_id"]
+        currency = (acc.get("currency") or "USD").upper()
         try:
             token = _get_account_token(act_id)
             if not token:
@@ -271,7 +272,7 @@ def run_metrics_sync():
                 _write_metrics(act_id, metrics)
                 logger.info(
                     f"[MetricsSync] ✅ 账户 {act_id} 同步完成: "
-                    f"消耗=${metrics.get('spend', 0):.2f}, "
+                    f"消耗={currency} {metrics.get('spend', 0):.2f}, "
                     f"转化={metrics.get('conversions', 0):.0f}, "
                     f"ROAS={metrics.get('roas', 0):.2f}"
                 )
