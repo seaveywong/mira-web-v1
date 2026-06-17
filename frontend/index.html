@@ -2313,12 +2313,13 @@ select.fc option{background:#fff;color:#1d1d1f}
     <!-- Tokens -->
     <div class="page" id="page-tokens">
      <div class="ph">
-      <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
-      <div class="ph-acts token-actions">
-       <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
-       <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
-       <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
-      </div>
+       <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
+       <div class="ph-acts token-actions">
+        <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
+        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联">智能导入账户</button>
+        <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
+        <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
+       </div>
      </div>
      <div id="tokensList"></div>
     </div>
@@ -15354,7 +15355,7 @@ function onLandingKindChanged(){
  if(kind==='form'){
   if(formFlag){formFlag.checked=true;formFlag.disabled=true;}
   if(bind&&(bind.value==='landing'))bind.value='form';
-  if(kindHint)kindHint.textContent='表单投放链接访问首页即轮询跳转，适合 Lead Form / WhatsApp 聊单，不展示落地页正文。';
+  if(kindHint)kindHint.textContent='表单投放链接访问首页即轮询跳转，适合 Lead Form / WhatsApp 聊单；发布包为轻量直跳页，不展示落地页正文。';
   if(bindHint)bindHint.textContent='表单链接建议绑定到账户表单链接，铺 Lead Form 时会优先使用。';
  }else{
   if(formFlag){formFlag.disabled=false;}

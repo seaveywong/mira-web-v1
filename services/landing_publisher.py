@@ -207,9 +207,10 @@ def prepare_template(
     if not urls:
         raise ValueError("At least one target URL is required")
     work = Path(tempfile.mkdtemp(prefix="mira_landing_"))
-    shutil.copytree(src, work, dirs_exist_ok=True)
-    landing = work / "landing.html"
     redirect_only = (link_kind or "landing").strip().lower() == "form"
+    if not redirect_only:
+        shutil.copytree(src, work, dirs_exist_ok=True)
+    landing = work / "landing.html"
     if not redirect_only and not landing.exists():
         raise ValueError("Template missing landing.html")
 
