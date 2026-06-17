@@ -16,7 +16,7 @@ import requests
 CF_API_BASE = "https://api.cloudflare.com/client/v4"
 BASE_DIR = Path(os.environ.get("MIRA_BASE_DIR", "/opt/mira"))
 DEFAULT_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "rh_fp_advanced"
-IGNORE_STATIC_NAMES = {"_worker.js", "_headers", "_redirects", "_routes.json"}
+IGNORE_STATIC_NAMES = {"_headers", "_redirects", "_routes.json"}
 
 
 class CloudflareError(RuntimeError):
@@ -40,13 +40,12 @@ def cf_request(api_token: str, method: str, path: str, **kwargs) -> dict:
         raise CloudflareError(f"Cloudflare returned non-json response: HTTP {resp.status_code}") from exc
     if resp.status_code >= 400 or data.get("success") is False:
         errors = data.get("errors") if isinstance(data, dict) else None
-        msg = "; ".join(
-            [str(e.get("message") or e) for e in errors or [] if e]
-        ) or f"HTTP {resp.status_code}"
-        if "invalid api token" in msg.lower():
-            msg = "Invalid API token. Pages 发布需要 Cloudflare Account API Token；R2/S3 Access Key、Secret Key 或 S3 endpoint 不能用于 Pages 发布。"
-        elif "permission" in msg.lower() or "not authorized" in msg.lower():
-            msg = msg + "。请确认 Token 至少包含 Account Settings Read 和 Cloudflare Pages Edit 权限。"
+        msg = "; ".join([str(e.get("message") or e) for e in errors or [] if e]) or f"HTTP {resp.status_code}"
+        lower = msg.lower()
+        if "invalid api token" in lower:
+            msg = "Invalid API token. Pages publishing requires a Cloudflare Account API Token; R2/S3 Access Key, Secret Key, or S3 endpoint cannot be used."
+        elif "permission" in lower or "not authorized" in lower:
+            msg = msg + ". Check that the token includes Account Settings Read and Cloudflare Pages Edit permissions."
         raise CloudflareError(msg)
     return data.get("result", data)
 
@@ -99,6 +98,13 @@ def prepare_template(
     pixel_id: str,
     target_urls: list[str],
     rotation_mode: str = "sequential",
+    worker_enabled: bool = False,
+    tracking_enabled: bool = True,
+    protection_enabled: bool = False,
+    protection_rules: dict[str, Any] | None = None,
+    page_id: int | None = None,
+    ingest_secret: str = "",
+    ingest_url: str = "",
 ) -> str:
     src = Path(template_dir)
     if not src.exists() or not src.is_dir():
@@ -111,6 +117,7 @@ def prepare_template(
     landing = work / "landing.html"
     if not landing.exists():
         raise ValueError("Template missing landing.html")
+
     html = landing.read_text(encoding="utf-8", errors="ignore")
     html = re.sub(
         r'var\s+RH_PIXEL_ID\s*=\s*"[^"]*"\s*;',
@@ -118,20 +125,74 @@ def prepare_template(
         html,
         count=1,
     )
-    primary = urls[0]
+    if worker_enabled:
+        primary = "/__mira/redirect"
+    else:
+        primary = urls[0]
     html = re.sub(
         r'var\s+RH_TARGET_URL\s*=\s*"[^"]*"\s*;',
         f'var RH_TARGET_URL = {json.dumps(primary)};',
         html,
         count=1,
     )
-    rotation = _rotation_script(urls, rotation_mode)
-    if "var RH_TARGET_URLS" not in html:
-        html = html.replace("</script>", rotation + "\n  </script>", 1)
+    if worker_enabled:
+        html = _inject_client_tracker(html, page_id or 0)
+        _write_worker(
+            work / "_worker.js",
+            {
+                "page_id": page_id,
+                "secret": ingest_secret,
+                "ingest_url": ingest_url,
+                "target_urls": urls,
+                "rotation_mode": rotation_mode,
+                "tracking_enabled": bool(tracking_enabled),
+                "protection_enabled": bool(protection_enabled),
+                "protection_rules": protection_rules or {},
+            },
+        )
+    else:
+        worker_file = work / "_worker.js"
+        if worker_file.exists():
+            worker_file.unlink()
+        rotation = _rotation_script(urls, rotation_mode)
+        if "var RH_TARGET_URLS" not in html:
+            html = html.replace("</script>", rotation + "\n  </script>", 1)
+
     landing.write_text(html, encoding="utf-8")
-    # First release is static-only. Make root path serve the real landing page.
     (work / "index.html").write_text(html, encoding="utf-8")
     return str(work)
+
+
+def _inject_client_tracker(html: str, page_id: int) -> str:
+    script = f"""
+<script>
+(function(){{
+  var PAGE_ID = {json.dumps(page_id)};
+  function send(type, payload){{
+    try {{
+      var data = Object.assign({{event_type:type,page_id:PAGE_ID,path:location.pathname,referrer:document.referrer||''}}, payload||{{}});
+      var blob = new Blob([JSON.stringify(data)], {{type:'application/json'}});
+      if (navigator.sendBeacon) navigator.sendBeacon('/__mira/event', blob);
+      else fetch('/__mira/event', {{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify(data),keepalive:true}}).catch(function(){{}});
+    }} catch(e) {{}}
+  }}
+  document.addEventListener('click', function(ev){{
+    var el = ev.target && ev.target.closest ? ev.target.closest('a,button,[role=\"button\"],input[type=\"submit\"]') : null;
+    if (!el) return;
+    send('click', {{
+      target_url: el.href || '',
+      metadata: {{
+        text: (el.innerText || el.value || el.getAttribute('aria-label') || '').slice(0,120),
+        tag: (el.tagName || '').toLowerCase()
+      }}
+    }});
+  }}, true);
+}})();
+</script>
+"""
+    if "</body>" in html:
+        return html.replace("</body>", script + "\n</body>", 1)
+    return html + script
 
 
 def _rotation_script(urls: list[str], rotation_mode: str) -> str:
@@ -157,9 +218,173 @@ def _rotation_script(urls: list[str], rotation_mode: str) -> str:
     )
 
 
+def _write_worker(path: Path, config: dict[str, Any]) -> None:
+    path.write_text(
+        "const MIRA_CONFIG = "
+        + json.dumps(config, ensure_ascii=False, separators=(",", ":"))
+        + ";\n"
+        + WORKER_SOURCE,
+        encoding="utf-8",
+    )
+
+
+WORKER_SOURCE = r"""
+function lowerList(v) {
+  return Array.isArray(v) ? v.map(x => String(x || '').toLowerCase()).filter(Boolean) : [];
+}
+
+function parseCookie(header) {
+  const out = {};
+  String(header || '').split(';').forEach(part => {
+    const idx = part.indexOf('=');
+    if (idx > -1) out[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+  });
+  return out;
+}
+
+function uaMeta(ua) {
+  const s = String(ua || '');
+  const l = s.toLowerCase();
+  const device = /mobile|iphone|android/.test(l) ? 'mobile' : (/ipad|tablet/.test(l) ? 'tablet' : 'desktop');
+  const os = /iphone|ipad|ios/.test(l) ? 'iOS' : (/android/.test(l) ? 'Android' : (/windows/.test(l) ? 'Windows' : (/mac os|macintosh/.test(l) ? 'macOS' : (/linux/.test(l) ? 'Linux' : 'Other'))));
+  const browser = /edg\//.test(l) ? 'Edge' : (/chrome|crios/.test(l) ? 'Chrome' : (/safari/.test(l) ? 'Safari' : (/firefox/.test(l) ? 'Firefox' : 'Other')));
+  return { device_type: device, os, browser, platform: os + '/' + browser };
+}
+
+async function sha256(input) {
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(input || '')));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    return '';
+  }
+}
+
+function listHit(list, value) {
+  const source = String(value || '').toLowerCase();
+  return lowerList(list).some(x => source.includes(x));
+}
+
+function evaluate(request) {
+  if (!MIRA_CONFIG.protection_enabled) return { pass: true, reason: '' };
+  const rules = MIRA_CONFIG.protection_rules || {};
+  const url = new URL(request.url);
+  const cf = request.cf || {};
+  const ua = request.headers.get('user-agent') || '';
+  const ref = request.headers.get('referer') || '';
+  const country = String(cf.country || '').toUpperCase();
+  const meta = uaMeta(ua);
+  const allow = lowerList(rules.country_allow).map(x => x.toUpperCase());
+  const block = lowerList(rules.country_block).map(x => x.toUpperCase());
+  if (allow.length && !allow.includes(country)) return { pass: false, reason: 'country_not_allowed:' + country };
+  if (block.length && block.includes(country)) return { pass: false, reason: 'country_blocked:' + country };
+  if (listHit(rules.platform_block, meta.platform) || listHit(rules.platform_block, meta.os) || listHit(rules.platform_block, meta.browser)) return { pass: false, reason: 'platform_blocked' };
+  if (listHit(rules.device_block, meta.device_type)) return { pass: false, reason: 'device_blocked:' + meta.device_type };
+  if (listHit(rules.ua_block, ua)) return { pass: false, reason: 'ua_blocked' };
+  if (listHit(rules.referer_block, ref)) return { pass: false, reason: 'referer_blocked' };
+  if (listHit(rules.query_block, url.search)) return { pass: false, reason: 'query_blocked' };
+  const required = lowerList(rules.required_query);
+  for (const key of required) {
+    if (!url.searchParams.has(key)) return { pass: false, reason: 'required_query_missing:' + key };
+  }
+  return { pass: true, reason: '' };
+}
+
+function isHtmlRequest(request) {
+  const url = new URL(request.url);
+  const accept = request.headers.get('accept') || '';
+  return request.method === 'GET' && (url.pathname === '/' || url.pathname.endsWith('.html') || accept.includes('text/html'));
+}
+
+function selectTarget(request) {
+  const urls = Array.isArray(MIRA_CONFIG.target_urls) ? MIRA_CONFIG.target_urls.filter(Boolean) : [];
+  if (!urls.length) return '';
+  const mode = String(MIRA_CONFIG.rotation_mode || 'sequential').toLowerCase();
+  if (mode === 'first') return urls[0];
+  if (mode === 'random') return urls[Math.floor(Math.random() * urls.length)];
+  const cookies = parseCookie(request.headers.get('cookie') || '');
+  const current = Math.max(parseInt(cookies.mira_rt_idx || '0', 10) || 0, 0);
+  return urls[current % urls.length];
+}
+
+function nextCookie(request) {
+  const urls = Array.isArray(MIRA_CONFIG.target_urls) ? MIRA_CONFIG.target_urls.filter(Boolean) : [];
+  if (!urls.length) return 'mira_rt_idx=0; Path=/; Max-Age=86400; SameSite=Lax';
+  const cookies = parseCookie(request.headers.get('cookie') || '');
+  const current = Math.max(parseInt(cookies.mira_rt_idx || '0', 10) || 0, 0);
+  return 'mira_rt_idx=' + ((current + 1) % urls.length) + '; Path=/; Max-Age=86400; SameSite=Lax';
+}
+
+async function sendEvent(request, event) {
+  if (!MIRA_CONFIG.tracking_enabled && event.event_type !== 'block') return;
+  try {
+    const cf = request.cf || {};
+    const ua = request.headers.get('user-agent') || '';
+    const meta = uaMeta(ua);
+    const ip = request.headers.get('cf-connecting-ip') || '';
+    const payload = Object.assign({
+      page_id: MIRA_CONFIG.page_id,
+      secret: MIRA_CONFIG.secret,
+      path: new URL(request.url).pathname,
+      referrer: request.headers.get('referer') || '',
+      country: cf.country || '',
+      region: cf.region || '',
+      city: cf.city || '',
+      colo: cf.colo || '',
+      asn: cf.asn ? String(cf.asn) : '',
+      user_agent: ua,
+      ip_hash: await sha256(ip + ':' + MIRA_CONFIG.secret)
+    }, meta, event || {});
+    await fetch(MIRA_CONFIG.ingest_url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {}
+}
+
+function blockedResponse(reason) {
+  return new Response('<!doctype html><meta charset="utf-8"><title>Unavailable</title><body style="font-family:sans-serif;padding:40px">Request unavailable.</body>', {
+    status: 403,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-mira-block-reason': reason || 'blocked' }
+  });
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (url.pathname === '/__mira/event' && request.method === 'POST') {
+      let body = {};
+      try { body = await request.json(); } catch (e) {}
+      ctx.waitUntil(sendEvent(request, Object.assign({}, body, { secret: undefined })));
+      return new Response('', { status: 204, headers: { 'cache-control': 'no-store' } });
+    }
+    if (url.pathname === '/__mira/redirect') {
+      const decision = evaluate(request);
+      if (!decision.pass) {
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason }));
+        return blockedResponse(decision.reason);
+      }
+      const target = selectTarget(request);
+      if (!target) return new Response('No target configured', { status: 503 });
+      ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target }));
+      return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request), 'cache-control': 'no-store' } });
+    }
+    if (isHtmlRequest(request)) {
+      const decision = evaluate(request);
+      if (!decision.pass) {
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason }));
+        return blockedResponse(decision.reason);
+      }
+      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass' }));
+    }
+    return env.ASSETS.fetch(request);
+  }
+};
+"""
+
+
 def _hash_file(path: Path) -> str:
-    # Wrangler uses blake3(base64(file)+extension). A stable 32-char key is enough
-    # for the Pages asset API as long as manifest and uploaded asset keys match.
     raw = path.read_bytes()
     ext = path.suffix[1:]
     try:
@@ -235,13 +460,12 @@ def deploy_pages_static(api_token: str, account_id: str, project_name: str, dire
         "commit_message": (None, "Mira landing page publish"),
         "commit_dirty": (None, "true"),
     }
-    deploy_result = cf_request(
+    return cf_request(
         api_token,
         "POST",
         f"/accounts/{account_id}/pages/projects/{project_name}/deployments",
         files=multipart,
     )
-    return deploy_result
 
 
 def _pages_asset_request(jwt: str, method: str, path: str, payload: Any) -> Any:
