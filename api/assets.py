@@ -256,6 +256,33 @@ def _row_to_dict(row) -> dict:
     return d
 
 
+def _matrix_ids_for_act(conn, act_id: str) -> list[int]:
+    act_id = str(act_id or "").strip()
+    if not act_id:
+        return []
+    rows = conn.execute(
+        """
+        SELECT t.matrix_id
+        FROM accounts a
+        JOIN fb_tokens t ON t.id=a.token_id
+        WHERE a.act_id=? AND t.matrix_id IS NOT NULL
+        UNION
+        SELECT t.matrix_id
+        FROM account_op_tokens aot
+        JOIN fb_tokens t ON t.id=aot.token_id
+        WHERE aot.act_id=? AND aot.status='active' AND t.matrix_id IS NOT NULL
+        """,
+        (act_id, act_id),
+    ).fetchall()
+    ids = set()
+    for row in rows:
+        try:
+            ids.add(int(row["matrix_id"]))
+        except (TypeError, ValueError):
+            continue
+    return sorted(ids)
+
+
 def _ensure_asset_library_columns(conn) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(ad_assets)").fetchall()}
     changed = False
@@ -517,8 +544,38 @@ def list_assets(
            {clause} ORDER BY {order_by} LIMIT ? OFFSET ?""",
         params + [limit, offset]
     ).fetchall()
+    items = [_row_to_dict(r) for r in rows]
+    act_ids = sorted({str(item.get("act_id") or "").strip() for item in items if str(item.get("act_id") or "").strip()})
+    matrix_map: dict[str, set[int]] = {act: set() for act in act_ids}
+    if act_ids:
+        placeholders = ",".join("?" for _ in act_ids)
+        matrix_rows = conn.execute(
+            f"""
+            SELECT a.act_id, t.matrix_id
+            FROM accounts a
+            JOIN fb_tokens t ON t.id=a.token_id
+            WHERE a.act_id IN ({placeholders})
+              AND t.matrix_id IS NOT NULL
+            UNION
+            SELECT aot.act_id, t.matrix_id
+            FROM account_op_tokens aot
+            JOIN fb_tokens t ON t.id=aot.token_id
+            WHERE aot.act_id IN ({placeholders})
+              AND aot.status='active'
+              AND t.matrix_id IS NOT NULL
+            """,
+            act_ids + act_ids,
+        ).fetchall()
+        for mr in matrix_rows:
+            try:
+                matrix_map.setdefault(str(mr["act_id"]), set()).add(int(mr["matrix_id"]))
+            except (TypeError, ValueError):
+                continue
+    for item in items:
+        act_key = str(item.get("act_id") or "").strip()
+        item["linked_matrix_ids"] = sorted(matrix_map.get(act_key, set()))
     conn.close()
-    return {"total": total, "items": [_row_to_dict(r) for r in rows]}
+    return {"total": total, "items": items}
 
 
 @router.get("/vision-providers")
@@ -562,10 +619,13 @@ def get_asset(asset_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     assert_row_access(conn, "ad_assets", asset_id, user, allow_unassigned=False)
     row = conn.execute("SELECT * FROM ad_assets WHERE id=?", (asset_id,)).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         raise HTTPException(404, "素材不存在")
-    return _row_to_dict(row)
+    data = _row_to_dict(row)
+    data["linked_matrix_ids"] = _matrix_ids_for_act(conn, data.get("act_id"))
+    conn.close()
+    return data
 
 
 class AssetBatchUpdateBody(BaseModel):

@@ -221,6 +221,7 @@ def prepare_template(
             work / "_worker.js",
             {
                 "page_id": page_id,
+                "link_kind": (link_kind or "landing").strip().lower(),
                 "secret": ingest_secret,
                 "ingest_url": ingest_url,
                 "target_urls": urls,
@@ -472,7 +473,10 @@ export default {
       ctx.waitUntil(sendEvent(request, Object.assign({}, body, { secret: undefined })));
       return new Response('', { status: 204, headers: { 'cache-control': 'no-store' } });
     }
-    if (url.pathname === '/__mira/redirect') {
+    const directFormRedirect = String(MIRA_CONFIG.link_kind || '').toLowerCase() === 'form'
+      && request.method === 'GET'
+      && (url.pathname === '/' || url.pathname === '/index.html');
+    if (url.pathname === '/__mira/redirect' || directFormRedirect) {
       const decision = evaluate(request);
       if (!decision.pass) {
         ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason }));

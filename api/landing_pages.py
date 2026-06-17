@@ -1017,9 +1017,12 @@ def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
     token_row = _assert_token_access(conn, int(token_id), user)
     try:
         raw_token = decrypt_token(token_row["access_token_enc"])
+        cf_account_id = page.get("cf_account_id") or token_row.get("cf_account_id")
+        if not cf_account_id:
+            raise HTTPException(status_code=400, detail="Cloudflare token has no selected account; choose a Cloudflare account first")
         status = get_pages_custom_domain_status(
             raw_token,
-            page.get("cf_account_id") or token_row.get("cf_account_id"),
+            cf_account_id,
             page.get("project_name") or "",
             custom_domain,
         )
@@ -1041,6 +1044,8 @@ def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
         item["domain_status"] = status
         item["usage"] = _landing_page_usage(conn, item, user)
         return {"success": True, "page": item, "domain_status": status}
+    except HTTPException:
+        raise
     except Exception as exc:
         conn.execute(
             "UPDATE landing_pages SET last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",

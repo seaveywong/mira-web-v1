@@ -7347,12 +7347,12 @@ function renderMetaOAuthModal(cfg){
     '<div class="fg"><label class="fl">App Secret</label><input class="fc" id="metaAppSecret" type="password" placeholder="'+(cfg.has_app_secret?'已保存，留空不修改':'Facebook App Secret')+'"></div>'+
     '<div class="fg"><label class="fl">Graph 版本</label><input class="fc" id="metaGraphVersion" value="'+escHtml(cfg.graph_version||'v22.0')+'" placeholder="v22.0"></div>'+
    '</div>'+
-   '<div class="fg"><label class="fl">回调地址</label><input class="fc" id="metaRedirectUri" value="'+escHtml(cfg.redirect_uri||'')+'"><div class="fh">需要在 Meta App OAuth Valid Redirect URIs 中完全一致填写。</div></div>'+
+   '<div class="fg"><label class="fl">回调地址</label><div style="display:flex;gap:8px;align-items:center"><input class="fc" id="metaRedirectUri" value="'+escHtml(cfg.redirect_uri||'')+'" style="flex:1"><button class="btn btn-g btn-sm" onclick="copyMetaRedirectUri()" type="button">复制</button></div><div class="fh">需要在 Meta App OAuth Valid Redirect URIs 中完全一致填写。</div></div>'+
    '<div class="fg"><label class="fl">授权范围</label><textarea class="fc" id="metaScopes" rows="2" style="resize:vertical">'+escHtml(cfg.scopes||'')+'</textarea><div class="fh">铺广告至少需要 ads_management；读取需要 ads_read；主页/表单建议保留 pages_show_list、pages_manage_ads。leads_retrieval 当前会导致部分 App 授权报 Invalid Scopes，先不要填。</div></div>'+
    '<button class="btn btn-p" onclick="saveMetaOAuthConfig()">保存配置</button>'+
   '</div>';
  }else{
-  configHtml='<div class="panel-card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div style="font-weight:800">Meta App 配置</div><div style="font-size:12px;color:var(--t3);margin-top:3px">由超管或团队管理员维护。运营只需要点击授权。</div></div><div>'+status+inherited+'</div></div><div class="fh" style="margin-top:10px">回调地址：'+escHtml(cfg.redirect_uri||'--')+'</div></div>';
+  configHtml='<div class="panel-card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div style="font-weight:800">Meta App 配置</div><div style="font-size:12px;color:var(--t3);margin-top:3px">由超管或团队管理员维护。运营只需要点击授权。</div></div><div>'+status+inherited+'</div></div><div class="fh" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span>回调地址：<code id="metaRedirectUriReadonly">'+escHtml(cfg.redirect_uri||'--')+'</code></span><button class="btn btn-g btn-sm" onclick="copyMetaRedirectUri()" type="button">复制</button></div></div>';
  }
  var connectHtml='<div class="meta-oauth-card">'+
   '<div class="meta-oauth-head"><div><div class="meta-oauth-title">运营账号授权</div><div class="meta-oauth-sub">授权成功后会生成 Meta 官方授权 Token，并自动匹配本团队/本人已导入账户。铺广告、预热、预算和关停仍走现有账户流程。</div></div><span class="badge" style="'+getTokenSourceBadgeStyle('oauth_user')+'">oauth_user</span></div>'+
@@ -7437,6 +7437,20 @@ async function copyMetaOAuthUrl(){
   }
   toast('授权链接已复制','ok');
  }catch(e){toast('复制失败，请手动选中链接复制','er');}
+}
+async function copyMetaRedirectUri(){
+ var input=document.getElementById('metaRedirectUri');
+ var readonly=document.getElementById('metaRedirectUriReadonly');
+ var uri=(input&&input.value)||(readonly&&readonly.textContent)||'';
+ if(!uri||uri==='--'){toast('暂无回调地址','wa');return;}
+ try{
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+   await navigator.clipboard.writeText(uri);
+  }else if(input){
+   input.focus();input.select();document.execCommand('copy');
+  }
+  toast('回调地址已复制','ok');
+ }catch(e){toast('复制失败，请手动复制回调地址','er');}
 }
 function openMetaOAuthUrl(){
  var url=_metaOAuthAuthUrl||(document.getElementById('metaOAuthAuthUrl')||{}).value||'';
@@ -8998,6 +9012,11 @@ function _renderAssetCard(a){
  var warmupBadge=warmupAsset?'<span class="badge" style="background:rgba(16,185,129,.14);color:#047857;border:1px solid rgba(16,185,129,.22)" title="预热只会使用 YE 开头图片">预热素材</span>':'';
  var archivedBadge=archived?'<span class="badge" style="background:rgba(107,114,128,.12);color:#4b5563;border:1px solid rgba(107,114,128,.2)">已归档</span>':'';
  var teamBadge=resourceTeamBadge(a);
+ var assetMatrixColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
+ var assetMatrixBadges=getAccountMatrixIds(a).map(function(mid){
+  var color=assetMatrixColors[(mid-1)%assetMatrixColors.length];
+  return '<span class="badge" style="background:'+color+';color:#fff">矩阵'+mid+'</span>';
+ }).join('');
  var tagBadges=tags.slice(0,4).map(function(t){return'<span class="badge" style="background:var(--bg3);color:var(--t2);border:1px solid var(--bd)">#'+escHtml(t)+'</span>';}).join('');
  var batchCode=getAssetBatchCode(a);
  var batchBadge=batchCode?'<span class="badge" style="background:rgba(16,185,129,.12);color:#047857;border:1px solid rgba(16,185,129,.18)">'+escHtml(_formatAssetBatchLabel(batchCode))+'</span>':'';
@@ -9028,7 +9047,7 @@ function _renderAssetCard(a){
     (a.asset_code?'<div style="font-size:10px;color:var(--t3);font-family:monospace;margin-top:1px">'+a.asset_code+'</div>':'')+
     '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+(a.file_size?(a.file_size/1024/1024).toFixed(1)+'MB':'')+(a.act_id?' · '+a.act_id:'')+adCountHtml+campCountHtml+'</div>'+
     countriesHtml+
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+folderBadge+batchBadge+teamBadge+warmupBadge+archivedBadge+tagBadges+'</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+folderBadge+batchBadge+assetMatrixBadges+teamBadge+warmupBadge+archivedBadge+tagBadges+'</div>'+
    '</div>'+
   '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">'+statusBadge+scoreHtml+'</div>'+
   '</div>'+

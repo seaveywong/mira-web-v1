@@ -787,7 +787,7 @@ def _auto_link_tokens_for_accounts(
         else:
             token_where.append("team_id IS NULL")
         if is_operator_user(user):
-            token_where.append("(owner_user_id=? OR owner_user_id IS NULL OR token_type='operate')")
+            token_where.append("(owner_user_id=? OR owner_user_id IS NULL)")
             token_params.append(user_id(user))
         token_rows = conn.execute(
             f"""
@@ -1299,7 +1299,7 @@ def add_token(body: TokenCreate, user=Depends(get_current_user)):
          body.matrix_id if actual_type_for_insert == "operate" else None,
          permission_snapshot_json,
          resource_team_id,
-         _owner_id_for_token(user) if actual_type_for_insert != 'operate' else None)
+         _owner_id_for_token(user))
     )
     token_id = cursor.lastrowid
     conn.commit()

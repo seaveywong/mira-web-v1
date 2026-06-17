@@ -32,6 +32,9 @@ DEFAULT_SCOPES = (
     "public_profile,ads_read,ads_management,business_management,"
     "pages_show_list,pages_manage_ads"
 )
+BLOCKED_SCOPES = {
+    "leads_retrieval": "leads_retrieval 当前容易被 Meta OAuth 判定为 Invalid Scopes；请先不要加入授权范围。Lead 表单创建使用 pages_manage_ads。",
+}
 STATE_TTL_SECONDS = 15 * 60
 
 
@@ -162,11 +165,18 @@ def _clean_scopes(value: Optional[str]) -> str:
     raw = str(value or DEFAULT_SCOPES).replace("\n", ",").strip()
     scopes = []
     seen = set()
+    blocked = []
     for part in raw.split(","):
         scope = part.strip()
+        if scope in BLOCKED_SCOPES:
+            blocked.append(scope)
+            continue
         if scope and scope not in seen:
             seen.add(scope)
             scopes.append(scope)
+    if blocked:
+        detail = "；".join(BLOCKED_SCOPES[s] for s in blocked)
+        raise HTTPException(status_code=400, detail=detail)
     return ",".join(scopes) or DEFAULT_SCOPES
 
 
