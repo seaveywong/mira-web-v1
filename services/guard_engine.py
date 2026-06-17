@@ -8,6 +8,8 @@ import time
 import os
 import re
 import html
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date, timedelta
 from typing import Optional, Tuple
 import requests
@@ -67,6 +69,7 @@ def _json_or_fb_error(resp: requests.Response) -> dict:
 
 # 操作冷却：同一广告同一规则60分钟内不重复触发
 _action_cooldown: dict = {}  # key: f"{ad_id}:{rule_type}" -> timestamp
+_cooldown_lock = threading.RLock()
 _COOLDOWN_TTL = 7200  # 2小时TTL，超过此时间的冷却记录可清理
 
 # ── 规则类型中文标签 ───────────────────────────────────────────
@@ -84,9 +87,10 @@ _rule_type_labels = {
 def _cleanup_cooldown():
     """清理过期冷却记录，防止内存泄漏"""
     now = time.time()
-    expired = [k for k, v in _action_cooldown.items() if now - v > _COOLDOWN_TTL]
-    for k in expired:
-        del _action_cooldown[k]
+    with _cooldown_lock:
+        expired = [k for k, v in _action_cooldown.items() if now - v > _COOLDOWN_TTL]
+        for k in expired:
+            del _action_cooldown[k]
 
 
 def _get_setting(key: str, default=None):
@@ -308,15 +312,25 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
     except Exception as e:
         return False, _sanitize_error_text(e), 0, 0
 
-def _verify_status(obj_id: str, token: str, expected: str = "PAUSED") -> bool:
-    """核验对象状态是否符合预期 — 必须同时检查 effective_status"""
-    try:
-        result = _fb_get(obj_id, token, {"fields": "status,effective_status"})
-        actual = result.get("status", "")
-        return actual == expected
-    except Exception:
-        return False
-
+def _verify_status(obj_id: str, token: str, expected: str = "PAUSED", retries: int = 3, delay_sec: float = 0.6) -> bool:
+    """Verify FB status with a short poll to avoid false escalation on API propagation lag."""
+    paused_effective = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "DELETED", "ARCHIVED"}
+    retries = max(1, int(retries or 1))
+    for attempt in range(retries):
+        try:
+            result = _fb_get(obj_id, token, {"fields": "status,effective_status"})
+            actual = str(result.get("status") or "")
+            effective = str(result.get("effective_status") or "")
+            if actual == expected:
+                return True
+            if expected == "PAUSED" and effective in paused_effective:
+                return True
+        except Exception as exc:
+            if attempt == retries - 1:
+                logger.warning("verify status failed for %s: %s", obj_id, _sanitize_error_text(exc))
+        if attempt < retries - 1:
+            time.sleep(delay_sec)
+    return False
 
 def _is_silent(silent_start: str, silent_end: str) -> bool:
     if not silent_start or not silent_end:
@@ -331,7 +345,8 @@ def _check_cooldown(ad_id: str, rule_type: str, cooldown_min: int = 60) -> bool:
     """检查是否在冷却期内，True=冷却中不执行"""
     key = f"{ad_id}:{rule_type}"
     _cleanup_cooldown()
-    last = _action_cooldown.get(key, 0)
+    with _cooldown_lock:
+        last = _action_cooldown.get(key, 0)
     if time.time() - last < cooldown_min * 60:
         return True
     return False
@@ -339,7 +354,8 @@ def _check_cooldown(ad_id: str, rule_type: str, cooldown_min: int = 60) -> bool:
 
 def _set_cooldown(ad_id: str, rule_type: str):
     key = f"{ad_id}:{rule_type}"
-    _action_cooldown[key] = time.time()
+    with _cooldown_lock:
+        _action_cooldown[key] = time.time()
 
 
 def _set_retry_cooldown(ad_id: str, rule_type: str, retry_after_min: int = 5, normal_cooldown_min: int = 60):
@@ -347,7 +363,8 @@ def _set_retry_cooldown(ad_id: str, rule_type: str, retry_after_min: int = 5, no
     key = f"{ad_id}:{rule_type}"
     retry_after_min = max(1, int(retry_after_min or 5))
     normal_cooldown_min = max(retry_after_min, int(normal_cooldown_min or 60))
-    _action_cooldown[key] = time.time() - (normal_cooldown_min - retry_after_min) * 60
+    with _cooldown_lock:
+        _action_cooldown[key] = time.time() - (normal_cooldown_min - retry_after_min) * 60
 
 
 # ── 镜像模式辅助函数 ───────────────────────────────────────────────────────────
@@ -1429,6 +1446,81 @@ class GuardEngine:
         self.default_cpa_ratio = float(_get_setting("default_cpa_ratio", "1.3"))
         self.learning_protect = _get_setting("learning_phase_protect", "1") == "1"
 
+    def _max_workers(self, count: int) -> int:
+        try:
+            configured = int(_get_setting("guard_concurrency", "4") or 4)
+        except (TypeError, ValueError):
+            configured = 4
+        configured = max(1, min(configured, 8))
+        return max(1, min(configured, int(count or 1)))
+
+    def _inspect_accounts(self, accounts) -> None:
+        acc_list = [dict(acc) for acc in (accounts or [])]
+        if not acc_list:
+            return
+        workers = self._max_workers(len(acc_list))
+        logger.info("[Guard] inspecting %s accounts with %s worker(s)", len(acc_list), workers)
+        if workers <= 1:
+            for acc in acc_list:
+                try:
+                    self.inspect_account(acc)
+                except Exception as e:
+                    logger.error("account %s inspect exception: %s", acc.get("act_id"), e, exc_info=True)
+            return
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="guard") as executor:
+            future_map = {executor.submit(self.inspect_account, acc): acc for acc in acc_list}
+            for fut in as_completed(future_map):
+                acc = future_map[fut]
+                try:
+                    fut.result()
+                except Exception as e:
+                    logger.error("account %s inspect exception: %s", acc.get("act_id"), e, exc_info=True)
+
+    def _mirror_accounts(self, accounts) -> list:
+        acc_list = [dict(acc) for acc in (accounts or [])]
+        if not acc_list:
+            return []
+        workers = self._max_workers(len(acc_list))
+        results = []
+        if workers <= 1:
+            for acc in acc_list:
+                try:
+                    result = self._mirror_patrol(acc)
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    logger.error("account %s mirror patrol exception: %s", acc.get("act_id"), e, exc_info=True)
+                    results.append({
+                        "act_id": acc.get("act_id", "?"),
+                        "account_name": acc.get("name", acc.get("act_id", "?")),
+                        "team_id": acc.get("team_id"),
+                        "status": "exception",
+                        "error": str(e),
+                        "review_pending": [],
+                        "closures": [],
+                    })
+            return results
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="mirror") as executor:
+            future_map = {executor.submit(self._mirror_patrol, acc): acc for acc in acc_list}
+            for fut in as_completed(future_map):
+                acc = future_map[fut]
+                try:
+                    result = fut.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    logger.error("account %s mirror patrol exception: %s", acc.get("act_id"), e, exc_info=True)
+                    results.append({
+                        "act_id": acc.get("act_id", "?"),
+                        "account_name": acc.get("name", acc.get("act_id", "?")),
+                        "team_id": acc.get("team_id"),
+                        "status": "exception",
+                        "error": str(e),
+                        "review_pending": [],
+                        "closures": [],
+                    })
+        return results
+
     def run_all(self, operator_uid=None, team_id=None):
         _ensure_team_guard_schema()
         _ensure_user_guard_schema()
@@ -1454,11 +1546,8 @@ class GuardEngine:
                      AND (a.team_id=? OR ? IS NULL)"""
             , (operator_uid, operator_uid, team_id, team_id)).fetchall()
             conn.close()
-            for acc in accounts:
-                try:
-                    self.inspect_account(dict(acc))
-                except Exception as e:
-                    logger.error(f"账户 {acc['act_id']} 巡检异常: {e}")
+            self._inspect_accounts(accounts)
+
 
         # ── 镜像巡逻：保护未开启巡检但存活(enabled=0)的账户 ──────────────────────
         global_mirror = _get_setting("mirror_enabled", "0")
@@ -1479,23 +1568,7 @@ class GuardEngine:
                 (global_mirror,)
             ).fetchall()
             conn.close()
-            patrol_results = []
-            for acc in mirror_only:
-                try:
-                    result = self._mirror_patrol(dict(acc))
-                    if result:
-                        patrol_results.append(result)
-                except Exception as e:
-                    logger.error(f"账户 {acc['act_id']} 镜像巡逻异常: {e}")
-                    patrol_results.append({
-                        "act_id": acc.get("act_id", "?"),
-                        "account_name": acc.get("name", acc.get("act_id", "?")),
-                        "team_id": acc.get("team_id"),
-                        "status": "exception",
-                        "error": str(e),
-                        "review_pending": [],
-                        "closures": []
-                    })
+            patrol_results = self._mirror_accounts(mirror_only)
             # Build and send ONE aggregated TG after the entire patrol cycle
             if patrol_results:
                 has_actions = any(

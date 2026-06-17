@@ -576,9 +576,9 @@ def run_warmup_check():
 def start_scheduler():
     global _scheduler
     try:
-        interval_min = int(_get_setting("inspect_interval", "30"))
+        interval_min = int(_get_setting("inspect_interval", "5"))
     except (ValueError, TypeError):
-        interval_min = 30
+        interval_min = 5
 
     try:
         heartbeat_min = int(_get_setting("op_token_heartbeat_interval", "10"))
