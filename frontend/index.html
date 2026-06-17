@@ -7560,6 +7560,44 @@ function startMetaOAuthPolling(){
   checkMetaOAuthState(true);
  },5000);
 }
+function renderMetaOAuthMatchDetails(data){
+ var m=(data&&data.match_result)||{};
+ if(!m||!Object.keys(m).length)return '';
+ function num(v){v=parseInt(v||0,10);return isNaN(v)?0:v;}
+ function acctLine(a){
+  if(!a)return '';
+  var name=escHtml(a.name||a.act_id||'未命名账户');
+  var id=escHtml(a.act_num||String(a.act_id||'').replace(/^act_/,''));
+  var cur=a.currency?(' · '+escHtml(a.currency)):'';
+  return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:5px 0;font-size:11px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+name+'</span><span style="color:var(--t3);font-family:monospace;white-space:nowrap">'+id+cur+'</span></div>';
+ }
+ function listBlock(title, items, total, tone){
+  items=Array.isArray(items)?items:[];
+  total=num(total!=null?total:items.length);
+  if(!total)return '';
+  var color=tone==='ok'?'var(--ok)':tone==='wa'?'var(--wa)':tone==='er'?'var(--er)':'var(--t2)';
+  var more=total>items.length?'<div style="font-size:11px;color:var(--t3);padding-top:4px">还有 '+(total-items.length)+' 个未展开显示</div>':'';
+  return '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:'+color+';font-weight:760">'+title+' '+total+' 个</summary><div style="margin-top:6px">'+items.map(acctLine).join('')+more+'</div></details>';
+ }
+ var effective=num(m.matched)+num(m.restored)+num(m.already_linked);
+ var summary=[
+  'FB可见 '+num(m.fb_total),
+  '系统已导入 '+num(m.imported_total),
+  '新增 '+num(m.matched),
+  '恢复 '+num(m.restored),
+  '已有 '+num(m.already_linked)
+ ].join(' · ');
+ return '<div class="meta-oauth-note" style="margin-top:10px">'+
+  '<div style="font-weight:820;color:var(--t1);margin-bottom:4px">账户匹配明细</div>'+
+  '<div style="font-size:12px;color:var(--t2)">'+summary+'</div>'+
+  (effective?'<div style="font-size:11px;color:var(--t3);margin-top:4px">这些账户已可在账户 Token 池中使用该授权 Token。</div>':'<div style="font-size:11px;color:var(--wa);margin-top:4px">没有命中已导入账户。可以继续导入账户，系统会再自动关联。</div>')+
+  listBlock('新增关联',m.matched_accounts,m.matched,'ok')+
+  listBlock('恢复关联',m.restored_accounts,m.restored,'ok')+
+  listBlock('已有可用关联',m.already_accounts,m.already_linked,'')+
+  listBlock('系统内未被该授权覆盖',m.unmatched_imported_accounts,m.unmatched_imported_count,'wa')+
+  listBlock('FB可见但系统未导入',m.fb_only_accounts,m.fb_only_count,'wa')+
+ '</div>';
+}
 async function checkMetaOAuthState(silent){
  if(!_metaOAuthState){toast('请先生成授权链接','wa');return;}
  var hint=document.getElementById('metaOAuthStateHint');
@@ -7572,6 +7610,7 @@ async function checkMetaOAuthState(silent){
    var token=r.token||{};
    if(hint)hint.innerHTML=
     '<div>授权成功：Token #'+escHtml(String(r.token_id||''))+' · '+escHtml(token.token_alias||'Meta OAuth')+'，已关联 '+escHtml(String(r.linked_count||0))+' 个账户。</div>'+
+    renderMetaOAuthMatchDetails(r)+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
      '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入账户</button>'+
      '<button class="btn btn-g btn-sm" onclick="loadTokens();toast(&quot;Token 列表已刷新&quot;,&quot;ok&quot;)">刷新 Token 列表</button>'+
@@ -7602,13 +7641,16 @@ window.addEventListener('message',function(ev){
  if(!data||data.type!=='mira_meta_oauth_success')return;
  stopMetaOAuthPolling();
  var hint=document.getElementById('metaOAuthStateHint');
+ var match=data.match_result||{};
+ var effective=(parseInt(match.matched||data.matched||0,10)||0)+(parseInt(match.restored||data.restored||0,10)||0)+(parseInt(match.already_linked||data.already_linked||0,10)||0);
  if(hint)hint.innerHTML=
-  '<div>授权成功：Token #'+escHtml(String(data.token_id||''))+'，已自动匹配 '+escHtml(String(data.matched||0))+' 个已导入账户。</div>'+
+  '<div>授权成功：Token #'+escHtml(String(data.token_id||''))+'，已覆盖 '+escHtml(String(effective))+' 个已导入账户。</div>'+
+  renderMetaOAuthMatchDetails({match_result:match})+
   '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
    '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入账户</button>'+
    '<button class="btn btn-g btn-sm" onclick="loadTokens();toast(&quot;Token 列表已刷新&quot;,&quot;ok&quot;)">刷新 Token 列表</button>'+
   '</div>';
- toast('Meta 官方授权完成，已自动匹配 '+(data.matched||0)+' 个账户','ok');
+ toast('Meta 官方授权完成，已覆盖 '+effective+' 个账户','ok');
  loadTokens();
  if(typeof loadAccounts==='function')loadAccounts();
 });

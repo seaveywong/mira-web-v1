@@ -91,6 +91,7 @@ def _ensure_schema(conn) -> None:
            redirect_uri TEXT,
            status TEXT DEFAULT 'pending',
            token_id INTEGER,
+           match_result_json TEXT,
            error TEXT,
            created_at TEXT DEFAULT (datetime('now','+8 hours')),
            expires_at INTEGER,
@@ -104,6 +105,8 @@ def _ensure_schema(conn) -> None:
         conn.execute("ALTER TABLE meta_oauth_states ADD COLUMN redirect_uri TEXT")
     if "matrix_id" not in cols:
         conn.execute("ALTER TABLE meta_oauth_states ADD COLUMN matrix_id INTEGER")
+    if "match_result_json" not in cols:
+        conn.execute("ALTER TABLE meta_oauth_states ADD COLUMN match_result_json TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_meta_oauth_states_status ON meta_oauth_states(status, expires_at)")
     conn.commit()
 
@@ -277,9 +280,29 @@ def _owner_id_for_oauth(user: dict) -> Optional[int]:
     return None
 
 
+def _act_num(act_id: str) -> str:
+    raw = str(act_id or "").strip()
+    return raw[4:] if raw.startswith("act_") else raw
+
+
+def _oauth_match_item(act_id: str, name: Optional[str] = None, fb_info: Optional[dict] = None) -> dict:
+    info = fb_info or {}
+    label = name or info.get("name") or act_id
+    return {
+        "act_id": act_id,
+        "act_num": _act_num(act_id),
+        "name": label,
+        "currency": info.get("currency") or "",
+        "account_status": info.get("account_status"),
+    }
+
+
+def _limit_items(items: list[dict], limit: int = 30) -> list[dict]:
+    return items[:limit]
+
+
 def _link_existing_accounts(conn, token_id: int, access_token: str, team_id: Optional[int], owner_user_id: Optional[int]) -> dict:
     fb_accounts = _fetch_all_fb_adaccounts(access_token, ACCOUNT_DETAIL_FIELDS, timeout=30)
-    fb_ids = {item.get("id") for item in fb_accounts if item.get("id")}
     where = []
     params = []
     if team_id is None:
@@ -291,30 +314,41 @@ def _link_existing_accounts(conn, token_id: int, access_token: str, team_id: Opt
         where.append("owner_user_id=?")
         params.append(owner_user_id)
     imported = conn.execute(
-        f"SELECT id, act_id, account_status FROM accounts WHERE {' AND '.join(where)}",
+        f"SELECT id, act_id, name, account_status FROM accounts WHERE {' AND '.join(where)}",
         params,
     ).fetchall()
 
     matched = 0
     already = 0
+    restored = 0
     status_updated = 0
     fb_map = {item.get("id"): item for item in fb_accounts if item.get("id")}
+    imported_ids = {acc["act_id"] for acc in imported}
+    matched_accounts = []
+    already_accounts = []
+    restored_accounts = []
+    unmatched_imported = []
     for acc in imported:
         act_id = acc["act_id"]
         fb_info = fb_map.get(act_id)
         if not fb_info:
+            unmatched_imported.append(_oauth_match_item(act_id, acc["name"]))
             continue
         exists = conn.execute(
             "SELECT id, status FROM account_op_tokens WHERE act_id=? AND token_id=?",
             (act_id, token_id),
         ).fetchone()
         if exists:
-            already += 1
             if exists["status"] != "active":
                 conn.execute(
                     "UPDATE account_op_tokens SET status='active', note=? WHERE id=?",
                     ("Meta OAuth授权自动恢复", exists["id"]),
                 )
+                restored += 1
+                restored_accounts.append(_oauth_match_item(act_id, acc["name"], fb_info))
+            else:
+                already += 1
+                already_accounts.append(_oauth_match_item(act_id, acc["name"], fb_info))
             continue
         max_pri = conn.execute(
             "SELECT MAX(priority) FROM account_op_tokens WHERE act_id=?",
@@ -328,6 +362,7 @@ def _link_existing_accounts(conn, token_id: int, access_token: str, team_id: Opt
             (act_id, token_id, max_pri + 1, token_id),
         )
         matched += 1
+        matched_accounts.append(_oauth_match_item(act_id, acc["name"], fb_info))
         new_status = fb_info.get("account_status", acc["account_status"])
         if new_status != acc["account_status"]:
             conn.execute(
@@ -335,12 +370,25 @@ def _link_existing_accounts(conn, token_id: int, access_token: str, team_id: Opt
                 (new_status, acc["id"]),
             )
             status_updated += 1
+    fb_only_accounts = [
+        _oauth_match_item(item.get("id"), item.get("name"), item)
+        for item in fb_accounts
+        if item.get("id") and item.get("id") not in imported_ids
+    ]
     return {
         "fb_total": len(fb_accounts),
         "imported_total": len(imported),
         "matched": matched,
+        "restored": restored,
         "already_linked": already,
         "status_updated": status_updated,
+        "matched_accounts": _limit_items(matched_accounts),
+        "restored_accounts": _limit_items(restored_accounts),
+        "already_accounts": _limit_items(already_accounts),
+        "unmatched_imported_count": len(unmatched_imported),
+        "unmatched_imported_accounts": _limit_items(unmatched_imported),
+        "fb_only_count": len(fb_only_accounts),
+        "fb_only_accounts": _limit_items(fb_only_accounts),
     }
 
 
@@ -600,6 +648,7 @@ def get_meta_oauth_state(state: str, user=Depends(get_current_user)):
             status = "expired"
         token = None
         linked_count = 0
+        match_result = {}
         if st["token_id"]:
             token_row = conn.execute(
                 "SELECT id, token_alias, token_type, token_source, status, matrix_id, created_at FROM fb_tokens WHERE id=?",
@@ -614,6 +663,13 @@ def get_meta_oauth_state(state: str, user=Depends(get_current_user)):
                     ).fetchone()[0]
                     or 0
                 )
+        if st["match_result_json"]:
+            try:
+                parsed = json.loads(st["match_result_json"])
+                if isinstance(parsed, dict):
+                    match_result = parsed
+            except Exception:
+                match_result = {}
         return {
             "success": status == "completed",
             "state": state,
@@ -621,6 +677,7 @@ def get_meta_oauth_state(state: str, user=Depends(get_current_user)):
             "token_id": st["token_id"],
             "token": token,
             "linked_count": linked_count,
+            "match_result": match_result,
             "error": st["error"],
             "created_at": st["created_at"],
             "completed_at": st["completed_at"],
@@ -811,20 +868,29 @@ def meta_oauth_callback(
         if token_type in ("operate", "manage"):
             match_result = _link_existing_accounts(conn, token_id, access_token, st["team_id"], st["owner_user_id"])
         conn.execute(
-            f"UPDATE meta_oauth_states SET status='completed', token_id=?, completed_at={_now_cst_expr()} WHERE state=?",
-            (token_id, state),
+            f"UPDATE meta_oauth_states SET status='completed', token_id=?, match_result_json=?, completed_at={_now_cst_expr()} WHERE state=?",
+            (token_id, json.dumps(match_result, ensure_ascii=False), state),
         )
         conn.commit()
         message = (
             f"Meta 官方授权完成。\nToken ID: {token_id}\n"
             f"已扫描 FB 账户: {match_result.get('fb_total', 0)} 个\n"
-            f"自动关联已导入账户: {match_result.get('matched', 0)} 个"
+            f"新增关联: {match_result.get('matched', 0)} 个\n"
+            f"恢复关联: {match_result.get('restored', 0)} 个\n"
+            f"已有可用关联: {match_result.get('already_linked', 0)} 个"
         )
         return _oauth_html(
             "授权成功",
             message,
             ok=True,
-            payload={"token_id": token_id, "matched": match_result.get("matched", 0), "fb_total": match_result.get("fb_total", 0)},
+            payload={
+                "token_id": token_id,
+                "matched": match_result.get("matched", 0),
+                "restored": match_result.get("restored", 0),
+                "already_linked": match_result.get("already_linked", 0),
+                "fb_total": match_result.get("fb_total", 0),
+                "match_result": match_result,
+            },
         )
     except Exception as exc:
         try:
