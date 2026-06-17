@@ -568,10 +568,64 @@ def create_meta_oauth_connect_url(body: MetaOAuthConnectIn, request: Request, us
             "auth_url": auth_url,
             "state": state,
             "expires_in": STATE_TTL_SECONDS,
+            "expires_at": expires_at,
             "redirect_uri": redirect_uri,
             "inherited_from_global": inherited,
             "current_scope": current_scope,
             "effective_scope": effective_scope,
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/state/{state}")
+def get_meta_oauth_state(state: str, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _ensure_schema(conn)
+        st = conn.execute("SELECT * FROM meta_oauth_states WHERE state=?", (state,)).fetchone()
+        if not st:
+            raise HTTPException(status_code=404, detail="OAuth state not found")
+        if st["user_id"] != user.get("uid") and not is_superadmin(user):
+            raise HTTPException(status_code=403, detail="OAuth state belongs to another user")
+        status = st["status"] or "pending"
+        now = int(time.time())
+        expired = bool(status == "pending" and int(st["expires_at"] or 0) < now)
+        if expired:
+            conn.execute(
+                f"UPDATE meta_oauth_states SET status='expired', error=?, completed_at={_now_cst_expr()} WHERE state=?",
+                ("OAuth state expired", state),
+            )
+            conn.commit()
+            status = "expired"
+        token = None
+        linked_count = 0
+        if st["token_id"]:
+            token_row = conn.execute(
+                "SELECT id, token_alias, token_type, token_source, status, matrix_id, created_at FROM fb_tokens WHERE id=?",
+                (st["token_id"],),
+            ).fetchone()
+            if token_row:
+                token = dict(token_row)
+                linked_count = int(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM account_op_tokens WHERE token_id=? AND status='active'",
+                        (st["token_id"],),
+                    ).fetchone()[0]
+                    or 0
+                )
+        return {
+            "success": status == "completed",
+            "state": state,
+            "status": status,
+            "token_id": st["token_id"],
+            "token": token,
+            "linked_count": linked_count,
+            "error": st["error"],
+            "created_at": st["created_at"],
+            "completed_at": st["completed_at"],
+            "expires_at": st["expires_at"],
+            "expires_in": max(0, int(st["expires_at"] or 0) - now),
         }
     finally:
         conn.close()

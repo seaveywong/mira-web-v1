@@ -7292,6 +7292,7 @@ var allTokensData=[];
 var tokenUiState={q:'',status:'all',type:'all',source:'all',open:{}};
 var _metaOAuthConfig=null;
 var _metaOAuthAuthUrl='';
+var _metaOAuthState='';
 function isWritableOperateSourceKey(source){
  var key=(source||'').toString().trim().toLowerCase();
  return key==='system_user'||key==='oauth_user';
@@ -7343,6 +7344,7 @@ async function openMetaOAuthModal(){
 function renderMetaOAuthModal(cfg){
  cfg=cfg||{};
  _metaOAuthAuthUrl='';
+ _metaOAuthState='';
  var body=document.getElementById('metaOAuthBody');
  var startBtn=document.getElementById('metaOAuthStartBtn');
  if(startBtn)startBtn.disabled=!cfg.configured;
@@ -7381,8 +7383,10 @@ function renderMetaOAuthModal(cfg){
    '<div class="meta-oauth-link-actions">'+
     '<button class="btn btn-p btn-sm" onclick="copyMetaOAuthUrl()">复制链接</button>'+
     '<button class="btn btn-g btn-sm" onclick="openMetaOAuthUrl()">打开授权</button>'+
+    '<button class="btn btn-g btn-sm" onclick="checkMetaOAuthState()">检查结果</button>'+
     '<span class="meta-oauth-link-hint">要换浏览器或换个号授权，复制链接过去打开即可。</span>'+
    '</div>'+
+   '<div id="metaOAuthStateHint" class="meta-oauth-link-hint" style="margin-top:8px"></div>'+
   '</div>'+
  '</div>';
  body.innerHTML='<div class="meta-oauth-shell">'+configHtml+connectHtml+'</div>';
@@ -7445,9 +7449,12 @@ async function startMetaOAuthConnect(){
   toast('正在生成 Meta 授权链接...','ac');
   var r=await api('POST','/meta-oauth/connect-url',payload);
   _metaOAuthAuthUrl=r.auth_url||'';
+  _metaOAuthState=r.state||'';
   var box=document.getElementById('metaOAuthLinkBox');
   var input=document.getElementById('metaOAuthAuthUrl');
+  var hint=document.getElementById('metaOAuthStateHint');
   if(input)input.value=_metaOAuthAuthUrl;
+  if(hint)hint.textContent='授权链接有效期约 '+Math.round((r.expires_in||900)/60)+' 分钟。复制到其他浏览器授权后，可回到这里点“检查结果”。';
   if(box)box.style.display='block';
   toast('授权链接已生成，可以复制或打开','ok');
  }catch(e){
@@ -7485,6 +7492,35 @@ function openMetaOAuthUrl(){
  var url=_metaOAuthAuthUrl||(document.getElementById('metaOAuthAuthUrl')||{}).value||'';
  if(!url){toast('请先生成授权链接','wa');return;}
  window.open(url,'_blank');
+}
+async function checkMetaOAuthState(){
+ if(!_metaOAuthState){toast('请先生成授权链接','wa');return;}
+ var hint=document.getElementById('metaOAuthStateHint');
+ if(hint)hint.textContent='正在检查授权结果...';
+ try{
+  var r=await api('GET','/meta-oauth/state/'+encodeURIComponent(_metaOAuthState));
+  var status=r.status||'pending';
+  if(status==='completed'){
+   var token=r.token||{};
+   if(hint)hint.innerHTML='授权成功：Token #'+escHtml(String(r.token_id||''))+' · '+escHtml(token.token_alias||'Meta OAuth')+'，已关联 '+escHtml(String(r.linked_count||0))+' 个账户。';
+   toast('Meta 官方授权完成，已关联 '+(r.linked_count||0)+' 个账户','ok');
+   loadTokens();
+   if(typeof loadAccounts==='function')loadAccounts();
+  }else if(status==='failed'){
+   if(hint)hint.innerHTML='<span style="color:var(--er)">授权失败：'+escHtml(r.error||'Meta 未返回具体错误')+'</span>';
+   toast('授权失败：'+(r.error||'请查看提示'),'er');
+  }else if(status==='expired'){
+   if(hint)hint.innerHTML='<span style="color:var(--wa)">授权链接已过期，请重新生成。</span>';
+   toast('授权链接已过期，请重新生成','wa');
+  }else{
+   var mins=Math.ceil((r.expires_in||0)/60);
+   if(hint)hint.textContent='尚未完成授权。剩余约 '+mins+' 分钟；如果已在其他浏览器授权，请稍等几秒再检查。';
+   toast('授权尚未完成','wa');
+  }
+ }catch(e){
+  if(hint)hint.innerHTML='<span style="color:var(--er)">检查失败：'+escHtml(e.message||e)+'</span>';
+  toast('检查授权结果失败：'+(e.message||e),'er');
+ }
 }
 window.addEventListener('message',function(ev){
  var data=ev&&ev.data?ev.data:{};
