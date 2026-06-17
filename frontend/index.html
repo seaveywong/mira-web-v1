@@ -7246,7 +7246,7 @@ async function loadLogs(){
 var allTokensData=[];
 var tokenUiState={q:'',status:'all',type:'all',source:'all',open:{}};
 var _metaOAuthConfig=null;
-var _metaOAuthPopup=null;
+var _metaOAuthAuthUrl='';
 function isWritableOperateSourceKey(source){
  var key=(source||'').toString().trim().toLowerCase();
  return key==='system_user'||key==='oauth_user';
@@ -7297,6 +7297,7 @@ async function openMetaOAuthModal(){
 }
 function renderMetaOAuthModal(cfg){
  cfg=cfg||{};
+ _metaOAuthAuthUrl='';
  var body=document.getElementById('metaOAuthBody');
  var startBtn=document.getElementById('metaOAuthStartBtn');
  if(startBtn)startBtn.disabled=!cfg.configured;
@@ -7327,6 +7328,15 @@ function renderMetaOAuthModal(cfg){
   '</div>'+
   '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2)"><input type="checkbox" id="metaForceReauth" checked> 每次强制重新确认权限，避免缺少 ads_management 还误判可用</label>'+
   '<div class="info-box" style="margin-top:12px">注意：这不是绕过 Meta API，而是标准 OAuth/Business Login。App 处于开发模式时，非开发者/测试用户仍可能无法授权；上线稳定使用需要 App 切到 Live 并完成权限审核。</div>'+
+  '<div id="metaOAuthLinkBox" style="display:none;margin-top:12px;border:1px solid var(--bd);border-radius:12px;background:var(--bg2);padding:12px">'+
+   '<div style="font-weight:800;font-size:13px;margin-bottom:8px">授权链接已生成</div>'+
+   '<input class="fc" id="metaOAuthAuthUrl" readonly style="font-size:12px;font-family:monospace;margin-bottom:10px">'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+    '<button class="btn btn-p btn-sm" onclick="copyMetaOAuthUrl()">复制链接</button>'+
+    '<button class="btn btn-g btn-sm" onclick="openMetaOAuthUrl()">打开授权</button>'+
+    '<span style="font-size:12px;color:var(--t3);align-self:center">如果要用另一个浏览器或账号授权，复制链接过去打开即可。</span>'+
+   '</div>'+
+  '</div>'+
  '</div>';
  body.innerHTML=configHtml+connectHtml;
 }
@@ -7355,27 +7365,41 @@ async function startMetaOAuthConnect(){
   toast('请先配置 Meta App','wa');
   return;
  }
- var popup=window.open('about:blank','mira_meta_oauth');
- if(!popup){
-  toast('浏览器拦截了授权窗口，请允许弹窗后重试','er');
-  return;
- }
- try{
-  popup.document.write('<div style="font-family:sans-serif;padding:24px">正在生成 Meta 授权链接...</div>');
- }catch(e){}
  var payload={
   token_alias:(document.getElementById('metaTokenAlias')||{}).value||'',
   token_type:(document.getElementById('metaTokenType')||{}).value||'operate',
   force_reauth:!!((document.getElementById('metaForceReauth')||{}).checked)
  };
  try{
+  toast('正在生成 Meta 授权链接...','ac');
   var r=await api('POST','/meta-oauth/connect-url',payload);
-  popup.location.href=r.auth_url;
-  toast('已打开 Meta 授权窗口，请完成授权','ok');
+  _metaOAuthAuthUrl=r.auth_url||'';
+  var box=document.getElementById('metaOAuthLinkBox');
+  var input=document.getElementById('metaOAuthAuthUrl');
+  if(input)input.value=_metaOAuthAuthUrl;
+  if(box)box.style.display='';
+  toast('授权链接已生成，可以复制或打开','ok');
  }catch(e){
-  try{popup.close();}catch(_e){}
   toast('生成授权链接失败：'+(e.message||e),'er');
  }
+}
+async function copyMetaOAuthUrl(){
+ var url=_metaOAuthAuthUrl||(document.getElementById('metaOAuthAuthUrl')||{}).value||'';
+ if(!url){toast('请先生成授权链接','wa');return;}
+ try{
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+   await navigator.clipboard.writeText(url);
+  }else{
+   var input=document.getElementById('metaOAuthAuthUrl');
+   if(input){input.focus();input.select();document.execCommand('copy');}
+  }
+  toast('授权链接已复制','ok');
+ }catch(e){toast('复制失败，请手动选中链接复制','er');}
+}
+function openMetaOAuthUrl(){
+ var url=_metaOAuthAuthUrl||(document.getElementById('metaOAuthAuthUrl')||{}).value||'';
+ if(!url){toast('请先生成授权链接','wa');return;}
+ window.open(url,'_blank');
 }
 window.addEventListener('message',function(ev){
  var data=ev&&ev.data?ev.data:{};
