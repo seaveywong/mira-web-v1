@@ -7658,7 +7658,34 @@ function buildTokenPermissionSummary(t){
  }
  return html;
 }
+function getTokenMatrixIds(t){
+ var ids=[];
+ function pushMid(mid){
+  var n=parseInt(mid,10);
+  if(!isNaN(n)&&n>0&&ids.indexOf(n)===-1)ids.push(n);
+ }
+ pushMid(t&&t.matrix_id);
+ (Array.isArray(t&&t.linked_matrix_ids)?t.linked_matrix_ids:[]).forEach(pushMid);
+ (Array.isArray(t&&t.linked_account_matrix_ids)?t.linked_account_matrix_ids:[]).forEach(pushMid);
+ return ids.sort(function(a,b){return a-b;});
+}
+function getTokenPrimaryMatrixId(t){
+ var ids=getTokenMatrixIds(t);
+ return ids.length?ids[0]:0;
+}
+function buildTokenMatrixBadge(t,matrixColors){
+ var ids=getTokenMatrixIds(t);
+ if(!ids.length){
+  return '<span style="background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:999px;padding:2px 8px;font-size:11px;margin-left:4px" title="该 Token 尚未通过自身或已关联账户识别出矩阵">未识别矩阵</span>';
+ }
+ return ids.map(function(mid){
+  var color=matrixColors[(mid-1)%matrixColors.length];
+  var title=(t&&parseInt(t.matrix_id,10)===mid)?'Token 直接归属矩阵':'从已关联账户推断出的矩阵';
+  return '<span style="background:'+color+';color:#fff;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;margin-left:4px" title="'+title+'">矩阵'+mid+'</span>';
+ }).join('');
+}
 function getTokenMatchText(t){
+ var mids=getTokenMatrixIds(t);
  return[
   t.token_alias||'',
   t.note||'',
@@ -7666,7 +7693,7 @@ function getTokenMatchText(t){
   getTokenSourceLabel(getTokenSourceKey(t)),
   getTokenSourceKey(t),
   t.status||'',
-  t.matrix_id?('矩阵 '+t.matrix_id):'未分配',
+  mids.length?mids.map(function(mid){return '矩阵 '+mid;}).join(' '):'未识别矩阵 未分配',
   t.id||'',
   t.account_count||0,
   getTokenPermissionSearchText(t)
@@ -7746,7 +7773,8 @@ function renderTokensView(){
  var matrixColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
  var groups={};
  filtered.forEach(function(t){
-  var key=t.token_type==='manage'?'manage':(t.matrix_id?('m'+t.matrix_id):'none');
+  var primaryMid=getTokenPrimaryMatrixId(t);
+  var key=t.token_type==='manage'?'manage':(primaryMid?('m'+primaryMid):'none');
   if(!groups[key])groups[key]=[];
   groups[key].push(t);
  });
@@ -7759,7 +7787,7 @@ function renderTokensView(){
  groupOrder.forEach(function(gk){
   var mid=gk==='none'?0:(gk==='manage'?-1:parseInt(gk.slice(1),10));
   var color=gk==='manage'?'#4a9eff':(mid>0?(matrixColors[(mid-1)%matrixColors.length]):'#6b7280');
-  var label=gk==='manage'?'管理号':(mid>0?('矩阵 '+mid):'未分配矩阵');
+  var label=gk==='manage'?'管理号':(mid>0?('矩阵 '+mid):'未识别矩阵');
   var gid='tkGroup_'+gk;
   var cnt=groups[gk].length;
   var activeCount=groups[gk].filter(function(t){return t.status==='active';}).length;
@@ -7784,9 +7812,9 @@ function renderTokensView(){
    var sourceLabel=getTokenSourceLabel(sourceKey);
    var sourceBadge='<span class="badge" style="'+getTokenSourceBadgeStyle(sourceKey)+'">'+sourceLabel+'</span>';
    var operateWarning=t.token_type==='operate'&&!isTokenOperateEligible(t)?'<span class="badge bg-er" title="操作号只允许 System User 或 Meta 官方授权来源">需改来源</span>':'';
-   var matrixLabel=t.matrix_id?'矩阵'+t.matrix_id:'';
-   var matrixColor=t.matrix_id?(matrixColors[(t.matrix_id-1)%matrixColors.length]):'transparent';
-   var matrixBadge=t.matrix_id?('<span style="background:'+matrixColor+';color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px">'+matrixLabel+'</span>'):'<span style="background:#374151;color:#9ca3af;border-radius:4px;padding:1px 7px;font-size:11px">未分配</span>';
+   var tokenMatrixIds=getTokenMatrixIds(t);
+   var matrixColor=tokenMatrixIds.length?matrixColors[(tokenMatrixIds[0]-1)%matrixColors.length]:'#6b7280';
+   var matrixBadge=buildTokenMatrixBadge(t,matrixColors);
    var teamBadge=resourceTeamBadge(t);
    var checkedAt=_fmtActionLogTime(t.permission_checked_at||t.last_verified_at||'');
    var permissionBadges=buildTokenPermissionBadges(t);
@@ -7794,7 +7822,7 @@ function renderTokensView(){
    var aliasText=escHtml(t.token_alias||'');
    var noteText=t.note?(' · '+escHtml(t.note)):'';
    var rematchBtn=t.token_type==='operate'?'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();rematchOpToken('+t.id+',this)" title="重新匹配已导入账户">重新匹配</button>':'';
-    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+teamBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="fetchAccs('+t.id+')">导入账户</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic role-hide-viewer" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d role-hide-viewer" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
+    return'<div class="tkc" style="border-left:4px solid '+matrixColor+';padding-left:10px"><div class="tkc-icon"></div><div class="tkc-info"><div class="tkc-alias">'+aliasText+matrixBadge+teamBadge+'</div><div class="tkc-meta"><span style="color:'+typeColor+';font-weight:600">'+typeLabel+'</span>· 来源 '+escHtml(sourceLabel)+' · 关联 '+(t.account_count||0)+' 个账户 · 检查于 '+checkedAt+'（北京时间）'+noteText+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+sourceBadge+operateWarning+permissionBadges+'</div>'+permissionSummary+'</div>'+statusBadge+'<div class="td-acts">'+rematchBtn+'<button class="btn btn-p btn-sm role-hide-viewer" onclick="event.stopPropagation();openSmartImportAccounts()" title="输入账户 ID 后自动寻找可读取 Token，并补齐所有可用 Token 关联">智能导入</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();fetchAccs('+t.id+')" title="只从这个 Token 拉取它能看到的账户">从此Token拉取</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="editTk('+t.id+',\''+encodeURIComponent(t.token_alias||'')+'\',\''+t.token_type+'\',\''+sourceKey+'\',\''+encodeURIComponent(t.note||'')+'\','+(t.matrix_id||0)+')" title="重新授权或修改 Token">编辑</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkType('+t.id+',\''+t.token_type+'\')" title="修改类型">类型</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkSource('+t.id+',\''+sourceKey+'\',\''+t.token_type+'\')" title="修改来源">来源</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="changeTkMatrix('+t.id+','+(t.matrix_id||0)+')" title="修改矩阵归属">矩阵</button><button class="btn-ic role-hide-viewer" title="验证Token" onclick="verifyTk('+t.id+',this)">验</button><button class="btn-ic d role-hide-viewer" title="删除" onclick="delTk('+t.id+')">删</button></div></div>';
   }).join('');
   html+='</div></div>';
  });

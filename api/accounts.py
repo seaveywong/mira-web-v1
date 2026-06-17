@@ -1329,7 +1329,22 @@ def list_tokens(user=Depends(get_current_user)):
                t.owner_user_id,
                COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name,
                t.permission_snapshot, t.permission_checked_at,
-               (SELECT COUNT(*) FROM account_op_tokens aot WHERE aot.token_id = t.id AND aot.status = 'active') as account_count
+               (
+                   (SELECT COUNT(DISTINCT aot.act_id)
+                      FROM account_op_tokens aot
+                     WHERE aot.token_id = t.id AND aot.status = 'active')
+                   +
+                   (SELECT COUNT(DISTINCT a2.act_id)
+                      FROM accounts a2
+                     WHERE a2.token_id = t.id
+                       AND NOT EXISTS (
+                           SELECT 1
+                             FROM account_op_tokens aot2
+                            WHERE aot2.token_id = t.id
+                              AND aot2.act_id = a2.act_id
+                              AND aot2.status = 'active'
+                       ))
+               ) as account_count
         FROM fb_tokens t
         LEFT JOIN accounts a ON a.token_id = t.id
         LEFT JOIN teams tm ON tm.id = t.team_id
@@ -1338,6 +1353,42 @@ def list_tokens(user=Depends(get_current_user)):
         GROUP BY t.id
         ORDER BY t.created_at DESC
     """, params).fetchall()
+    matrix_where, matrix_params = ["1=1"], []
+    apply_team_scope(matrix_where, matrix_params, user, "a.team_id", include_unassigned=False)
+    _apply_token_owner(matrix_where, matrix_params, user, "a.owner_user_id")
+    matrix_scope_sql = " AND ".join(matrix_where)
+    token_matrix_map = {}
+    for mr in conn.execute(f"""
+        WITH rel AS (
+            SELECT token_id, act_id
+              FROM account_op_tokens
+             WHERE status = 'active'
+            UNION
+            SELECT token_id, act_id
+              FROM accounts
+             WHERE token_id IS NOT NULL
+        )
+        SELECT rel.token_id, mt.matrix_id
+          FROM rel
+          JOIN accounts a ON a.act_id = rel.act_id
+          JOIN account_op_tokens aotm ON aotm.act_id = a.act_id AND aotm.status = 'active'
+          JOIN fb_tokens mt ON mt.id = aotm.token_id
+         WHERE {matrix_scope_sql}
+           AND mt.matrix_id IS NOT NULL
+        UNION
+        SELECT rel.token_id, pt.matrix_id
+          FROM rel
+          JOIN accounts a ON a.act_id = rel.act_id
+          JOIN fb_tokens pt ON pt.id = a.token_id
+         WHERE {matrix_scope_sql}
+           AND pt.matrix_id IS NOT NULL
+    """, matrix_params + matrix_params).fetchall():
+        try:
+            tid = int(mr["token_id"])
+            mid = int(mr["matrix_id"])
+        except (TypeError, ValueError):
+            continue
+        token_matrix_map.setdefault(tid, set()).add(mid)
     conn.close()
     data = []
     for row in rows:
@@ -1350,6 +1401,7 @@ def list_tokens(user=Depends(get_current_user)):
                 item["permission_snapshot"] = None
         else:
             item["permission_snapshot"] = None
+        item["linked_matrix_ids"] = sorted(token_matrix_map.get(int(item["id"]), set()))
         data.append(item)
     return data
 
