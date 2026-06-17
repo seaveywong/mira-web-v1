@@ -123,9 +123,30 @@ def ensure_token_source_columns(conn) -> None:
     conn.commit()
 
 
+def _act_id_variants(act_id: str) -> list[str]:
+    raw = str(act_id or "").strip()
+    if not raw:
+        return []
+    num = raw[4:] if raw.startswith("act_") else raw
+    variants = [raw]
+    if num and num not in variants:
+        variants.append(num)
+    prefixed = f"act_{num}" if num else ""
+    if prefixed and prefixed not in variants:
+        variants.append(prefixed)
+    return variants
+
+
 def _account_team_id(conn, act_id: str) -> Optional[int]:
     try:
-        row = conn.execute("SELECT team_id FROM accounts WHERE act_id=?", (act_id,)).fetchone()
+        candidates = _act_id_variants(act_id)
+        if not candidates:
+            return None
+        placeholders = ",".join("?" for _ in candidates)
+        row = conn.execute(
+            f"SELECT team_id FROM accounts WHERE act_id IN ({placeholders}) LIMIT 1",
+            candidates,
+        ).fetchone()
         return row["team_id"] if row and row["team_id"] is not None else None
     except Exception:
         return None
@@ -809,8 +830,14 @@ def get_matrix_tokens(act_id: str) -> list[dict]:
         conn = get_conn()
         ensure_token_source_columns(conn)
         # 获取该账户绑定的 token_id 和 matrix_id
+        candidates = _act_id_variants(act_id)
+        if not candidates:
+            conn.close()
+            return []
+        placeholders = ",".join("?" for _ in candidates)
         acc_row = conn.execute(
-            "SELECT token_id, team_id FROM accounts WHERE act_id=?", (act_id,)
+            f"SELECT token_id, team_id FROM accounts WHERE act_id IN ({placeholders}) LIMIT 1",
+            candidates,
         ).fetchone()
         if not acc_row or not acc_row["token_id"]:
             conn.close()
@@ -864,13 +891,18 @@ def get_matrix_id_for_account(act_id: str) -> Optional[int]:
         conn = get_conn()
         ensure_token_source_columns(conn)
         account_team_id = _account_team_id(conn, act_id)
+        candidates = _act_id_variants(act_id)
+        if not candidates:
+            conn.close()
+            return None
+        placeholders = ",".join("?" for _ in candidates)
         token_team_sql, token_team_params = _token_team_clause(account_team_id, "ft")
         op_row = conn.execute(
             f"""
             SELECT ft.matrix_id
             FROM account_op_tokens aot
             JOIN fb_tokens ft ON ft.id = aot.token_id
-            WHERE aot.act_id=?
+            WHERE aot.act_id IN ({placeholders})
               AND aot.status='active'
               AND ft.status='active'
               AND ft.token_type='operate'
@@ -880,14 +912,15 @@ def get_matrix_id_for_account(act_id: str) -> Optional[int]:
             ORDER BY aot.priority ASC, aot.id ASC
             LIMIT 1
             """,
-            [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params,
+            candidates + [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params,
         ).fetchone()
         if op_row and op_row["matrix_id"] is not None:
             conn.close()
             return op_row["matrix_id"]
 
         acc_row = conn.execute(
-            "SELECT token_id FROM accounts WHERE act_id=?", (act_id,)
+            f"SELECT token_id FROM accounts WHERE act_id IN ({placeholders}) LIMIT 1",
+            candidates,
         ).fetchone()
         if not acc_row or not acc_row["token_id"]:
             conn.close()
