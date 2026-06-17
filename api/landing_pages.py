@@ -88,6 +88,14 @@ class LandingEventIngest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class LandingRouteNextReq(BaseModel):
+    page_id: int
+    secret: str
+    path: Optional[str] = None
+    referrer: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 def _ensure_schema():
     conn = get_conn()
     conn.executescript(
@@ -181,6 +189,12 @@ def _ensure_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_landing_events_page_created ON landing_events(page_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_landing_events_type ON landing_events(page_id, event_type);
+
+        CREATE TABLE IF NOT EXISTS landing_route_state (
+            page_id INTEGER PRIMARY KEY,
+            cursor INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
         """
     )
     try:
@@ -368,6 +382,13 @@ def _ingest_url(request: Optional[Request] = None) -> str:
     return raw + "/api/landing-pages/events/ingest"
 
 
+def _route_url(request: Optional[Request] = None) -> str:
+    return _ingest_url(request).replace(
+        "/api/landing-pages/events/ingest",
+        "/api/landing-pages/router/next",
+    )
+
+
 def _assert_token_access(conn, token_id: int, user) -> dict:
     row = conn.execute("SELECT * FROM cf_tokens WHERE id=?", (token_id,)).fetchone()
     if not row:
@@ -518,6 +539,13 @@ def _public_page(row) -> dict:
     item["custom_domain_usable"] = custom_domain_usable
     item["public_url"] = f"https://{custom_domain}" if custom_domain_usable else pages_url
     item["public_url_source"] = "custom_domain" if custom_domain_usable else ("pages_url" if pages_url else "")
+    pages_host = urlparse(pages_url).hostname or ""
+    item["custom_domain_cname_target"] = pages_host
+    item["custom_domain_dns_hint"] = (
+        f"CNAME {custom_domain} -> {pages_host}"
+        if custom_domain and pages_host
+        else ""
+    )
     item.pop("raw_response", None)
     item.pop("ingest_secret", None)
     return item
@@ -1109,6 +1137,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
             page_id=page_id,
             ingest_secret=ingest_secret,
             ingest_url=_ingest_url(request),
+            route_url=_route_url(request),
         )
         response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
         deployment_id = str(response.get("id") or "")
@@ -1341,6 +1370,76 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
     conn.commit()
     conn.close()
     return {"success": True, "archived": True, "usage": usage}
+
+
+@router.post("/router/next")
+def next_landing_route_target(body: LandingRouteNextReq, request: Request):
+    """Return the next redirect target for Cloudflare Pages Workers.
+
+    This endpoint is intentionally unauthenticated because it is called from the
+    deployed Cloudflare Worker. The per-page ingest secret is required and the
+    response only returns one target URL for the current redirect.
+    """
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        page = conn.execute(
+            """SELECT id, ingest_secret, target_urls, rotation_mode, status
+               FROM landing_pages
+               WHERE id=?""",
+            (body.page_id,),
+        ).fetchone()
+        if (
+            not page
+            or not page["ingest_secret"]
+            or not secrets.compare_digest(str(page["ingest_secret"]), str(body.secret or ""))
+            or str(page["status"] or "").lower() == "archived"
+        ):
+            conn.rollback()
+            raise HTTPException(status_code=403, detail="invalid landing route secret")
+        urls = [u for u in _json_loads(page["target_urls"], []) if isinstance(u, str) and u.strip()]
+        if not urls:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="no target urls configured")
+        mode = str(page["rotation_mode"] or "sequential").strip().lower()
+        if mode == "first":
+            idx = 0
+        elif mode == "random":
+            idx = secrets.randbelow(len(urls))
+        else:
+            state = conn.execute(
+                "SELECT cursor FROM landing_route_state WHERE page_id=?",
+                (body.page_id,),
+            ).fetchone()
+            cursor = int(state["cursor"] or 0) if state else 0
+            idx = cursor % len(urls)
+            next_cursor = cursor + 1
+            conn.execute(
+                """INSERT INTO landing_route_state (page_id, cursor, updated_at)
+                   VALUES (?, ?, datetime('now','+8 hours'))
+                   ON CONFLICT(page_id) DO UPDATE SET
+                     cursor=excluded.cursor,
+                     updated_at=excluded.updated_at""",
+                (body.page_id, next_cursor),
+            )
+        conn.commit()
+        return {
+            "success": True,
+            "target_url": urls[idx],
+            "index": idx,
+            "total": len(urls),
+            "mode": mode if mode in {"first", "random"} else "sequential",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"route target failed: {exc}") from exc
+    finally:
+        conn.close()
 
 
 @router.post("/events/ingest")

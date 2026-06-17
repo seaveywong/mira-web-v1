@@ -2731,7 +2731,7 @@ select.fc option{background:#fff;color:#1d1d1f}
      <label><input type="checkbox" id="lpFormEnabled"> 表单链接标记</label>
      <label><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
      <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用防护</label>
-     <select class="fc" id="lpRotation"><option value="sequential">顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
+     <select class="fc" id="lpRotation"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
     </div>
     <div id="lpRulesBox" class="landing-rules-box" style="display:none">
      <div class="landing-section-title">防护规则</div>
@@ -15469,7 +15469,7 @@ function renderLandingPages(){
   var usageTotal=parseInt(usage.total||0,10)||0;
   var usageBadge=usageTotal>0?'<span class="badge bg-wa" title="账户或投放任务仍在引用该链接">引用 '+usageTotal+'</span>':'<span class="badge bg-mu">未引用</span>';
   var matrixBadges=_landingMatrixBadgesFromPage(p);
-  var rotationMap={sequential:'顺序轮询',random:'随机轮询',first:'固定第一个'};
+  var rotationMap={sequential:'全局顺序轮询',random:'随机轮询',first:'固定第一个'};
   var modeText=rotationMap[p.rotation_mode]||escHtml(p.rotation_mode||'sequential');
   var link=p.public_url||(p.pages_url||'');
   var pagesUrl=p.pages_url||'';
@@ -15479,6 +15479,9 @@ function renderLandingPages(){
   }else if(p.custom_domain&&pagesUrl){
    linkHtml+='<div style="font-size:11px;color:var(--wa);margin-top:3px">自定义域待验证，当前复制 Pages 备用域</div>';
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">自定义域: https://'+escHtml(p.custom_domain)+'</div>';
+   if(p.custom_domain_dns_hint){
+    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">DNS: '+escHtml(p.custom_domain_dns_hint)+'</div>';
+   }
   }
   if(p.custom_domain&&pagesUrl&&link!==pagesUrl&&p.custom_domain_usable){
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">Pages: '+escHtml(pagesUrl)+'</div>';
@@ -15496,6 +15499,9 @@ function renderLandingPages(){
   }
   if(p.pages_url&&(!link||link!==p.pages_url)){
    copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.pages_url)+'\')" title="复制 Cloudflare Pages 备用域">复制备用域</button>';
+  }
+  if(p.custom_domain_dns_hint){
+   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.custom_domain_dns_hint)+'\')" title="复制自定义域 DNS 配置">复制DNS</button>';
   }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+

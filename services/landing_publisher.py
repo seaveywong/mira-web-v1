@@ -199,6 +199,7 @@ def prepare_template(
     page_id: int | None = None,
     ingest_secret: str = "",
     ingest_url: str = "",
+    route_url: str = "",
 ) -> str:
     src = Path(template_dir)
     if not src.exists() or not src.is_dir():
@@ -243,6 +244,7 @@ def prepare_template(
                 "link_kind": (link_kind or "landing").strip().lower(),
                 "secret": ingest_secret,
                 "ingest_url": ingest_url,
+                "route_url": route_url,
                 "target_urls": urls,
                 "rotation_mode": rotation_mode,
                 "tracking_enabled": bool(tracking_enabled),
@@ -429,12 +431,41 @@ function isHtmlRequest(request) {
   return request.method === 'GET' && (url.pathname === '/' || url.pathname.endsWith('.html') || accept.includes('text/html'));
 }
 
-function selectTarget(request) {
+async function nextTargetFromServer(request) {
+  const mode = String(MIRA_CONFIG.rotation_mode || 'sequential').toLowerCase();
+  if (mode !== 'sequential' || !MIRA_CONFIG.route_url) return '';
+  try {
+    const url = new URL(request.url);
+    const resp = await fetch(MIRA_CONFIG.route_url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
+      body: JSON.stringify({
+        page_id: MIRA_CONFIG.page_id,
+        secret: MIRA_CONFIG.secret,
+        path: url.pathname,
+        referrer: request.headers.get('referer') || '',
+        metadata: {
+          host: url.hostname,
+          search: String(url.search || '').slice(0, 500)
+        }
+      })
+    });
+    if (!resp.ok) return '';
+    const data = await resp.json();
+    return data && data.target_url ? String(data.target_url) : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+async function selectTarget(request) {
   const urls = Array.isArray(MIRA_CONFIG.target_urls) ? MIRA_CONFIG.target_urls.filter(Boolean) : [];
   if (!urls.length) return '';
   const mode = String(MIRA_CONFIG.rotation_mode || 'sequential').toLowerCase();
   if (mode === 'first') return urls[0];
   if (mode === 'random') return urls[Math.floor(Math.random() * urls.length)];
+  const serverTarget = await nextTargetFromServer(request);
+  if (serverTarget) return serverTarget;
   const cookies = parseCookie(request.headers.get('cookie') || '');
   const current = Math.max(parseInt(cookies.mira_rt_idx || '0', 10) || 0, 0);
   return urls[current % urls.length];
@@ -501,7 +532,7 @@ export default {
         ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason }));
         return blockedResponse(decision.reason);
       }
-      const target = selectTarget(request);
+      const target = await selectTarget(request);
       if (!target) return new Response('No target configured', { status: 503 });
       ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target }));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request), 'cache-control': 'no-store' } });
