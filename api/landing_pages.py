@@ -1157,8 +1157,19 @@ def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
         updated = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
         item = _public_page(updated)
         item["domain_status"] = status
+        binding = None
+        if item.get("custom_domain_usable") and item.get("public_url"):
+            binding = _bind_page_to_accounts(
+                conn,
+                item.get("bound_act_ids") or [],
+                item.get("bind_target") or "none",
+                item.get("public_url"),
+                user,
+            )
+            if binding and binding.get("bound"):
+                conn.commit()
         item["usage"] = _landing_page_usage(conn, item, user)
-        return {"success": True, "page": item, "domain_status": status}
+        return {"success": True, "page": item, "domain_status": status, "binding": binding}
     except HTTPException:
         raise
     except Exception as exc:

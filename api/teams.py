@@ -77,7 +77,9 @@ RESOURCE_CONFIG: dict[str, dict[str, Any]] = {
         "label": "Certified pages",
         "select": """r.id, r.page_id, COALESCE(NULLIF(r.page_name,''), r.page_id) AS name,
                        r.page_status, r.page_can_advertise, r.page_is_published,
-                       r.matrix_id, r.created_at, r.team_id, t.name AS team_name""",
+                       r.matrix_id, r.token_id, ft.matrix_id AS token_matrix_id,
+                       r.created_at, r.team_id, t.name AS team_name""",
+        "joins": " LEFT JOIN fb_tokens ft ON ft.id = r.token_id",
         "search": ("r.page_id", "r.page_name", "r.page_status", "r.note"),
         "order": "r.created_at DESC, r.id DESC",
     },
@@ -485,6 +487,17 @@ def list_resources(
         matrix_map = _matrix_map_for_acts(conn, [item.get("act_id") for item in items])
         for item in items:
             item["linked_matrix_ids"] = matrix_map.get(str(item.get("act_id") or "").strip(), [])
+    elif kind == "pages":
+        for item in items:
+            ids: set[int] = set()
+            for mid in (item.get("matrix_id"), item.get("token_matrix_id")):
+                try:
+                    parsed = int(mid)
+                except (TypeError, ValueError):
+                    continue
+                if parsed > 0:
+                    ids.add(parsed)
+            item["linked_matrix_ids"] = sorted(ids)
     teams = conn.execute("SELECT id, name, status FROM teams ORDER BY status, name").fetchall()
     conn.close()
     return {

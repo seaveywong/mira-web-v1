@@ -13599,7 +13599,8 @@ async function loadTwCertPages2() {
    var _twMColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
    var _twGroups={};
    pages.forEach(function(p){
-    var key=p.matrix_id?('m'+p.matrix_id):'none';
+    var mids=getAccountMatrixIds(p);
+    var key=mids.length?('m'+mids[0]):'none';
     if(!_twGroups[key])_twGroups[key]=[];
     _twGroups[key].push(p);
    });
@@ -13609,7 +13610,7 @@ async function loadTwCertPages2() {
    _twOrder.forEach(function(gk){
     var mid=gk==='none'?0:parseInt(gk.slice(1));
     var gc=mid?(_twMColors[(mid-1)%_twMColors.length]):'#6b7280';
-    var glabel=mid?('矩阵 '+mid):'未分配矩阵';
+    var glabel=mid?('矩阵 '+mid):'未识别矩阵';
     var ggid='twGroup_'+gk;
     var gcnt=_twGroups[gk].length;
     _twHtml+='<div class="tw-matrix-group">';
@@ -13644,10 +13645,10 @@ async function loadTwCertPages2() {
       ? '<span style="font-family:monospace;font-size:11px;color:var(--ok)">' + vid + '</span>' + sourceBadge
       : '<span style="color:var(--wa);font-size:11px">未设置</span>' + sourceBadge;
      var _twMatrixColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
-     var _twMc=p.matrix_id?(_twMatrixColors[(p.matrix_id-1)%_twMatrixColors.length]):'#6b7280';
-     var matrixBadge = p.matrix_id
-      ? '<span style="background:'+_twMc+';color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:600">矩阵' + p.matrix_id + '</span>'
-      : '<span style="background:#374151;color:#9ca3af;border-radius:4px;padding:1px 8px;font-size:11px">未分配</span>';
+     var _twMatrixIds=getAccountMatrixIds(p);
+     var matrixBadge = _twMatrixIds.length
+      ? _twMatrixIds.map(function(mid){var _twMc=_twMatrixColors[(mid-1)%_twMatrixColors.length];return '<span style="background:'+_twMc+';color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:600;margin-right:4px">矩阵' + mid + '</span>';}).join('')
+      : '<span style="background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:4px;padding:1px 8px;font-size:11px">未识别</span>';
      var tokenBadge = p.token_alias
       ? '<span style="font-size:11px;color:var(--t2)">' + p.token_alias + '</span>'
       : '<span style="color:var(--t3);font-size:11px">未绑定</span>';
@@ -15473,7 +15474,10 @@ async function refreshLandingDomain(id){
   var r=await api('POST','/landing-pages/pages/'+id+'/refresh-domain',{});
   var st=(r&&r.domain_status)||{};
   var label=st.status||st.verified||st.name||'已获取';
-  toast('域名状态：'+label,'ok');
+  var binding=(r&&r.binding)||{};
+  var bound=(binding.bound||[]).length;
+  var skipped=(binding.skipped||[]).length;
+  toast('域名状态：'+label+(bound?'，已回绑 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':''),'ok');
   await loadLandingCenter(true);
  }catch(e){toast('域名复检失败：'+(e.message||e),'er')}
 }

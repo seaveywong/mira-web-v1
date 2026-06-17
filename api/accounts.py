@@ -4610,7 +4610,7 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
                p.page_category, p.page_is_published, p.page_verification_status, p.page_tasks,
                p.page_can_advertise, p.page_lead_form_status, p.page_status, p.page_status_hint,
                p.page_status_checked_at,
-               ft.token_alias
+               ft.token_alias, ft.matrix_id AS token_matrix_id
         FROM tw_certified_pages p
         LEFT JOIN fb_tokens ft ON ft.id = p.token_id
         LEFT JOIN teams tm ON tm.id = p.team_id
@@ -4619,8 +4619,21 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
         """,
         params,
     ).fetchall()
+    pages = []
+    for r in rows:
+        item = dict(r)
+        linked_matrix_ids = set()
+        for mid in (item.get("matrix_id"), item.get("token_matrix_id")):
+            try:
+                parsed = int(mid)
+            except (TypeError, ValueError):
+                continue
+            if parsed > 0:
+                linked_matrix_ids.add(parsed)
+        item["linked_matrix_ids"] = sorted(linked_matrix_ids)
+        pages.append(item)
     conn.close()
-    return {"success": True, "pages": [dict(r) for r in rows]}
+    return {"success": True, "pages": pages}
 
 
 @router.post("/tw-certified-pages")
@@ -4653,6 +4666,13 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
             "SELECT access_token_enc FROM fb_tokens WHERE id=? AND status='active'",
             (token_id,)
         ).fetchall()
+        if not matrix_id:
+            token_matrix = conn_tmp.execute(
+                "SELECT matrix_id FROM fb_tokens WHERE id=?",
+                (token_id,),
+            ).fetchone()
+            if token_matrix and token_matrix["matrix_id"] not in (None, "", 0):
+                matrix_id = token_matrix["matrix_id"]
     else:
         token_where, token_params = ["status='active'"], []
         apply_team_scope(token_where, token_params, user, "team_id", include_unassigned=False)
