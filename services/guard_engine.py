@@ -24,7 +24,7 @@ FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
     "campaign{objective},"
     "adset{optimization_goal,destination_type},"
-    "insights.date_preset(today){spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}"
+    "insights.date_preset(today){date_start,date_stop,spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}"
 )
 MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
 
@@ -2132,6 +2132,7 @@ class GuardEngine:
                 return
 
             ins = insights[0]
+            insight_date = ins.get("date_start") or ""
             spend_raw = float(ins.get("spend", 0))  # 账户原始货币金额
             impressions = int(ins.get("impressions", 0))
             reach = int(float(ins.get("reach", 0) or 0))
@@ -2225,7 +2226,7 @@ class GuardEngine:
             # 存储快照（存 USD 化后的 spend/cpa，便于跨账户汇总分析）
             self._save_snapshot(act_id, ad_id, adset_id, campaign_id, ad_name,
                                 spend, impressions, clicks, conversions, cpa, roas,
-                                kpi_field, actions_raw)
+                                kpi_field, actions_raw, insight_date)
 
             # 获取目标 CPA（单位 USD，广告级 > 广告组级 > Campaign级 > 账户级）
             # 注意：必须在 AI 决策层之前获取，否则 AI 加预算判断会引发 NameError
@@ -2955,8 +2956,8 @@ class GuardEngine:
 
     def _save_snapshot(self, act_id, ad_id, adset_id, campaign_id, ad_name,
                        spend, impressions, clicks, conversions, cpa, roas,
-                       kpi_field, actions_raw):
-        today = (datetime.utcnow() + timedelta(hours=8)).date().isoformat()
+                       kpi_field, actions_raw, snapshot_date: str = ""):
+        today = snapshot_date or (datetime.utcnow() + timedelta(hours=8)).date().isoformat()
         raw_actions_json = json.dumps(actions_raw)
         conn = get_conn()
         conn.execute(

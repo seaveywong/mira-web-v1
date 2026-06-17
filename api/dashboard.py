@@ -323,6 +323,130 @@ def _beijing_today() -> date:
     return (datetime.utcnow() + timedelta(hours=8)).date()
 
 
+def _parse_fb_hour(value: str) -> Optional[int]:
+    try:
+        hour = int(str(value or "")[:2])
+        return hour if 0 <= hour <= 23 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_account_hourly_trend(acc: dict, target_day: str, kpi_filter: str) -> dict:
+    spend = [0.0 for _ in range(24)]
+    conv = [0.0 for _ in range(24)]
+    token = _get_token_for_account(acc)
+    if not token:
+        return {"status": "no_token", "spend": spend, "conv": conv, "rows": 0}
+
+    currency = (acc.get("currency") or "USD").upper()
+    rate = _get_rate(currency, None)
+    conn = get_conn()
+    try:
+        kpi_rows = conn.execute(
+            'SELECT target_id, kpi_field FROM kpi_configs WHERE act_id=? AND level="ad" AND enabled=1',
+            (acc["act_id"],),
+        ).fetchall()
+    finally:
+        conn.close()
+    kpi_map = {row["target_id"]: row["kpi_field"] for row in kpi_rows}
+
+    next_url = f'https://graph.facebook.com/v25.0/{acc["act_id"]}/insights'
+    params = {
+        "access_token": token,
+        "fields": "date_start,ad_id,spend,actions",
+        "time_range": f'{{"since":"{target_day}","until":"{target_day}"}}',
+        "time_increment": 1,
+        "level": "ad",
+        "breakdowns": "hourly_stats_aggregated_by_advertiser_time_zone",
+        "limit": 500,
+    }
+    fetched = 0
+    row_count = 0
+    while next_url and fetched < 8000:
+        resp = req.get(next_url, params=params, timeout=30)
+        data = resp.json()
+        if "error" in data:
+            raise RuntimeError(data["error"].get("message", str(data["error"])))
+        items = data.get("data", [])
+        fetched += len(items)
+        for item in items:
+            if item.get("date_start") != target_day:
+                continue
+            hour = _parse_fb_hour(item.get("hourly_stats_aggregated_by_advertiser_time_zone"))
+            if hour is None:
+                continue
+            kpi_field = kpi_map.get(item.get("ad_id", ""))
+            if not _kpi_field_matches_filter(kpi_field, kpi_filter):
+                continue
+            spend_orig = float(item.get("spend", 0) or 0)
+            spend[hour] += round(spend_orig / rate, 2) if rate else spend_orig
+            conv[hour] += _count_conversions(item.get("actions", []), kpi_field)
+            row_count += 1
+        next_url = data.get("paging", {}).get("next")
+        params = {}
+    return {"status": "ok", "spend": spend, "conv": conv, "rows": row_count}
+
+
+def _hourly_trend_from_fb_insights(conn, user, target_day: str, act_id: Optional[str], kpi_filter: str) -> Optional[dict]:
+    labels = [f"{h:02d}:00" for h in range(24)]
+    accs = [dict(r) for r in _fetch_visible_accounts(conn, user, act_id)]
+    if not accs:
+        return None
+
+    hourly_spend = [0.0 for _ in range(24)]
+    hourly_conv = [0.0 for _ in range(24)]
+    error_accounts = 0
+    row_count = 0
+    max_workers = min(4, len(accs))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_fetch_account_hourly_trend, acc, target_day, kpi_filter) for acc in accs]
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+            except Exception:
+                error_accounts += 1
+                continue
+            if result.get("status") != "ok":
+                error_accounts += 1
+            row_count += int(result.get("rows") or 0)
+            for hour in range(24):
+                hourly_spend[hour] += float(result["spend"][hour] or 0)
+                hourly_conv[hour] += float(result["conv"][hour] or 0)
+
+    if row_count == 0 and error_accounts >= len(accs):
+        return None
+
+    spend_arr = []
+    cpa_arr = []
+    conv_arr = []
+    running_spend = 0.0
+    running_conv = 0.0
+    for hour in range(24):
+        running_spend += hourly_spend[hour]
+        running_conv += hourly_conv[hour]
+        spend_arr.append(round(running_spend, 2))
+        conv_arr.append(round(running_conv, 2))
+        cpa_arr.append(round(running_spend / running_conv, 2) if running_conv > 0 else None)
+
+    return {
+        "date_from": target_day,
+        "date_to": target_day,
+        "granularity": "hour",
+        "labels": labels,
+        "full_hours": [f"{target_day} {label}" for label in labels],
+        "spend": spend_arr,
+        "cpa": cpa_arr,
+        "conversions": conv_arr,
+        "hourly_spend": [round(v, 2) for v in hourly_spend],
+        "hourly_conversions": [round(v, 2) for v in hourly_conv],
+        "sample_counts": [],
+        "account_count": len(accs),
+        "error_accounts": error_accounts,
+        "has_data": row_count > 0 or any(spend_arr) or any(conv_arr),
+        "source": "fb_insights_hourly_api",
+    }
+
+
 def _hourly_trend_from_local_snapshots(conn, user, target_day: str, act_id: Optional[str], kpi_filter: str) -> dict:
     labels = [f"{h:02d}:00" for h in range(24)]
     ensure_perf_snapshot_history_schema(conn)
@@ -897,6 +1021,9 @@ def get_trend(
     if len(day_list) == 1:
         conn = get_conn()
         try:
+            hourly = _hourly_trend_from_fb_insights(conn, user, day_list[0], act_id, kpi_filter)
+            if hourly:
+                return hourly
             return _hourly_trend_from_local_snapshots(conn, user, day_list[0], act_id, kpi_filter)
         finally:
             conn.close()
