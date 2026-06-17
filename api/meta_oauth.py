@@ -30,7 +30,7 @@ router = APIRouter()
 DEFAULT_GRAPH_VERSION = "v22.0"
 DEFAULT_SCOPES = (
     "public_profile,ads_read,ads_management,business_management,"
-    "pages_show_list,pages_manage_ads,leads_retrieval"
+    "pages_show_list,pages_manage_ads"
 )
 STATE_TTL_SECONDS = 15 * 60
 
@@ -443,8 +443,13 @@ def meta_oauth_callback(
     state: Optional[str] = None,
     error: Optional[str] = None,
     error_description: Optional[str] = None,
+    error_message: Optional[str] = None,
+    error_code: Optional[str] = None,
 ):
     if not state:
+        if error or error_description or error_message or error_code:
+            parts = [p for p in (error_message, error_description, error, f"code={error_code}" if error_code else "") if p]
+            return _oauth_html("授权失败", "Meta 返回授权错误：\n" + "\n".join(parts))
         return _oauth_html("授权失败", "缺少 state，无法确认请求来源。")
 
     conn = get_conn()
@@ -463,7 +468,7 @@ def meta_oauth_callback(
             conn.commit()
             return _oauth_html("授权超时", "授权链接已超过 15 分钟，请回到 Mira 重新生成。")
         if error:
-            msg = error_description or error
+            msg = error_message or error_description or error
             conn.execute(
                 f"UPDATE meta_oauth_states SET status='failed', error=?, completed_at={_now_cst_expr()} WHERE state=?",
                 (msg, state),

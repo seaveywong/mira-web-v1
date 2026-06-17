@@ -7314,7 +7314,7 @@ function renderMetaOAuthModal(cfg){
     '<div class="fg"><label class="fl">Graph 版本</label><input class="fc" id="metaGraphVersion" value="'+escHtml(cfg.graph_version||'v22.0')+'" placeholder="v22.0"></div>'+
    '</div>'+
    '<div class="fg"><label class="fl">回调地址</label><input class="fc" id="metaRedirectUri" value="'+escHtml(cfg.redirect_uri||'')+'"><div class="fh">需要在 Meta App OAuth Valid Redirect URIs 中完全一致填写。</div></div>'+
-   '<div class="fg"><label class="fl">授权范围</label><textarea class="fc" id="metaScopes" rows="2" style="resize:vertical">'+escHtml(cfg.scopes||'')+'</textarea><div class="fh">铺广告至少需要 ads_management；读取需要 ads_read；主页/表单建议保留 pages_show_list、pages_manage_ads、leads_retrieval。</div></div>'+
+   '<div class="fg"><label class="fl">授权范围</label><textarea class="fc" id="metaScopes" rows="2" style="resize:vertical">'+escHtml(cfg.scopes||'')+'</textarea><div class="fh">铺广告至少需要 ads_management；读取需要 ads_read；主页/表单建议保留 pages_show_list、pages_manage_ads。leads_retrieval 当前会导致部分 App 授权报 Invalid Scopes，先不要填。</div></div>'+
    '<button class="btn btn-p" onclick="saveMetaOAuthConfig()">保存配置</button>'+
   '</div>';
  }else{
