@@ -2509,8 +2509,9 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div style="display:grid;grid-template-columns:minmax(280px,360px) 1fr;gap:14px;align-items:start" class="landing-center-grid">
   <div class="card">
    <div class="card-title">Cloudflare API</div>
-   <div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">这里需要 Cloudflare Account API Token，不能用 R2/S3 Access Key 或 Secret Key。权限建议包含 Account Settings Read 和 Cloudflare Pages Edit。</div>
+   <div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">这里需要 Cloudflare Account API Token，不能用 R2/S3 Access Key 或 Secret Key。建议填 Account ID；系统会直接验证该账号的 Pages 发布权限。</div>
    <div class="fg"><label class="fl">API 名称</label><input class="fc" id="cfApiName" placeholder="如：团队A发布号"></div>
+   <div class="fg"><label class="fl">Account ID</label><input class="fc" id="cfAccountId" placeholder="Cloudflare 账号 ID，建议必填"></div>
    <div class="fg"><label class="fl">API Token</label><input class="fc" id="cfApiToken" type="password" placeholder="只保存加密值，前端不回显"></div>
    <button class="btn btn-p role-hide-viewer" style="width:100%;justify-content:center" onclick="addCloudflareToken()">验证并保存</button>
    <div id="cfTokenList" style="margin-top:14px"></div>
@@ -5276,17 +5277,38 @@ function getAccountCapUsd(a){
  return null;
 }
 
+function getBalanceAlertState(a){
+ var avail=numOrNull(a&&a.available_balance);
+ var spent=numOrNull(a&&a.amount_spent_usd);
+ var cap=getAccountCapUsd(a);
+ var type=(a&&a.balance_type)||'';
+ if(avail===null){
+  if(type==='very_high_limit')return {level:'muted',label:'超高上限',tone:'mu'};
+  if(type==='unlimited')return {level:'muted',label:'无上限',tone:'mu'};
+  return {level:'unknown',label:'未知',tone:'mu'};
+ }
+ var over=a&&a.balance_over_cap===true||(type==='spending_limit'&&cap!==null&&spent!==null&&spent>=cap)||avail<=0;
+ if(over)return {level:'critical',label:'已达上限',tone:'er'};
+ var ratio=(cap!==null&&cap>0)?(avail/cap):null;
+ if(avail<=100||(ratio!==null&&ratio<=0.1))return {level:'recharge',label:'建议充值',tone:'wa'};
+ if(avail<=300||(ratio!==null&&ratio<=0.2))return {level:'low',label:'额度偏低',tone:'ac'};
+ return {level:'ok',label:'额度正常',tone:'ok'};
+}
+
 function summarizeAccountBalances(list){
- var s={known:0,total:0,unlimited:0,veryHigh:0,unknown:0,overCap:0};
+ var s={known:0,total:0,unlimited:0,veryHigh:0,unknown:0,overCap:0,recharge:0,low:0};
  (list||[]).forEach(function(a){
   var avail=numOrNull(a.available_balance);
   var type=a.balance_type||'';
   var spent=numOrNull(a.amount_spent_usd);
   var cap=getAccountCapUsd(a);
+  var alert=getBalanceAlertState(a);
   if(avail!==null){
    s.known++;
    s.total+=Math.max(0,avail);
-   if(a.balance_over_cap===true||(type==='spending_limit'&&cap!==null&&spent!==null&&spent>=cap))s.overCap++;
+   if(alert.level==='critical')s.overCap++;
+   else if(alert.level==='recharge')s.recharge++;
+   else if(alert.level==='low')s.low++;
    return;
   }
   if(type==='very_high_limit')s.veryHigh++;
@@ -5305,12 +5327,15 @@ function renderBalanceCardFromAccounts(list){
  var parts=[];
  if(summary.known>0)parts.push(summary.known+'个已知额度');
  if(summary.overCap>0)parts.push(summary.overCap+'个已达上限');
+ if(summary.recharge>0)parts.push(summary.recharge+'个建议充值');
+ if(summary.low>0)parts.push(summary.low+'个额度偏低');
  if(summary.veryHigh>0)parts.push(summary.veryHigh+'个超高上限');
  if(summary.unlimited>0)parts.push(summary.unlimited+'个无上限');
  if(summary.unknown>0)parts.push(summary.unknown+'个未知');
  var mainEl=document.getElementById('s-balance');
  var subEl=document.getElementById('s-balance-sub');
  if(mainEl)mainEl.textContent=main;
+ if(mainEl)mainEl.style.color=summary.overCap>0?'var(--er)':(summary.recharge>0?'var(--wa)':'var(--ac)');
  if(subEl)subEl.textContent=(parts.length?parts.join(' / '):'仅统计已设上限账户')+'（点击明细）';
 }
 
@@ -5531,8 +5556,10 @@ function toggleAccDetail(mode){
    var balDisplay=avail!=null?(overCap?'已达上限':'$'+Math.max(0,avail).toFixed(2)):(type==='very_high_limit'?'超高上限':(type==='unlimited'?'无上限':'--'));
    var typeLabel=type==='spending_limit'?'消费上限':type==='very_high_limit'?'超高上限':type==='unlimited'?'无上限':'--';
    var capDisplay=capUsd!==null?('$'+capUsd.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):(type==='unlimited'?'无上限':'--');
+   var alert=getBalanceAlertState(a);
    var s=(a.account_status||a.status||'').toString();
-   var statusBadge=s==='1'||s==='active'||s==='ACTIVE'||s==='ok'?'<span class="badge bg-ok">可用</span>':s==='7'?'<span class="badge bg-wa">政策限制</span>':s==='8'||s==='9'?'<span class="badge bg-wa">宽限/待结算</span>':s==='100'||s==='101'?'<span class="badge bg-mu">已关闭/停用</span>':s==='debt'?'<span class="badge bg-wa">欠费</span>':s==='no_token'?'<span class="badge bg-wa">无Token</span>':s==='error'?'<span class="badge bg-er">错误</span>':'<span class="badge bg-mu">已禁用</span>';
+   var accountBadge=s==='1'||s==='active'||s==='ACTIVE'||s==='ok'?'<span class="badge bg-ok">可用</span>':s==='7'?'<span class="badge bg-wa">政策限制</span>':s==='8'||s==='9'?'<span class="badge bg-wa">宽限/待结算</span>':s==='100'||s==='101'?'<span class="badge bg-mu">已关闭/停用</span>':s==='debt'?'<span class="badge bg-wa">欠费</span>':s==='no_token'?'<span class="badge bg-wa">无Token</span>':s==='error'?'<span class="badge bg-er">错误</span>':'<span class="badge bg-mu">已禁用</span>';
+   var statusBadge='<span class="badge bg-'+alert.tone+'">'+alert.label+'</span> '+accountBadge;
    var tz=a.timezone_name||a.timezone||'--';
    return '<tr><td><div style="font-size:13px">'+(a.name||a.act_id)+'</div><div class="td-id">'+a.act_id+'</div></td>'
     +'<td>'+cur+'</td>'
@@ -14450,10 +14477,11 @@ function renderLandingPages(){
 }
 async function addCloudflareToken(){
  var name=(document.getElementById('cfApiName')||{}).value||'';
+ var accountId=(document.getElementById('cfAccountId')||{}).value||'';
  var apiToken=(document.getElementById('cfApiToken')||{}).value||'';
  if(!name.trim()||!apiToken.trim()){toast('请填写 API 名称和 Token','wa');return;}
  try{
-  await api('POST','/landing-pages/tokens',{name:name.trim(),api_token:apiToken.trim()});
+  await api('POST','/landing-pages/tokens',{name:name.trim(),account_id:accountId.trim(),api_token:apiToken.trim()});
   document.getElementById('cfApiToken').value='';
   toast('Cloudflare API 已保存','ok');
   markPageStale('landing_center');

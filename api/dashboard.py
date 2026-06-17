@@ -323,6 +323,27 @@ def _beijing_today() -> date:
     return (datetime.utcnow() + timedelta(hours=8)).date()
 
 
+def _hour_window_for_day(target_day: str) -> tuple[int, date, datetime]:
+    now_bj = datetime.utcnow() + timedelta(hours=8)
+    today = now_bj.date()
+    try:
+        target_date = datetime.strptime(target_day, "%Y-%m-%d").date()
+    except ValueError:
+        target_date = today
+    if target_date < today:
+        return 23, target_date, now_bj
+    if target_date > today:
+        return -1, target_date, now_bj
+    return now_bj.hour, target_date, now_bj
+
+
+def _hour_labels(target_day: str, max_hour: int) -> tuple[list[str], list[str]]:
+    if max_hour < 0:
+        return [], []
+    labels = [f"{h:02d}:00" for h in range(max_hour + 1)]
+    return labels, [f"{target_day} {label}" for label in labels]
+
+
 def _parse_fb_hour(value: str) -> Optional[int]:
     try:
         hour = int(str(value or "")[:2])
@@ -388,10 +409,29 @@ def _fetch_account_hourly_trend(acc: dict, target_day: str, kpi_filter: str) -> 
 
 
 def _hourly_trend_from_fb_insights(conn, user, target_day: str, act_id: Optional[str], kpi_filter: str) -> Optional[dict]:
-    labels = [f"{h:02d}:00" for h in range(24)]
+    max_hour, _target_date, _now_bj = _hour_window_for_day(target_day)
+    labels, full_hours = _hour_labels(target_day, max_hour)
     accs = [dict(r) for r in _fetch_visible_accounts(conn, user, act_id)]
     if not accs:
         return None
+    if max_hour < 0:
+        return {
+            "date_from": target_day,
+            "date_to": target_day,
+            "granularity": "hour",
+            "labels": [],
+            "full_hours": [],
+            "spend": [],
+            "cpa": [],
+            "conversions": [],
+            "hourly_spend": [],
+            "hourly_conversions": [],
+            "sample_counts": [],
+            "account_count": len(accs),
+            "error_accounts": 0,
+            "has_data": False,
+            "source": "fb_insights_hourly_api",
+        }
 
     hourly_spend = [0.0 for _ in range(24)]
     hourly_conv = [0.0 for _ in range(24)]
@@ -409,7 +449,7 @@ def _hourly_trend_from_fb_insights(conn, user, target_day: str, act_id: Optional
             if result.get("status") != "ok":
                 error_accounts += 1
             row_count += int(result.get("rows") or 0)
-            for hour in range(24):
+            for hour in range(max_hour + 1):
                 hourly_spend[hour] += float(result["spend"][hour] or 0)
                 hourly_conv[hour] += float(result["conv"][hour] or 0)
 
@@ -421,7 +461,7 @@ def _hourly_trend_from_fb_insights(conn, user, target_day: str, act_id: Optional
     conv_arr = []
     running_spend = 0.0
     running_conv = 0.0
-    for hour in range(24):
+    for hour in range(max_hour + 1):
         running_spend += hourly_spend[hour]
         running_conv += hourly_conv[hour]
         spend_arr.append(round(running_spend, 2))
@@ -433,12 +473,12 @@ def _hourly_trend_from_fb_insights(conn, user, target_day: str, act_id: Optional
         "date_to": target_day,
         "granularity": "hour",
         "labels": labels,
-        "full_hours": [f"{target_day} {label}" for label in labels],
+        "full_hours": full_hours,
         "spend": spend_arr,
         "cpa": cpa_arr,
         "conversions": conv_arr,
-        "hourly_spend": [round(v, 2) for v in hourly_spend],
-        "hourly_conversions": [round(v, 2) for v in hourly_conv],
+        "hourly_spend": [round(v, 2) for v in hourly_spend[: max_hour + 1]],
+        "hourly_conversions": [round(v, 2) for v in hourly_conv[: max_hour + 1]],
         "sample_counts": [],
         "account_count": len(accs),
         "error_accounts": error_accounts,
@@ -448,7 +488,9 @@ def _hourly_trend_from_fb_insights(conn, user, target_day: str, act_id: Optional
 
 
 def _hourly_trend_from_local_snapshots(conn, user, target_day: str, act_id: Optional[str], kpi_filter: str) -> dict:
-    labels = [f"{h:02d}:00" for h in range(24)]
+    max_hour, target_date, now_bj = _hour_window_for_day(target_day)
+    today = now_bj.date()
+    labels, full_hours = _hour_labels(target_day, max_hour)
     ensure_perf_snapshot_history_schema(conn)
     accs = _fetch_visible_accounts(conn, user, act_id)
     act_ids = [r["act_id"] for r in accs]
@@ -462,11 +504,11 @@ def _hourly_trend_from_local_snapshots(conn, user, target_day: str, act_id: Opti
             "date_to": target_day,
             "granularity": "hour",
             "labels": labels,
-            "full_hours": [f"{target_day} {label}" for label in labels],
-            "spend": spend_arr,
-            "cpa": cpa_arr,
-            "conversions": conv_arr,
-            "sample_counts": sample_counts,
+            "full_hours": full_hours,
+            "spend": spend_arr[: max_hour + 1] if max_hour >= 0 else [],
+            "cpa": cpa_arr[: max_hour + 1] if max_hour >= 0 else [],
+            "conversions": conv_arr[: max_hour + 1] if max_hour >= 0 else [],
+            "sample_counts": sample_counts[: max_hour + 1] if max_hour >= 0 else [],
             "has_data": False,
             "source": "local_perf_snapshot_history",
         }
@@ -505,12 +547,6 @@ def _hourly_trend_from_local_snapshots(conn, user, target_day: str, act_id: Opti
         except (TypeError, ValueError):
             continue
 
-    today = _beijing_today()
-    try:
-        target_date = datetime.strptime(target_day, "%Y-%m-%d").date()
-    except ValueError:
-        target_date = today
-    now_bj = datetime.utcnow() + timedelta(hours=8)
     fallback_hour = now_bj.hour if target_date == today else 23
 
     latest_rows = conn.execute(
@@ -521,12 +557,6 @@ def _hourly_trend_from_local_snapshots(conn, user, target_day: str, act_id: Opti
     ).fetchall()
     for row in latest_rows:
         add_row(row, fallback_hour)
-
-    max_hour = 23
-    if target_date == today:
-        max_hour = now_bj.hour
-    elif target_date > today:
-        max_hour = -1
 
     has_data = bool(per_ad)
     for series in per_ad.values():
@@ -554,11 +584,11 @@ def _hourly_trend_from_local_snapshots(conn, user, target_day: str, act_id: Opti
         "date_to": target_day,
         "granularity": "hour",
         "labels": labels,
-        "full_hours": [f"{target_day} {label}" for label in labels],
-        "spend": spend_arr,
-        "cpa": cpa_arr,
-        "conversions": conv_arr,
-        "sample_counts": sample_counts,
+        "full_hours": full_hours,
+        "spend": spend_arr[: max_hour + 1] if max_hour >= 0 else [],
+        "cpa": cpa_arr[: max_hour + 1] if max_hour >= 0 else [],
+        "conversions": conv_arr[: max_hour + 1] if max_hour >= 0 else [],
+        "sample_counts": sample_counts[: max_hour + 1] if max_hour >= 0 else [],
         "has_data": has_data,
         "source": "local_perf_snapshot_history",
     }

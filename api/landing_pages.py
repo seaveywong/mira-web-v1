@@ -31,6 +31,7 @@ CST = timezone(timedelta(hours=8))
 class CloudflareTokenCreate(BaseModel):
     name: str
     api_token: str
+    account_id: Optional[str] = None
     team_id: Optional[int] = None
 
 
@@ -470,20 +471,21 @@ def list_cf_tokens(user=Depends(get_current_user)):
 def create_cf_token(body: CloudflareTokenCreate, user=Depends(get_current_user)):
     name = (body.name or "").strip()
     raw_token = (body.api_token or "").strip()
+    account_id = (body.account_id or "").strip()
     if not name or not raw_token:
         raise HTTPException(status_code=400, detail="API name and token are required")
     try:
-        info = verify_token_and_accounts(raw_token)
+        info = verify_token_and_accounts(raw_token, account_id=account_id or None)
     except CloudflareError as exc:
         raise HTTPException(status_code=400, detail=f"Cloudflare token verify failed: {exc}") from exc
     accounts = _normalize_cf_accounts(info.get("accounts") or [])
     if not accounts:
         raise HTTPException(
             status_code=400,
-            detail="Cloudflare token verified, but no accessible account was returned. Use an Account API Token with Account Settings Read and Cloudflare Pages Edit permissions.",
+            detail="Cloudflare token verified, but no accessible account was returned. Fill Account ID for account-scoped tokens, or use a token with Account Settings Read and Cloudflare Pages Edit permissions.",
         )
     account = accounts[0]
-    selected_account_id = account.get("id") if len(accounts) == 1 else None
+    selected_account_id = account_id or (account.get("id") if len(accounts) == 1 else None)
     selected_account_name = account.get("name") if selected_account_id else None
     team_id, owner_id = _stamp(user, body.team_id)
     conn = get_conn()
@@ -518,7 +520,8 @@ def verify_cf_token(token_id: int, user=Depends(get_current_user)):
     row = _assert_token_access(conn, token_id, user)
     try:
         raw = decrypt_token(row["access_token_enc"])
-        info = verify_token_and_accounts(raw)
+        existing_account_id = (row["selected_account_id"] or row["cf_account_id"] or "").strip()
+        info = verify_token_and_accounts(raw, account_id=existing_account_id or None)
         accounts = _normalize_cf_accounts(info.get("accounts") or [])
         if not accounts:
             raise ValueError("Cloudflare token verified, but no accessible account was returned")
@@ -585,7 +588,7 @@ def diagnose_cf_token(token_id: int, user=Depends(get_current_user)):
         accounts = _public_accounts(row.get("cf_accounts_json"))
         account_id, account_name = _resolve_token_account(row)
         if not accounts:
-            info = verify_token_and_accounts(raw)
+            info = verify_token_and_accounts(raw, account_id=account_id or None)
             accounts = _normalize_cf_accounts(info.get("accounts") or [])
         checks = [{"key": "token", "status": "pass", "label": "API Token 有效", "detail": "Cloudflare API 已通过验证"}]
         if account_id:

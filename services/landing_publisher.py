@@ -50,7 +50,21 @@ def cf_request(api_token: str, method: str, path: str, **kwargs) -> dict:
     return data.get("result", data)
 
 
-def verify_token_and_accounts(api_token: str) -> dict:
+def verify_token_and_accounts(api_token: str, account_id: str | None = None) -> dict:
+    account_id = (account_id or "").strip()
+    if account_id:
+        account: dict[str, Any] = {"id": account_id, "name": account_id}
+        try:
+            info = cf_request(api_token, "GET", f"/accounts/{account_id}")
+            if isinstance(info, dict):
+                account["name"] = info.get("name") or account_id
+        except CloudflareError:
+            pass
+        # Account API Tokens may not be allowed to call /user/tokens/verify or /accounts.
+        # Pages access is the real requirement for this module, so verify it directly.
+        list_pages_projects(api_token, account_id)
+        return {"token": {"status": "active", "account_scoped": True}, "accounts": [account]}
+
     token_info = cf_request(api_token, "GET", "/user/tokens/verify")
     accounts = cf_request(api_token, "GET", "/accounts")
     if isinstance(accounts, dict) and "result" in accounts:
