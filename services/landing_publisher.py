@@ -43,6 +43,10 @@ def cf_request(api_token: str, method: str, path: str, **kwargs) -> dict:
         msg = "; ".join(
             [str(e.get("message") or e) for e in errors or [] if e]
         ) or f"HTTP {resp.status_code}"
+        if "invalid api token" in msg.lower():
+            msg = "Invalid API token. Pages 发布需要 Cloudflare Account API Token；R2/S3 Access Key、Secret Key 或 S3 endpoint 不能用于 Pages 发布。"
+        elif "permission" in msg.lower() or "not authorized" in msg.lower():
+            msg = msg + "。请确认 Token 至少包含 Account Settings Read 和 Cloudflare Pages Edit 权限。"
         raise CloudflareError(msg)
     return data.get("result", data)
 

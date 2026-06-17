@@ -1268,6 +1268,8 @@ body.sidebar-compact .sb-desk-toggle span:nth-child(3){transform:translateY(-6px
  .page>.ph:first-child{position:static;margin:0 0 14px;padding:0 0 10px;background:transparent;backdrop-filter:none}
  #page-assets .ph-acts,#page-landing_urls .ph>div:last-child{justify-content:flex-start;width:100%}
  #page-assets .ph-acts .fc,#page-landing_urls .ph .fc{flex:1 1 160px;width:auto!important}
+ #page-landing_center .landing-center-grid{grid-template-columns:1fr!important}
+ #page-landing_center .card>div[style*="grid-template-columns:repeat(2"]{grid-template-columns:1fr!important}
  #settingsContent .sg,#teamAdminContent .sg{grid-template-columns:1fr!important}
  #page-twpages .ss>div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
 }
@@ -2499,7 +2501,7 @@ select.fc option{background:#fff;color:#1d1d1f}
 <!-- Page: 落地页发布中心 -->
 <div class="page" id="page-landing_center">
  <div class="ph">
-  <div><h2>落地页发布</h2><p>旁路发布 Cloudflare Pages 落地页；生成链接后可再绑定到账户投放链接</p></div>
+  <div><h2>落地页发布</h2><p>发布 Cloudflare Pages 落地页，预检后可自动绑定到账户投放链接</p></div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
@@ -2507,6 +2509,7 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div style="display:grid;grid-template-columns:minmax(280px,360px) 1fr;gap:14px;align-items:start" class="landing-center-grid">
   <div class="card">
    <div class="card-title">Cloudflare API</div>
+   <div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">这里需要 Cloudflare Account API Token，不能用 R2/S3 Access Key 或 Secret Key。权限建议包含 Account Settings Read 和 Cloudflare Pages Edit。</div>
    <div class="fg"><label class="fl">API 名称</label><input class="fc" id="cfApiName" placeholder="如：团队A发布号"></div>
    <div class="fg"><label class="fl">API Token</label><input class="fc" id="cfApiToken" type="password" placeholder="只保存加密值，前端不回显"></div>
    <button class="btn btn-p role-hide-viewer" style="width:100%;justify-content:center" onclick="addCloudflareToken()">验证并保存</button>
@@ -2523,11 +2526,17 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind"><option value="landing">普通落地页</option><option value="form">表单投放链接</option></select></div>
    </div>
    <div class="fg"><label class="fl">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个 WhatsApp / 跳转链接；第一版支持页面内顺序轮询"></textarea></div>
+   <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+    <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select></div>
+    <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，可写 act_ 前缀"></textarea></div>
+   </div>
    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:8px 0 12px">
     <label style="display:flex;gap:8px;align-items:center;color:var(--t2);font-size:13px"><input type="checkbox" id="lpFormEnabled"> 启用表单链接标记</label>
     <select class="fc" id="lpRotation" style="width:150px"><option value="sequential">顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
    </div>
+   <div id="lpPreflightBox" style="display:none;margin:8px 0 12px;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"></div>
    <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
+    <button class="btn btn-g role-hide-viewer" onclick="preflightLandingPage(true)">发布前检查</button>
     <button class="btn btn-p role-hide-viewer" onclick="publishLandingPage()">发布到 Cloudflare</button>
    </div>
   </div>
@@ -14370,12 +14379,24 @@ function renderCloudflareTokens(){
  if(!_cfTokens.length){el.innerHTML='<div style="font-size:12px;color:var(--t3);padding:12px;border:1px dashed var(--bd);border-radius:8px">暂无 Cloudflare API。保存后系统会自动识别账号。</div>';return;}
  el.innerHTML=_cfTokens.map(function(t){
   var status=t.status==='active'?'<span class="badge bg-ok">可用</span>':'<span class="badge bg-er">'+escHtml(t.status||'异常')+'</span>';
+  var accounts=Array.isArray(t.cf_accounts)?t.cf_accounts:[];
+  var accountHtml='';
+  if(accounts.length>1){
+   accountHtml='<select class="fc" style="margin-top:8px;height:34px" onchange="setCloudflareAccount('+t.id+',this.value)">'+
+    '<option value="">选择默认发布账号</option>'+
+    accounts.map(function(a){return '<option value="'+escHtml(a.id||'')+'" '+((t.selected_account_id||t.cf_account_id)===(a.id||'')?'selected':'')+'>'+escHtml(a.name||a.id)+' · '+escHtml(a.id||'')+'</option>';}).join('')+
+   '</select>';
+  }else if(accounts.length===1){
+   accountHtml='<div style="font-size:11px;color:var(--t3);margin-top:6px">账号：'+escHtml(accounts[0].name||accounts[0].id)+' · '+escHtml(accounts[0].id||'')+'</div>';
+  }
   return '<div class="tkc" style="padding:10px;margin-bottom:8px;display:block">'+
    '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center">'+
     '<div style="min-width:0"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(t.name||('API '+t.id))+'</div>'+
-    '<div style="font-size:12px;color:var(--t3);margin-top:3px">'+escHtml(t.cf_account_name||'未识别账号')+' · '+escHtml(t.token_mask||'****')+'</div></div>'+status+
+    '<div style="font-size:12px;color:var(--t3);margin-top:3px">'+escHtml(t.cf_account_name||'未选择账号')+' · '+escHtml(t.token_mask||'****')+'</div></div>'+status+
    '</div>'+
-   '<div style="display:flex;gap:6px;margin-top:8px"><button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">重新验证</button></div>'+
+   accountHtml+
+   '<div id="cfDiag'+t.id+'" style="display:none;margin-top:8px"></div>'+
+   '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">重新验证</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="diagnoseCloudflareToken('+t.id+')">诊断</button></div>'+
   '</div>';
  }).join('');
 }
@@ -14390,6 +14411,7 @@ function renderLandingPages(){
  if(!_landingPages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">暂无发布记录</td></tr>';return;}
  tb.innerHTML=_landingPages.map(function(p){
   var urls=Array.isArray(p.target_urls)?p.target_urls:[];
+  var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
   var status=p.status==='published'?'<span class="badge bg-ok">已发布</span>':p.status==='failed'?'<span class="badge bg-er">失败</span>':p.status==='archived'?'<span class="badge bg-mu">已归档</span>':'<span class="badge bg-wa">'+escHtml(p.status||'草稿')+'</span>';
   var link=p.pages_url||p.custom_domain||'';
   var linkHtml=link?'<a href="'+escHtml(link)+'" target="_blank" style="color:var(--ac)">'+escHtml(link)+'</a>':'<span style="color:var(--t3)">--</span>';
@@ -14399,7 +14421,7 @@ function renderLandingPages(){
    '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单链接</span>':'<span class="badge bg-mu">普通落地页</span>')+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+escHtml(p.rotation_mode||'sequential')+'</td>'+
+   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+escHtml(p.rotation_mode||'sequential')+(bound.length?' · 已绑定 '+bound.length:'')+'</td>'+
    '<td style="padding:10px 12px">'+status+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
     (link?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(link)+'\')">复制</button>':'')+
@@ -14423,32 +14445,75 @@ async function addCloudflareToken(){
 async function verifyCloudflareToken(id){
  try{await api('POST','/landing-pages/tokens/'+id+'/verify',{});toast('验证成功','ok');await loadLandingCenter(true)}catch(e){toast('验证失败：'+(e.message||e),'er')}
 }
+async function setCloudflareAccount(id, accountId){
+ if(!accountId)return;
+ try{await api('PATCH','/landing-pages/tokens/'+id+'/account',{account_id:accountId});toast('默认发布账号已更新','ok');await loadLandingCenter(true)}catch(e){toast('更新账号失败：'+(e.message||e),'er')}
+}
+async function diagnoseCloudflareToken(id){
+ var box=document.getElementById('cfDiag'+id); if(box){box.style.display='block';box.innerHTML='<div style="font-size:12px;color:var(--t3)">诊断中...</div>';}
+ try{
+  var r=await api('GET','/landing-pages/tokens/'+id+'/diagnose');
+  if(box)box.innerHTML=renderLandingChecks(r.checks||[]);
+ }catch(e){
+  if(box)box.innerHTML='<div style="font-size:12px;color:var(--er)">诊断失败：'+escHtml(e.message||e)+'</div>';
+ }
+}
+function renderLandingChecks(checks){
+ return (checks||[]).map(function(c){
+  var color=c.status==='pass'?'var(--ok)':(c.status==='warn'?'var(--wa)':'var(--er)');
+  var txt=c.status==='pass'?'通过':(c.status==='warn'?'提醒':'失败');
+  return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin:5px 0"><span style="color:'+color+';font-weight:760;min-width:34px">'+txt+'</span><div><b>'+escHtml(c.label||c.key||'检查')+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(c.detail||'')+'</div></div></div>';
+ }).join('');
+}
 function _landingTargetLines(){
  return ((document.getElementById('lpTargets')||{}).value||'').split(/\n+/).map(function(s){return s.trim();}).filter(Boolean);
 }
-async function publishLandingPage(){
- var tokenId=parseInt((document.getElementById('lpToken')||{}).value||'0',10)||0;
- var templateId=parseInt((document.getElementById('lpTemplate')||{}).value||'1',10)||1;
- var title=((document.getElementById('lpTitle')||{}).value||'').trim();
- var targets=_landingTargetLines();
- if(!tokenId){toast('请先添加 Cloudflare API','wa');return;}
- if(!title){toast('请填写发布名称','wa');return;}
- if(!targets.length){toast('请至少填写一个按钮跳转链接','wa');return;}
- var payload={
-  token_id:tokenId,
-  template_id:templateId,
-  title:title,
+function _landingBindActIds(){
+ return ((document.getElementById('lpBindActIds')||{}).value||'').split(/[\n,，\s]+/).map(function(s){return s.trim();}).filter(Boolean);
+}
+function _landingPublishPayload(){
+ return {
+  token_id:parseInt((document.getElementById('lpToken')||{}).value||'0',10)||0,
+  template_id:parseInt((document.getElementById('lpTemplate')||{}).value||'1',10)||1,
+  title:((document.getElementById('lpTitle')||{}).value||'').trim(),
   project_name:((document.getElementById('lpProject')||{}).value||'').trim()||null,
   pixel_id:((document.getElementById('lpPixel')||{}).value||'').trim(),
-  target_urls:targets,
+  target_urls:_landingTargetLines(),
   rotation_mode:(document.getElementById('lpRotation')||{}).value||'sequential',
   link_kind:(document.getElementById('lpKind')||{}).value||'landing',
-  form_link_enabled:!!((document.getElementById('lpFormEnabled')||{}).checked)
+  form_link_enabled:!!((document.getElementById('lpFormEnabled')||{}).checked),
+  bind_act_ids:_landingBindActIds(),
+  bind_target:(document.getElementById('lpBindTarget')||{}).value||'none'
  };
+}
+async function preflightLandingPage(showToast){
+ var box=document.getElementById('lpPreflightBox');
+ var payload=_landingPublishPayload();
+ if(!payload.token_id){toast('请先添加 Cloudflare API','wa');return false;}
+ if(box){box.style.display='block';box.innerHTML='<div style="font-size:12px;color:var(--t3)">检查中...</div>';}
+ try{
+  var r=await api('POST','/landing-pages/preflight',payload);
+  if(box)box.innerHTML=renderLandingChecks(r.checks||[]);
+  if(showToast)toast(r.success?'预检通过':'预检发现问题',r.success?'ok':'wa');
+  return !!r.success;
+ }catch(e){
+  if(box)box.innerHTML='<div style="font-size:12px;color:var(--er)">预检失败：'+escHtml(e.message||e)+'</div>';
+  return false;
+ }
+}
+async function publishLandingPage(){
+ var payload=_landingPublishPayload();
+ if(!payload.token_id){toast('请先添加 Cloudflare API','wa');return;}
+ if(!payload.title){toast('请填写发布名称','wa');return;}
+ if(!payload.target_urls.length){toast('请至少填写一个按钮跳转链接','wa');return;}
+ var ok=await preflightLandingPage(false);
+ if(!ok){toast('发布前检查未通过，请先处理红色项','er');return;}
  try{
   toast('正在发布到 Cloudflare，请稍候...','wa');
   var res=await api('POST','/landing-pages/publish',payload);
-  toast('发布成功','ok');
+  var bound=(res&&res.page&&res.page.binding&&res.page.binding.bound||[]).length;
+  var skipped=(res&&res.page&&res.page.binding&&res.page.binding.skipped||[]).length;
+  toast('发布成功'+(bound?'，已绑定 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':''),'ok');
   if(res&&res.page&&res.page.pages_url)copyText(encodeURIComponent(res.page.pages_url),true);
   markPageStale('landing_center');
   await loadLandingCenter(true);
