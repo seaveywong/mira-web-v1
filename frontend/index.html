@@ -7365,7 +7365,7 @@ function renderMetaOAuthModal(cfg){
    '</div>'+
    '<div class="fg"><label class="fl">回调地址</label><div style="display:flex;gap:8px;align-items:center"><input class="fc" id="metaRedirectUri" value="'+escHtml(cfg.redirect_uri||'')+'" style="flex:1"><button class="btn btn-g btn-sm" onclick="copyMetaRedirectUri()" type="button">复制</button></div><div class="fh">需要在 Meta App OAuth Valid Redirect URIs 中完全一致填写。</div></div>'+
    '<div class="fg"><label class="fl">授权范围</label><textarea class="fc" id="metaScopes" rows="2" style="resize:vertical">'+escHtml(cfg.scopes||'')+'</textarea><div class="fh">铺广告至少需要 ads_management；读取需要 ads_read；主页/表单建议保留 pages_show_list、pages_manage_ads。leads_retrieval 当前会导致部分 App 授权报 Invalid Scopes，先不要填。</div></div>'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-p" onclick="saveMetaOAuthConfig()">保存配置</button><button class="btn btn-g" onclick="diagnoseMetaOAuthConfig()">诊断配置</button></div>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-p" onclick="saveMetaOAuthConfig()">保存配置</button><button class="btn btn-g" onclick="applyRecommendedMetaScopes()" type="button">使用推荐授权范围</button><button class="btn btn-g" onclick="diagnoseMetaOAuthConfig()">诊断配置</button></div>'+
    '<div id="metaOAuthDiagBox" class="meta-oauth-note" style="display:none"></div>'+
   '</div>';
  }else{
@@ -7411,6 +7411,12 @@ function normalizeMetaOAuthScopes(raw){
   }
  });
  return {scopes:kept.join(','),removed:removed};
+}
+function applyRecommendedMetaScopes(){
+ var scopes='public_profile,ads_read,ads_management,business_management,pages_show_list,pages_manage_ads';
+ var el=document.getElementById('metaScopes');
+ if(el)el.value=scopes;
+ toast('已填入推荐授权范围','ok');
 }
 async function saveMetaOAuthConfig(){
  var scopesEl=document.getElementById('metaScopes');
