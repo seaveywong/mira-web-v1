@@ -2316,8 +2316,8 @@ select.fc option{background:#fff;color:#1d1d1f}
        <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
        <div class="ph-acts token-actions">
         <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
-        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联">智能导入账户</button>
-        <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
+        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联">智能导入并关联</button>
+        <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">补齐 Token 关联</button>
         <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
        </div>
      </div>
@@ -2421,9 +2421,9 @@ select.fc option{background:#fff;color:#1d1d1f}
        </select>
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
-        <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取的管理号 Token，并补齐同团队 / 同负责人可用 Token 关联">导入账户</button>
+        <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取的管理号 Token，并补齐同团队 / 同负责人可用 Token 关联">智能导入并关联</button>
         <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
-       <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">自动关联Token</button>
+       <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">补齐 Token 关联</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
        <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
       </div>
@@ -2754,7 +2754,7 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="card landing-stats-card" id="landingStatsPanel" style="display:none"></div>
  <div class="card landing-record-card">
   <div class="landing-card-head">
-   <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。未被引用的页面可以归档。</p></div>
+   <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。仍被引用的页面只能归档，未引用的页面可删除 Cloudflare 项目。</p></div>
   </div>
   <div class="table-wrap">
    <table style="width:100%;border-collapse:collapse;min-width:980px">
@@ -2865,9 +2865,9 @@ select.fc option{background:#fff;color:#1d1d1f}
    <div class="info-box" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
     <div style="min-width:260px;flex:1">
      <b>Token 自动关联</b><br>
-     导入完成后，系统会自动扫描同团队 / 同负责人可用 Token，把能管理该账户的 Token 关联起来；无需再点到单个 Token 里手动匹配。
+     首选用这里导入账户。系统会自动寻找可读取的 Token，并扫描同团队 / 同负责人可用 Token，把能管理该账户的 Token 一次性关联起来；无需再点到单个 Token 里手动匹配。
     </div>
-    <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队 / 同负责人可用 Token 并补齐关联">补齐已导入账户 Token</button>
+    <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队 / 同负责人可用 Token 并补齐关联">补齐已导入账户关联</button>
    </div>
    <!-- Tab 切换 -->
    <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:2px solid var(--bd)">
@@ -7520,7 +7520,12 @@ async function checkMetaOAuthState(silent){
   if(status==='completed'){
    stopMetaOAuthPolling();
    var token=r.token||{};
-   if(hint)hint.innerHTML='授权成功：Token #'+escHtml(String(r.token_id||''))+' · '+escHtml(token.token_alias||'Meta OAuth')+'，已关联 '+escHtml(String(r.linked_count||0))+' 个账户。';
+   if(hint)hint.innerHTML=
+    '<div>授权成功：Token #'+escHtml(String(r.token_id||''))+' · '+escHtml(token.token_alias||'Meta OAuth')+'，已关联 '+escHtml(String(r.linked_count||0))+' 个账户。</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+     '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入账户</button>'+
+     '<button class="btn btn-g btn-sm" onclick="loadTokens();toast(&quot;Token 列表已刷新&quot;,&quot;ok&quot;)">刷新 Token 列表</button>'+
+    '</div>';
    toast('Meta 官方授权完成，已关联 '+(r.linked_count||0)+' 个账户','ok');
    loadTokens();
    if(typeof loadAccounts==='function')loadAccounts();
@@ -7546,6 +7551,13 @@ window.addEventListener('message',function(ev){
  var data=ev&&ev.data?ev.data:{};
  if(!data||data.type!=='mira_meta_oauth_success')return;
  stopMetaOAuthPolling();
+ var hint=document.getElementById('metaOAuthStateHint');
+ if(hint)hint.innerHTML=
+  '<div>授权成功：Token #'+escHtml(String(data.token_id||''))+'，已自动匹配 '+escHtml(String(data.matched||0))+' 个已导入账户。</div>'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+   '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入账户</button>'+
+   '<button class="btn btn-g btn-sm" onclick="loadTokens();toast(&quot;Token 列表已刷新&quot;,&quot;ok&quot;)">刷新 Token 列表</button>'+
+  '</div>';
  toast('Meta 官方授权完成，已自动匹配 '+(data.matched||0)+' 个账户','ok');
  loadTokens();
  if(typeof loadAccounts==='function')loadAccounts();
@@ -7793,12 +7805,12 @@ async function submitToken(){
  if(matrixId)payload.matrix_id=matrixId;
  try{
   toast('正在验证 Token...','ac');
-  await api('POST','/accounts/tokens',payload);
+  var res=await api('POST','/accounts/tokens',payload);
   _cachedMatrices = null;
   resetMatrixPicker('tkMatrix','tkMatrixCustom');
  var sourceEl=document.getElementById('tkSource');if(sourceEl)sourceEl.value='personal';
   await fillMatrixSelects();
-  toast('Token 添加成功！','ok');
+  toast(res&&res.auto_match_started?'Token 添加成功，已开始自动匹配已有账户':'Token 添加成功','ok');
   closeModal('moAddToken');
   loadTokens();
   loadAccounts();
@@ -8079,13 +8091,13 @@ function parseDirectIds(){
   infoEl.style.color='var(--t3)';
   btnEl.disabled=true;
   cntEl.textContent='\u5df2\u9009 0 \u4e2a';
-  btnEl.textContent=importAutoMode?'智能导入账户':'\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
+  btnEl.textContent=importAutoMode?'智能导入并关联':'\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
  }
  return ids;
 }
 function openSmartImportAccounts(){
  importAutoMode=true;importTkId=null;selAccs.clear();_allFetchedAccs=[];
- var title=document.getElementById('importTitle');if(title)title.textContent='导入广告账户（自动识别 Token）';
+ var title=document.getElementById('importTitle');if(title)title.textContent='智能导入账户（自动识别并关联 Token）';
  var fbTab=document.getElementById('importTabFb');if(fbTab)fbTab.style.display='none';
  var directTab=document.getElementById('importTabDirect');if(directTab){directTab.style.display='inline-block';directTab.textContent='直接输入 ID';}
  var input=document.getElementById('directActIds');if(input)input.value='';
@@ -8160,7 +8172,7 @@ async function doImport(){
   toast(msg,failedCount>0?'wa':'ok');
   closeModal('moImport');loadAccounts();loadAccsPage();
  }catch(e){toast('导入失败：'+e.message,'er')}
- btn.disabled=false;btn.textContent=importAutoMode?'智能导入账户':'导入选中账户';
+ btn.disabled=false;btn.textContent=importAutoMode?'智能导入并关联':'导入选中账户';
 }
 
 // ── Accounts Page ──
@@ -8441,7 +8453,7 @@ async function rematchAllAccountTokens(btn){
  }catch(e){
   toast('匹配Token失败：'+(e.message||e),'er');
 }finally{
-  if(btn){btn.disabled=false;btn.textContent=oldText||'自动关联Token';}
+  if(btn){btn.disabled=false;btn.textContent=oldText||'补齐 Token 关联';}
  }
 }
 
@@ -15424,12 +15436,12 @@ function onLandingKindChanged(){
  var kindHint=document.getElementById('lpKindHint');
  var bindHint=document.getElementById('lpBindHint');
  if(kind==='form'){
-  if(formFlag){formFlag.checked=true;formFlag.disabled=true;}
+  if(formFlag){formFlag.checked=true;formFlag.disabled=true;formFlag.dataset.autoForm='1';}
   if(bind&&(bind.value==='landing'))bind.value='form';
   if(kindHint)kindHint.textContent='表单投放链接访问首页即轮询跳转，适合 Lead Form / WhatsApp 聊单；发布包为轻量直跳页，不展示落地页正文。';
   if(bindHint)bindHint.textContent='表单链接建议绑定到账户表单链接，铺 Lead Form 时会优先使用。';
- }else{
-  if(formFlag){formFlag.disabled=false;}
+}else{
+  if(formFlag){formFlag.disabled=false;if(formFlag.dataset.autoForm==='1'){formFlag.checked=false;formFlag.dataset.autoForm='';}}
   if(kindHint)kindHint.textContent='普通落地页会展示模板正文，按钮点击后按轮询策略跳转。';
   if(bindHint)bindHint.textContent='普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。';
  }
