@@ -2758,7 +2758,12 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="card landing-record-card">
   <div class="landing-card-head">
    <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。仍被引用的页面只能归档，未引用的页面可删除 Cloudflare 项目。</p></div>
-   <button class="btn btn-g btn-sm role-hide-viewer" onclick="refreshLandingDomains()" title="批量复检已发布页面的自定义域名；域名可用后会自动回绑原账户链接">复检全部域名</button>
+   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+    <select class="fc" id="landingPageMatrixFilter" style="width:132px;height:34px" onchange="renderLandingPages()">
+     <option value="all">全部矩阵</option>
+    </select>
+    <button class="btn btn-g btn-sm role-hide-viewer" onclick="refreshLandingDomains()" title="批量复检已发布页面的自定义域名；域名可用后会自动回绑原账户链接">复检全部域名</button>
+   </div>
   </div>
   <div class="table-wrap">
    <table style="width:100%;border-collapse:collapse;min-width:980px">
@@ -15350,8 +15355,7 @@ function renderLandingPublishOptions(){
  if(tp)tp.innerHTML=_lpTemplates.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('模板 '+t.id))+'</option>';}).join('');
  onLandingKindChanged();
 }
-function _landingMatrixBadgesFromPage(page){
- var colors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
+function _landingMatrixIdsFromPage(page){
  var ids=[];
  ((page&&page.linked_matrix_ids)||[]).forEach(function(mid){
   mid=parseInt(mid,10);
@@ -15371,14 +15375,50 @@ function _landingMatrixBadgesFromPage(page){
   });
  });
  ids.sort(function(a,b){return a-b;});
+ return ids;
+}
+function _landingMatrixBadgesFromPage(page){
+ var colors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
+ var ids=_landingMatrixIdsFromPage(page);
+ if(!ids.length){
+  var usageTotal=parseInt(((page&&page.usage)||{}).total||0,10)||0;
+  var bound=(page&&Array.isArray(page.bound_act_ids))?page.bound_act_ids:[];
+  var title=usageTotal||bound.length?'该链接已有绑定或引用，但暂未从账户 Token 识别出矩阵':'该链接尚未绑定到账户或投放任务';
+  var label=usageTotal||bound.length?'未识别矩阵':'未绑定矩阵';
+  return '<span class="badge bg-mu" title="'+escHtml(title)+'">'+label+'</span>';
+ }
  return ids.map(function(mid){
   return '<span class="badge" style="background:'+colors[(mid-1)%colors.length]+';color:#fff">矩阵'+mid+'</span>';
  }).join(' ');
 }
+function _refreshLandingPageMatrixFilter(){
+ var sel=document.getElementById('landingPageMatrixFilter');
+ if(!sel)return 'all';
+ var current=sel.value||'all';
+ var ids=[];
+ (_landingPages||[]).forEach(function(p){
+  _landingMatrixIdsFromPage(p).forEach(function(mid){if(ids.indexOf(mid)<0)ids.push(mid);});
+ });
+ ids.sort(function(a,b){return a-b;});
+ sel.innerHTML='<option value="all">全部矩阵</option><option value="unassigned">未识别/未绑定</option>'+ids.map(function(mid){
+  return '<option value="'+mid+'">矩阵 '+mid+'</option>';
+ }).join('');
+ if(current!=='all'&&current!=='unassigned'&&ids.indexOf(parseInt(current,10))<0)current='all';
+ sel.value=current;
+ return current;
+}
 function renderLandingPages(){
  var tb=document.getElementById('landingPagesList'); if(!tb)return;
+ var matrixFilter=_refreshLandingPageMatrixFilter();
+ var pages=(_landingPages||[]).filter(function(p){
+  if(matrixFilter==='all')return true;
+  var ids=_landingMatrixIdsFromPage(p);
+  if(matrixFilter==='unassigned')return !ids.length;
+  return ids.indexOf(parseInt(matrixFilter,10))>=0;
+ });
  if(!_landingPages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">暂无发布记录</td></tr>';return;}
- tb.innerHTML=_landingPages.map(function(p){
+ if(!pages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">当前矩阵筛选下暂无发布记录</td></tr>';return;}
+ tb.innerHTML=pages.map(function(p){
   var urls=Array.isArray(p.target_urls)?p.target_urls:[];
   var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
   var status=p.status==='published'?'<span class="badge bg-ok">已发布</span>':p.status==='failed'?'<span class="badge bg-er">失败</span>':p.status==='archived'?'<span class="badge bg-mu">已归档</span>':'<span class="badge bg-wa">'+escHtml(p.status||'草稿')+'</span>';
@@ -15417,7 +15457,7 @@ function renderLandingPages(){
   }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
-   '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+(matrixBadges?' '+matrixBadges:'')+'</div>'+err+'</td>'+
+   '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+' '+matrixBadges+'</div>'+err+'</td>'+
    '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span><div style="font-size:11px;color:var(--t3);margin-top:4px">访问即跳转</div>':'<span class="badge bg-mu">普通落地页</span><div style="font-size:11px;color:var(--t3);margin-top:4px">按钮跳转</div>')+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
