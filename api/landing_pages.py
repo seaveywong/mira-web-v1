@@ -1,15 +1,18 @@
 import hashlib
+import ipaddress
 import json
 import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user, is_superadmin
+from core.app_meta import DEFAULT_ALLOWED_ORIGINS
 from core.database import decrypt_token, encrypt_token, get_conn, mask_token
 from core.tenancy import assert_row_access, is_operator_user, team_id_for_create, user_id
 from services.landing_publisher import (
@@ -311,13 +314,55 @@ def _stamp(user, requested_team_id: Optional[int] = None) -> tuple[Optional[int]
     return tid, owner
 
 
-def _ingest_url() -> str:
-    raw = (
-        os.environ.get("MIRA_LANDING_INGEST_URL")
-        or os.environ.get("MIRA_PUBLIC_BASE_URL")
-        or os.environ.get("PUBLIC_BASE_URL")
-        or "http://43.129.230.237:8000"
-    ).strip().rstrip("/")
+def _host_is_ip_or_local(host: Optional[str]) -> bool:
+    value = (host or "").strip().lower()
+    if not value or value in {"localhost"} or value.endswith(".local"):
+        return True
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _normalize_public_base(raw: Optional[str]) -> Optional[str]:
+    value = (raw or "").strip().rstrip("/")
+    if not value:
+        return None
+    if value.endswith("/api/landing-pages/events/ingest"):
+        value = value[: -len("/api/landing-pages/events/ingest")]
+    if "://" not in value:
+        value = "https://" + value
+    parsed = urlparse(value)
+    host = parsed.hostname or ""
+    if _host_is_ip_or_local(host):
+        return None
+    return f"https://{parsed.netloc}"
+
+
+def _request_public_base(request: Optional[Request]) -> Optional[str]:
+    if not request:
+        return None
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or request.url.netloc
+    )
+    if not host:
+        return None
+    return _normalize_public_base(host)
+
+
+def _ingest_url(request: Optional[Request] = None) -> str:
+    candidates = [
+        os.environ.get("MIRA_LANDING_INGEST_URL"),
+        os.environ.get("MIRA_PUBLIC_BASE_URL"),
+        os.environ.get("PUBLIC_BASE_URL"),
+        _request_public_base(request),
+        *(DEFAULT_ALLOWED_ORIGINS or []),
+        "https://shouhu.asia",
+    ]
+    raw = next((base for base in (_normalize_public_base(v) for v in candidates) if base), "https://shouhu.asia")
     if raw.endswith("/api/landing-pages/events/ingest"):
         return raw
     return raw + "/api/landing-pages/events/ingest"
@@ -872,7 +917,7 @@ def list_landing_templates(user=Depends(get_current_user)):
 
 
 @router.post("/preflight")
-def preflight_landing_page(body: LandingPublishReq, user=Depends(get_current_user)):
+def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depends(get_current_user)):
     title = (body.title or "").strip()
     urls = [u.strip() for u in body.target_urls if u and u.strip()]
     rules = _safe_rules(body.protection_rules)
@@ -910,6 +955,14 @@ def preflight_landing_page(body: LandingPublishReq, user=Depends(get_current_use
         checks.append({"key": "tracking", "status": "pass", "label": "边缘统计", "detail": "将通过 Cloudflare Worker 同域采集访问、点击、跳转、拦截事件"})
     if body.protection_enabled:
         checks.append({"key": "protection", "status": "pass" if rules else "warn", "label": "防护规则", "detail": "已配置防护规则" if rules else "已启用防护，但当前没有规则"})
+    if body.tracking_enabled or body.protection_enabled or link_kind == "form":
+        ingest_url = _ingest_url(request)
+        checks.append({
+            "key": "ingest_url",
+            "status": "pass",
+            "label": "统计回传域名",
+            "detail": f"{ingest_url}（仅使用 HTTPS 公网域名，不写入服务器裸 IP）",
+        })
     conn = get_conn()
     try:
         token_row = _assert_token_access(conn, body.token_id, user)
@@ -972,7 +1025,7 @@ def list_landing_pages(user=Depends(get_current_user)):
 
 
 @router.post("/publish")
-def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)):
+def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends(get_current_user)):
     title = (body.title or "").strip()
     urls = [u.strip() for u in body.target_urls if u and u.strip()]
     if not title:
@@ -1055,7 +1108,7 @@ def publish_landing_page(body: LandingPublishReq, user=Depends(get_current_user)
             protection_rules=protection_rules,
             page_id=page_id,
             ingest_secret=ingest_secret,
-            ingest_url=_ingest_url(),
+            ingest_url=_ingest_url(request),
         )
         response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
         deployment_id = str(response.get("id") or "")
