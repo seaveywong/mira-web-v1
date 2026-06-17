@@ -2227,6 +2227,71 @@ def _to_usd(amount, currency: str) -> float:
     return round(_to_usd_guard(amount, currency), 2)
 
 
+@router.post("/rematch-tokens")
+def rematch_visible_account_tokens(user=Depends(get_current_user)):
+    """Scan visible accounts and bind same-team tokens that can see them."""
+    _require_operator_user(user)
+    conn = get_conn()
+    try:
+        where, params = ["1=1"], []
+        apply_team_scope(where, params, user, "team_id", include_unassigned=False)
+        _apply_account_owner_scope(where, params, user, "")
+        rows = conn.execute(
+            f"SELECT act_id, team_id FROM accounts WHERE {' AND '.join(where)} ORDER BY team_id, id",
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return {
+            "success": True,
+            "scanned_accounts": 0,
+            "matched": 0,
+            "restored": 0,
+            "already_linked": 0,
+            "token_checked": 0,
+            "token_failed": 0,
+            "accounts": [],
+            "failed_tokens": [],
+        }
+
+    grouped: dict[Optional[int], list[str]] = {}
+    for row in rows:
+        grouped.setdefault(row["team_id"], []).append(row["act_id"])
+
+    summary = {
+        "matched": 0,
+        "restored": 0,
+        "already_linked": 0,
+        "token_checked": 0,
+        "token_failed": 0,
+        "accounts": [],
+        "failed_tokens": [],
+    }
+    for team_id, act_ids in grouped.items():
+        result = _auto_link_tokens_for_accounts(
+            act_ids,
+            user,
+            team_id=team_id,
+            note="manual_bulk_token_rematch",
+        )
+        for key in ("matched", "restored", "already_linked", "token_checked", "token_failed"):
+            summary[key] += int(result.get(key) or 0)
+        summary["accounts"].extend(result.get("accounts") or [])
+        summary["failed_tokens"].extend(result.get("failed_tokens") or [])
+
+    return {
+        "success": True,
+        "scanned_accounts": len(rows),
+        **summary,
+        "failed_tokens": summary["failed_tokens"][:20],
+        "message": (
+            f"checked {len(rows)} accounts, matched {summary['matched']}, "
+            f"restored {summary['restored']}, already linked {summary['already_linked']}"
+        ),
+    }
+
+
 @router.get("")
 def list_accounts(user=Depends(get_current_user)):
     """获取所有账户列表"""

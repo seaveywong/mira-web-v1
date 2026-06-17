@@ -49,6 +49,7 @@ class MetaOAuthConnectIn(BaseModel):
     token_type: str = "operate"
     scopes: Optional[str] = None
     force_reauth: bool = True
+    matrix_id: Optional[int] = None
 
 
 def _now_cst_expr() -> str:
@@ -82,6 +83,7 @@ def _ensure_schema(conn) -> None:
            owner_user_id INTEGER,
            token_alias TEXT,
            token_type TEXT DEFAULT 'operate',
+           matrix_id INTEGER,
            scopes TEXT,
            redirect_uri TEXT,
            status TEXT DEFAULT 'pending',
@@ -97,6 +99,8 @@ def _ensure_schema(conn) -> None:
         conn.execute("ALTER TABLE meta_oauth_states ADD COLUMN config_scope TEXT")
     if "redirect_uri" not in cols:
         conn.execute("ALTER TABLE meta_oauth_states ADD COLUMN redirect_uri TEXT")
+    if "matrix_id" not in cols:
+        conn.execute("ALTER TABLE meta_oauth_states ADD COLUMN matrix_id INTEGER")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_meta_oauth_states_status ON meta_oauth_states(status, expires_at)")
     conn.commit()
 
@@ -370,11 +374,26 @@ def create_meta_oauth_connect_url(body: MetaOAuthConnectIn, request: Request, us
         alias = (body.token_alias or "").strip()
         if not alias:
             alias = f"Meta OAuth - {user.get('username') or 'user'}"
+        matrix_id = None
+        if token_type == "operate" and body.matrix_id:
+            try:
+                matrix_id = int(body.matrix_id)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="matrix_id must be an integer")
+            if matrix_id <= 0:
+                matrix_id = None
+        conn.execute(
+            f"""UPDATE meta_oauth_states
+               SET status='replaced', error='Replaced by a newer authorization link',
+                   completed_at={_now_cst_expr()}
+               WHERE status='pending' AND user_id=? AND token_type=?""",
+            (user.get("uid"), token_type),
+        )
         conn.execute(
             """INSERT INTO meta_oauth_states
                (state, config_scope, user_id, username, role, team_id, owner_user_id,
-                token_alias, token_type, scopes, redirect_uri, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                token_alias, token_type, matrix_id, scopes, redirect_uri, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 state,
                 effective_scope,
@@ -385,6 +404,7 @@ def create_meta_oauth_connect_url(body: MetaOAuthConnectIn, request: Request, us
                 owner_user_id,
                 alias,
                 token_type,
+                matrix_id,
                 scopes,
                 redirect_uri,
                 expires_at,
@@ -459,7 +479,16 @@ def meta_oauth_callback(
         if not st:
             return _oauth_html("授权失败", "授权状态不存在或已过期，请回到 Mira 重新发起授权。")
         if st["status"] != "pending":
-            return _oauth_html("授权已处理", "该授权请求已经处理过，请回到 Mira 查看 Token。", ok=st["status"] == "completed")
+            status = st["status"]
+            if status == "completed":
+                return _oauth_html("授权已完成", "该授权请求已经完成，请回到 Mira 查看 Token。", ok=True)
+            if status == "replaced":
+                return _oauth_html("授权链接已失效", "你已经生成了新的授权链接，请使用最新链接授权。")
+            if status == "expired":
+                return _oauth_html("授权超时", "授权链接已超过 15 分钟，请回到 Mira 重新生成。")
+            if status == "failed":
+                return _oauth_html("授权失败", st["error"] or "该授权请求已失败，请回到 Mira 重新生成。")
+            return _oauth_html("授权已处理", "该授权请求已经处理过，请回到 Mira 查看 Token。")
         if int(st["expires_at"] or 0) < int(time.time()):
             conn.execute(
                 f"UPDATE meta_oauth_states SET status='expired', error=?, completed_at={_now_cst_expr()} WHERE state=?",
@@ -542,13 +571,14 @@ def meta_oauth_callback(
                    token_alias, access_token_enc, token_type, token_source, status,
                    last_verified_at, note, matrix_id, permission_snapshot, permission_checked_at,
                    team_id, owner_user_id
-               ) VALUES (?, ?, ?, ?, 'active', {_now_cst_expr()}, ?, NULL, ?, {_now_cst_expr()}, ?, ?)""",
+               ) VALUES (?, ?, ?, ?, 'active', {_now_cst_expr()}, ?, ?, ?, {_now_cst_expr()}, ?, ?)""",
             (
                 st["token_alias"] or "Meta OAuth授权",
                 enc,
                 token_type,
                 TOKEN_SOURCE_OAUTH_USER,
                 "；".join(note_parts),
+                st["matrix_id"] if token_type == "operate" else None,
                 json.dumps(snapshot, ensure_ascii=False),
                 st["team_id"],
                 st["owner_user_id"],

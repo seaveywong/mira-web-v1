@@ -1832,6 +1832,27 @@ select.fc option{background:#fff;color:#1d1d1f}
 .guard-replay-title{font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .guard-replay-meta{font-size:11px;color:var(--t3);margin-top:2px;line-height:1.45}
 .guard-step-line{font-size:11px;color:var(--t2);line-height:1.55;margin-top:5px}
+#page-tokens .token-actions{
+ width:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;
+ border:0!important;box-shadow:none!important;justify-content:flex-end!important;flex:0 0 auto!important
+}
+#page-tokens .token-actions .btn{height:42px!important;min-height:42px!important;padding:0 18px!important;font-weight:760!important}
+#page-tokens .token-actions .btn-oauth{background:#fff!important;border:1px solid #d2d2d7!important;color:#1d1d1f!important}
+#page-tokens .token-actions .btn-oauth:hover{border-color:#0071e3!important;color:#0071e3!important;background:#f8fbff!important}
+.meta-oauth-shell{display:flex;flex-direction:column;gap:14px}
+.meta-oauth-card{background:#fff;border:1px solid #dedee4;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
+.meta-oauth-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}
+.meta-oauth-title{font-size:15px;font-weight:820;color:#1d1d1f}
+.meta-oauth-sub{font-size:12px;color:#7c7c82;line-height:1.55;margin-top:4px}
+.meta-oauth-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}
+.meta-oauth-grid .fg{margin:0!important}
+.meta-oauth-note{padding:10px 12px;border:1px solid #e5e5ea;border-radius:10px;background:#f5f5f7;color:#6e6e73;font-size:12px;line-height:1.6;margin-top:12px}
+.meta-oauth-check{display:flex;align-items:flex-start;gap:8px;margin-top:12px;color:#424245;font-size:13px;line-height:1.45}
+.meta-oauth-check input{margin-top:3px}
+.meta-oauth-linkbox{display:none;margin-top:12px;border:1px solid #cfe7ff;border-radius:12px;background:#f8fbff;padding:12px}
+.meta-oauth-link-title{font-size:13px;font-weight:820;color:#1d1d1f;margin-bottom:8px}
+.meta-oauth-link-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.meta-oauth-link-hint{font-size:12px;color:#7c7c82;line-height:1.45}
 @media(max-width:1100px){
  #teamAdminContent .owner-log-filters{display:flex!important}
  .page>.ph:first-child>div:last-child:not(.ph-acts){justify-content:flex-start!important}
@@ -1842,6 +1863,8 @@ select.fc option{background:#fff;color:#1d1d1f}
  .guard-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
  .task-center-head{align-items:flex-start}
  .task-center-wrap .task-center{grid-template-columns:1fr}
+ #page-tokens .token-actions{width:100%!important;justify-content:flex-start!important}
+ .meta-oauth-grid{grid-template-columns:1fr}
 }
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -2291,8 +2314,8 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="page" id="page-tokens">
      <div class="ph">
       <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
-      <div class="ph-acts">
-       <button class="btn btn-g role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
+      <div class="ph-acts token-actions">
+       <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
        <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
       </div>
      </div>
@@ -2397,6 +2420,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
        <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
+       <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动补齐同团队可用 Token 关联">匹配Token</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
        <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
       </div>
@@ -7320,25 +7344,26 @@ function renderMetaOAuthModal(cfg){
  }else{
   configHtml='<div class="panel-card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div style="font-weight:800">Meta App 配置</div><div style="font-size:12px;color:var(--t3);margin-top:3px">由超管或团队管理员维护。运营只需要点击授权。</div></div><div>'+status+inherited+'</div></div><div class="fh" style="margin-top:10px">回调地址：'+escHtml(cfg.redirect_uri||'--')+'</div></div>';
  }
- var connectHtml='<div class="panel-card">'+
-  '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px"><div><div style="font-weight:800">运营账号授权</div><div style="font-size:12px;color:var(--t3);margin-top:3px">授权成功后会生成 Meta 官方授权 Token，并自动匹配本团队/本人已导入账户。铺广告逻辑仍走现有账户和素材流程。</div></div><span class="badge" style="'+getTokenSourceBadgeStyle('oauth_user')+'">oauth_user</span></div>'+
-  '<div class="fr">'+
+ var connectHtml='<div class="meta-oauth-card">'+
+  '<div class="meta-oauth-head"><div><div class="meta-oauth-title">运营账号授权</div><div class="meta-oauth-sub">授权成功后会生成 Meta 官方授权 Token，并自动匹配本团队/本人已导入账户。铺广告、预热、预算和关停仍走现有账户流程。</div></div><span class="badge" style="'+getTokenSourceBadgeStyle('oauth_user')+'">oauth_user</span></div>'+
+  '<div class="meta-oauth-grid">'+
    '<div class="fg"><label class="fl">Token 别名</label><input class="fc" id="metaTokenAlias" placeholder="如：vv 官方授权 / BM5 授权"></div>'+
    '<div class="fg"><label class="fl">授权用途</label><select class="fc" id="metaTokenType"><option value="operate">操作号：铺广告/预热/预算/关停</option><option value="manage">管理号：读取/导入/兜底</option><option value="user">个人号：仅兼容保留</option></select></div>'+
+   '<div class="fg"><label class="fl">归属矩阵（可选）</label><input class="fc" id="metaTokenMatrix" type="number" min="1" step="1" placeholder="如：3"><div class="fh">仅操作号使用。用于同矩阵轮换/兜底，不填也会自动匹配已导入账户。</div></div>'+
   '</div>'+
-  '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2)"><input type="checkbox" id="metaForceReauth" checked> 每次强制重新确认权限，避免缺少 ads_management 还误判可用</label>'+
-  '<div class="info-box" style="margin-top:12px">注意：这不是绕过 Meta API，而是标准 OAuth/Business Login。App 处于开发模式时，非开发者/测试用户仍可能无法授权；上线稳定使用需要 App 切到 Live 并完成权限审核。</div>'+
-  '<div id="metaOAuthLinkBox" style="display:none;margin-top:12px;border:1px solid var(--bd);border-radius:12px;background:var(--bg2);padding:12px">'+
-   '<div style="font-weight:800;font-size:13px;margin-bottom:8px">授权链接已生成</div>'+
+  '<label class="meta-oauth-check"><input type="checkbox" id="metaForceReauth" checked><span>每次强制重新确认权限，避免账号没有勾选 ads_management 却被误判可用。</span></label>'+
+  '<div class="meta-oauth-note">这是 Meta 标准 OAuth / Business Login，不是绕过 API。App 开发模式下仍需要手动把个号加入开发者/测试用户；正式稳定使用需要 App Live 和权限审核。</div>'+
+  '<div id="metaOAuthLinkBox" class="meta-oauth-linkbox">'+
+   '<div class="meta-oauth-link-title">授权链接已生成</div>'+
    '<input class="fc" id="metaOAuthAuthUrl" readonly style="font-size:12px;font-family:monospace;margin-bottom:10px">'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+   '<div class="meta-oauth-link-actions">'+
     '<button class="btn btn-p btn-sm" onclick="copyMetaOAuthUrl()">复制链接</button>'+
     '<button class="btn btn-g btn-sm" onclick="openMetaOAuthUrl()">打开授权</button>'+
-    '<span style="font-size:12px;color:var(--t3);align-self:center">如果要用另一个浏览器或账号授权，复制链接过去打开即可。</span>'+
+    '<span class="meta-oauth-link-hint">要换浏览器或换个号授权，复制链接过去打开即可。</span>'+
    '</div>'+
   '</div>'+
  '</div>';
- body.innerHTML=configHtml+connectHtml;
+ body.innerHTML='<div class="meta-oauth-shell">'+configHtml+connectHtml+'</div>';
 }
 async function saveMetaOAuthConfig(){
  var payload={
@@ -7370,6 +7395,9 @@ async function startMetaOAuthConnect(){
   token_type:(document.getElementById('metaTokenType')||{}).value||'operate',
   force_reauth:!!((document.getElementById('metaForceReauth')||{}).checked)
  };
+ var matrixRaw=(document.getElementById('metaTokenMatrix')||{}).value||'';
+ var matrixId=parseInt(matrixRaw,10);
+ if(payload.token_type==='operate'&&isFinite(matrixId)&&matrixId>0)payload.matrix_id=matrixId;
  try{
   toast('正在生成 Meta 授权链接...','ac');
   var r=await api('POST','/meta-oauth/connect-url',payload);
@@ -7377,7 +7405,7 @@ async function startMetaOAuthConnect(){
   var box=document.getElementById('metaOAuthLinkBox');
   var input=document.getElementById('metaOAuthAuthUrl');
   if(input)input.value=_metaOAuthAuthUrl;
-  if(box)box.style.display='';
+  if(box)box.style.display='block';
   toast('授权链接已生成，可以复制或打开','ok');
  }catch(e){
   toast('生成授权链接失败：'+(e.message||e),'er');
@@ -7992,6 +8020,11 @@ async function doImport(){
   var msg=importedCount+' 个账户导入成功';
   if(skippedCount>0)msg+='，'+skippedCount+' 个已存在跳过';
   if(failedCount>0)msg+='，'+failedCount+' 个读取失败';
+  var autoMatch=r.auto_match||{};
+  if((autoMatch.token_checked||0)>0){
+   msg+='；自动匹配Token 新增 '+(autoMatch.matched||0)+'，恢复 '+(autoMatch.restored||0)+'，已有 '+(autoMatch.already_linked||0);
+   if((autoMatch.token_failed||0)>0)msg+='，'+autoMatch.token_failed+' 个Token失败';
+  }
   toast(msg,failedCount>0?'wa':'ok');
   closeModal('moImport');loadAccounts();loadAccsPage();
  }catch(e){toast('导入失败：'+e.message,'er')}
@@ -8260,6 +8293,24 @@ async function syncAllAccStatus(){
   loadAccsPage();
  }catch(e){toast('批量同步失败：'+e.message,'er');}
  finally{if(btn){btn.disabled=false;btn.textContent='同步账户状态';}}
+}
+async function rematchAllAccountTokens(btn){
+ var oldText=btn?btn.textContent:'';
+ if(btn){btn.disabled=true;btn.textContent='匹配中...';}
+ try{
+  toast('正在扫描可见账户并匹配同团队 Token...','ac');
+  var r=await api('POST','/accounts/rematch-tokens');
+  var msg='匹配完成：扫描 '+(r.scanned_accounts||0)+' 个账户，新增 '+(r.matched||0)+'，恢复 '+(r.restored||0)+'，已有关联 '+(r.already_linked||0);
+  if((r.token_checked||0)>0)msg+='；检查 Token '+r.token_checked+' 个';
+  if((r.token_failed||0)>0)msg+='，失败 '+r.token_failed+' 个';
+  toast(msg,(r.token_failed||0)>0?'wa':'ok');
+  loadAccsPage();
+  if(typeof loadTokens==='function')loadTokens();
+ }catch(e){
+  toast('匹配Token失败：'+(e.message||e),'er');
+ }finally{
+  if(btn){btn.disabled=false;btn.textContent=oldText||'匹配Token';}
+ }
 }
 
 function closeAccountPermissionDiagnostic(){
