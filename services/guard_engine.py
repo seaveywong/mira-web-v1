@@ -251,12 +251,13 @@ def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
         subcode = err.get("error_subcode", 0)
         msg = _sanitize_error_text(err.get("message", str(result)))
         # 190=Token失效, 100=权限不足, 200=权限拒绝 -> 不重试，直接向上升级
+        code_part = f"code={code}" + (f", subcode={subcode}" if subcode else "")
         if code in (190, 100, 200, 294):
-            suffix = ""
+            suffix = "权限拒绝"
             if subcode == 3498005:
-                suffix = " [Reels广告需升级到广告组操作]"
-            return False, f"权限拒绝(code={code}{suffix}): {msg}"
-        return False, f"API错误(code={code}): {msg}"
+                suffix = "FB限制广告级状态修改，已按兜底逻辑升级处理"
+            return False, f"{suffix}({code_part}): {msg}"
+        return False, f"API错误({code_part}): {msg}"
     except requests.exceptions.RequestException as e:
         return False, f"网络错误: {e}"
 
@@ -890,13 +891,16 @@ def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
 def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str) -> tuple:
     """Try to pause a target with all available PAUSE tokens before escalating."""
     errors = []
-    for cand in _pause_token_candidates(account, primary_token):
+    candidates = _pause_token_candidates(account, primary_token)
+    for cand in candidates:
         ok, err = _fb_post(target_id, cand["token"], {"status": "PAUSED"})
         if ok:
             return True, "", cand["token"], cand["label"]
         if err:
             errors.append(f"{cand['label']}: {err}")
-    return False, "; ".join(errors) or "all token candidates failed", primary_token, ""
+    labels = ", ".join([str(c.get("label") or "token") for c in candidates]) or "none"
+    reason = "; ".join(errors) or "all token candidates failed"
+    return False, f"已尝试{len(candidates)}个写入Token({labels})，均失败：{reason}", primary_token, ""
 
 
 # ── 核心关闭逻辑（含向上升级）──────────────────────────────────────────────
