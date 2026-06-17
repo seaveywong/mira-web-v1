@@ -1669,6 +1669,68 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 @media(max-width:1100px){.team-summary-grid,.team-profile-strip{grid-template-columns:repeat(3,minmax(0,1fr))}.tw-add-page-id,.tw-add-matrix,.tw-add-token,.tw-add-name,.tw-add-verified,.tw-add-note{grid-column:span 6}.tw-add-action{grid-column:span 12;min-height:0}.tw-add-action .btn{width:auto;min-width:120px}}
 @media(max-width:720px){.team-summary-grid,.team-profile-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.user-menu{right:-8px}.tw-add-page-id,.tw-add-matrix,.tw-add-token,.tw-add-name,.tw-add-verified,.tw-add-note,.tw-add-action{grid-column:span 12}.tw-add-action .btn{width:100%}}
 @media(max-width:980px){.landing-center-grid{grid-template-columns:1fr!important}}
+.landing-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.landing-flow-step{display:flex;align-items:center;gap:10px;min-height:56px;padding:12px 14px;background:#fff;border:1px solid #e5e5ea;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.035);color:#1d1d1f}
+.landing-flow-step b{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:#0071e3;color:#fff;font-size:12px;flex:0 0 26px}
+.landing-flow-step span{font-size:13px;font-weight:680;line-height:1.35}
+.landing-center-grid{display:grid!important;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:14px;align-items:start}
+#page-landing_center .card{border:1px solid #dedee4!important;background:#fff!important;box-shadow:0 1px 2px rgba(0,0,0,.035)!important}
+.landing-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.landing-card-head .card-title{margin:0!important;font-size:15px!important;color:#1d1d1f!important}
+.landing-card-head p{margin:4px 0 0;color:#7c7c82;font-size:12px;line-height:1.5}
+.landing-help,.team-resource-note{padding:10px 12px;margin:0 0 12px;background:#f5f5f7;border:1px solid #e5e5ea;border-radius:8px;color:#6e6e73;font-size:12px;line-height:1.55}
+.landing-token-list{margin-top:14px;max-height:360px;overflow:auto;padding-right:2px}
+.landing-full-btn{width:100%;justify-content:center}
+.landing-work-card{padding:18px!important}
+.landing-form-section{padding:14px 0;border-top:1px solid #ececf1}
+.landing-form-section:first-of-type{border-top:0;padding-top:0}
+.landing-section-title{font-size:12px;font-weight:820;color:#1d1d1f;margin-bottom:10px}
+.landing-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
+.landing-form-grid .fg,.landing-side-card .fg{margin:0 0 10px!important}
+.landing-switch-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.landing-switch-row label{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 12px;border:1px solid #e5e5ea;border-radius:999px;background:#fbfbfd;color:#1d1d1f;font-size:13px;font-weight:650}
+.landing-switch-row .fc{width:170px!important;flex:0 0 170px!important}
+.landing-mode-pill{height:28px;display:inline-flex;align-items:center;padding:0 10px;border-radius:999px;background:#ecfdf5;border:1px solid #bbf7d0;color:#047857;font-size:12px;font-weight:760}
+.landing-rules-box,.landing-preflight-box{margin:12px 0 0;padding:12px;border:1px solid #e5e5ea;border-radius:8px;background:#f5f5f7}
+.landing-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:14px;border-top:1px solid #ececf1}
+.landing-stats-card,.landing-record-card{margin-top:14px}
+.team-resource-section{padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important}
+.team-resource-panel{background:#fff;border:1px solid #dedee4;border-radius:8px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
+.team-resource-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:12px}
+.team-resource-title{font-size:16px;font-weight:820;color:#1d1d1f}
+.team-resource-subtitle{font-size:12px;color:#7c7c82;margin-top:4px;line-height:1.5}
+.team-resource-summary{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border-radius:999px;background:#f5f5f7;border:1px solid #e5e5ea;color:#6e6e73;font-size:12px;font-weight:680;white-space:nowrap}
+.team-resource-toolbar{display:grid;grid-template-columns:170px 190px minmax(220px,1fr) auto;gap:10px;margin-bottom:10px}
+.team-resource-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.team-resource-actions .fc{width:210px!important;flex:0 0 210px!important}
+.team-resource-box{border:1px solid #e5e5ea!important;border-radius:8px!important;overflow:auto!important;background:#fff!important}
+.team-resource-table{width:100%;min-width:860px;border-collapse:separate;border-spacing:0;font-size:13px}
+.team-resource-table th{height:40px;padding:0 12px;text-align:left;color:#6e6e73;background:#f5f5f7;border-bottom:1px solid #e5e5ea;font-size:12px;font-weight:760}
+.team-resource-table td{padding:12px;border-bottom:1px solid #ececf1}
+.team-resource-table tr:last-child td{border-bottom:0}
+.team-resource-name{font-weight:760;color:#1d1d1f;line-height:1.35}
+.team-resource-meta{margin-top:3px;color:#7c7c82;font-size:12px;line-height:1.45}
+.team-resource-check{width:42px;text-align:center!important}
+.team-resource-op{text-align:right!important;white-space:nowrap}
+.team-resource-op .btn+.btn{margin-left:6px}
+.resource-team-pill,.resource-owner-pill{display:inline-flex;align-items:center;max-width:220px;min-height:28px;padding:0 10px;border-radius:999px;background:#eef6ff;border:1px solid #cfe7ff;color:#005bb5;font-size:12px;font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.resource-owner-pill{background:#f5f5f7;border-color:#e5e5ea;color:#1d1d1f}
+.resource-team-pill.muted,.resource-owner-pill.muted{background:#fff8e6;border-color:#fde68a;color:#9a6700}
+.team-resource-empty{padding:18px;text-align:center;color:#7c7c82;border:1px dashed #d2d2d7;border-radius:8px;background:#fbfbfd;font-size:13px}
+.team-resource-empty.error{color:#b42318;border-color:#fecdca;background:#fff5f5}
+@media(max-width:980px){
+ .landing-flow{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .landing-form-grid,.team-resource-toolbar{grid-template-columns:1fr}
+ .landing-switch-row .fc,.team-resource-actions .fc{width:100%!important;flex:1 1 220px!important}
+ .team-resource-head{display:block}
+ .team-resource-summary{margin-top:10px}
+}
+@media(max-width:640px){
+ .landing-flow{grid-template-columns:1fr}
+ .landing-actions{justify-content:stretch;flex-direction:column}
+ .landing-actions .btn{width:100%}
+ .team-resource-actions{display:grid;grid-template-columns:1fr}
+}
 .kpi-raw-field{font-size:11px;color:var(--t3);font-family:monospace;line-height:22px}
 
 #page-logs .table-wrap,#page-twpages .tw-matrix-table-wrap,#twPagesList2 .tw-matrix-table-wrap,#page-landing_urls>div[style*="overflow:hidden"]{overflow:auto!important}
@@ -2506,60 +2568,82 @@ select.fc option{background:#fff;color:#1d1d1f}
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
  </div>
- <div style="display:grid;grid-template-columns:minmax(280px,360px) 1fr;gap:14px;align-items:start" class="landing-center-grid">
-  <div class="card">
-   <div class="card-title">Cloudflare API</div>
-   <div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">这里需要 Cloudflare Account API Token，不能用 R2/S3 Access Key 或 Secret Key。建议填 Account ID；系统会直接验证该账号的 Pages 发布权限。</div>
+ <div class="landing-flow">
+  <div class="landing-flow-step"><b>1</b><span>保存 Cloudflare Account Token</span></div>
+  <div class="landing-flow-step"><b>2</b><span>选择模板并填写跳转链接</span></div>
+  <div class="landing-flow-step"><b>3</b><span>开启统计 / 防护 / 账户绑定</span></div>
+  <div class="landing-flow-step"><b>4</b><span>预检后发布并复制链接</span></div>
+ </div>
+ <div class="landing-center-grid">
+  <div class="card landing-side-card">
+   <div class="landing-card-head">
+    <div><div class="card-title">Cloudflare API</div><p>只支持 Account API Token。R2/S3 Access Key、Secret Key 或 S3 endpoint 不能用于 Pages 发布。</p></div>
+   </div>
+   <div class="landing-help">建议填写 Account ID，系统会直接校验 Pages Edit 权限，并保留可诊断的发布账号。</div>
    <div class="fg"><label class="fl">API 名称</label><input class="fc" id="cfApiName" placeholder="如：团队A发布号"></div>
    <div class="fg"><label class="fl">Account ID</label><input class="fc" id="cfAccountId" placeholder="Cloudflare 账号 ID，建议必填"></div>
    <div class="fg"><label class="fl">API Token</label><input class="fc" id="cfApiToken" type="password" placeholder="只保存加密值，前端不回显"></div>
-   <button class="btn btn-p role-hide-viewer" style="width:100%;justify-content:center" onclick="addCloudflareToken()">验证并保存</button>
-   <div id="cfTokenList" style="margin-top:14px"></div>
+   <button class="btn btn-p role-hide-viewer landing-full-btn" onclick="addCloudflareToken()">验证并保存</button>
+   <div id="cfTokenList" class="landing-token-list"></div>
   </div>
-  <div class="card">
-   <div class="card-title">发布新落地页</div>
-   <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
-    <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
-    <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-    <div class="fg"><label class="fl">Cloudflare API</label><select class="fc" id="lpToken"></select></div>
-    <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
-    <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
-    <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind"><option value="landing">普通落地页</option><option value="form">表单投放链接</option></select></div>
+  <div class="card landing-work-card">
+   <div class="landing-card-head">
+    <div><div class="card-title">发布新落地页</div><p>发布配置、跳转轮询、防护规则和账户绑定在这里一次完成。</p></div>
+    <div class="landing-mode-pill">Pages</div>
    </div>
-   <div class="fg"><label class="fl">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个 WhatsApp / 跳转链接；第一版支持页面内顺序轮询"></textarea></div>
-   <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
-    <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select></div>
-    <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，可写 act_ 前缀"></textarea></div>
-   </div>
-   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:8px 0 12px">
-    <label style="display:flex;gap:8px;align-items:center;color:var(--t2);font-size:13px"><input type="checkbox" id="lpFormEnabled"> 启用表单链接标记</label>
-    <label style="display:flex;gap:8px;align-items:center;color:var(--t2);font-size:13px"><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
-    <label style="display:flex;gap:8px;align-items:center;color:var(--t2);font-size:13px"><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用防护</label>
-    <select class="fc" id="lpRotation" style="width:150px"><option value="sequential">顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
-   </div>
-   <div id="lpRulesBox" style="display:none;margin:8px 0 12px;padding:12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)">
-    <div style="font-weight:760;margin-bottom:8px">防护规则</div>
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
-     <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" placeholder="如：US,SG,TW；空=不限制"></div>
-     <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" placeholder="如：CN,RU"></div>
-     <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="lpPlatformBlock" placeholder="如：Windows/Chrome"></div>
-     <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" placeholder="mobile,desktop,tablet"></div>
-     <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" placeholder="bot,crawler,spider"></div>
-     <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" placeholder="example.com"></div>
-     <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" placeholder="test,preview"></div>
-     <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" placeholder="fbclid 或 utm_source"></div>
+   <div class="landing-form-section">
+    <div class="landing-section-title">基础信息</div>
+    <div class="landing-form-grid">
+     <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
+     <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
+     <div class="fg"><label class="fl">Cloudflare API</label><select class="fc" id="lpToken"></select></div>
+     <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
+     <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
+     <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind"><option value="landing">普通落地页</option><option value="form">表单投放链接</option></select></div>
     </div>
    </div>
-   <div id="lpPreflightBox" style="display:none;margin:8px 0 12px;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"></div>
-   <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
+   <div class="landing-form-section">
+    <div class="landing-section-title">跳转与绑定</div>
+    <div class="fg"><label class="fl">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个 WhatsApp / 跳转链接；发布后页面按轮询策略跳转"></textarea></div>
+    <div class="landing-form-grid">
+     <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select></div>
+     <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，可写 act_ 前缀"></textarea></div>
+    </div>
+   </div>
+   <div class="landing-form-section">
+    <div class="landing-section-title">统计与防护</div>
+    <div class="landing-switch-row">
+     <label><input type="checkbox" id="lpFormEnabled"> 表单链接标记</label>
+     <label><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
+     <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用防护</label>
+     <select class="fc" id="lpRotation"><option value="sequential">顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
+    </div>
+    <div id="lpRulesBox" class="landing-rules-box" style="display:none">
+     <div class="landing-section-title">防护规则</div>
+     <div class="landing-form-grid">
+      <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" placeholder="如：US,SG,TW；空=不限制"></div>
+      <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" placeholder="如：CN,RU"></div>
+      <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="lpPlatformBlock" placeholder="如：Windows/Chrome"></div>
+      <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" placeholder="mobile,desktop,tablet"></div>
+      <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" placeholder="bot,crawler,spider"></div>
+      <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" placeholder="example.com"></div>
+      <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" placeholder="test,preview"></div>
+      <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" placeholder="fbclid 或 utm_source"></div>
+     </div>
+    </div>
+    <div id="lpPreflightBox" class="landing-preflight-box" style="display:none"></div>
+   </div>
+   <div class="landing-actions">
     <button class="btn btn-g role-hide-viewer" onclick="preflightLandingPage(true)">发布前检查</button>
     <button class="btn btn-p role-hide-viewer" onclick="publishLandingPage()">发布到 Cloudflare</button>
+   </div>
+  </div>
  </div>
-</div>
-<div class="card" id="landingStatsPanel" style="display:none;margin-top:14px"></div>
-</div>
- <div class="card" style="margin-top:14px">
-  <div class="card-title">发布记录</div>
+ <div class="card landing-stats-card" id="landingStatsPanel" style="display:none"></div>
+ <div class="card landing-record-card">
+  <div class="landing-card-head">
+   <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。未被引用的页面可以归档。</p></div>
+  </div>
   <div class="table-wrap">
    <table style="width:100%;border-collapse:collapse;min-width:980px">
     <thead><tr>
@@ -4732,21 +4816,26 @@ var _teamResTeams = [];
 function renderTeamResourceSection(){
  if(!hasRole('admin')) return '';
  var kindOpts = _teamResKinds.map(function(k){return '<option value="'+k[0]+'">'+k[1]+'</option>';}).join('');
- return '<div class="ss role-superadmin-only">' +
-  '<div class="ss-title">团队资源分配 <span style="font-size:12px;font-weight:400;color:var(--t3)">补齐资源归属，团队用户按归属查看和操作</span></div>' +
-  '<div class="sg">' +
-  '<div class="team-filter-row">' +
-  '<select class="fc" id="teamResKind" onchange="loadTeamResources()">'+kindOpts+'</select>' +
-  '<select class="fc" id="teamResFilter" onchange="loadTeamResources()"><option value="all">全部归属</option><option value="unassigned">未分配</option></select>' +
-  '<input class="fc" id="teamResKeyword" placeholder="搜索名称 / ID / 状态" onkeydown="if(event.key===&quot;Enter&quot;)loadTeamResources()">' +
-  '<button class="btn btn-g" onclick="loadTeamResources()">查询</button>' +
-  '</div>' +
-  '<div class="team-action-row">' +
-  '<select class="fc" id="teamResAssignTeam" style="width:200px"><option value="">取消分配</option></select>' +
-  '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置归属</button>' +
-  '<span id="teamResSummary" style="font-size:12px;color:var(--t3)"></span>' +
-  '</div>' +
-  '<div id="teamResourceWrap"><div style="color:var(--t3);font-size:13px">加载中...</div></div>' +
+ return '<div class="ss role-superadmin-only team-resource-section">' +
+  '<div class="team-resource-panel">' +
+   '<div class="team-resource-head">' +
+    '<div><div class="team-resource-title">团队资产管理</div><div class="team-resource-subtitle">补齐资源归属、负责人和可见范围，团队用户只看到自己可操作的资产。</div></div>' +
+    '<span id="teamResSummary" class="team-resource-summary">加载中...</span>' +
+   '</div>' +
+   '<div class="team-resource-toolbar">' +
+    '<select class="fc" id="teamResKind" onchange="loadTeamResources()">'+kindOpts+'</select>' +
+    '<select class="fc" id="teamResFilter" onchange="loadTeamResources()"><option value="all">全部归属</option><option value="unassigned">未分配</option></select>' +
+    '<input class="fc" id="teamResKeyword" placeholder="搜索名称 / ID / 状态" onkeydown="if(event.key===&quot;Enter&quot;)loadTeamResources()">' +
+    '<button class="btn btn-g" onclick="loadTeamResources()">查询</button>' +
+   '</div>' +
+   '<div class="team-resource-actions">' +
+    '<select class="fc" id="teamResAssignTeam"><option value="">取消分配</option></select>' +
+    '<button class="btn btn-p" onclick="assignSelectedTeamResources()">批量设置团队</button>' +
+    '<select class="fc" id="batchOwnerUid"><option value="">批量设负责人</option></select>' +
+    '<button class="btn btn-g" onclick="batchAssignOwner()">批量设置负责人</button>' +
+   '</div>' +
+   '<div class="team-resource-note">建议先分配团队，再设置账户或 Token 负责人；Token 未指定负责人时运营不可见。</div>' +
+   '<div id="teamResourceWrap"><div class="team-resource-empty">加载中...</div></div>' +
   '</div></div>';
 }
 
@@ -4785,31 +4874,31 @@ async function _renderTeamResources(kind){
   return;
  }
  var html = '<div class="team-resource-box">' +
-  '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
- '<thead><tr style="color:var(--t3);border-bottom:1px solid var(--bd);background:var(--bg2)">' +
-  '<th style="width:34px;padding:8px;text-align:left"><input type="checkbox" onchange="toggleTeamResourceChecks(this.checked)"></th>' +
-  '<th style="padding:8px;text-align:left">资源</th>' +
-  '<th style="padding:8px;text-align:left">当前团队</th>' +
-  (kind==='accounts'||kind==='tokens'?'<th style="padding:8px;text-align:left">负责人</th>':'')+
-  '<th style="padding:8px;text-align:right">操作</th>' +
+  '<table class="team-resource-table">' +
+ '<thead><tr>' +
+  '<th class="team-resource-check"><input type="checkbox" onchange="toggleTeamResourceChecks(this.checked)"></th>' +
+  '<th>资源</th>' +
+  '<th>当前团队</th>' +
+  (kind==='accounts'||kind==='tokens'?'<th>负责人</th>':'')+
+  '<th class="team-resource-op">操作</th>' +
   '</tr></thead><tbody>';
  _teamResItems.forEach(function(item){
   var parts = _teamResMain(item, kind);
   var sub = parts.slice(1).filter(Boolean).map(escHtml).join(' · ');
-  var team = item.team_name ? escHtml(item.team_name) : '<span style="color:var(--wa)">未分配</span>';
+  var team = item.team_name ? '<span class="resource-team-pill">'+escHtml(item.team_name)+'</span>' : '<span class="resource-team-pill muted">未分配</span>';
   var ownerCell = '';
   if(kind==='accounts'||kind==='tokens'){
    var emptyOwner = kind==='tokens' ? '未指定（运营不可见）' : '未指定';
-   ownerCell = '<td style="padding:8px">'+(item.owner_user_name?escHtml(item.owner_user_name):'<span style="color:var(--t3)">'+emptyOwner+'</span>')+'</td>';
+   ownerCell = '<td>'+(item.owner_user_name?'<span class="resource-owner-pill">'+escHtml(item.owner_user_name)+'</span>':'<span class="resource-owner-pill muted">'+emptyOwner+'</span>')+'</td>';
   }
-  html += '<tr style="border-bottom:1px solid var(--bd)">' +
-   '<td style="padding:8px"><input type="checkbox" class="team-res-check" value="'+item.id+'"></td>' +
-   '<td style="padding:8px"><div style="font-weight:600;color:var(--t1)">'+escHtml(parts[0])+'</div>' +
-   (sub?'<div style="font-size:12px;color:var(--t3);margin-top:2px">'+sub+'</div>':'')+'</td>' +
-   '<td style="padding:8px">'+team+'</td>' +
+  html += '<tr>' +
+   '<td class="team-resource-check"><input type="checkbox" class="team-res-check" value="'+item.id+'"></td>' +
+   '<td><div class="team-resource-name">'+escHtml(parts[0])+'</div>' +
+   (sub?'<div class="team-resource-meta">'+sub+'</div>':'')+'</td>' +
+   '<td>'+team+'</td>' +
    ownerCell +
-   '<td style="padding:8px;text-align:right">'+
-   (kind==='accounts'?'<button class="btn btn-g btn-sm" style="margin-right:6px" onclick="openAccountOwnerModal('+item.id+')">负责人</button>':(kind==='tokens'?'<button class="btn btn-g btn-sm" style="margin-right:6px" onclick="openTokenOwnerModal('+item.id+')">负责人</button>':''))+
+   '<td class="team-resource-op">'+
+   (kind==='accounts'?'<button class="btn btn-g btn-sm" onclick="openAccountOwnerModal('+item.id+')">负责人</button>':(kind==='tokens'?'<button class="btn btn-g btn-sm" onclick="openTokenOwnerModal('+item.id+')">负责人</button>':''))+
    '<button class="btn btn-g btn-sm" onclick="selectSingleTeamResource('+item.id+')">选择</button></td>' +
    '</tr>';
  });
@@ -4829,7 +4918,7 @@ async function loadTeamResources(){
  // Populate batch owner dropdown
  if(!_teamResAllUsers||!_teamResAllUsers.length){try{var ur=await api('GET','/users');_teamResAllUsers=ur.users||[]}catch(e){} }
  var bos=document.getElementById('batchOwnerUid'); if(bos)bos.innerHTML='<option value="">批量设负责人</option>'+(_teamResAllUsers||[]).filter(function(u){return['admin','operator'].indexOf(u.role)>=0&&u.is_active}).map(function(u){return'<option value="'+u.id+'">'+escHtml((u.display_name||u.username)+' - '+(u.role_label||u.role))+'</option>'}).join('');
- if(wrap) wrap.innerHTML = '<div style="color:var(--t3);font-size:13px">加载中...</div>';
+ if(wrap) wrap.innerHTML = '<div class="team-resource-empty">加载中...</div>';
  try{
   var qs = '?kind='+encodeURIComponent(kind)+'&team_id='+encodeURIComponent(teamFilter)+'&keyword='+encodeURIComponent(keyword)+'&limit=300';
   var r = await api('GET','/teams/resources'+qs);
@@ -4839,7 +4928,7 @@ async function loadTeamResources(){
   var sum = document.getElementById('teamResSummary');
   if(sum) sum.textContent = '显示 '+_teamResItems.length+' / '+(r.total||0)+' 个资源';
  }catch(e){
-  if(wrap) wrap.innerHTML = '<div style="color:var(--er)">加载失败：'+escHtml(e.message||e)+'</div>';
+  if(wrap) wrap.innerHTML = '<div class="team-resource-empty error">加载失败：'+escHtml(e.message||e)+'</div>';
  }
 }
 
