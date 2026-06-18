@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -17,7 +16,7 @@ from services.local_token_bridge import authenticate_node
 
 TASK_STATUSES = {"queued", "running", "need_user", "success", "failed", "cancelled"}
 TERMINAL_STATUSES = {"success", "failed", "cancelled"}
-MAX_SCREENSHOT_CHARS = 2_500_000
+SUPPORTED_API_TASKS = {"graph_account_probe", "graph_update_status"}
 
 
 def _now_cst() -> str:
@@ -29,15 +28,6 @@ def _normalize_act_id(value: str) -> str:
     if not raw:
         return ""
     return raw if raw.startswith("act_") else f"act_{raw}"
-
-
-def _numeric_act_id(value: str) -> str:
-    return _normalize_act_id(value).replace("act_", "", 1)
-
-
-def _ads_manager_url(act_id: str) -> str:
-    numeric = _numeric_act_id(act_id)
-    return f"https://adsmanager.facebook.com/adsmanager/manage/campaigns?act={numeric}&nav_source=mira_local_executor"
 
 
 def ensure_local_executor_tables(conn=None) -> None:
@@ -149,46 +139,81 @@ def list_tasks(user: dict, limit: int = 30) -> list[dict]:
         conn.close()
 
 
-def create_open_account_task(user: dict, act_id: str, node_id: Optional[str] = None) -> dict:
-    user = _require_operator(user)
+def _account_scope_for_task(conn: sqlite3.Connection, user: dict, act_id: str) -> tuple[Optional[int], Optional[int], str]:
     act_id = _normalize_act_id(act_id)
     if not act_id:
-        raise HTTPException(status_code=400, detail="请填写广告账户 ID")
+        return team_id_for_create(user), user_id(user) if is_operator_user(user) else None, ""
+    acc = assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
+    team_id = acc["team_id"]
+    if team_id is None and not is_superadmin(user):
+        team_id = team_id_for_create(user)
+    owner_id = acc["owner_user_id"] if "owner_user_id" in acc.keys() else None
+    if owner_id is None and is_operator_user(user):
+        owner_id = user_id(user)
+    return team_id, owner_id, act_id
+
+
+def create_api_task(
+    user: dict,
+    task_type: str,
+    act_id: str,
+    params: Optional[dict] = None,
+    node_id: Optional[str] = None,
+) -> dict:
+    user = _require_operator(user)
+    task_type = str(task_type or "").strip()
+    if task_type not in SUPPORTED_API_TASKS:
+        raise HTTPException(status_code=400, detail="Unsupported local API task")
+
+    params = dict(params or {})
     conn = get_conn()
     try:
         ensure_local_executor_tables(conn)
-        acc = assert_row_access(conn, "accounts", act_id, user, id_column="act_id")
-        team_id = acc["team_id"]
-        if team_id is None and not is_superadmin(user):
-            team_id = team_id_for_create(user)
-        owner_id = acc["owner_user_id"] if "owner_user_id" in acc.keys() else None
-        if owner_id is None and is_operator_user(user):
-            owner_id = user_id(user)
+        team_id, owner_id, scoped_act_id = _account_scope_for_task(conn, user, act_id)
+        if task_type == "graph_account_probe":
+            if not scoped_act_id:
+                raise HTTPException(status_code=400, detail="请填写广告账户 ID")
+            params.update({
+                "act_id": scoped_act_id,
+                "fields": params.get("fields") or "id,name,account_status,currency,timezone_name,amount_spent,spend_cap,balance",
+            })
+            progress = "等待本地执行器读取账户 API 状态"
+        else:
+            object_id = str(params.get("object_id") or "").strip()
+            status = str(params.get("status") or "PAUSED").strip().upper()
+            level = str(params.get("level") or "").strip().lower()
+            if not scoped_act_id:
+                raise HTTPException(status_code=400, detail="请填写广告账户 ID")
+            if not object_id:
+                raise HTTPException(status_code=400, detail="请填写要操作的广告/广告组/系列 ID")
+            if status not in {"ACTIVE", "PAUSED"}:
+                raise HTTPException(status_code=400, detail="状态只支持 ACTIVE 或 PAUSED")
+            if level not in {"campaign", "adset", "ad"}:
+                raise HTTPException(status_code=400, detail="层级只支持 campaign/adset/ad")
+            params.update({"act_id": scoped_act_id, "object_id": object_id, "status": status, "level": level})
+            progress = f"等待本地执行器将 {level} 更新为 {status}"
+
         task_id = uuid.uuid4().hex
-        params = {
-            "act_id": act_id,
-            "target_url": _ads_manager_url(act_id),
-            "expect": "open_ads_manager_and_detect_state",
-        }
         now = _now_cst()
         conn.execute(
             """
             INSERT INTO local_executor_tasks (
                 id, task_type, status, node_id, team_id, owner_user_id, created_by,
-                created_by_name, account_id, params_json, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                created_by_name, account_id, params_json, progress, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 task_id,
-                "open_ads_manager",
+                task_type,
                 "queued",
                 str(node_id or "").strip() or None,
                 team_id,
                 owner_id,
                 user.get("uid"),
                 user.get("username") or "",
-                act_id,
+                scoped_act_id,
                 json.dumps(params, ensure_ascii=False),
+                progress,
                 now,
                 now,
             ),
@@ -228,7 +253,7 @@ def poll_task(node_id: str, node_secret: str) -> dict:
                 updated_at=?, progress=?
             WHERE id=? AND status='queued'
             """,
-            (node_id, now, now, "本地执行器已领取任务", picked["id"]),
+            (node_id, now, now, "本地 API 执行器已领取任务", picked["id"]),
         )
         conn.commit()
         row = conn.execute("SELECT * FROM local_executor_tasks WHERE id=?", (picked["id"],)).fetchone()
@@ -263,9 +288,6 @@ def update_task_from_node(
             raise HTTPException(status_code=403, detail="No permission to update this task")
         now = _now_cst()
         completed_at = now if status in TERMINAL_STATUSES or status == "need_user" else row["completed_at"]
-        shot = str(screenshot_data_url or "")
-        if len(shot) > MAX_SCREENSHOT_CHARS:
-            shot = shot[:MAX_SCREENSHOT_CHARS]
         conn.execute(
             """
             UPDATE local_executor_tasks
@@ -279,7 +301,7 @@ def update_task_from_node(
                 progress or "",
                 json.dumps(result or {}, ensure_ascii=False),
                 error or "",
-                shot,
+                "",
                 now,
                 completed_at,
                 task_id,

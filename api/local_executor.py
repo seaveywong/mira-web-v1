@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user
 from services.local_executor import (
-    create_open_account_task,
+    create_api_task,
     list_tasks,
     poll_task,
     update_task_from_node,
@@ -17,8 +17,16 @@ from services.local_executor import (
 router = APIRouter()
 
 
-class OpenAccountTaskRequest(BaseModel):
+class ProbeAccountTaskRequest(BaseModel):
     act_id: str
+    node_id: Optional[str] = ""
+
+
+class UpdateStatusTaskRequest(BaseModel):
+    act_id: str
+    object_id: str
+    level: str
+    status: str = "PAUSED"
     node_id: Optional[str] = ""
 
 
@@ -42,10 +50,37 @@ def get_tasks(limit: int = 30, user=Depends(get_current_user)):
     return list_tasks(user, limit=limit)
 
 
-@router.post("/tasks/open-account")
-def create_open_account(body: OpenAccountTaskRequest, user=Depends(get_current_user)):
-    task = create_open_account_task(user, body.act_id, body.node_id or None)
+@router.post("/tasks/probe-account")
+def create_probe_account(body: ProbeAccountTaskRequest, user=Depends(get_current_user)):
+    task = create_api_task(
+        user=user,
+        task_type="graph_account_probe",
+        act_id=body.act_id,
+        params={},
+        node_id=body.node_id or None,
+    )
     return {"success": True, "task": task}
+
+
+@router.post("/tasks/update-status")
+def create_update_status(body: UpdateStatusTaskRequest, user=Depends(get_current_user)):
+    task = create_api_task(
+        user=user,
+        task_type="graph_update_status",
+        act_id=body.act_id,
+        params={
+            "object_id": body.object_id,
+            "level": body.level,
+            "status": body.status,
+        },
+        node_id=body.node_id or None,
+    )
+    return {"success": True, "task": task}
+
+
+@router.post("/tasks/open-account")
+def create_open_account_disabled():
+    raise HTTPException(status_code=410, detail="本地执行器已切换为纯 API 模式，不再创建 UI 打开任务")
 
 
 @router.post("/poll")
@@ -69,7 +104,7 @@ def update_task(task_id: str, body: TaskUpdateRequest):
             progress=body.progress or "",
             result=body.result or {},
             error=body.error or "",
-            screenshot_data_url=body.screenshot_data_url or "",
+            screenshot_data_url="",
         )
         return {"success": True, "task": task}
     except PermissionError as exc:

@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Mira 本地执行器",
-  "version": "1.2.0",
-  "description": "绑定 Mira 后，在本机已登录 Chrome 中执行广告后台任务，不上传 Cookie 或隐藏凭证。",
+  "name": "Mira 本地 API 执行器",
+  "version": "1.3.0",
+  "description": "绑定 Mira 后，在本机 Chrome 内用你明确配置的官方 Graph API Token 执行任务，不上传 Cookie 或隐藏凭证。",
   "action": {
-    "default_title": "Mira 本地执行器",
+    "default_title": "Mira 本地 API 执行器",
     "default_popup": "popup.html"
   },
   "background": {
@@ -12,16 +12,11 @@
   },
   "permissions": [
     "alarms",
-    "identity",
-    "identity.email",
-    "scripting",
-    "tabs",
     "storage"
   ],
   "host_permissions": [
     "http://*/*",
     "https://*/*",
-    "https://graph.facebook.com/*",
-    "https://www.facebook.com/*"
+    "https://graph.facebook.com/*"
   ]
 }

@@ -1,9 +1,10 @@
 const DEFAULT_SERVER_URL = "https://shouhu.asia";
-const DEFAULT_META_SCOPES = "ads_management,ads_read,pages_show_list,pages_manage_ads,business_management";
-const HEARTBEAT_ALARM = "mira_local_token_heartbeat";
-const EXECUTOR_ALARM = "mira_local_executor_poll";
-const REFRESH_SKEW_MS = 5 * 60 * 1000;
+const HEARTBEAT_ALARM = "mira_local_api_executor_heartbeat";
+const EXECUTOR_ALARM = "mira_local_api_executor_poll";
+const GRAPH_BASE = "https://graph.facebook.com/v25.0";
 const runningTasks = new Set();
+let lastProbeAt = 0;
+let lastProbeSummary = null;
 
 function normalizeServerUrl(value) {
   const raw = String(value || DEFAULT_SERVER_URL).trim().replace(/\/+$/, "");
@@ -16,6 +17,13 @@ function randomId(prefix) {
   return `${prefix}_${Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
+function maskToken(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return "";
+  if (raw.length <= 12) return "****";
+  return `${raw.slice(0, 6)}****${raw.slice(-4)}`;
+}
+
 async function ensureInstallId() {
   const data = await chrome.storage.local.get(["installId"]);
   if (data.installId) return data.installId;
@@ -26,17 +34,7 @@ async function ensureInstallId() {
 
 async function detectChromeName() {
   const installId = await ensureInstallId();
-  try {
-    const info = await chrome.identity.getProfileUserInfo({ accountStatus: "ANY" });
-    if (info && info.email) return `Chrome - ${info.email}`;
-  } catch (err) {
-    // Chrome may return empty profile info when the user is not signed in.
-  }
-  return `Chrome - ${installId.slice(-6).toUpperCase()}`;
-}
-
-function getRedirectUri() {
-  return chrome.identity.getRedirectURL("meta");
+  return `Chrome-${installId.slice(-6).toUpperCase()}`;
 }
 
 async function getSettings() {
@@ -48,24 +46,16 @@ async function getSettings() {
     "accessToken",
     "expiresInMinutes",
     "tokenExpiresAt",
-    "metaAppId",
-    "metaScopes",
-    "autoRefreshEnabled",
     "lastStatus"
   ]);
-  const detectedName = data.nodeName || await detectChromeName();
   return {
     serverUrl: normalizeServerUrl(data.serverUrl),
-    nodeName: detectedName,
+    nodeName: data.nodeName || await detectChromeName(),
     nodeId: data.nodeId || "",
     nodeSecret: data.nodeSecret || "",
     accessToken: data.accessToken || "",
     expiresInMinutes: data.expiresInMinutes || "",
     tokenExpiresAt: data.tokenExpiresAt || "",
-    metaAppId: data.metaAppId || "",
-    metaScopes: data.metaScopes || DEFAULT_META_SCOPES,
-    autoRefreshEnabled: data.autoRefreshEnabled !== false,
-    redirectUri: getRedirectUri(),
     lastStatus: data.lastStatus || null
   };
 }
@@ -83,7 +73,130 @@ async function postJson(serverUrl, path, body) {
   return data;
 }
 
-async function updateExecutorTask(task, status, progress, result = {}, error = "", screenshotDataUrl = "") {
+async function graphRequest(method, path, params = {}) {
+  const s = await getSettings();
+  const token = String(s.accessToken || "").trim();
+  if (!token) throw new Error("本地执行器未配置官方 Graph API Token");
+  const cleanPath = String(path || "").replace(/^\/+/, "");
+  const url = new URL(`${GRAPH_BASE}/${cleanPath}`);
+  const body = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      if (method === "GET") url.searchParams.set(key, String(value));
+      else body.set(key, String(value));
+    }
+  });
+  if (method === "GET") url.searchParams.set("access_token", token);
+  else body.set("access_token", token);
+  const res = await fetch(url.toString(), {
+    method,
+    headers: method === "GET" ? undefined : { "Content-Type": "application/x-www-form-urlencoded" },
+    body: method === "GET" ? undefined : body.toString()
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) {
+    const err = data.error || {};
+    const code = err.code ? `code=${err.code}` : "";
+    const sub = err.error_subcode || err.subcode ? `subcode=${err.error_subcode || err.subcode}` : "";
+    const detail = [err.message || `HTTP ${res.status}`, code, sub].filter(Boolean).join(" | ");
+    throw new Error(detail);
+  }
+  return data;
+}
+
+async function graphGet(path, params = {}) {
+  return graphRequest("GET", path, params);
+}
+
+async function graphPost(path, params = {}) {
+  return graphRequest("POST", path, params);
+}
+
+function normalizeActId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.startsWith("act_") ? raw : `act_${raw}`;
+}
+
+async function fetchAllAdAccounts() {
+  const out = [];
+  let path = "me/adaccounts";
+  let params = { fields: "id,name,account_status", limit: 200 };
+  for (let i = 0; i < 20; i += 1) {
+    const data = await graphGet(path, params);
+    (data.data || []).forEach((item) => {
+      const actId = normalizeActId(item.id);
+      if (actId) out.push(actId);
+    });
+    const next = data.paging && data.paging.next;
+    if (!next) break;
+    const nextUrl = new URL(next);
+    path = nextUrl.pathname.replace(/^\/v[0-9.]+\//, "");
+    params = Object.fromEntries(nextUrl.searchParams.entries());
+    delete params.access_token;
+  }
+  return Array.from(new Set(out));
+}
+
+async function buildTokenSummary(force = false) {
+  const s = await getSettings();
+  const token = String(s.accessToken || "").trim();
+  if (!token) {
+    lastProbeSummary = null;
+    return { present: false };
+  }
+  if (!force && lastProbeSummary && Date.now() - lastProbeAt < 5 * 60 * 1000) {
+    return lastProbeSummary;
+  }
+  const summary = {
+    present: true,
+    token_mask: maskToken(token),
+    token_expires_at: s.tokenExpiresAt || "",
+    fb_user_id: "",
+    fb_user_name: "",
+    permissions: { granted: [], declined: [] },
+    account_ids: [],
+    has_ads_management: false,
+    has_ads_read: false,
+    last_error: ""
+  };
+  try {
+    const me = await graphGet("me", { fields: "id,name" });
+    summary.fb_user_id = String(me.id || "");
+    summary.fb_user_name = String(me.name || "");
+    try {
+      const perms = await graphGet("me/permissions", {});
+      const granted = [];
+      const declined = [];
+      (perms.data || []).forEach((item) => {
+        const name = String(item.permission || "").trim();
+        if (!name) return;
+        if (String(item.status || "").toLowerCase() === "granted") granted.push(name);
+        else declined.push(name);
+      });
+      summary.permissions = {
+        granted: Array.from(new Set(granted)).sort(),
+        declined: Array.from(new Set(declined)).sort()
+      };
+      summary.has_ads_management = summary.permissions.granted.includes("ads_management");
+      summary.has_ads_read = summary.permissions.granted.includes("ads_read") || summary.has_ads_management;
+    } catch (err) {
+      summary.last_error = `权限读取失败：${err.message || err}`;
+    }
+    try {
+      summary.account_ids = await fetchAllAdAccounts();
+    } catch (err) {
+      summary.last_error = summary.last_error || `账户读取失败：${err.message || err}`;
+    }
+  } catch (err) {
+    summary.last_error = err.message || String(err);
+  }
+  lastProbeAt = Date.now();
+  lastProbeSummary = summary;
+  return summary;
+}
+
+async function updateExecutorTask(task, status, progress, result = {}, error = "") {
   const s = await getSettings();
   if (!task || !task.id || !s.nodeId || !s.nodeSecret) return null;
   return postJson(s.serverUrl, `/api/local-executor/tasks/${encodeURIComponent(task.id)}/update`, {
@@ -93,110 +206,67 @@ async function updateExecutorTask(task, status, progress, result = {}, error = "
     progress,
     result,
     error,
-    screenshot_data_url: screenshotDataUrl || ""
+    screenshot_data_url: ""
   });
 }
 
-function waitForTabLoad(tabId, timeoutMs = 25000) {
-  return new Promise((resolve) => {
-    let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve(false);
-    }, timeoutMs);
-    function listener(updatedTabId, changeInfo) {
-      if (updatedTabId !== tabId) return;
-      if (changeInfo.status === "complete") {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve(true);
-      }
-    }
-    chrome.tabs.onUpdated.addListener(listener);
-  });
-}
-
-async function captureTabScreenshot(tab) {
-  try {
-    return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 });
-  } catch (err) {
-    return "";
-  }
-}
-
-async function analyzeAdsManagerTab(tabId) {
-  try {
-    const injected = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const text = (document.body && document.body.innerText || "").slice(0, 5000);
-        const low = text.toLowerCase();
-        const href = location.href;
-        let state = "opened";
-        let reason = "Ads Manager 页面已打开";
-        if (/login|登录|log in|忘记密码|password/.test(low) || /\/login/.test(href)) {
-          state = "need_login";
-          reason = "当前浏览器需要登录 Facebook";
-        } else if (/checkpoint|安全验证|验证身份|confirm your identity/.test(low) || /checkpoint/.test(href)) {
-          state = "need_user";
-          reason = "Facebook 要求人工验证";
-        } else if (/permission|权限不足|没有权限|not have permission|access denied/.test(low)) {
-          state = "no_permission";
-          reason = "当前登录账号可能没有此广告账户权限";
-        } else if (/ads manager|广告管理工具|广告系列|campaigns/i.test(text)) {
-          state = "ready";
-          reason = "Ads Manager 页面可访问";
-        }
-        return {
-          href,
-          title: document.title || "",
-          state,
-          reason,
-          sample: text.slice(0, 800)
-        };
-      }
-    });
-    return injected && injected[0] && injected[0].result ? injected[0].result : { state: "opened", reason: "页面已打开" };
-  } catch (err) {
-    return { state: "opened", reason: "页面已打开，但内容检测失败", error: err.message || String(err) };
-  }
-}
-
-async function executeOpenAdsManager(task) {
+async function executeAccountProbe(task) {
   const params = task.params || {};
-  const targetUrl = params.target_url;
-  if (!targetUrl) throw new Error("任务缺少 target_url");
-  await updateExecutorTask(task, "running", "正在打开 Ads Manager");
-  const tab = await chrome.tabs.create({ url: targetUrl, active: true });
-  await waitForTabLoad(tab.id);
-  const analysis = await analyzeAdsManagerTab(tab.id);
-  const screenshot = await captureTabScreenshot(tab);
-  const finalStatus = ["ready", "opened"].includes(analysis.state) ? "success" : "need_user";
-  await updateExecutorTask(
-    task,
-    finalStatus,
-    analysis.reason || "页面状态已回传",
-    { ...analysis, tab_id: tab.id, task_type: task.task_type },
-    finalStatus === "success" ? "" : (analysis.reason || "需要人工处理"),
-    screenshot
-  );
+  const actId = normalizeActId(params.act_id || task.account_id);
+  if (!actId) throw new Error("任务缺少广告账户 ID");
+  await updateExecutorTask(task, "running", "正在用本地 Graph API 读取账户");
+  const account = await graphGet(actId, {
+    fields: params.fields || "id,name,account_status,currency,timezone_name,amount_spent,spend_cap,balance"
+  });
+  const summary = await buildTokenSummary(true);
+  await updateExecutorTask(task, "success", "账户 API 自检完成", {
+    account,
+    token_user: {
+      id: summary.fb_user_id,
+      name: summary.fb_user_name,
+      has_ads_management: summary.has_ads_management,
+      has_ads_read: summary.has_ads_read
+    }
+  });
+}
+
+async function executeUpdateStatus(task) {
+  const params = task.params || {};
+  const objectId = String(params.object_id || "").trim();
+  const status = String(params.status || "PAUSED").trim().toUpperCase();
+  const level = String(params.level || "").trim().toLowerCase();
+  if (!objectId) throw new Error("任务缺少广告/广告组/系列 ID");
+  if (!["ACTIVE", "PAUSED"].includes(status)) throw new Error("状态只支持 ACTIVE 或 PAUSED");
+  await updateExecutorTask(task, "running", `正在将 ${level || "object"} ${objectId} 更新为 ${status}`);
+  const result = await graphPost(objectId, { status });
+  await updateExecutorTask(task, "success", `状态已更新为 ${status}`, {
+    object_id: objectId,
+    status,
+    level,
+    graph_result: result
+  });
 }
 
 async function executeTask(task) {
   if (!task || !task.id || runningTasks.has(task.id)) return;
   runningTasks.add(task.id);
   try {
-    if (task.task_type === "open_ads_manager") {
-      await executeOpenAdsManager(task);
+    const s = await getSettings();
+    if (!String(s.accessToken || "").trim()) {
+      await updateExecutorTask(task, "need_user", "请先在插件里配置官方 Graph API Token", {}, "本地执行器没有可用 API Token");
       return;
     }
-    await updateExecutorTask(task, "failed", "插件暂不支持此任务类型", {}, `Unsupported task type: ${task.task_type}`);
+    if (task.task_type === "graph_account_probe") {
+      await executeAccountProbe(task);
+      return;
+    }
+    if (task.task_type === "graph_update_status") {
+      await executeUpdateStatus(task);
+      return;
+    }
+    await updateExecutorTask(task, "failed", "插件不支持此任务类型", {}, `Unsupported task type: ${task.task_type}`);
   } catch (err) {
-    await updateExecutorTask(task, "failed", "本地执行失败", {}, err.message || String(err));
+    await updateExecutorTask(task, "failed", "本地 API 执行失败", {}, err.message || String(err));
   } finally {
     runningTasks.delete(task.id);
   }
@@ -231,7 +301,7 @@ async function registerNode(payload) {
     nodeSecret: data.node_secret,
     lastStatus: {
       ok: true,
-      message: "插件绑定成功",
+      message: "执行器绑定成功",
       updatedAt: new Date().toLocaleString()
     }
   });
@@ -239,83 +309,19 @@ async function registerNode(payload) {
   return data;
 }
 
-function parseAuthResult(redirectedUrl) {
-  const url = new URL(redirectedUrl);
-  const hash = new URLSearchParams((url.hash || "").replace(/^#/, ""));
-  const query = url.searchParams;
-  const params = hash.has("access_token") || hash.has("error")
-    ? hash
-    : query;
-  const error = params.get("error") || params.get("error_message") || params.get("error_description");
-  if (error) throw new Error(error);
-  const accessToken = params.get("access_token");
-  if (!accessToken) throw new Error("授权完成但未返回 access_token，请检查 App 回调地址和权限配置");
-  const expiresIn = parseInt(params.get("expires_in") || "0", 10);
-  const tokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
-    ? new Date(Date.now() + expiresIn * 1000).toISOString()
-    : "";
-  return {
-    accessToken,
-    expiresInMinutes: expiresIn > 0 ? String(Math.max(1, Math.floor(expiresIn / 60))) : "",
-    tokenExpiresAt
-  };
-}
-
-async function authorizeMeta(interactive = true) {
-  const s = await getSettings();
-  if (!s.nodeId || !s.nodeSecret) {
-    throw new Error("请先用 Mira 绑定码绑定插件，再执行 Meta 授权");
-  }
-  if (!s.metaAppId) {
-    throw new Error("请先填写 Meta App ID");
-  }
-  const state = randomId("mira_state");
-  const redirectUri = getRedirectUri();
-  const authUrl = new URL("https://www.facebook.com/v22.0/dialog/oauth");
-  authUrl.searchParams.set("client_id", s.metaAppId);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("response_type", "token");
-  authUrl.searchParams.set("scope", s.metaScopes || DEFAULT_META_SCOPES);
-  authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set("auth_type", "rerequest");
-
-  const redirectedUrl = await chrome.identity.launchWebAuthFlow({
-    url: authUrl.toString(),
-    interactive
-  });
-  if (!redirectedUrl) throw new Error("授权窗口未返回结果");
-  const resultUrl = new URL(redirectedUrl);
-  const resultHash = new URLSearchParams((resultUrl.hash || "").replace(/^#/, ""));
-  const resultState = resultHash.get("state") || resultUrl.searchParams.get("state");
-  if (resultState && resultState !== state) {
-    throw new Error("授权 state 校验失败，请重新授权");
-  }
-  const token = parseAuthResult(redirectedUrl);
-  await chrome.storage.local.set({
-    accessToken: token.accessToken,
-    expiresInMinutes: token.expiresInMinutes,
-    tokenExpiresAt: token.tokenExpiresAt,
-    autoRefreshEnabled: s.autoRefreshEnabled !== false,
-    lastStatus: {
-      ok: true,
-      message: "Meta 授权成功，正在上报 Mira",
-      updatedAt: new Date().toLocaleString()
-    }
-  });
-  return heartbeat();
-}
-
-async function heartbeat() {
+async function heartbeat(forceProbe = false) {
   const s = await getSettings();
   if (!s.nodeId || !s.nodeSecret) {
     return { ok: false, message: "插件尚未绑定 Mira" };
   }
+  const tokenSummary = await buildTokenSummary(forceProbe);
   const data = await postJson(s.serverUrl, "/api/local-tokens/heartbeat", {
     node_id: s.nodeId,
     node_secret: s.nodeSecret,
-    access_token: s.accessToken || "",
+    access_token: "",
     expires_at: s.tokenExpiresAt || "",
     expires_in_minutes: null,
+    token_summary: tokenSummary,
     node_name: s.nodeName || await detectChromeName(),
     browser: "Chrome",
     user_agent: navigator.userAgent
@@ -328,25 +334,6 @@ async function heartbeat() {
   };
   await chrome.storage.local.set({ lastStatus: status });
   return status;
-}
-
-async function maybeAutoRefresh() {
-  const s = await getSettings();
-  if (!s.autoRefreshEnabled || !s.metaAppId || !s.accessToken || !s.tokenExpiresAt) return null;
-  const expiresAt = Date.parse(s.tokenExpiresAt);
-  if (!Number.isFinite(expiresAt) || expiresAt - Date.now() > REFRESH_SKEW_MS) return null;
-  try {
-    return await authorizeMeta(false);
-  } catch (err) {
-    await chrome.storage.local.set({
-      lastStatus: {
-        ok: false,
-        message: `Token 即将过期，自动续取失败：${err.message || err}`,
-        updatedAt: new Date().toLocaleString()
-      }
-    });
-    return null;
-  }
 }
 
 async function ensureAlarm() {
@@ -374,10 +361,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     return;
   }
   if (alarm.name !== HEARTBEAT_ALARM) return;
-  (async () => {
-    await maybeAutoRefresh();
-    await heartbeat();
-  })().catch(async (err) => {
+  heartbeat(false).catch(async (err) => {
     await chrome.storage.local.set({
       lastStatus: {
         ok: false,
@@ -404,16 +388,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tokenExpiresAt = nextToken && Number.isFinite(parsedMinutes) && parsedMinutes > 0
           ? new Date(Date.now() + parsedMinutes * 60000).toISOString()
           : "";
+        lastProbeAt = 0;
+        lastProbeSummary = null;
       }
       await chrome.storage.local.set({
         serverUrl: normalizeServerUrl(message.serverUrl),
         nodeName: message.nodeName || await detectChromeName(),
         accessToken: nextToken,
         expiresInMinutes: nextMinutes,
-        tokenExpiresAt,
-        metaAppId: message.metaAppId || "",
-        metaScopes: message.metaScopes || DEFAULT_META_SCOPES,
-        autoRefreshEnabled: message.autoRefreshEnabled !== false
+        tokenExpiresAt
       });
       await ensureAlarm();
       sendResponse({ ok: true, data: await getSettings() });
@@ -423,20 +406,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true, data: await registerNode(message) });
       return;
     }
-    if (message.type === "authorizeMeta") {
-      const settings = await getSettings();
-      await chrome.storage.local.set({
-        serverUrl: normalizeServerUrl(message.serverUrl || settings.serverUrl),
-        nodeName: message.nodeName || settings.nodeName,
-        metaAppId: message.metaAppId || settings.metaAppId,
-        metaScopes: message.metaScopes || settings.metaScopes || DEFAULT_META_SCOPES,
-        autoRefreshEnabled: message.autoRefreshEnabled !== false
-      });
-      sendResponse({ ok: true, data: await authorizeMeta(true) });
-      return;
-    }
     if (message.type === "heartbeat") {
-      sendResponse({ ok: true, data: await heartbeat() });
+      sendResponse({ ok: true, data: await heartbeat(true) });
       return;
     }
     if (message.type === "pollTask") {
@@ -444,8 +415,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     if (message.type === "clearToken") {
+      lastProbeAt = 0;
+      lastProbeSummary = null;
       await chrome.storage.local.set({ accessToken: "", expiresInMinutes: "", tokenExpiresAt: "" });
-      sendResponse({ ok: true, data: await heartbeat().catch((err) => ({ ok: false, message: err.message })) });
+      sendResponse({ ok: true, data: await heartbeat(true).catch((err) => ({ ok: false, message: err.message })) });
       return;
     }
     sendResponse({ ok: false, error: "unknown message" });

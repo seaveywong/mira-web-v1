@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mira 本地执行器</title>
+  <title>Mira 本地 API 执行器</title>
   <style>
     body{width:390px;margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f5f5f7;color:#1d1d1f}
     h1{font-size:17px;margin:0 0 4px;font-weight:760}
@@ -11,7 +11,7 @@
     p{font-size:12px;color:#6e6e73;margin:0 0 14px;line-height:1.55}
     label{display:block;font-size:12px;font-weight:700;margin:10px 0 6px;color:#333}
     input,textarea{width:100%;box-sizing:border-box;border:1px solid #d2d2d7;border-radius:10px;padding:10px 11px;font-size:13px;background:#fff;outline:none}
-    textarea{min-height:70px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    textarea{min-height:86px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
     input:focus,textarea:focus{border-color:#0071e3;box-shadow:0 0 0 3px rgba(0,113,227,.14)}
     .row{display:grid;grid-template-columns:1fr 110px;gap:10px;align-items:end}
     .btns{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
@@ -23,55 +23,51 @@
     .status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}
     .status.bad{border-color:#fecaca;background:#fef2f2;color:#991b1b}
     .hint{font-size:11px;color:#86868b;margin-top:5px;line-height:1.45}
-    .pill{display:inline-flex;border-radius:999px;background:#e8f2ff;color:#005bb5;padding:3px 8px;font-size:11px;font-weight:700;margin-top:8px}
+    .pill{display:inline-flex;border-radius:999px;background:#e8f2ff;color:#005bb5;padding:3px 8px;font-size:11px;font-weight:700;margin:8px 6px 0 0}
     .section{border-top:1px solid #e5e5ea;margin-top:16px;padding-top:12px}
     .notice{border:1px solid #c7e7ff;background:#eef8ff;border-radius:12px;padding:10px;font-size:12px;line-height:1.55;color:#17567f}
   </style>
 </head>
 <body>
-  <h1>Mira 本地执行器</h1>
-  <p>绑定后，这个 Chrome 会接收 Mira 下发的本地浏览器任务，在你已登录的 Facebook 环境里打开页面并回传状态。插件不上传 Cookie，也不读取隐藏凭证。</p>
+  <h1>Mira 本地 API 执行器</h1>
+  <p>绑定后，这个 Chrome 会领取 Mira 下发的 API 任务，并用你明确填写的官方 Graph API Token 在本机执行。插件不读取 Cookie，不提取隐藏凭证，也不会做页面点击自动化。</p>
 
   <label for="serverUrl">Mira 地址</label>
   <input id="serverUrl" placeholder="https://shouhu.asia">
 
-  <label for="nodeName">浏览器名称</label>
-  <input id="nodeName" placeholder="自动识别 Chrome 登录信息，也可以自定义">
+  <label for="nodeName">执行器名称</label>
+  <input id="nodeName" placeholder="例如 Chrome-运营A-电脑1">
 
   <label for="bindCode">授权码 / 绑定码</label>
   <input id="bindCode" placeholder="在 Mira 的本地执行器窗口生成">
   <div class="hint">绑定码 10 分钟内有效，只能使用一次。未绑定的浏览器不会接收任务。</div>
 
   <div class="btns">
-    <button class="primary" id="registerBtn">激活浏览器</button>
+    <button class="primary" id="registerBtn">激活执行器</button>
     <button id="saveBtn">保存配置</button>
     <button id="pollTaskBtn">立即拉任务</button>
   </div>
 
   <div class="section">
-    <h2>执行器状态</h2>
-    <div class="notice">Mira 会把任务发给已激活的浏览器。第一版支持打开指定广告账户 Ads Manager 并检测登录、验证、权限状态。</div>
-  </div>
-
-  <div class="section">
-    <h2>手动备用 Token</h2>
+    <h2>本地 Graph API Token</h2>
+    <div class="notice">Token 只保存在 Chrome 本地。Mira 只接收权限、账户数量、账户 ID 摘要和任务结果，不接收明文 Token。</div>
     <label for="accessToken">Access Token</label>
-    <textarea id="accessToken" placeholder="可选；只有你明确提供 Token 时才会上报 Mira"></textarea>
+    <textarea id="accessToken" placeholder="粘贴官方授权得到的 Graph API Token"></textarea>
 
     <div class="row">
       <div>
         <label for="expiresInMinutes">预计有效分钟</label>
-        <input id="expiresInMinutes" type="number" min="1" max="1440" placeholder="例如 10">
+        <input id="expiresInMinutes" type="number" min="1" max="1440" placeholder="例如 60">
       </div>
       <div>
-        <button class="primary" id="heartbeatBtn" style="width:100%">立即上报</button>
+        <button class="primary" id="heartbeatBtn" style="width:100%">验证上报</button>
       </div>
     </div>
-    <div class="hint">本地执行器不依赖此 Token；这里仅作为 API 铺广告的备用显式 Token。</div>
+    <div class="hint">执行广告创建、关闭、预算调整至少需要 ads_management；只读诊断至少需要 ads_read。</div>
   </div>
 
   <div class="btns">
-    <button id="clearTokenBtn" class="danger">清除备用 Token</button>
+    <button id="clearTokenBtn" class="danger">清除本地 Token</button>
   </div>
 
   <div id="status" class="status">加载中...</div>

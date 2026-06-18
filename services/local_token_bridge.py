@@ -345,11 +345,15 @@ def heartbeat_node(
     access_token: str = "",
     expires_at: str = "",
     expires_in_minutes: Optional[int] = None,
+    token_summary: Optional[dict] = None,
     node_name: str = "",
     browser: str = "",
     user_agent: str = "",
 ) -> dict:
-    access_token = str(access_token or "").strip()
+    # New local API executors keep the Graph API token inside Chrome storage.
+    # The server only accepts a non-secret capability summary from the plugin.
+    access_token = ""
+    token_summary = dict(token_summary or {})
     with _lock:
         node = _nodes.get(str(node_id or "").strip())
         if not node or not secrets.compare_digest(str(node.get("node_secret") or ""), str(node_secret or "")):
@@ -364,7 +368,50 @@ def heartbeat_node(
         node["last_seen_ts"] = now
         node["last_seen_at"] = _now_cst()
 
-    if access_token:
+    if token_summary:
+        present = bool(token_summary.get("present"))
+        with _lock:
+            node = _nodes[node_id]
+            node["token_plain"] = ""
+            node["token_fp"] = ""
+            node["token_mask"] = str(token_summary.get("token_mask") or "")
+            node["token_expires_at"] = str(token_summary.get("token_expires_at") or expires_at or "")
+            node["token_expires_at_ts"] = _parse_time_to_ts(node["token_expires_at"])
+            node["fb_user_id"] = str(token_summary.get("fb_user_id") or "")
+            node["fb_user_name"] = str(token_summary.get("fb_user_name") or "")
+            perms = token_summary.get("permissions") if isinstance(token_summary.get("permissions"), dict) else {}
+            node["permissions"] = {
+                "granted": list(perms.get("granted") or []),
+                "declined": list(perms.get("declined") or []),
+            }
+            raw_account_ids = {
+                _normalize_act_id(item)
+                for item in (token_summary.get("account_ids") or [])
+                if _normalize_act_id(item)
+            }
+            visible_ids = {
+                _normalize_act_id(item.get("act_id"))
+                for item in _visible_accounts_for_node(node)
+                if _normalize_act_id(item.get("act_id"))
+            }
+            node["account_ids"] = sorted(raw_account_ids.intersection(visible_ids))[:MAX_ACCOUNT_PROBE]
+            node["has_ads_management"] = bool(token_summary.get("has_ads_management"))
+            node["has_ads_read"] = bool(token_summary.get("has_ads_read"))
+            node["verified_at_ts"] = _now_ts()
+            node["verified_at"] = _now_cst()
+            node["last_error"] = str(token_summary.get("last_error") or "")
+            if present and node["last_error"]:
+                node["status"] = "token_error"
+            elif present and node["has_ads_management"]:
+                node["status"] = "online"
+            elif present:
+                node["status"] = "permission_limited"
+                if not node["last_error"]:
+                    node["last_error"] = "本地 API Token 缺少 ads_management，无法执行广告创建/关闭/预算操作"
+            else:
+                node["status"] = "online_no_token"
+                node["last_error"] = "本地执行器在线，但尚未配置官方 Graph API Token"
+    elif access_token:
         token_fp = _token_fp(access_token)
         should_probe = False
         with _lock:

@@ -37,6 +37,7 @@ class HeartbeatRequest(BaseModel):
     access_token: Optional[str] = ""
     expires_at: Optional[str] = ""
     expires_in_minutes: Optional[int] = None
+    token_summary: Optional[dict] = None
     node_name: Optional[str] = ""
     browser: Optional[str] = "Chrome"
     user_agent: Optional[str] = ""
@@ -89,6 +90,7 @@ def receive_heartbeat(body: HeartbeatRequest):
             access_token=body.access_token or "",
             expires_at=body.expires_at or "",
             expires_in_minutes=body.expires_in_minutes,
+            token_summary=body.token_summary or {},
             node_name=body.node_name or "",
             browser=body.browser or "Chrome",
             user_agent=body.user_agent or "",
@@ -116,12 +118,14 @@ def delete_node(node_id: str, user=Depends(get_current_user)):
 def download_extension(user=Depends(get_current_user)):
     _require_operator(user)
     root = os.environ.get("MIRA_FRONTEND_DIR", "/opt/mira/frontend")
-    path = os.path.join(root, "downloads", "mira-local-token-bridge.zip")
+    path = os.path.join(root, "downloads", "mira-local-api-executor.zip")
+    if not os.path.exists(path):
+        path = os.path.join(root, "downloads", "mira-local-token-bridge.zip")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="插件包还没有生成，请联系管理员重新发布")
     return FileResponse(
         path,
-        filename="mira-local-token-bridge.zip",
+        filename="mira-local-api-executor.zip",
         media_type="application/zip",
         headers={"Cache-Control": "no-store"},
     )
