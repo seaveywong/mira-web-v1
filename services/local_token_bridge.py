@@ -563,14 +563,19 @@ def heartbeat_node(
             node = _nodes[node_id]
             node["token_plain"] = ""
             node["token_fp"] = ""
-            node["local_runtime_ready"] = False
-            node["status"] = "online_no_summary" if access_token_present else "no_summary"
-            node["last_error"] = (
-                "服务器已忽略本地 access_token；请让插件通过 token_summary 汇报账户/权限摘要，"
-                "实际 API 请求必须由本地执行器完成。"
-                if access_token_present
-                else "插件尚未汇报本地执行器摘要"
-            )
+            has_cached_summary = bool(node.get("account_ids")) and bool(node.get("has_ads_management"))
+            if has_cached_summary:
+                node["local_runtime_ready"] = True
+                node["status"] = "online"
+                node["last_error"] = ""
+            else:
+                node["local_runtime_ready"] = False
+                node["status"] = "online_no_summary" if access_token_present else "no_summary"
+                node["last_error"] = (
+                    "Local executor heartbeat did not include token_summary; keep the plugin sending account_ids/permissions."
+                    if access_token_present
+                    else "Local executor has not reported a runnable account summary yet."
+                )
 
     with _lock:
         _save_persisted_nodes_locked()

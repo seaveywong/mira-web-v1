@@ -17,8 +17,10 @@ Mira v3.0 全自动铺广告执行引擎 (AutoPilot Engine)
   - 失败隔离：单个 AdSet/Ad 创建失败不影响其他组继续执行
 """
 
+import base64
 import json
 import logging
+import mimetypes
 import re
 import time
 import requests
@@ -35,6 +37,7 @@ from services.token_manager import (
     suspend_token_by_plain,
     wait_for_token_slot_by_plain,
 )
+from services.local_executor import run_local_graph_task
 
 logger = logging.getLogger("mira.autopilot")
 
@@ -202,6 +205,8 @@ class AutoPilotEngine:
         self.conn = None
         self._runtime_lead_form_cache = {}
         self._runtime_lead_form_error_cache = {}
+        self._active_exec_candidate = None
+        self._active_act_id = ""
 
     def _normalize_language_code(self, value: str = "") -> str:
         lang = str(value or "").strip().lower().replace("_", "-")
@@ -357,6 +362,46 @@ class AutoPilotEngine:
             ],
         }
 
+    def _is_local_candidate(self, candidate: dict | None = None) -> bool:
+        candidate = candidate if candidate is not None else self._active_exec_candidate
+        return bool(candidate and (candidate.get("local_executor") or candidate.get("source") == "local_token"))
+
+    def _candidate_key(self, candidate: dict) -> str:
+        if self._is_local_candidate(candidate):
+            return f"local:{candidate.get('node_id') or candidate.get('token_id') or candidate.get('label')}"
+        plain = str(candidate.get("token_plain") or candidate.get("token") or "").strip()
+        return plain or str(candidate.get("token_id") or candidate.get("label") or id(candidate))
+
+    def _candidate_token(self, candidate: dict | None, fallback: str = "") -> str:
+        if not candidate:
+            return fallback or ""
+        if self._is_local_candidate(candidate):
+            return fallback or ""
+        return str(candidate.get("token_plain") or candidate.get("token") or fallback or "").strip()
+
+    def _local_task_timeout(self, default_seconds: int = 90) -> int:
+        try:
+            return max(10, min(int(default_seconds), 360))
+        except Exception:
+            return default_seconds
+
+    def _run_local_graph_task(self, task_type: str, path: str, params: dict | None = None, timeout_seconds: int = 90) -> dict:
+        candidate = self._active_exec_candidate
+        if not self._is_local_candidate(candidate):
+            raise Exception("current execution candidate is not local")
+        act_id = self._active_act_id or ""
+        payload = dict(params or {})
+        payload["path"] = str(path or "").strip().lstrip("/")
+        payload.setdefault("_timeout_sec", self._local_task_timeout(timeout_seconds))
+        return run_local_graph_task(
+            candidate,
+            task_type,
+            act_id,
+            payload,
+            timeout_seconds=self._local_task_timeout(timeout_seconds),
+            created_by_name="launch_engine",
+        )
+
     def _should_try_next_token(self, err_msg: str) -> bool:
         lower = str(err_msg or "").lower()
         if any(
@@ -380,22 +425,26 @@ class AutoPilotEngine:
         preferred_token = (preferred_token or "").strip()
         ordered = []
         seen = set()
+        if preferred_token:
+            for candidate in token_candidates:
+                plain = str(candidate.get("token_plain") or candidate.get("token") or "").strip()
+                key = self._candidate_key(candidate)
+                if plain and plain == preferred_token and key not in seen:
+                    ordered.append(candidate)
+                    seen.add(key)
         for candidate in token_candidates:
-            plain = str(candidate.get("token_plain") or candidate.get("token") or "").strip()
-            if plain and plain == preferred_token and plain not in seen:
+            key = self._candidate_key(candidate)
+            if key and key not in seen:
                 ordered.append(candidate)
-                seen.add(plain)
-        for candidate in token_candidates:
-            plain = str(candidate.get("token_plain") or candidate.get("token") or "").strip()
-            if plain and plain not in seen:
-                ordered.append(candidate)
-                seen.add(plain)
+                seen.add(key)
 
         last_error = None
         for idx, candidate in enumerate(ordered):
-            token_plain = candidate.get("token_plain") or candidate.get("token")
+            token_plain = self._candidate_token(candidate, preferred_token)
             label = candidate.get("label") or candidate.get("alias") or f"token_{idx + 1}"
+            prev_candidate = self._active_exec_candidate
             try:
+                self._active_exec_candidate = candidate
                 result = fn(token_plain, candidate)
                 return result, candidate
             except Exception as exc:
@@ -405,14 +454,41 @@ class AutoPilotEngine:
                 if idx >= len(ordered) - 1 or not self._should_try_next_token(err_msg):
                     raise
                 continue
+            finally:
+                self._active_exec_candidate = prev_candidate
 
         raise last_error or Exception(f"{op_name} 失败")
 
-    def _probe_page_ad_permission(self, page_id: str, token: str) -> tuple[bool, str, str]:
+    def _probe_page_ad_permission(self, page_id: str, token: str, candidate: dict | None = None) -> tuple[bool, str, str]:
         """Return whether this CREATE token can advertise with the selected Page."""
         page_id = str(page_id or "").strip()
         if not page_id:
             return False, "未选择主页", ""
+        if self._is_local_candidate(candidate):
+            prev_candidate = self._active_exec_candidate
+            try:
+                self._active_exec_candidate = candidate
+                data = self._run_local_graph_task(
+                    "graph_get",
+                    "me/accounts",
+                    {"params": {"fields": "id,name,tasks,is_published", "limit": 200}, "_timeout_sec": 45},
+                    timeout_seconds=45,
+                )
+                for page in data.get("data", []) or []:
+                    if str(page.get("id")) != page_id:
+                        continue
+                    page_name = page.get("name") or page_id
+                    if page.get("is_published") is False:
+                        return False, f"Page {page_name} is unpublished", page_name
+                    tasks = page.get("tasks") or []
+                    if "ADVERTISE" not in tasks:
+                        return False, f"Page {page_name} lacks ADVERTISE permission", page_name
+                    return True, "", page_name
+                return False, f"Local executor cannot see page {page_id}", ""
+            except Exception as exc:
+                return False, f"Page permission probe failed: {exc}", ""
+            finally:
+                self._active_exec_candidate = prev_candidate
         if not token:
             return False, "Token 为空", ""
 
@@ -460,7 +536,7 @@ class AutoPilotEngine:
         for idx, candidate in enumerate(token_candidates or []):
             token_plain = candidate.get("token_plain") or candidate.get("token")
             label = candidate.get("label") or candidate.get("alias") or f"操作号{idx + 1}"
-            ok, reason, page_name = self._probe_page_ad_permission(page_id, token_plain)
+            ok, reason, page_name = self._probe_page_ad_permission(page_id, token_plain, candidate=candidate)
             if ok:
                 item = dict(candidate)
                 item["page_name"] = page_name
@@ -596,7 +672,17 @@ class AutoPilotEngine:
 
     def _fb_get(self, path: str, token: str, params: dict = None) -> dict:
         """GET 请求到 FB Graph API"""
-        p = params or {}
+        if self._is_local_candidate():
+            data = self._run_local_graph_task(
+                "graph_get",
+                path,
+                {"params": dict(params or {}), "_timeout_sec": 90},
+                timeout_seconds=90,
+            )
+            if "error" in data:
+                raise Exception(self._format_fb_error(data["error"]))
+            return data
+        p = dict(params or {})
         p["access_token"] = token
         resp = requests.get(f"{FB_API_BASE}/{path}", params=p, timeout=30)
         data = resp.json()
@@ -606,6 +692,16 @@ class AutoPilotEngine:
 
     def _fb_post(self, path: str, token: str, payload: dict) -> dict:
         """POST 请求到 FB Graph API"""
+        if self._is_local_candidate():
+            data = self._run_local_graph_task(
+                "graph_post",
+                path,
+                {"data": dict(payload or {}), "_timeout_sec": 120},
+                timeout_seconds=120,
+            )
+            if "error" in data:
+                raise Exception(self._format_fb_error(data["error"]))
+            return data
         base_payload = dict(payload or {})
         debug_payload = dict(base_payload)
 
@@ -684,6 +780,101 @@ class AutoPilotEngine:
 
         raise Exception(f"FB API Error: POST {path} failed after retries")
 
+    def _create_lead_form_for_page(
+        self,
+        page_id: str,
+        form_title: str,
+        questions: list,
+        *,
+        token: str = "",
+        privacy_url: str = "",
+        privacy_text: str = "Privacy Policy",
+        follow_up_url: str = "",
+        locale: str = "en_US",
+        context_card: dict = None,
+        thank_you_title: str = "",
+        thank_you_body: str = "",
+        button_text: str = "",
+    ) -> str:
+        if not self._is_local_candidate():
+            from api.ad_templates import create_custom_lead_form_for_page
+            return create_custom_lead_form_for_page(
+                page_id,
+                form_title,
+                questions,
+                token=token,
+                privacy_url=privacy_url,
+                privacy_text=privacy_text,
+                follow_up_url=follow_up_url,
+                locale=locale,
+                context_card=context_card,
+                thank_you_title=thank_you_title,
+                thank_you_body=thank_you_body,
+                button_text=button_text,
+            )
+
+        from api.ad_templates import (
+            _get_follow_up_action_url,
+            _get_privacy_policy_url,
+            _normalize_lead_form_questions,
+        )
+        normalized_questions = _normalize_lead_form_questions(questions)
+        if not normalized_questions:
+            raise Exception("Lead Form questions are invalid")
+        form_name = f"[AI] {(form_title or 'Lead Form')[:60]} {datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        payload = {
+            "name": form_name,
+            "questions": json.dumps(normalized_questions, ensure_ascii=False),
+            "privacy_policy": json.dumps({
+                "url": _get_privacy_policy_url(privacy_url),
+                "link_text": privacy_text or "Privacy Policy",
+            }, ensure_ascii=False),
+            "locale": locale or "en_US",
+            "flexible_delivery": "ON_DELIVERY",
+        }
+        follow_url = _get_follow_up_action_url(page_id, follow_up_url)
+        if follow_url:
+            payload["follow_up_action_url"] = follow_url
+        if thank_you_title:
+            ty = {"title": thank_you_title, "button_type": "NONE"}
+            if thank_you_body:
+                ty["body"] = thank_you_body
+            if button_text:
+                ty["button_text"] = button_text
+            if follow_up_url:
+                ty["website_url"] = follow_up_url
+                ty["button_type"] = "VIEW_WEBSITE"
+            payload["thank_you_page"] = json.dumps(ty, ensure_ascii=False)
+        if context_card:
+            ctx = dict(context_card or {})
+            ctx.setdefault("style", "LIST_STYLE")
+            content = {}
+            if ctx.get("button_text"):
+                content["button_text"] = ctx.pop("button_text")
+            ctx.pop("button_type", None)
+            ctx.pop("body", None)
+            ctx.pop("subtitle", None)
+            ctx.pop("description", None)
+            if content:
+                ctx["content"] = content
+            payload["context_card"] = json.dumps(ctx, ensure_ascii=False)
+        data = self._run_local_graph_task(
+            "graph_post",
+            f"{page_id}/leadgen_forms",
+            {
+                "data": payload,
+                "local_auth": {"mode": "page_token", "page_id": str(page_id or "")},
+                "_timeout_sec": 120,
+            },
+            timeout_seconds=120,
+        )
+        if "error" in data:
+            raise Exception(self._format_fb_error(data["error"]))
+        form_id = data.get("id")
+        if not form_id:
+            raise Exception(f"Lead Form create returned no id: {data}")
+        return str(form_id)
+
     # ── 主入口 ────────────────────────────────────────────────────────────────
 
     def run_campaign(self, campaign_id: int):
@@ -716,6 +907,7 @@ class AutoPilotEngine:
             return
 
         act_id = campaign["act_id"]
+        self._active_act_id = act_id
         account = self._load_account(act_id)
         blocked_reason = self._get_account_launch_block_reason(account)
         if blocked_reason:
@@ -740,7 +932,7 @@ class AutoPilotEngine:
                     f"账户 {act_id} 无可用操作号 Token，CREATE 操作已被拦截。"
                     "请在账户管理中补充操作号后重试。"
                 )
-            token = _token_candidates[0]["token_plain"]
+            token = self._candidate_token(_token_candidates[0])
             logger.info(f"[AutoPilot] 使用 Token 池起点: {_token_candidates[0]['label']}")
 
             # 2. 加载素材和 AI 文案
@@ -944,7 +1136,7 @@ class AutoPilotEngine:
                     "或在系统设置中配置全局默认主页 ID（autopilot_fb_page_id）"
                 )
             _token_candidates = self._filter_create_tokens_for_page(page_id, _token_candidates)
-            token = _token_candidates[0]["token_plain"]
+            token = self._candidate_token(_token_candidates[0], token)
             logger.info(
                 f"[AutoPilot] 主页权限预检通过: page_id={page_id}, "
                 f"可用 CREATE Token={len(_token_candidates)}"
@@ -980,7 +1172,7 @@ class AutoPilotEngine:
                 "上传素材",
                 lambda try_token, _: self._upload_asset_to_fb(act_id, asset, try_token),
             )
-            token = _asset_token_candidate["token_plain"]
+            token = self._candidate_token(_asset_token_candidate, token)
 
             # 5. 创建 Campaign（矩阵内 Token 轮询兜底）
             self._update_progress(campaign_id, "campaign", "创建广告系列 (Campaign)...")
@@ -1019,7 +1211,7 @@ class AutoPilotEngine:
                     act_id, _campaign_display_name, campaign["objective"], try_token
                 ),
             )
-            token = _campaign_token_candidate["token_plain"]
+            token = self._candidate_token(_campaign_token_candidate, token)
             _used_token_label = _campaign_token_candidate["label"]
             self._update_campaign_field(campaign_id, "fb_campaign_id", fb_campaign_id)
             logger.info(f"[AutoPilot] ✅ Campaign 创建成功 (Token={_used_token_label}): {fb_campaign_id}")
@@ -1113,7 +1305,7 @@ class AutoPilotEngine:
                                         conversion_goal=campaign.get("conversion_goal") or ""
                                     ),
                                 )
-                                token = _adset_token_candidate["token_plain"]
+                                token = self._candidate_token(_adset_token_candidate, token)
                                 total_adsets += 1
                                 self._update_progress(campaign_id, f"adset_{group_idx+1}_{ad_idx+1}", f"AdSet {group_idx+1}-{ad_idx+1}/{len(audience_groups)} 创建成功，正在创建广告...")
                                 logger.info(f"[AutoPilot] ✅ AdSet {group_idx+1}-{ad_idx+1} 创建成功: {fb_adset_id}")
@@ -1148,7 +1340,7 @@ class AutoPilotEngine:
                                                 conversion_goal=campaign.get("conversion_goal") or ""
                                             ),
                                         )
-                                        token = _fallback_adset_token_candidate["token_plain"]
+                                        token = self._candidate_token(_fallback_adset_token_candidate, token)
                                         total_adsets += 1
                                         ad_name = f"{_ast_code}-BROAD-C{ad_idx+1}-FB"
                                         logger.info(f"[AutoPilot] ✅ AdSet {group_idx+1}-{ad_idx+1} 降级宽泛受众创建成功: {fb_adset_id}")
@@ -1195,7 +1387,7 @@ class AutoPilotEngine:
                                         target_countries=target_countries,
                                     ),
                                 )
-                                token = _ad_token_candidate["token_plain"]
+                                token = self._candidate_token(_ad_token_candidate, token)
                                 total_ads += 1
                                 self._insert_campaign_ad(
                                     campaign_id, act_id, campaign["asset_id"],
@@ -1236,7 +1428,7 @@ class AutoPilotEngine:
                             conversion_goal=campaign.get("conversion_goal") or ""
                         ),
                     )
-                    token = _adset_token_candidate["token_plain"]
+                    token = self._candidate_token(_adset_token_candidate, token)
                     total_adsets += 1
                     self._update_progress(campaign_id, f"adset_{group_idx+1}", f"AdSet {group_idx+1}/{len(audience_groups)} 创建成功，正在创建广告...")
                     logger.info(f"[AutoPilot] ✅ AdSet {group_idx+1} 创建成功: {fb_adset_id}")
@@ -1285,7 +1477,7 @@ class AutoPilotEngine:
                                     target_countries=target_countries,
                                 ),
                             )
-                            token = _ad_token_candidate["token_plain"]
+                            token = self._candidate_token(_ad_token_candidate, token)
                             total_ads += 1
 
                             # 写入 auto_campaign_ads 明细
@@ -1345,7 +1537,7 @@ class AutoPilotEngine:
                                     conversion_goal=campaign.get("conversion_goal") or ""
                                 ),
                             )
-                            token = _fallback_adset_token_candidate["token_plain"]
+                            token = self._candidate_token(_fallback_adset_token_candidate, token)
                             total_adsets += 1
                             audience = fallback_audience  # 用降级受众继续创建 Ad
                             self._update_progress(campaign_id, f"adset_{group_idx+1}", f"AdSet {group_idx+1} 降级宽泛受众创建成功，正在创建广告...")
@@ -1379,7 +1571,7 @@ class AutoPilotEngine:
                                             target_countries=target_countries,
                                         ),
                                     )
-                                    token = _fallback_ad_token_candidate["token_plain"]
+                                    token = self._candidate_token(_fallback_ad_token_candidate, token)
                                     total_ads += 1
                                     self._insert_campaign_ad(
                                         campaign_id, act_id, campaign["asset_id"],
@@ -1478,7 +1670,28 @@ class AutoPilotEngine:
                 # 全部失败：自动删除 FB Campaign，不留垃圾对象
                 if fb_campaign_id:
                     try:
-                        import requests as _req
+                        if self._is_local_candidate():
+                            class _LocalDeleteClient:
+                                def __init__(_self, engine):
+                                    _self.engine = engine
+
+                                def delete(_self, url, params=None, timeout=10):
+                                    object_id = str(url or "").rstrip("/").rsplit("/", 1)[-1]
+                                    data = _self.engine._run_local_graph_task(
+                                        "graph_delete",
+                                        object_id,
+                                        {"_timeout_sec": max(10, int(timeout or 10))},
+                                        timeout_seconds=max(10, int(timeout or 10)),
+                                    )
+
+                                    class _Resp:
+                                        ok = "error" not in data and data.get("success") is not False
+                                        text = json.dumps(data, ensure_ascii=False)
+
+                                    return _Resp()
+                            _req = _LocalDeleteClient(self)
+                        else:
+                            import requests as _req
                         _del_resp = _req.delete(
                             f"{FB_API_BASE}/{fb_campaign_id}",
                             params={"access_token": token},
@@ -1573,6 +1786,64 @@ class AutoPilotEngine:
 
         file_path = asset["file_path"]
         act_id_num = act_id.replace("act_", "")
+        if self._is_local_candidate():
+            file_name = str(asset.get("file_name") or file_path).replace("\\", "/").rsplit("/", 1)[-1]
+            mime = mimetypes.guess_type(file_name or file_path)[0] or (
+                "image/jpeg" if asset["file_type"] == "image" else "video/mp4"
+            )
+            with open(file_path, "rb") as f:
+                encoded_file = base64.b64encode(f.read()).decode("ascii")
+
+            if asset["file_type"] == "image":
+                data = self._run_local_graph_task(
+                    "graph_upload",
+                    f"act_{act_id_num}/adimages",
+                    {
+                        "graph_host": "graph",
+                        "fields": {},
+                        "files": [{
+                            "field": "filename",
+                            "name": file_name,
+                            "mime": mime,
+                            "base64": encoded_file,
+                        }],
+                        "_timeout_sec": 180,
+                    },
+                    timeout_seconds=180,
+                )
+                if "error" in data:
+                    raise Exception(f"Image upload failed: {self._format_fb_error(data['error'])}")
+                images = data.get("images", {})
+                if not images:
+                    raise Exception(f"Image upload returned no hash: {data}")
+                image_hash = list(images.values())[0]["hash"]
+                self._update_asset_fb_ref(asset["id"], image_hash, "image", act_id)
+                return {"type": "image", "image_hash": image_hash}
+
+            data = self._run_local_graph_task(
+                "graph_upload",
+                f"act_{act_id_num}/advideos",
+                {
+                    "graph_host": "graph-video",
+                    "fields": {"title": file_name},
+                    "files": [{
+                        "field": "source",
+                        "name": file_name,
+                        "mime": mime,
+                        "base64": encoded_file,
+                    }],
+                    "_timeout_sec": 360,
+                },
+                timeout_seconds=360,
+            )
+            if "error" in data:
+                raise Exception(f"Video upload failed: {self._format_fb_error(data['error'])}")
+            video_id = data.get("id")
+            if not video_id:
+                raise Exception(f"Video upload returned no id: {data}")
+            video_thumbnail_url = self._get_video_thumbnail(video_id, token)
+            self._update_asset_fb_ref(asset["id"], video_id, "video", act_id)
+            return {"type": "video", "video_id": video_id, "thumbnail_url": video_thumbnail_url}
 
         if asset["file_type"] == "image":
             with open(file_path, "rb") as f:
@@ -1625,12 +1896,7 @@ class AutoPilotEngine:
         """
         for attempt in range(6):  # 最多重试 6 次，每次等 5 秒
             try:
-                resp = requests.get(
-                    f"{FB_API_BASE}/{video_id}",
-                    params={"fields": "picture,thumbnails", "access_token": token},
-                    timeout=15
-                )
-                data = resp.json()
+                data = self._fb_get(video_id, token, {"fields": "picture,thumbnails"})
                 if "error" in data:
                     logger.warning(f"[AutoPilot] 获取视频缩略图失败: {data['error'].get('message')}")
                     break
@@ -2421,7 +2687,7 @@ class AutoPilotEngine:
                         # Route description to thank_you_page.body (FB context_card rejects body key)
                         _ty_body = _thank_you_body or _description
                         _context_card = None  # 不需要欢迎页/context_card，直接展示问题
-                        _lead_form_resolved = create_custom_lead_form_for_page(
+                        _lead_form_resolved = self._create_lead_form_for_page(
                             page_id,
                             _form_title,
                             _final_questions,
@@ -2468,11 +2734,7 @@ class AutoPilotEngine:
         # ── 修复: 消息广告预检主页私信功能（error 1885187）────────────
         if is_msg_ad and page_id and token:
             try:
-                _page_resp = requests.get(
-                    f"https://graph.facebook.com/{FB_API_VERSION}/{page_id}",
-                    params={"fields": "messaging_feature_status", "access_token": token},
-                    timeout=10
-                ).json()
+                _page_resp = self._fb_get(page_id, token, {"fields": "messaging_feature_status"})
                 _msg_status = _page_resp.get("messaging_feature_status", {})
                 # 如果返回了 messaging_feature_status 且 USER_MESSAGING 不是 ENABLED，则预警
                 if _msg_status and _msg_status.get("USER_MESSAGING") not in ("ENABLED", None):

@@ -539,10 +539,9 @@ def get_exec_token_candidates(
     第一项会被视为本次优先使用的 Token，并立即占位，避免并发账户扎堆打到同一颗 Token。
     """
     local_candidates = []
-    # Local executor candidates never expose a server-side token.  Keep them out
-    # of CREATE until the browser-side plugin supports the full upload/create
-    # chain; PAUSE/UPDATE can be dispatched as local API tasks explicitly.
-    if action_type in (ACTION_UPDATE, ACTION_PAUSE):
+    # Local executor candidates never expose a server-side token.  CREATE can
+    # use them only through structured local tasks such as graph_upload/post.
+    if action_type in (ACTION_CREATE, ACTION_UPDATE, ACTION_PAUSE):
         try:
             from services.local_token_bridge import get_local_token_candidates_for_account
             local_candidates = get_local_token_candidates_for_account(act_id, action_type)

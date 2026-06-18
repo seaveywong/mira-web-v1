@@ -23,6 +23,7 @@ SUPPORTED_API_TASKS = {
     "graph_update_status",
     "graph_get",
     "graph_post",
+    "graph_upload",
     "graph_delete",
 }
 LOCAL_TASK_TIMEOUT_SECONDS = 45.0
@@ -134,6 +135,7 @@ def _default_method_for_task(task_type: str) -> str:
     return {
         "graph_get": "GET",
         "graph_post": "POST",
+        "graph_upload": "POST",
         "graph_delete": "DELETE",
         "graph_update_status": "POST",
         "graph_account_probe": "GET",
@@ -164,6 +166,13 @@ def _task_transport(task_type: str, act_id: str, params: Optional[dict]) -> dict
     elif task_type == "graph_post":
         body = dict(params.get("body") or params.get("data") or {})
         query_params = dict(params.get("params") or {})
+    elif task_type == "graph_upload":
+        body = {
+            "fields": dict(params.get("fields") or params.get("data") or {}),
+            "files": list(params.get("files") or []),
+            "graph_host": str(params.get("graph_host") or params.get("host") or "graph").strip() or "graph",
+        }
+        query_params = dict(params.get("params") or {})
     elif task_type == "graph_delete":
         body = dict(params.get("body") or params.get("data") or {})
         query_params = dict(params.get("params") or {})
@@ -182,6 +191,7 @@ def _task_transport(task_type: str, act_id: str, params: Optional[dict]) -> dict
         params["params"] = query_params
     if body:
         params["data"] = body
+    max_timeout = 600 if task_type == "graph_upload" else 180
     return {
         "operation": task_type,
         "method": method,
@@ -189,7 +199,7 @@ def _task_transport(task_type: str, act_id: str, params: Optional[dict]) -> dict
         "params": params,
         "query_params": query_params,
         "body": body,
-        "timeout_sec": max(5, min(timeout_sec, 180)),
+        "timeout_sec": max(5, min(timeout_sec, max_timeout)),
         "idempotency_key": idem,
     }
 
@@ -280,7 +290,7 @@ def create_local_graph_task(
     created_by_name: str = "system",
 ) -> dict:
     task_type = str(task_type or "").strip()
-    if task_type not in {"graph_get", "graph_post", "graph_delete", "graph_update_status", "graph_account_probe"}:
+    if task_type not in SUPPORTED_API_TASKS:
         raise ValueError("Unsupported local graph task")
     node_id = str(node_id or "").strip()
     if not node_id:
