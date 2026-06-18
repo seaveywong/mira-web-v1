@@ -493,7 +493,9 @@ def _public_token(row) -> dict:
         "status": row["status"],
         "last_verified_at": row["last_verified_at"],
         "team_id": row["team_id"],
+        "team_name": row["team_name"] if "team_name" in row.keys() else None,
         "owner_user_id": row["owner_user_id"],
+        "owner_user_name": row["owner_user_name"] if "owner_user_name" in row.keys() else None,
         "created_by": row["created_by"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -906,7 +908,12 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
 @router.get("/tokens")
 def list_cf_tokens(user=Depends(get_current_user)):
     where, params = _scope_where(user)
-    sql = "SELECT * FROM cf_tokens"
+    sql = """SELECT cf_tokens.*,
+                    tm.name AS team_name,
+                    COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+             FROM cf_tokens
+             LEFT JOIN teams tm ON tm.id=cf_tokens.team_id
+             LEFT JOIN users ou ON ou.id=cf_tokens.owner_user_id"""
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC"
@@ -1178,10 +1185,14 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
 @router.get("/pages")
 def list_landing_pages(user=Depends(get_current_user)):
     where, params = _scope_where(user, "p")
-    sql = """SELECT p.*, t.name AS token_name, lt.name AS template_name
+    sql = """SELECT p.*, t.name AS token_name, lt.name AS template_name,
+                    tm.name AS team_name,
+                    COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
              FROM landing_pages p
              LEFT JOIN cf_tokens t ON t.id=p.cf_token_id
-             LEFT JOIN landing_templates lt ON lt.id=COALESCE(p.template_id, 1)"""
+             LEFT JOIN landing_templates lt ON lt.id=COALESCE(p.template_id, 1)
+             LEFT JOIN teams tm ON tm.id=p.team_id
+             LEFT JOIN users ou ON ou.id=p.owner_user_id"""
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY p.id DESC LIMIT 200"

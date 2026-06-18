@@ -15648,12 +15648,18 @@ function renderCloudflareTokens(){
   }else if(accounts.length===1){
    accountHtml='<div style="font-size:11px;color:var(--t3);margin-top:6px">账号：'+escHtml(accounts[0].name||accounts[0].id)+' · '+escHtml(accounts[0].id||'')+'</div>';
   }
+  var ownerText=resourceOwnerLabel(t,'未指定负责人');
+  var ownerHtml='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">'+
+   resourceTeamBadge(t)+
+   '<span class="resource-owner-pill '+(ownerText==='未指定负责人'?'muted':'')+'" title="Cloudflare API 负责人">'+escHtml(ownerText)+'</span>'+
+  '</div>';
   return '<div class="tkc" style="padding:10px;margin-bottom:8px;display:block">'+
    '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center">'+
     '<div style="min-width:0"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(t.name||('API '+t.id))+'</div>'+
     '<div style="font-size:12px;color:var(--t3);margin-top:3px">'+escHtml(t.cf_account_name||'未选择账号')+' · '+escHtml(t.token_mask||'****')+'</div></div>'+status+
    '</div>'+
    accountHtml+
+   ownerHtml+
    '<div id="cfDiag'+t.id+'" style="display:none;margin-top:8px"></div>'+
    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">重新验证</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="diagnoseCloudflareToken('+t.id+')">诊断</button></div>'+
   '</div>';
@@ -15867,11 +15873,16 @@ function renderLandingPages(){
   }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   var healthBadge=_landingHealthBadge(p);
+  var ownerText=resourceOwnerLabel(p,'未指定负责人');
+  var ownerLine='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">'+
+   resourceTeamBadge(p)+
+   '<span class="resource-owner-pill '+(ownerText==='未指定负责人'?'muted':'')+'" title="落地页负责人">'+escHtml(ownerText)+'</span>'+
+  '</div>';
   var createdLine=(p.created_by||p.created_at)?'<div style="font-size:11px;color:var(--t3);margin-top:4px">发布：'+escHtml(p.created_by||'system')+(p.created_at?' · '+escHtml(p.created_at):'')+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
    '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+' '+matrixBadges+'</div>'+err+'</td>'+
    '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span><div style="font-size:11px;color:var(--t3);margin-top:4px">根路径 302 · 不展示模板</div>':'<span class="badge bg-mu">普通落地页</span><div style="font-size:11px;color:var(--t3);margin-top:4px">展示模板 · 按钮轮询</div>')+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+createdLine+'</td>'+
+   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+ownerLine+createdLine+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px;color:var(--t3)">字段：'+escHtml(bindText)+'</div><div style="margin-top:4px">'+usageBadge+'</div></td>'+
    '<td style="padding:10px 12px">'+status+healthBadge+'</td>'+
