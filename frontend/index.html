@@ -1836,16 +1836,27 @@ select.fc option{background:#fff;color:#1d1d1f}
  width:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;
  border:0!important;box-shadow:none!important;justify-content:flex-end!important;align-items:center!important;flex:0 0 auto!important
 }
-#page-tokens .token-actions .btn{height:42px!important;min-height:42px!important;padding:0 18px!important;font-weight:760!important}
+#page-tokens .token-actions .btn{height:34px!important;min-height:34px!important;padding:0 13px!important;font-size:12px!important;font-weight:760!important;border-radius:999px!important}
 #page-tokens .token-actions .btn-oauth{background:#fff!important;border:1px solid #d2d2d7!important;color:#1d1d1f!important}
 #page-tokens .token-actions .btn-oauth:hover{border-color:#0071e3!important;color:#0071e3!important;background:#f8fbff!important}
-.token-zone{margin:0 0 16px;padding:16px;border:1px solid var(--bd);border-radius:14px;background:rgba(255,255,255,.82);box-shadow:0 1px 2px rgba(15,23,42,.04)}
-.token-zone-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.token-zone-actions .btn{height:34px!important;min-height:34px!important;padding:0 13px!important;font-size:12px!important;border-radius:999px!important}
+.token-zone{margin:0 0 16px;padding:16px;border:1px solid var(--bd);border-radius:14px;background:rgba(255,255,255,.88);box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.token-zone-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--bd)}
 .token-zone-title{font-size:16px;font-weight:820;color:var(--t1);line-height:1.25}
 .token-zone-sub{font-size:12px;color:var(--t3);line-height:1.55;margin-top:4px;max-width:760px}
 .token-zone-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-.local-executor-zone{background:linear-gradient(180deg,rgba(0,113,227,.055),rgba(255,255,255,.82))}
-.token-vault-zone{background:rgba(255,255,255,.86)}
+.local-executor-zone,.token-vault-zone{background:rgba(255,255,255,.88)}
+.token-zone-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:0 0 12px}
+.token-zone-stat{border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:10px;min-width:0}
+.token-zone-stat span{display:block;font-size:11px;color:var(--t3);line-height:1.2;margin-bottom:4px}
+.token-zone-stat b{display:block;font-size:18px;color:var(--t1);line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.token-zone-stat.ok b{color:#15803d}.token-zone-stat.warn b{color:#b45309}.token-zone-stat.bad b{color:#b91c1c}.token-zone-stat.info b{color:#005bb5}
+.token-zone-filter{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px;background:var(--bg2);border:1px solid var(--bd);border-radius:12px}
+.token-zone-empty{padding:12px;border:1px dashed var(--bd);border-radius:12px;color:var(--t3);font-size:12px;line-height:1.55;background:var(--bg2)}
+.token-zone-subcard{margin-top:14px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.72);padding:12px}
+.token-zone-subhead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.token-zone-subtitle{font-weight:800;color:var(--t1)}
+.token-zone-subtext{font-size:12px;color:var(--t3);line-height:1.5;margin-top:3px}
 .token-split-note{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(0,113,227,.14);background:rgba(0,113,227,.045);border-radius:12px;color:var(--t2);font-size:12px;line-height:1.55;margin:0 0 14px}
 .meta-oauth-shell{display:flex;flex-direction:column;gap:14px}
 .meta-oauth-card{background:#fff;border:1px solid #dedee4;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
@@ -2345,6 +2356,12 @@ select.fc option{background:#fff;color:#1d1d1f}
          <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
          <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
         </div>
+       </div>
+       <div class="token-zone-stats" id="tokenVaultStats">
+        <div class="token-zone-stat info"><span>存储方式</span><b>加密落库</b></div>
+        <div class="token-zone-stat ok"><span>使用顺序</span><b>执行器兜底</b></div>
+        <div class="token-zone-stat"><span>明文显示</span><b>前端隐藏</b></div>
+        <div class="token-zone-stat"><span>账户关联</span><b>自动补齐</b></div>
        </div>
        <div id="tokensList"></div>
       </div>
@@ -8018,15 +8035,18 @@ function renderLocalTokenPanel(){
     '<div><div class="token-zone-title">本地执行器</div>'+
      '<div class="token-zone-sub">Chrome 首次用一次性激活码绑定，之后凭节点密钥长期心跳。只有在线且已接管操作的执行器，才会优先参与铺广告、预算和关停。</div></div>'+
     '<div class="token-zone-actions">'+
-     '<span class="badge" style="background:rgba(59,130,246,.10);color:#005bb5;border:1px solid rgba(59,130,246,.2)">在线 '+online+'/'+nodes.length+'</span>'+
-     '<span class="badge" style="background:rgba(34,197,94,.10);color:#15803d;border:1px solid rgba(34,197,94,.2)">可执行 '+executable+'</span>'+
-     '<span class="badge" style="background:rgba(34,197,94,.10);color:#15803d;border:1px solid rgba(34,197,94,.2)">可见账户 '+mapped+'</span>'+
      '<button class="btn btn-p btn-sm role-hide-viewer" onclick="createLocalTokenRegistration()">绑定新 Chrome</button>'+
-     '<button class="btn btn-p btn-sm role-hide-viewer" onclick="openLocalExecutorTaskModal()">API自检账户</button>'+
+     '<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLocalExecutorTaskModal()">API自检账户</button>'+
      '<button class="btn btn-g btn-sm role-hide-viewer" onclick="loadLocalTokenNodes()">刷新</button>'+
     '</div>'+
    '</div>'+
-   (nodes.length?'<div style="margin-top:12px">'+rows+'</div>':'<div style="margin-top:12px;padding:12px;border:1px dashed var(--bd);border-radius:12px;color:var(--t3);font-size:12px;background:var(--bg2)">还没有激活 Chrome 执行器。点击「绑定新 Chrome」下载插件并生成一次性激活码。</div>')+
+   '<div class="token-zone-stats">'+
+    '<div class="token-zone-stat info"><span>在线节点</span><b>'+online+'/'+nodes.length+'</b></div>'+
+    '<div class="token-zone-stat ok"><span>可执行节点</span><b>'+executable+'</b></div>'+
+    '<div class="token-zone-stat"><span>可见账户</span><b>'+mapped+'</b></div>'+
+    '<div class="token-zone-stat"><span>最近任务</span><b>'+((localExecutorTasks||[]).length||0)+'</b></div>'+
+   '</div>'+
+   (nodes.length?'<div>'+rows+'</div>':'<div class="token-zone-empty">还没有激活 Chrome 执行器。点击「绑定新 Chrome」下载插件并生成一次性激活码。</div>')+
    renderLocalExtensionPackageHtml()+
    renderLocalExecutorTasksHtml()+
   '</div>';
@@ -8044,7 +8064,7 @@ function _localExecutorStatusStyle(status){
 }
 function renderLocalExecutorTasksHtml(){
  var tasks=(localExecutorTasks||[]).slice(0,8);
- if(!tasks.length)return '<div style="margin-top:12px;padding:12px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.55);color:var(--t3);font-size:12px">暂无本地执行任务。可以点击「API自检账户」验证纯 API 链路。</div>';
+ if(!tasks.length)return '<div class="token-zone-empty" style="margin-top:14px">暂无本地执行任务。可以点击「API自检账户」验证纯 API 链路。</div>';
  var rows=tasks.map(function(t){
   var p=t.params||{},r=t.result||{};
   return '<div style="display:grid;grid-template-columns:minmax(130px,1fr) 90px minmax(160px,2fr) 130px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--bd)">'+
@@ -8054,8 +8074,8 @@ function renderLocalExecutorTasksHtml(){
    '<div style="font-size:11px;color:var(--t3);text-align:right">'+escHtml(_fmtActionLogTime(t.updated_at||t.created_at||''))+'</div>'+
   '</div>';
  }).join('');
-  return '<div style="margin-top:14px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.72);padding:12px">'+
-   '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div style="font-weight:800;color:var(--t1)">最近本地执行任务</div><button class="btn btn-g btn-sm" onclick="loadLocalExecutorTasks()">刷新任务</button></div>'+
+  return '<div class="token-zone-subcard">'+
+   '<div class="token-zone-subhead"><div><div class="token-zone-subtitle">最近本地执行任务</div><div class="token-zone-subtext">用于确认本地执行器是否能稳定接收 Mira 下发的 API 任务。</div></div><button class="btn btn-g btn-sm" onclick="loadLocalExecutorTasks()">刷新任务</button></div>'+
    rows+
   '</div>';
 }
@@ -8073,10 +8093,10 @@ function renderLocalExtensionPackageHtml(){
  var legacy=(localExtensionPackage&&localExtensionPackage.legacy)||{};
  var exists=!!pkg.exists;
  var sha=pkg.sha256?String(pkg.sha256).slice(0,12):'--';
- return '<div class="role-superadmin-only" style="margin-top:14px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.72);padding:12px">'+
-  '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">'+
-   '<div style="min-width:0"><div style="font-weight:800;color:var(--t1)">插件包管理</div>'+
-    '<div style="font-size:12px;color:var(--t3);line-height:1.5;margin-top:3px">仅超级管理员可见。上传后会立即替换「下载 Chrome 插件」入口；删除后用户将无法下载插件。</div></div>'+
+ return '<div class="role-superadmin-only token-zone-subcard">'+
+  '<div class="token-zone-subhead">'+
+   '<div style="min-width:0"><div class="token-zone-subtitle">插件包管理</div>'+
+    '<div class="token-zone-subtext">仅超级管理员可见。上传后会立即替换「下载 Chrome 插件」入口；删除后用户将无法下载插件。</div></div>'+
    '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
     '<input type="file" id="localExtensionPackageInput" accept=".zip,application/zip" style="display:none" onchange="uploadLocalExtensionPackage(this.files)">'+
     '<button class="btn btn-p btn-sm" onclick="document.getElementById(\'localExtensionPackageInput\').click()">上传新版</button>'+
@@ -8257,23 +8277,25 @@ function renderTokensView(){
  var el=document.getElementById('tokensList');
  if(!el)return;
  var tks=allTokensData||[];
+ var activeTotal=tks.filter(function(t){return t.status==='active';}).length;
+ var invalidTotal=tks.length-activeTotal;
+ var linkedTotal=tks.reduce(function(sum,t){return sum+(parseInt(t.account_count,10)||0);},0);
+ var vaultStats=document.getElementById('tokenVaultStats');
+ if(vaultStats){
+  vaultStats.innerHTML=
+   '<div class="token-zone-stat info"><span>Token 总数</span><b>'+tks.length+'</b></div>'+
+   '<div class="token-zone-stat ok"><span>有效 Token</span><b>'+activeTotal+'</b></div>'+
+   '<div class="token-zone-stat '+(invalidTotal?'bad':'')+'"><span>异常 Token</span><b>'+invalidTotal+'</b></div>'+
+   '<div class="token-zone-stat"><span>关联账户</span><b>'+linkedTotal+'</b></div>';
+ }
  if(!tks.length){
   el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>还没有添加任何 Token<br>点击右上角「添加 Token」开始</p></div>';
   return;
  }
  var filtered=getFilteredTokens();
- var activeTotal=tks.filter(function(t){return t.status==='active';}).length;
- var invalidTotal=tks.length-activeTotal;
- var linkedTotal=tks.reduce(function(sum,t){return sum+(parseInt(t.account_count,10)||0);},0);
  var filterActive=!!(tokenUiState.q||'')||tokenUiState.status!=='all'||tokenUiState.type!=='all'||tokenUiState.source!=='all';
  var headerHtml=
-  '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">'+
-   '<div class="sc blue" style="min-width:140px;padding:14px"><div class="sc-label">Token 总数</div><div class="sc-val blue" style="font-size:22px">'+tks.length+'</div></div>'+
-   '<div class="sc green" style="min-width:140px;padding:14px"><div class="sc-label">有效 Token</div><div class="sc-val green" style="font-size:22px">'+activeTotal+'</div></div>'+
-   '<div class="sc red" style="min-width:140px;padding:14px"><div class="sc-label">异常 Token</div><div class="sc-val red" style="font-size:22px">'+invalidTotal+'</div></div>'+
-   '<div class="sc orange" style="min-width:140px;padding:14px"><div class="sc-label">关联账户数</div><div class="sc-val orange" style="font-size:22px">'+linkedTotal+'</div></div>'+
-  '</div>'+
-  '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px;background:var(--bg2);border:1px solid var(--bd);border-radius:12px">'+
+  '<div class="token-zone-filter">'+
    '<input class="fc" id="tokenSearch" value="'+escHtml(tokenUiState.q||'')+'" placeholder="搜索别名 / 备注 / 矩阵..." oninput="syncTokenFiltersFromDom();renderTokensView()" style="width:240px">'+
    '<select class="fc" id="tokenStatusFilter" onchange="syncTokenFiltersFromDom();renderTokensView()" style="width:140px">'+
     '<option value="all"'+((tokenUiState.status||'all')==='all'?' selected':'')+'>全部状态</option>'+
