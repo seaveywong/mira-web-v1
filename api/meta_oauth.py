@@ -710,6 +710,9 @@ def _oauth_html(title: str, message: str, ok: bool = False, payload: Optional[di
     color = "#0f766e" if ok else "#b91c1c"
     bg = "#ecfdf5" if ok else "#fef2f2"
     border = "#99f6e4" if ok else "#fecaca"
+    badge = "授权完成" if ok else "需要处理"
+    safe_title = html.escape(title)
+    safe_message = html.escape(message)
     script = ""
     if ok:
         script = f"""
@@ -721,9 +724,18 @@ def _oauth_html(title: str, message: str, ok: bool = False, payload: Optional[di
         </script>
         """
     return HTMLResponse(
-        f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
-        <style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f6f7fb;margin:0;display:grid;place-items:center;min-height:100vh;color:#111827}}.box{{width:min(560px,92vw);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:28px;box-shadow:0 18px 60px rgba(15,23,42,.12)}}.msg{{background:{bg};border:1px solid {border};color:{color};border-radius:12px;padding:14px 16px;line-height:1.7;white-space:pre-wrap}}h1{{font-size:22px;margin:0 0 14px}}p{{color:#6b7280;font-size:13px}}</style>
-        </head><body><div class="box"><h1>{html.escape(title)}</h1><div class="msg">{html.escape(message)}</div><p>可以关闭此窗口并返回 Mira。</p></div>{script}</body></html>"""
+        f"""<!doctype html><html><head><meta charset="utf-8"><title>{safe_title}</title>
+        <style>
+        *{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#f7f8fb 0%,#eef2f7 100%);margin:0;display:grid;place-items:center;min-height:100vh;color:#111827;padding:24px}}
+        .box{{width:min(640px,94vw);background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:30px;box-shadow:0 24px 80px rgba(15,23,42,.14)}}
+        .top{{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}}
+        .brand{{font-size:13px;color:#6b7280;font-weight:700;letter-spacing:.02em}}.badge{{display:inline-flex;align-items:center;border-radius:999px;background:{bg};border:1px solid {border};color:{color};font-size:12px;font-weight:800;padding:6px 10px}}
+        h1{{font-size:24px;line-height:1.25;margin:0 0 14px;color:#111827}}.msg{{background:{bg};border:1px solid {border};color:{color};border-radius:14px;padding:15px 16px;line-height:1.7;white-space:pre-wrap;font-size:14px}}
+        p{{color:#6b7280;font-size:13px;line-height:1.6;margin:14px 0 0}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}}
+        button,a.btn{{appearance:none;border:1px solid #d1d5db;border-radius:999px;background:#fff;color:#111827;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none}}
+        button.primary,a.primary{{background:#0071e3;border-color:#0071e3;color:#fff}}button:hover,a.btn:hover{{filter:brightness(.98)}}
+        </style>
+        </head><body><div class="box"><div class="top"><div class="brand">Mira · Meta OAuth</div><div class="badge">{badge}</div></div><h1>{safe_title}</h1><div class="msg">{safe_message}</div><p>如果 Mira 授权中心还开着，结果会自动同步；也可以手动回到 Mira 点击「检查结果」。</p><div class="actions"><button class="primary" onclick="window.close()">关闭窗口</button><a class="btn" href="/">返回 Mira</a></div></div>{script}</body></html>"""
     )
 
 

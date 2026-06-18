@@ -7436,6 +7436,7 @@ function renderMetaOAuthModal(cfg){
    '<div class="fg"><label class="fl">归属矩阵（操作号建议填写）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh">操作号用于铺广告、预算和关闭广告。选择矩阵后，同矩阵账户、素材、主页库会自动显示矩阵标签；留空会继续显示未识别矩阵。</div></div>'+
   '</div>'+
   '<label class="meta-oauth-check"><input type="checkbox" id="metaForceReauth" checked><span>每次强制重新确认权限，避免账号没有勾选 ads_management 却被误判可用。</span></label>'+
+  '<div class="meta-oauth-note"><b>授权归属规则：</b>运营登录后授权，只自动匹配本人名下账户；团队管理员授权，匹配本团队账户；超级管理员授权只匹配未归属团队的账户。给某个运营稳定铺广告，建议让该运营自己登录 Mira 后授权，再用「导入账户（自动匹配 Token）」补齐账户关联。</div>'+
   '<div class="meta-oauth-note">这是 Meta 标准 OAuth / Business Login，不是绕过 API。App 开发模式下仍需要手动把个号加入开发者/测试用户；正式稳定使用需要 App Live 和权限审核。</div>'+
   '<div id="metaOAuthLinkBox" class="meta-oauth-linkbox">'+
    '<div class="meta-oauth-link-title">授权链接已生成</div>'+
@@ -7628,10 +7629,20 @@ function renderMetaOAuthMatchDetails(data){
   '恢复 '+num(m.restored),
   '已有 '+num(m.already_linked)
  ].join(' · ');
+ var noMatchHint='';
+ if(!effective){
+  if(num(m.fb_total)>0&&num(m.imported_total)===0){
+   noMatchHint='授权成功，且这个 Meta 账号能看到 FB 广告账户；但当前 Mira 身份范围内还没有已导入账户。请到「广告账户」输入账户 ID 导入，系统会自动把这个授权 Token 关联进去。';
+  }else if(num(m.fb_total)===0){
+   noMatchHint='授权成功，但这个 Meta 账号没有返回可见广告账户。通常是该个号没有广告账户权限，或 App / 授权范围缺少 ads_read、ads_management。';
+  }else{
+   noMatchHint='授权成功，但 FB 可见账户和 Mira 当前身份范围内已导入账户没有交集。请检查账户是否导入到正确团队/负责人名下，或使用目标运营账号重新授权。';
+  }
+ }
  return '<div class="meta-oauth-note" style="margin-top:10px">'+
   '<div style="font-weight:820;color:var(--t1);margin-bottom:4px">账户匹配明细</div>'+
   '<div style="font-size:12px;color:var(--t2)">'+summary+'</div>'+
-  (effective?'<div style="font-size:11px;color:var(--t3);margin-top:4px">这些账户已可在账户 Token 池中使用该授权 Token。</div>':'<div style="font-size:11px;color:var(--wa);margin-top:4px">没有命中已导入账户。可以继续导入账户，系统会再自动关联。</div>')+
+  (effective?'<div style="font-size:11px;color:var(--t3);margin-top:4px">这些账户已可在账户 Token 池中使用该授权 Token。</div>':'<div style="font-size:11px;color:var(--wa);margin-top:4px">'+escHtml(noMatchHint)+'</div>')+
   listBlock('新增关联',m.matched_accounts,m.matched,'ok')+
   listBlock('恢复关联',m.restored_accounts,m.restored,'ok')+
   listBlock('已有可用关联',m.already_accounts,m.already_linked,'')+
