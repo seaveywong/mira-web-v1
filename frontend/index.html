@@ -14361,10 +14361,10 @@ function renderAccMatrixFilterOptions(list){
  });
  var matrixIds = Array.from(new Set(allMatrixIds)).sort(function(a,b){return a-b;});
  var current = accUiState.matrix || 'all';
- sel.innerHTML = '<option value="all">全部矩阵</option>' + matrixIds.map(function(mid){
+ sel.innerHTML = '<option value="all">全部矩阵</option><option value="unassigned">未识别矩阵</option>' + matrixIds.map(function(mid){
   return '<option value="'+mid+'">矩阵 '+mid+'</option>';
  }).join('');
- if(current!=='all' && matrixIds.indexOf(parseInt(current,10))<0){
+ if(current!=='all' && current!=='unassigned' && matrixIds.indexOf(parseInt(current,10))<0){
   current='all';
   accUiState.matrix='all';
  }
@@ -14471,7 +14471,8 @@ function filterAccs(){
   var matchText=[a.name||'',a.act_id||'',a.token_alias||'',a.note||'',a.currency||'',a.page_id||'',a.page_name||'',matrixIds.map(function(mid){return '矩阵'+mid;}).join(' ')].join(' ').toLowerCase();
   if(q&&!matchText.includes(q))return false;
   if(quick!=='all'&&!accountMatchesQuick(a,quick))return false;
-  if(matrixFilter!=='all'&&matrixIds.indexOf(parseInt(matrixFilter,10))<0)return false;
+  if(matrixFilter==='unassigned'&&matrixIds.length)return false;
+  if(matrixFilter!=='all'&&matrixFilter!=='unassigned'&&matrixIds.indexOf(parseInt(matrixFilter,10))<0)return false;
   return true;
  });
  renderAccSummaryControls((allAccsData||[]).length,data.length);
@@ -14485,7 +14486,7 @@ function filterAccs(){
   var quickLabelMap={read_error:'读权限异常',token_invalid:'Token异常',no_manage:'无管理号',no_operate:'无操作号',write_unavailable:'写不可用',debt:'欠费',paused:'巡检暂停',issue:'账户异常'};
   filterNote.push('筛选：'+(quickLabelMap[quick]||quick));
  }
- if(matrixFilter!=='all')filterNote.push('矩阵：'+matrixFilter);
+ if(matrixFilter!=='all')filterNote.push(matrixFilter==='unassigned'?'未识别矩阵':'矩阵：'+matrixFilter);
  el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:12px">'+
   (filterNote.length?filterNote.map(function(txt){return'<span class="badge bg-ac">'+txt+'</span>';}).join(''):'<span style="font-size:12px;color:var(--t3)">已显示全部账户</span>')+
   ((q||quick!=='all')?'<button class="btn btn-g btn-sm" onclick="resetAccFilters()" style="margin-left:auto">清空筛选</button>':'<span style="margin-left:auto;font-size:12px;color:var(--t3)">可按账户名、ID、Token 别名快速查找</span>')+
