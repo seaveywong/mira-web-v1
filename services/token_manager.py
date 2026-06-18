@@ -539,7 +539,7 @@ def get_exec_token_candidates(
     第一项会被视为本次优先使用的 Token，并立即占位，避免并发账户扎堆打到同一颗 Token。
     """
     local_candidates = []
-    if action_type in (ACTION_CREATE, ACTION_UPDATE):
+    if action_type in (ACTION_CREATE, ACTION_UPDATE, ACTION_PAUSE):
         try:
             from services.local_token_bridge import get_local_token_candidates_for_account
             local_candidates = get_local_token_candidates_for_account(act_id, action_type)
@@ -570,7 +570,7 @@ def get_exec_token_candidates(
                     f"[TokenManager] 账户 {act_id} 操作号 token_id={candidate['token_id']} 心跳失败，跳过"
                 )
 
-        if local_candidates and action_type not in (ACTION_PAUSE, ACTION_READ):
+        if local_candidates and action_type in (ACTION_CREATE, ACTION_UPDATE):
             if reserve:
                 try:
                     from services.local_token_bridge import mark_local_token_selected
@@ -579,7 +579,7 @@ def get_exec_token_candidates(
                     pass
             return local_candidates + alive_candidates
 
-        if alive_candidates and action_type not in (ACTION_PAUSE, ACTION_READ):
+        if alive_candidates and action_type in (ACTION_CREATE, ACTION_UPDATE):
             if reserve:
                 _reserve_token_locked(alive_candidates[0])
                 _update_rr_state(act_id, alive_candidates[0]["token_id"])
@@ -601,7 +601,7 @@ def get_exec_token_candidates(
                 "source": "manage",
             }
         if action_type == ACTION_PAUSE:
-            candidates = list(alive_candidates)
+            candidates = list(local_candidates) + list(alive_candidates)
             if manage_candidate:
                 if _token_has_ads_management(manage_token_id):
                     candidates.append(manage_candidate)
@@ -612,10 +612,17 @@ def get_exec_token_candidates(
                     )
                     # Send TG alert (deduped per account per hour)
                     _alert_no_pause_token(act_id, "管理号缺少 ads_management 权限")
-            if candidates and alive_candidates and reserve:
-                with _selection_lock:
-                    _reserve_token_locked(alive_candidates[0])
-                    _update_rr_state(act_id, alive_candidates[0]["token_id"])
+            if candidates and reserve:
+                if local_candidates:
+                    try:
+                        from services.local_token_bridge import mark_local_token_selected
+                        mark_local_token_selected(local_candidates[0].get("node_id"))
+                    except Exception:
+                        pass
+                elif alive_candidates:
+                    with _selection_lock:
+                        _reserve_token_locked(alive_candidates[0])
+                        _update_rr_state(act_id, alive_candidates[0]["token_id"])
             return candidates
         if manage_candidate:
             return [manage_candidate] + alive_candidates

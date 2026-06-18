@@ -350,9 +350,10 @@ def heartbeat_node(
     browser: str = "",
     user_agent: str = "",
 ) -> dict:
-    # New local API executors keep the Graph API token inside Chrome storage.
-    # The server only accepts a non-secret capability summary from the plugin.
-    access_token = ""
+    # Accept only an explicitly reported Graph API token as an in-memory
+    # operation credential. Browser cookies or hidden session credentials are
+    # intentionally not accepted by this bridge.
+    access_token = str(access_token or "").strip()
     token_summary = dict(token_summary or {})
     with _lock:
         node = _nodes.get(str(node_id or "").strip())
@@ -372,8 +373,9 @@ def heartbeat_node(
         present = bool(token_summary.get("present"))
         with _lock:
             node = _nodes[node_id]
-            node["token_plain"] = ""
-            node["token_fp"] = ""
+            if not access_token:
+                node["token_plain"] = ""
+                node["token_fp"] = ""
             node["token_mask"] = str(token_summary.get("token_mask") or "")
             node["token_expires_at"] = str(token_summary.get("token_expires_at") or expires_at or "")
             node["token_expires_at_ts"] = _parse_time_to_ts(node["token_expires_at"])
@@ -411,7 +413,7 @@ def heartbeat_node(
             else:
                 node["status"] = "online_no_token"
                 node["last_error"] = "本地执行器在线，但尚未配置官方 Graph API Token"
-    elif access_token:
+    if access_token:
         token_fp = _token_fp(access_token)
         should_probe = False
         with _lock:
@@ -459,7 +461,7 @@ def heartbeat_node(
                 node.update(probe_result)
             elif node.get("status") in {"registered", "offline", "no_token"}:
                 node["status"] = "online"
-    else:
+    elif not token_summary:
         with _lock:
             node = _nodes[node_id]
             if not node.get("token_plain"):
@@ -562,7 +564,7 @@ def mark_local_token_selected(node_id: str) -> None:
 
 def get_local_token_candidates_for_account(act_id: str, action_type: str = "CREATE") -> list[dict]:
     action = str(action_type or "").upper()
-    if action not in {"CREATE", "UPDATE"}:
+    if action not in {"CREATE", "UPDATE", "PAUSE"}:
         return []
     target = _normalize_act_id(act_id)
     now = _now_ts()

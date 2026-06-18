@@ -885,7 +885,6 @@ def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
         seen.add(token)
         candidates.append({"token": token, "label": label or "token"})
 
-    _add(primary_token, "primary")
     try:
         from services.token_manager import ACTION_PAUSE, get_exec_token_candidates
         for cand in get_exec_token_candidates(
@@ -900,6 +899,8 @@ def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
             )
     except Exception as exc:
         logger.warning("Failed to load PAUSE token candidates for %s: %s", act_id, _sanitize_error_text(exc))
+
+    _add(primary_token, "primary")
 
     if not candidates:
         fallback = _get_token_for_account(account, "PAUSE")
