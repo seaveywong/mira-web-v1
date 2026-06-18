@@ -1853,6 +1853,10 @@ select.fc option{background:#fff;color:#1d1d1f}
 .meta-oauth-link-title{font-size:13px;font-weight:820;color:#1d1d1f;margin-bottom:8px}
 .meta-oauth-link-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .meta-oauth-link-hint{font-size:12px;color:#7c7c82;line-height:1.45}
+.meta-oauth-flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+.meta-oauth-flow div{border:1px solid #e5e5ea;border-radius:10px;padding:9px 10px;background:#fafafa;color:#424245;font-size:12px;line-height:1.45}
+.meta-oauth-flow b{display:block;color:#1d1d1f;font-size:12px;margin-bottom:2px}
+.meta-oauth-disabled{opacity:.52}
 @media(max-width:1100px){
  #teamAdminContent .owner-log-filters{display:flex!important}
  .page>.ph:first-child>div:last-child:not(.ph-acts){justify-content:flex-start!important}
@@ -1865,6 +1869,7 @@ select.fc option{background:#fff;color:#1d1d1f}
  .task-center-wrap .task-center{grid-template-columns:1fr}
  #page-tokens .token-actions{width:100%!important;justify-content:flex-start!important}
  .meta-oauth-grid{grid-template-columns:1fr}
+ .meta-oauth-flow{grid-template-columns:1fr}
 }
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -7460,10 +7465,15 @@ function renderMetaOAuthModal(cfg){
  }
  var connectHtml='<div class="meta-oauth-card">'+
   '<div class="meta-oauth-head"><div><div class="meta-oauth-title">运营账号授权</div><div class="meta-oauth-sub">授权成功后会生成 Meta 官方授权 Token，并自动匹配本团队/本人已导入账户。铺广告、预热、预算和关停仍走现有账户流程。</div></div><span class="badge" style="'+getTokenSourceBadgeStyle('oauth_user')+'">oauth_user</span></div>'+
+  '<div class="meta-oauth-flow">'+
+   '<div><b>1. 生成链接</b>复制到目标个号浏览器，或直接打开授权。</div>'+
+   '<div><b>2. 自动匹配</b>授权完成后匹配当前身份范围内已导入账户。</div>'+
+   '<div><b>3. 继续导入</b>如果覆盖为 0，去账户页输入账户 ID 自动补齐关联。</div>'+
+  '</div>'+
   '<div class="meta-oauth-grid">'+
    '<div class="fg"><label class="fl">Token 别名</label><input class="fc" id="metaTokenAlias" placeholder="如：vv 官方授权 / BM5 授权"></div>'+
-   '<div class="fg"><label class="fl">授权用途</label><select class="fc" id="metaTokenType"><option value="operate">操作号：铺广告/预热/预算/关停</option><option value="manage">管理号：读取/导入/兜底</option><option value="user">个人号：仅兼容保留</option></select></div>'+
-   '<div class="fg"><label class="fl">归属矩阵（操作号建议填写）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh">操作号用于铺广告、预算和关闭广告。选择矩阵后，同矩阵账户、素材、主页库会自动显示矩阵标签；留空会继续显示未识别矩阵。</div></div>'+
+   '<div class="fg"><label class="fl">授权用途</label><select class="fc" id="metaTokenType" onchange="onMetaOAuthTokenTypeChanged()"><option value="operate">操作号：铺广告/预热/预算/关停</option><option value="manage">管理号：读取/导入/兜底</option><option value="user">个人号：仅兼容保留</option></select><div class="fh" id="metaTokenTypeHint">操作号会参与铺广告、预算和关闭广告，建议填写矩阵。</div></div>'+
+   '<div class="fg" id="metaTokenMatrixWrap"><label class="fl">归属矩阵（操作号建议填写）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh" id="metaTokenMatrixHint">选择矩阵后，同矩阵账户、素材、主页库会自动显示矩阵标签；留空会继续显示未识别矩阵。</div></div>'+
   '</div>'+
   '<label class="meta-oauth-check"><input type="checkbox" id="metaForceReauth" checked><span>每次强制重新确认权限，避免账号没有勾选 ads_management 却被误判可用。</span></label>'+
   '<div class="meta-oauth-note"><b>授权归属规则：</b>运营登录后授权，只自动匹配本人名下账户；团队管理员授权，匹配本团队账户；超级管理员授权只匹配未归属团队的账户。给某个运营稳定铺广告，建议让该运营自己登录 Mira 后授权，再用「导入账户（自动匹配 Token）」补齐账户关联。</div>'+
@@ -7482,6 +7492,26 @@ function renderMetaOAuthModal(cfg){
  '</div>';
  body.innerHTML='<div class="meta-oauth-shell">'+configHtml+connectHtml+'</div>';
  fillMatrixSelects();
+ onMetaOAuthTokenTypeChanged();
+}
+function onMetaOAuthTokenTypeChanged(){
+ var type=(document.getElementById('metaTokenType')||{}).value||'operate';
+ var wrap=document.getElementById('metaTokenMatrixWrap');
+ var sel=document.getElementById('metaTokenMatrix');
+ var custom=document.getElementById('metaTokenMatrixCustom');
+ var typeHint=document.getElementById('metaTokenTypeHint');
+ var matrixHint=document.getElementById('metaTokenMatrixHint');
+ var isOperate=type==='operate';
+ if(wrap)wrap.classList.toggle('meta-oauth-disabled',!isOperate);
+ if(sel)sel.disabled=!isOperate;
+ if(custom)custom.disabled=!isOperate;
+ if(!isOperate){
+  if(typeHint)typeHint.textContent=type==='manage'?'管理号用于读取、导入和兜底，不参与矩阵归属推导。':'个人号仅兼容旧逻辑，不建议作为铺广告操作号。';
+  if(matrixHint)matrixHint.textContent='当前用途不会写入矩阵；如要让账户/素材/主页显示矩阵，请使用操作号授权或在 Token 列表补矩阵。';
+ }else{
+  if(typeHint)typeHint.textContent='操作号会参与铺广告、预算和关闭广告，建议填写矩阵。';
+  if(matrixHint)matrixHint.textContent='选择矩阵后，同矩阵账户、素材、主页库会自动显示矩阵标签；留空会继续显示未识别矩阵。';
+ }
 }
 function normalizeMetaOAuthScopes(raw){
  var blocked={leads_retrieval:1};

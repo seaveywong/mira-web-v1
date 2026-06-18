@@ -706,36 +706,62 @@ def _oauth_failure_message(prefix: str, *parts: Optional[str]) -> str:
 
 
 def _oauth_html(title: str, message: str, ok: bool = False, payload: Optional[dict] = None) -> HTMLResponse:
-    payload_json = json.dumps(payload or {}, ensure_ascii=False)
+    payload = payload or {}
+    payload_json = json.dumps(payload, ensure_ascii=False)
     color = "#0f766e" if ok else "#b91c1c"
     bg = "#ecfdf5" if ok else "#fef2f2"
     border = "#99f6e4" if ok else "#fecaca"
     badge = "授权完成" if ok else "需要处理"
     safe_title = html.escape(title)
     safe_message = html.escape(message)
+    summary_html = ""
+    if ok and payload:
+        match = payload.get("match_result") or {}
+        try:
+            effective = int(match.get("matched") or payload.get("matched") or 0) + int(match.get("restored") or payload.get("restored") or 0) + int(match.get("already_linked") or payload.get("already_linked") or 0)
+        except Exception:
+            effective = 0
+        stats = [
+            ("Token ID", str(payload.get("token_id") or "--")),
+            ("FB 可见账户", str(match.get("fb_total") or payload.get("fb_total") or 0)),
+            ("已覆盖账户", str(effective)),
+            ("系统已导入", str(match.get("imported_total") or 0)),
+        ]
+        summary_html = '<div class="stats">' + "".join(
+            f'<div class="stat"><b>{html.escape(value)}</b><span>{html.escape(label)}</span></div>'
+            for label, value in stats
+        ) + "</div>"
+        if effective:
+            summary_html += '<div class="hint ok">授权 Token 已自动加入匹配到账户的 Token 池。回到 Mira 后可直接用于铺广告、预热、预算和关停。</div>'
+        else:
+            summary_html += '<div class="hint warn">授权成功，但暂未覆盖已导入账户。回到 Mira 后请点击“导入账户（自动匹配 Token）”，系统会自动补齐关联。</div>'
     script = ""
     if ok:
         script = f"""
         <script>
         try {{
-          if (window.opener) window.opener.postMessage(Object.assign({payload_json}, {{type:'mira_meta_oauth_success'}}), '*');
+          var hasOpener = !!(window.opener && !window.opener.closed);
+          if (hasOpener) window.opener.postMessage(Object.assign({payload_json}, {{type:'mira_meta_oauth_success'}}), '*');
+          if (hasOpener) setTimeout(function() {{ try {{ window.close(); }} catch(e) {{}} }}, 2600);
         }} catch (e) {{}}
-        setTimeout(function() {{ try {{ window.close(); }} catch(e) {{}} }}, 1800);
         </script>
         """
     return HTMLResponse(
-        f"""<!doctype html><html><head><meta charset="utf-8"><title>{safe_title}</title>
+        f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{safe_title}</title>
         <style>
         *{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#f7f8fb 0%,#eef2f7 100%);margin:0;display:grid;place-items:center;min-height:100vh;color:#111827;padding:24px}}
-        .box{{width:min(640px,94vw);background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:30px;box-shadow:0 24px 80px rgba(15,23,42,.14)}}
+        .box{{width:min(720px,94vw);background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:30px;box-shadow:0 24px 80px rgba(15,23,42,.14)}}
         .top{{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}}
         .brand{{font-size:13px;color:#6b7280;font-weight:700;letter-spacing:.02em}}.badge{{display:inline-flex;align-items:center;border-radius:999px;background:{bg};border:1px solid {border};color:{color};font-size:12px;font-weight:800;padding:6px 10px}}
         h1{{font-size:24px;line-height:1.25;margin:0 0 14px;color:#111827}}.msg{{background:{bg};border:1px solid {border};color:{color};border-radius:14px;padding:15px 16px;line-height:1.7;white-space:pre-wrap;font-size:14px}}
+        .stats{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0 0}}.stat{{border:1px solid #e5e7eb;border-radius:14px;padding:12px;background:#fafafa}}.stat b{{display:block;font-size:20px;color:#111827;line-height:1.1}}.stat span{{display:block;color:#6b7280;font-size:12px;margin-top:5px}}
+        .hint{{margin-top:12px;border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.6}}.hint.ok{{background:#ecfdf5;color:#047857;border:1px solid #bbf7d0}}.hint.warn{{background:#fffbeb;color:#b45309;border:1px solid #fde68a}}
         p{{color:#6b7280;font-size:13px;line-height:1.6;margin:14px 0 0}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}}
         button,a.btn{{appearance:none;border:1px solid #d1d5db;border-radius:999px;background:#fff;color:#111827;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none}}
         button.primary,a.primary{{background:#0071e3;border-color:#0071e3;color:#fff}}button:hover,a.btn:hover{{filter:brightness(.98)}}
+        @media(max-width:640px){{.stats{{grid-template-columns:repeat(2,minmax(0,1fr))}}.box{{padding:22px}}}}
         </style>
-        </head><body><div class="box"><div class="top"><div class="brand">Mira · Meta OAuth</div><div class="badge">{badge}</div></div><h1>{safe_title}</h1><div class="msg">{safe_message}</div><p>如果 Mira 授权中心还开着，结果会自动同步；也可以手动回到 Mira 点击「检查结果」。</p><div class="actions"><button class="primary" onclick="window.close()">关闭窗口</button><a class="btn" href="/">返回 Mira</a></div></div>{script}</body></html>"""
+        </head><body><div class="box"><div class="top"><div class="brand">Mira · Meta OAuth</div><div class="badge">{badge}</div></div><h1>{safe_title}</h1><div class="msg">{safe_message}</div>{summary_html}<p>如果 Mira 授权中心还开着，结果会自动同步；复制到其他浏览器授权时，本页会保留结果，便于核对。</p><div class="actions"><button class="primary" onclick="window.close()">关闭窗口</button><a class="btn" href="/">返回 Mira</a></div></div>{script}</body></html>"""
     )
 
 
