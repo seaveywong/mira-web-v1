@@ -1080,7 +1080,7 @@ def delete_cf_token(token_id: int, user=Depends(get_current_user)):
         if usage_count > 0:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cloudflare API 仍被 {usage_count} 条落地页记录引用，请先删除或归档相关落地页后再清理 API。",
+                detail=f"Cloudflare API 仍被 {usage_count} 条落地页记录引用。为保留域名复检和 Pages 项目清理能力，请先处理相关落地页记录后再清理 API。",
             )
         conn.execute("DELETE FROM cf_tokens WHERE id=?", (token_id,))
         conn.commit()
