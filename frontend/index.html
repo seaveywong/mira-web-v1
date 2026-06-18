@@ -15434,29 +15434,30 @@ function renderLandingUrlTable(accs) {
   return;
  }
  tbody.innerHTML = accs.map(function(a) {
-  var actIdShort = (a.act_id || '').replace('act_', '');
+  var actId = a.act_id || '';
+  var actIdShort = actId.replace('act_', '');
   var url = a.landing_url || '';
   var formUrl = a.form_link || '';
   return '<tr style="border-top:1px solid var(--bd)">' +
    '<td style="padding:10px 14px;font-size:12px;white-space:nowrap">' + getAccountMatrixBadgeHtml(a) + '</td>' +
-   '<td style="padding:10px 14px;font-size:13px;font-weight:500">' + (a.name || '未命名') + '</td>' +
-   '<td style="padding:10px 14px;font-size:12px;color:var(--t3);font-family:monospace">' + actIdShort + '</td>' +
+   '<td style="padding:10px 14px;font-size:13px;font-weight:500">' + escHtml(a.name || '未命名') + '</td>' +
+   '<td style="padding:10px 14px;font-size:12px;color:var(--t3);font-family:monospace">' + escHtml(actIdShort) + '</td>' +
    '<td style="padding:8px 14px">' +
     '<input class="fc" style="font-size:12px;padding:5px 8px" type="url" ' +
-    'value="' + url.replace(/"/g, '&quot;') + '" ' +
+    'value="' + escHtml(url) + '" ' +
     'placeholder="输入落地页链接..." ' +
-    'data-actid="' + a.act_id + '" ' +
-    'id="lu_' + a.act_id + '">' +
+    'data-actid="' + escHtml(actId) + '" ' +
+    'id="lu_' + escHtml(actId) + '">' +
    '</td>' +
    '<td style="padding:8px 14px">' +
     '<input class="fc" style="font-size:12px;padding:5px 8px" type="url" ' +
-    'value="' + formUrl.replace(/"/g, '&quot;') + '" ' +
+    'value="' + escHtml(formUrl) + '" ' +
     'placeholder="输入表单链接（潜在客户广告）..." ' +
-    'data-actid="' + a.act_id + '" ' +
-    'id="fl_' + a.act_id + '">' +
+    'data-actid="' + escHtml(actId) + '" ' +
+    'id="fl_' + escHtml(actId) + '">' +
    '</td>' +
    '<td style="padding:8px 14px;text-align:center">' +
-    '<button class="btn btn-p btn-sm" onclick="saveLandingUrl(\'' + a.act_id + '\')">保存</button>' +
+    '<button class="btn btn-p btn-sm" onclick="saveLandingUrl(\'' + escHtml(actId) + '\')">保存</button>' +
    '</td>' +
    '</tr>';
  }).join('');
@@ -15500,7 +15501,7 @@ async function saveLandingUrl(actId) {
  if (formUrl !== undefined) payload.form_link = formUrl || null;
  try {
   await api('PATCH', '/accounts/by-act-id/' + actId, payload);
-  toast(' 链接已保存', 'ok');
+  toast('链接已保存', 'ok');
   // 同步更新内存中的数据
   var acc = _landingUrlAccs.find(function(a) { return a.act_id === actId; });
   if (acc) { acc.landing_url = url; if (formUrl !== undefined) acc.form_link = formUrl; }
