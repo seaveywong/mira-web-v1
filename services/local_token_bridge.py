@@ -239,6 +239,120 @@ def _account_summaries_for_ids(account_ids: list[str]) -> list[dict]:
         conn.close()
 
 
+def _account_id_from_item(item: dict) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return _normalize_act_id(
+        item.get("act_id")
+        or item.get("actId")
+        or item.get("account_id")
+        or item.get("accountId")
+        or item.get("ad_account_id")
+        or item.get("adAccountId")
+        or item.get("id")
+    )
+
+
+def _maybe_enqueue_account_discovery(node_id: str) -> None:
+    node_id = str(node_id or "").strip()
+    if not node_id:
+        return
+    try:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT id FROM local_executor_tasks
+                WHERE node_id=? AND task_type IN ('discover_accounts','graph_get')
+                  AND status IN ('queued','running')
+                  AND (
+                    task_type='discover_accounts'
+                    OR path='/me/adaccounts'
+                    OR path='me/adaccounts'
+                    OR params_json LIKE '%me/adaccounts%'
+                  )
+                LIMIT 1
+                """,
+                (node_id,),
+            ).fetchone()
+            if row:
+                return
+        finally:
+            conn.close()
+        from services.local_executor import create_local_graph_task
+
+        create_local_graph_task(
+            "discover_accounts",
+            "",
+            {
+                "fields": "id,account_id,name,account_status,currency,timezone_name",
+                "limit": 200,
+                "_timeout_sec": 90,
+                "_purpose": "discover_accounts",
+                "_progress": "等待本地执行器读取可见广告账户",
+            },
+            node_id=node_id,
+            created_by_name="local_token_bridge",
+        )
+    except Exception:
+        return
+
+
+def apply_discovered_accounts(node_id: str, data: dict) -> None:
+    node_id = str(node_id or "").strip()
+    rows = (data or {}).get("data") if isinstance(data, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+    normalized = []
+    raw_ids = set()
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        act_id = _account_id_from_item(item)
+        if not act_id:
+            continue
+        raw_ids.add(act_id)
+        normalized.append({
+            "act_id": act_id,
+            "name": str(item.get("name") or item.get("account_name") or act_id),
+            "currency": str(item.get("currency") or ""),
+            "timezone": str(item.get("timezone") or item.get("timezone_name") or ""),
+            "write_status": str(item.get("write_status") or item.get("status") or item.get("account_status") or ""),
+        })
+    with _lock:
+        _load_persisted_nodes_locked()
+        node = _nodes.get(node_id)
+        if not node:
+            return
+        visible_ids = {
+            _normalize_act_id(item.get("act_id"))
+            for item in _visible_accounts_for_node(node)
+            if _normalize_act_id(item.get("act_id"))
+        }
+        matched = sorted(raw_ids.intersection(visible_ids))[:MAX_ACCOUNT_PROBE]
+        node["account_ids"] = matched
+        node["reported_accounts"] = [
+            item for item in normalized if item.get("act_id") in set(matched)
+        ][:MAX_ACCOUNT_PROBE]
+        node["has_ads_read"] = True
+        if matched and node.get("has_ads_management"):
+            node["local_runtime_ready"] = True
+            node["status"] = "online"
+            node["last_error"] = ""
+        elif raw_ids:
+            node["local_runtime_ready"] = False
+            node["status"] = "no_accounts"
+            preview = ", ".join(sorted(raw_ids)[:5])
+            node["last_error"] = f"本地执行器读到 {len(raw_ids)} 个广告账户，但未匹配当前团队/运营资产：{preview}"
+        else:
+            node["local_runtime_ready"] = False
+            node["status"] = "no_accounts"
+            node["last_error"] = "本地执行器没有从 Facebook 读取到广告账户"
+        node["verified_at_ts"] = _now_ts()
+        node["verified_at"] = _now_cst()
+        _save_persisted_nodes_locked()
+
+
 def _fetch_token_permissions(token: str) -> dict:
     try:
         data = _graph_get("/me/permissions", token, timeout=10)
@@ -576,6 +690,19 @@ def heartbeat_node(
                     if access_token_present
                     else "Local executor has not reported a runnable account summary yet."
                 )
+
+    should_discover_accounts = False
+    with _lock:
+        node = _nodes.get(node_id) or {}
+        should_discover_accounts = bool(
+            node.get("has_ads_management")
+            and not node.get("account_ids")
+            and float(node.get("last_seen_ts") or 0)
+        )
+        if should_discover_accounts and "读取广告账户" not in str(node.get("last_error") or ""):
+            node["last_error"] = "已请求本地执行器读取广告账户，请保持插件在线"
+    if should_discover_accounts:
+        _maybe_enqueue_account_discovery(node_id)
 
     with _lock:
         _save_persisted_nodes_locked()

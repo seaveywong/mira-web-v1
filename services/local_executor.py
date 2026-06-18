@@ -19,6 +19,7 @@ from services.local_token_bridge import authenticate_node
 TASK_STATUSES = {"queued", "running", "need_user", "success", "failed", "cancelled"}
 TERMINAL_STATUSES = {"success", "failed", "cancelled"}
 SUPPORTED_API_TASKS = {
+    "discover_accounts",
     "graph_account_probe",
     "graph_update_status",
     "graph_get",
@@ -133,6 +134,7 @@ def _row_to_task(row) -> dict:
 
 def _default_method_for_task(task_type: str) -> str:
     return {
+        "discover_accounts": "EXECUTE",
         "graph_get": "GET",
         "graph_post": "POST",
         "graph_upload": "POST",
@@ -144,6 +146,8 @@ def _default_method_for_task(task_type: str) -> str:
 
 def _default_path_for_task(task_type: str, act_id: str, params: dict) -> str:
     task_type = str(task_type or "")
+    if task_type == "discover_accounts":
+        return ""
     if task_type == "graph_account_probe":
         return "/" + _normalize_act_id(params.get("act_id") or act_id).lstrip("/")
     if task_type == "graph_update_status":
@@ -163,6 +167,14 @@ def _task_transport(task_type: str, act_id: str, params: Optional[dict]) -> dict
     query_params = {}
     if task_type == "graph_get":
         query_params = dict(params.get("params") or {})
+    elif task_type == "discover_accounts":
+        body = {
+            "intent": "discover_accounts",
+            "fields": str(params.get("fields") or "id,account_id,name,account_status,currency,timezone_name"),
+            "limit": int(params.get("limit") or 200),
+            "endpoint_hint": "browser_business",
+        }
+        query_params = {}
     elif task_type == "graph_post":
         body = dict(params.get("body") or params.get("data") or {})
         query_params = dict(params.get("params") or {})
@@ -224,6 +236,8 @@ def _node_can_take_task(node: dict, task_row) -> bool:
     role = str(node.get("role") or "").strip()
     if task_row["node_id"] and task_row["node_id"] != node.get("node_id"):
         return False
+    if task_row["node_id"] and task_row["node_id"] == node.get("node_id") and not task_row["account_id"]:
+        return True
     if role == "superadmin":
         return True
     if task_row["team_id"] != node.get("team_id"):
@@ -607,6 +621,30 @@ def update_task_from_node(
             ),
         )
         conn.commit()
+        if status == "success":
+            try:
+                params_for_task = json.loads(row["params_json"] or "{}")
+            except Exception:
+                params_for_task = {}
+            task_path = str(row["path"] or params_for_task.get("path") or "").strip().lstrip("/")
+            purpose = str(params_for_task.get("_purpose") or params_for_task.get("purpose") or "").strip()
+            if row["task_type"] == "discover_accounts" or (
+                row["task_type"] == "graph_get" and (task_path == "me/adaccounts" or purpose == "discover_accounts")
+            ):
+                try:
+                    data = result if isinstance(result, dict) else {}
+                    discovered = data.get("data")
+                    if discovered is None:
+                        discovered = data.get("result")
+                    if discovered is None:
+                        discovered = data.get("response")
+                    if discovered is None:
+                        discovered = data
+                    from services.local_token_bridge import apply_discovered_accounts
+
+                    apply_discovered_accounts(node_id, discovered if isinstance(discovered, dict) else {"data": discovered})
+                except Exception:
+                    pass
         fresh = conn.execute("SELECT * FROM local_executor_tasks WHERE id=?", (task_id,)).fetchone()
         return _row_to_task(fresh)
     finally:

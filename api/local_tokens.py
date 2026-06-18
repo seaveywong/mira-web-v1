@@ -18,6 +18,7 @@ from services.local_token_bridge import (
     register_node,
     remove_node,
 )
+from services.local_executor import poll_task, poll_tasks, update_task_from_node
 
 
 router = APIRouter()
@@ -33,6 +34,10 @@ class RegisterRequest(BaseModel):
     bind_code: Optional[str] = ""
     install_id: Optional[str] = ""
     node_name: Optional[str] = ""
+    browser_name: Optional[str] = ""
+    browserName: Optional[str] = ""
+    display_name: Optional[str] = ""
+    displayName: Optional[str] = ""
     browser: Optional[str] = "Chrome"
     user_agent: Optional[str] = ""
     extension_version: Optional[str] = ""
@@ -48,6 +53,10 @@ class HeartbeatRequest(BaseModel):
     expires_in_minutes: Optional[int] = None
     token_summary: Optional[dict] = None
     node_name: Optional[str] = ""
+    browser_name: Optional[str] = ""
+    browserName: Optional[str] = ""
+    display_name: Optional[str] = ""
+    displayName: Optional[str] = ""
     browser: Optional[str] = "Chrome"
     user_agent: Optional[str] = ""
     extension_version: Optional[str] = ""
@@ -55,8 +64,32 @@ class HeartbeatRequest(BaseModel):
     status: Optional[str] = ""
     fb_user: Optional[dict] = None
     accounts: Optional[list] = None
+    ad_accounts: Optional[list] = None
+    adAccounts: Optional[list] = None
+    account_ids: Optional[list] = None
+    accountIds: Optional[list] = None
+    ad_account_ids: Optional[list] = None
+    adAccountIds: Optional[list] = None
     queue: Optional[dict] = None
     last_error: Optional[str] = ""
+
+
+class PollRequest(BaseModel):
+    node_id: str
+    node_secret: Optional[str] = ""
+    capacity: Optional[int] = 1
+    running_task_ids: Optional[list] = None
+
+
+class TaskUpdateRequest(BaseModel):
+    node_id: str
+    node_secret: Optional[str] = ""
+    status: str
+    progress: Optional[str] = ""
+    result: Optional[dict] = None
+    data: Optional[dict] = None
+    error: Optional[str] = ""
+    duration_ms: Optional[int] = None
 
 
 def _require_operator(user):
@@ -147,9 +180,17 @@ def create_registration_code(body: RegistrationRequest, user=Depends(get_current
 @router.post("/register")
 def register_local_node(body: RegisterRequest):
     try:
+        node_name = (
+            body.node_name
+            or body.browser_name
+            or body.browserName
+            or body.display_name
+            or body.displayName
+            or ""
+        )
         return {"success": True, **register_node(
             code=body.bind_code or body.code,
-            node_name=body.node_name or "",
+            node_name=node_name,
             browser=body.browser or "Chrome",
             user_agent=body.user_agent or "",
             install_id=body.install_id or "",
@@ -169,38 +210,71 @@ def bind_local_node(body: RegisterRequest):
 def receive_heartbeat(body: HeartbeatRequest):
     try:
         token_summary = dict(body.token_summary or {})
-        if body.accounts is not None or body.fb_user is not None or body.capabilities is not None or body.last_error:
-            accounts = body.accounts or []
+        accounts = (
+            body.accounts
+            or body.ad_accounts
+            or body.adAccounts
+            or token_summary.get("accounts")
+            or token_summary.get("ad_accounts")
+            or token_summary.get("adAccounts")
+            or []
+        )
+        account_id_aliases = (
+            body.account_ids
+            or body.accountIds
+            or body.ad_account_ids
+            or body.adAccountIds
+            or token_summary.get("account_ids")
+            or token_summary.get("accountIds")
+            or token_summary.get("ad_account_ids")
+            or token_summary.get("adAccountIds")
+            or []
+        )
+        if accounts is not None or account_id_aliases or body.fb_user is not None or body.capabilities is not None or body.last_error:
             account_ids = []
             writable_count = 0
             for item in accounts:
                 if not isinstance(item, dict):
                     continue
-                act_id = item.get("act_id") or item.get("account_id") or item.get("id")
+                act_id = (
+                    item.get("act_id")
+                    or item.get("actId")
+                    or item.get("account_id")
+                    or item.get("accountId")
+                    or item.get("ad_account_id")
+                    or item.get("adAccountId")
+                    or item.get("id")
+                )
                 if act_id:
                     account_ids.append(act_id)
                 write_status = str(item.get("write_status") or item.get("status") or "").lower()
                 if write_status in {"", "writable", "active", "ok", "可写"}:
                     writable_count += 1
+            for item in account_id_aliases or []:
+                if item:
+                    account_ids.append(item)
             caps = set(body.capabilities or token_summary.get("capabilities") or [])
             fb_user = body.fb_user or {}
             token_summary.update({
                 "present": bool(token_summary.get("present") or accounts or body.status == "online"),
                 "fb_user_id": token_summary.get("fb_user_id") or fb_user.get("id") or "",
                 "fb_user_name": token_summary.get("fb_user_name") or fb_user.get("name") or "",
-                "account_ids": token_summary.get("account_ids") or account_ids,
+                "account_ids": account_ids,
                 "accounts": accounts,
                 "has_ads_management": bool(
                     token_summary.get("has_ads_management")
+                    or "ads_management" in caps
                     or "ad_write" in caps
                     or "graph_post" in caps
                     or writable_count > 0
                 ),
                 "has_ads_read": bool(
                     token_summary.get("has_ads_read")
+                    or "ads_read" in caps
                     or "account_probe" in caps
                     or "graph_get" in caps
                     or accounts
+                    or account_ids
                 ),
                 "permissions": token_summary.get("permissions") or {"granted": sorted(caps), "declined": []},
                 "last_error": token_summary.get("last_error") or body.last_error or "",
@@ -213,14 +287,21 @@ def receive_heartbeat(body: HeartbeatRequest):
             expires_at=body.expires_at or "",
             expires_in_minutes=body.expires_in_minutes,
             token_summary=token_summary,
-            node_name=body.node_name or "",
+            node_name=(
+                body.node_name
+                or body.browser_name
+                or body.browserName
+                or body.display_name
+                or body.displayName
+                or ""
+            ),
             browser=body.browser or "Chrome",
             user_agent=body.user_agent or "",
             install_id=body.install_id or "",
             extension_version=body.extension_version or "",
             capabilities=body.capabilities or token_summary.get("capabilities") or [],
             runtime_status=body.status or "",
-            reported_accounts=body.accounts or token_summary.get("accounts") or [],
+            reported_accounts=accounts or token_summary.get("accounts") or [],
             queue=body.queue or {},
         )
         return {"success": True, "node": node}
@@ -228,6 +309,57 @@ def receive_heartbeat(body: HeartbeatRequest):
         raise HTTPException(status_code=403, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/poll")
+def poll_local_token_tasks(body: PollRequest):
+    try:
+        if int(body.capacity or 1) > 1:
+            return {"success": True, **poll_tasks(
+                body.node_id,
+                body.node_secret or "",
+                capacity=int(body.capacity or 1),
+                running_task_ids=body.running_task_ids or [],
+            )}
+        return {"success": True, **poll_task(body.node_id, body.node_secret or "")}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/tasks/poll")
+def poll_local_token_task_batch(body: PollRequest):
+    return poll_local_token_tasks(body)
+
+
+@router.post("/tasks/{task_id}/update")
+def update_local_token_task(task_id: str, body: TaskUpdateRequest):
+    try:
+        result = body.result if body.result is not None else {"data": body.data or {}}
+        if body.duration_ms is not None and isinstance(result, dict):
+            result = dict(result)
+            result.setdefault("duration_ms", body.duration_ms)
+        task = update_task_from_node(
+            task_id=task_id,
+            node_id=body.node_id,
+            node_secret=body.node_secret or "",
+            status=body.status,
+            progress=body.progress or "",
+            result=result or {},
+            error=body.error or "",
+            screenshot_data_url="",
+        )
+        return {"success": True, "task": task}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/tasks/{task_id}/result")
+def complete_local_token_task(task_id: str, body: TaskUpdateRequest):
+    return update_local_token_task(task_id, body)
 
 
 @router.delete("/nodes/{node_id}")
