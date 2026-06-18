@@ -260,6 +260,12 @@ def _maybe_enqueue_account_discovery(node_id: str) -> None:
     try:
         conn = get_conn()
         try:
+            try:
+                from services.local_executor import recycle_stale_running_tasks
+
+                recycle_stale_running_tasks(conn, node_id=node_id)
+            except Exception:
+                pass
             row = conn.execute(
                 """
                 SELECT id FROM local_executor_tasks

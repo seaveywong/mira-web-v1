@@ -34,6 +34,72 @@ def _now_cst() -> str:
     return datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _parse_cst_datetime(value: str) -> Optional[datetime]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw[:19], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return None
+
+
+def recycle_stale_running_tasks(conn=None, *, node_id: Optional[str] = None) -> int:
+    own = conn is None
+    conn = conn or get_conn()
+    ensure_local_executor_tables(conn)
+    where = "WHERE status='running'"
+    params: list = []
+    if node_id:
+        where += " AND node_id=?"
+        params.append(str(node_id))
+    now_dt = datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None)
+    now = _now_cst()
+    changed = 0
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT id, timeout_sec, created_at, updated_at, started_at
+            FROM local_executor_tasks
+            {where}
+            """,
+            params,
+        ).fetchall()
+        for row in rows:
+            ref = (
+                _parse_cst_datetime(row["started_at"])
+                or _parse_cst_datetime(row["updated_at"])
+                or _parse_cst_datetime(row["created_at"])
+            )
+            if not ref:
+                continue
+            timeout_sec = max(LOCAL_TASK_TIMEOUT_SECONDS, float(row["timeout_sec"] or 60)) + 30
+            if (now_dt - ref).total_seconds() <= timeout_sec:
+                continue
+            conn.execute(
+                """
+                UPDATE local_executor_tasks
+                SET status='failed', updated_at=?, completed_at=?,
+                    progress=?, error=?
+                WHERE id=? AND status='running'
+                """,
+                (
+                    now,
+                    now,
+                    "本地执行器任务超时，等待插件重新领取",
+                    "local executor task timed out without result",
+                    row["id"],
+                ),
+            )
+            changed += 1
+        if changed:
+            conn.commit()
+        return changed
+    finally:
+        if own:
+            conn.close()
+
+
 def _normalize_act_id(value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -498,6 +564,7 @@ def poll_tasks(node_id: str, node_secret: str, capacity: int = 1, running_task_i
     running_task_ids = [str(x) for x in (running_task_ids or []) if str(x or "").strip()]
     conn = get_conn()
     try:
+        recycle_stale_running_tasks(conn, node_id=node_id)
         running_for_node_rows = conn.execute(
             """
             SELECT id, account_id FROM local_executor_tasks
