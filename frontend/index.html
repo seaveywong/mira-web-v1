@@ -1839,6 +1839,14 @@ select.fc option{background:#fff;color:#1d1d1f}
 #page-tokens .token-actions .btn{height:42px!important;min-height:42px!important;padding:0 18px!important;font-weight:760!important}
 #page-tokens .token-actions .btn-oauth{background:#fff!important;border:1px solid #d2d2d7!important;color:#1d1d1f!important}
 #page-tokens .token-actions .btn-oauth:hover{border-color:#0071e3!important;color:#0071e3!important;background:#f8fbff!important}
+.token-zone{margin:0 0 16px;padding:16px;border:1px solid var(--bd);border-radius:14px;background:rgba(255,255,255,.82);box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.token-zone-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.token-zone-title{font-size:16px;font-weight:820;color:var(--t1);line-height:1.25}
+.token-zone-sub{font-size:12px;color:var(--t3);line-height:1.55;margin-top:4px;max-width:760px}
+.token-zone-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.local-executor-zone{background:linear-gradient(180deg,rgba(0,113,227,.055),rgba(255,255,255,.82))}
+.token-vault-zone{background:rgba(255,255,255,.86)}
+.token-split-note{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(0,113,227,.14);background:rgba(0,113,227,.045);border-radius:12px;color:var(--t2);font-size:12px;line-height:1.55;margin:0 0 14px}
 .meta-oauth-shell{display:flex;flex-direction:column;gap:14px}
 .meta-oauth-card{background:#fff;border:1px solid #dedee4;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
 .meta-oauth-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}
@@ -2315,21 +2323,32 @@ select.fc option{background:#fff;color:#1d1d1f}
       <div class="pag" id="uaPag"></div>
      </div>
     </div>
-    <!-- Tokens -->
-    <div class="page" id="page-tokens">
-     <div class="ph">
-       <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
-       <div class="ph-acts token-actions">
-        <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
-        <button class="btn btn-g role-hide-viewer" onclick="createLocalTokenRegistration()" title="下载 Chrome 插件并生成一次性绑定码">本地执行器</button>
-        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入并自动关联</button>
-        <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
-        <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
+     <!-- Tokens -->
+     <div class="page" id="page-tokens">
+      <div class="ph">
+        <div><h2>Token 与本地执行器</h2><p>本地执行器优先接管写操作；Token 凭证库用于官方授权、手动 Token 与账户关联</p></div>
        </div>
+      <div class="token-split-note">
+       <span style="font-weight:820;color:var(--t1)">说明</span>
+       <span>本地执行器绑定到当前团队/运营，在线且上报可执行凭证后会优先用于铺广告、预算和关停；传统 Token 继续作为凭证库和兜底来源。</span>
       </div>
-     <div id="localTokenBridgePanel"></div>
-     <div id="tokensList"></div>
-    </div>
+      <div id="localTokenBridgePanel"></div>
+      <div class="token-zone token-vault-zone">
+       <div class="token-zone-head">
+        <div>
+         <div class="token-zone-title">Token 凭证库</div>
+         <div class="token-zone-sub">管理 Meta 官方授权和手动导入的 Token。这里的 Token 会加密存储，可用于账户读取、自动关联和本地执行器不可用时的兜底。</div>
+        </div>
+        <div class="token-zone-actions token-actions">
+         <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
+         <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入并自动关联</button>
+         <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
+         <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
+        </div>
+       </div>
+       <div id="tokensList"></div>
+      </div>
+     </div>
     <!-- Assets (v3.0 素材库) -->
     <div class="page" id="page-assets">
      <div class="ph">
@@ -7924,11 +7943,11 @@ function clearTokenFilters(){
  renderTokensView();
 }
 function _localTokenStatusLabel(status){
- var map={online:'API可用',registered:'已激活',online_no_token:'在线未配Token',no_token:'在线未配Token',permission_limited:'Token权限不足',no_accounts:'未匹配账户',token_error:'Token异常',expired:'Token过期',offline:'离线'};
+ var map={online:'API可用',registered:'已绑定待心跳',online_no_token:'在线未接管',no_token:'未接管',permission_limited:'权限不足',no_accounts:'未匹配账户',token_error:'Token异常',expired:'Token过期',offline:'离线'};
  return map[status]||status||'未知';
 }
 function _localTokenStatusStyle(status){
- if(status==='online'||status==='registered')return 'background:rgba(34,197,94,.12);color:#15803d;border:1px solid rgba(34,197,94,.25)';
+ if(status==='online')return 'background:rgba(34,197,94,.12);color:#15803d;border:1px solid rgba(34,197,94,.25)';
  if(status==='offline'||status==='expired'||status==='token_error')return 'background:rgba(239,68,68,.10);color:#b91c1c;border:1px solid rgba(239,68,68,.24)';
  return 'background:rgba(245,158,11,.12);color:#92400e;border:1px solid rgba(245,158,11,.26)';
 }
@@ -7957,28 +7976,29 @@ function renderLocalTokenPanel(){
  if(!el)return;
  var nodes=localTokenNodes||[];
  var online=nodes.filter(function(n){return n.online;}).length;
+ var executable=nodes.filter(function(n){return !!n.executable;}).length;
  var mapped=nodes.reduce(function(sum,n){return sum+(parseInt(n.account_count,10)||0);},0);
- var rows=nodes.map(function(n){
+  var rows=nodes.map(function(n){
   var status=n.status||'offline';
   var nodeId=n.node_id||'';
   var isOpen=!!(localTokenUiState.open&&localTokenUiState.open[nodeId]);
   var accs=(n.accounts&&n.accounts.length?n.accounts:(n.account_ids||[]).map(function(id){return {act_id:id,name:id};}));
   var accPreview=accs.slice(0,2).map(function(a){return escHtml(_localTokenAccountLabel(a));}).join('；');
-  var accRows=accs.slice(0,80).map(function(a){
-   return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 170px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
-    '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((a&&a.name)||'--')+'</div>'+
-    '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml((a&&a.act_id)||'')+'</div></div>'+
-    '<div style="font-size:11px;color:var(--t3);text-align:right">本地可写候选</div>'+
-   '</div>';
-  }).join('');
+   var accRows=accs.slice(0,80).map(function(a){
+    return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 170px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
+     '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((a&&a.name)||'--')+'</div>'+
+     '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml((a&&a.act_id)||'')+'</div></div>'+
+     '<div style="font-size:11px;color:var(--t3);text-align:right">'+(n.executable?'本地可写候选':'等待可执行凭证')+'</div>'+
+    '</div>';
+   }).join('');
   return '<div style="border:1px solid var(--bd);background:rgba(255,255,255,.76);border-radius:12px;margin-top:8px;overflow:hidden">'+
    '<div style="display:grid;grid-template-columns:34px minmax(220px,1.3fr) 92px 92px 108px minmax(180px,1fr) 76px;gap:10px;align-items:center;padding:11px 12px;cursor:pointer" onclick="toggleLocalTokenNode(\''+escHtml(nodeId)+'\')">'+
     '<div style="width:24px;height:24px;border-radius:8px;border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:12px">'+(isOpen?'▼':'▶')+'</div>'+
     '<div style="min-width:0"><div style="font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(n.node_name||'Chrome 本地执行器')+'</div>'+
      '<div style="font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(n.browser||'Chrome')+' · '+escHtml(n.username||'--')+' · '+escHtml(n.team_name||'--')+'</div></div>'+
     '<span class="badge" style="'+_localTokenStatusStyle(status)+';justify-self:start">'+_localTokenStatusLabel(status)+'</span>'+
-    '<div><div style="font-size:11px;color:var(--t3)">账户</div><div style="font-weight:800;color:var(--t1)">'+(n.account_count||0)+'</div></div>'+
-    '<div><div style="font-size:11px;color:var(--t3)">剩余</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap">'+escHtml(_localTokenExpireText(n.expires_in_seconds))+'</div></div>'+
+     '<div><div style="font-size:11px;color:var(--t3)">账户</div><div style="font-weight:800;color:var(--t1)">'+(n.account_count||0)+'</div></div>'+
+     '<div><div style="font-size:11px;color:var(--t3)">剩余</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap">'+escHtml(_localTokenExpireText(n.expires_in_seconds))+'</div></div>'+
     '<div style="min-width:0"><div style="font-size:11px;color:var(--t3)">账户预览</div><div style="font-size:12px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(accPreview||'--')+(n.account_count>2?' 等':'')+'</div></div>'+
     '<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();removeLocalTokenNode(\''+escHtml(nodeId)+'\')">移除</button>'+
    '</div>'+
@@ -7986,27 +8006,29 @@ function renderLocalTokenPanel(){
     '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:2px 0 10px">'+
      '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">Meta 用户</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(n.fb_user_name||'--')+'</div></div>'+
      '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">最近心跳</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+escHtml(_fmtActionLogTime(n.last_seen_at||''))+'</div></div>'+
-     '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">权限</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+(n.has_ads_management?'ads_management':'缺少写权限')+'</div></div>'+
-    '</div>'+
+      '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">接管状态</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+(n.executable?'可用于写操作':(n.has_runtime_token?'等待账户匹配':'未接管操作'))+'</div></div>'+
+     '</div>'+
     (accRows?'<div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:0 10px;max-height:260px;overflow:auto">'+accRows+'</div>':'<div style="font-size:12px;color:var(--t3);padding:10px;border:1px dashed var(--bd);border-radius:10px;background:var(--bg2)">这个浏览器暂时没有匹配到当前身份可见的账户。</div>')+
     (n.last_error&&status!=='no_token'?'<div style="font-size:11px;color:var(--wa);margin-top:8px;line-height:1.5">'+escHtml(n.last_error)+'</div>':'')+
    '</div>':'')+
   '</div>';
- }).join('');
-  el.innerHTML='<div style="margin:0 0 16px;padding:14px;border:1px solid var(--bd);border-radius:14px;background:linear-gradient(180deg,rgba(0,113,227,.06),rgba(255,255,255,.02))">'+
-  '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">'+
-   '<div><div style="font-size:15px;font-weight:800;color:var(--t1)">本地执行器</div>'+
-    '<div style="font-size:12px;color:var(--t3);margin-top:3px">Chrome 绑定后归属当前团队/运营；本地来源会优先参与铺广告、预算和关停，展示按浏览器收纳。</div></div>'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-    '<span class="badge" style="background:rgba(59,130,246,.10);color:#005bb5;border:1px solid rgba(59,130,246,.2)">在线 '+online+'/'+nodes.length+'</span>'+
-    '<span class="badge" style="background:rgba(34,197,94,.10);color:#15803d;border:1px solid rgba(34,197,94,.2)">可见账户 '+mapped+'</span>'+
-    '<button class="btn btn-p btn-sm role-hide-viewer" onclick="openLocalExecutorTaskModal()">API自检账户</button>'+
-    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="loadLocalTokenNodes()">刷新</button>'+
+  }).join('');
+   el.innerHTML='<div class="token-zone local-executor-zone">'+
+   '<div class="token-zone-head">'+
+    '<div><div class="token-zone-title">本地执行器</div>'+
+     '<div class="token-zone-sub">Chrome 首次用一次性激活码绑定，之后凭节点密钥长期心跳。只有在线且已接管操作的执行器，才会优先参与铺广告、预算和关停。</div></div>'+
+    '<div class="token-zone-actions">'+
+     '<span class="badge" style="background:rgba(59,130,246,.10);color:#005bb5;border:1px solid rgba(59,130,246,.2)">在线 '+online+'/'+nodes.length+'</span>'+
+     '<span class="badge" style="background:rgba(34,197,94,.10);color:#15803d;border:1px solid rgba(34,197,94,.2)">可执行 '+executable+'</span>'+
+     '<span class="badge" style="background:rgba(34,197,94,.10);color:#15803d;border:1px solid rgba(34,197,94,.2)">可见账户 '+mapped+'</span>'+
+     '<button class="btn btn-p btn-sm role-hide-viewer" onclick="createLocalTokenRegistration()">绑定新 Chrome</button>'+
+     '<button class="btn btn-p btn-sm role-hide-viewer" onclick="openLocalExecutorTaskModal()">API自检账户</button>'+
+     '<button class="btn btn-g btn-sm role-hide-viewer" onclick="loadLocalTokenNodes()">刷新</button>'+
+    '</div>'+
    '</div>'+
-  '</div>'+
-  (nodes.length?'<div style="margin-top:12px">'+rows+'</div>':'<div style="margin-top:12px;padding:12px;border:1px dashed var(--bd);border-radius:12px;color:var(--t3);font-size:12px;background:var(--bg2)">还没有激活 Chrome 执行器。点击右上角「本地执行器」下载插件并生成绑定码。</div>')+
-  renderLocalExecutorTasksHtml()+
- '</div>';
+   (nodes.length?'<div style="margin-top:12px">'+rows+'</div>':'<div style="margin-top:12px;padding:12px;border:1px dashed var(--bd);border-radius:12px;color:var(--t3);font-size:12px;background:var(--bg2)">还没有激活 Chrome 执行器。点击「绑定新 Chrome」下载插件并生成一次性激活码。</div>')+
+   renderLocalExecutorTasksHtml()+
+  '</div>';
 }
 
 function _localExecutorStatusLabel(status){
@@ -8059,19 +8081,19 @@ async function loadLocalExecutorTasks(shouldRender){
 }
 async function createLocalTokenRegistration(){
  try{
-  var r=await api('POST','/local-tokens/registration',{node_name:''});
-  var code=r.code||'';
-  var origin=(location.hostname==='43.129.230.237'||/^\d+\.\d+\.\d+\.\d+$/.test(location.hostname))?'https://shouhu.asia':location.origin;
+   var r=await api('POST','/local-tokens/registration',{node_name:''});
+   var code=r.code||'';
+   var origin=(r.server_url||'').trim()||((location.hostname==='43.129.230.237'||/^\d+\.\d+\.\d+\.\d+$/.test(location.hostname))?'https://shouhu.asia':location.origin);
   var mo=document.createElement('div');
   mo.className='mo';
   mo.id='moLocalTokenBind';
   mo.innerHTML='<div class="modal" style="max-width:560px;width:92%">'+
    '<div class="mh"><h3 style="margin:0;font-size:15px">本地执行器</h3><button class="mc" onclick="closeModal(\'moLocalTokenBind\')">✕</button></div>'+
    '<div class="mb">'+
-    '<div class="info-box" style="margin-bottom:12px">先下载并安装 Chrome 插件，再用下面的一次性绑定码激活当前浏览器。绑定后插件归属当前团队/运营，未激活的浏览器不会接收任务。</div>'+
+     '<div class="info-box" style="margin-bottom:12px">先下载并安装 Chrome 插件，再用下面的一次性激活码绑定当前浏览器。激活码只可使用一次；绑定成功后插件会保存节点身份，后续无需重复输入。</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn btn-p" onclick="downloadLocalTokenExtension()">下载 Chrome 插件</button><button class="btn btn-g" onclick="loadLocalTokenNodes()">刷新节点</button></div>'+
     '<div class="fg"><label class="fl">Mira 地址</label><div style="display:flex;gap:8px"><input class="fc" id="localTokenServerUrl" value="'+escHtml(origin)+'" readonly><button class="btn btn-g" onclick="copyLocalTokenText(\'localTokenServerUrl\',\'Mira 地址已复制\')">复制</button></div></div>'+
-    '<div class="fg"><label class="fl">授权码 / 绑定码</label><div style="display:flex;gap:8px"><input class="fc" id="localTokenBindCode" value="'+escHtml(code)+'" readonly style="font-weight:800;letter-spacing:.8px"><button class="btn btn-p" onclick="copyLocalTokenText(\'localTokenBindCode\',\'绑定码已复制\')">复制</button></div><div class="fh">过期时间：'+escHtml(r.expires_at||'')+'（北京时间）</div></div>'+
+     '<div class="fg"><label class="fl">一次性激活码</label><div style="display:flex;gap:8px"><input class="fc" id="localTokenBindCode" value="'+escHtml(code)+'" readonly style="font-weight:800;letter-spacing:.8px"><button class="btn btn-p" onclick="copyLocalTokenText(\'localTokenBindCode\',\'激活码已复制\')">复制</button></div><div class="fh">过期时间：'+escHtml(r.expires_at||'')+'（北京时间）。激活成功后立即失效，不能重复绑定。</div></div>'+
    '</div>'+
    '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moLocalTokenBind\')">关闭</button></div>'+
   '</div>';
@@ -8088,8 +8110,8 @@ function openLocalExecutorTaskModal(){
  mo.id='moLocalExecutorTask';
  mo.innerHTML='<div class="modal" style="max-width:560px;width:92%">'+
   '<div class="mh"><h3 style="margin:0;font-size:15px">本地 API 自检</h3><button class="mc" onclick="closeModal(\'moLocalExecutorTask\')">✕</button></div>'+
-  '<div class="mb">'+
-   '<div class="info-box" style="margin-bottom:12px">创建一个纯 API 任务：让已激活的 Chrome 插件用本地 Graph API Token 读取指定广告账户状态。不会打开广告后台页面，也不会上传 Token。</div>'+
+   '<div class="mb">'+
+    '<div class="info-box" style="margin-bottom:12px">创建一个纯 API 自检任务：让已激活的 Chrome 执行器读取指定广告账户状态，用于验证本地执行器、账户权限和团队归属是否匹配。</div>'+
    '<div class="fg"><label class="fl">广告账户 ID</label><input class="fc" id="localExecutorActId" placeholder="例如 785770423307490 或 act_785770423307490"></div>'+
    '<div class="fg"><label class="fl">执行器</label><select class="fc" id="localExecutorNodeId">'+opts+'</select><div class="fh">未选择时，系统会分配给当前团队/运营名下任意在线执行器。</div></div>'+
   '</div>'+

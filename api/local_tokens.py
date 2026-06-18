@@ -61,9 +61,10 @@ def create_registration_code(body: RegistrationRequest, user=Depends(get_current
         data = create_registration(user, body.node_name or "")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
+    public_base_url = os.environ.get("MIRA_PUBLIC_BASE_URL", "https://shouhu.asia").rstrip("/")
     return {
         "success": True,
-        "server_url": "",
+        "server_url": public_base_url,
         **data,
     }
 

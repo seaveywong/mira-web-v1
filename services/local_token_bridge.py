@@ -484,7 +484,11 @@ def heartbeat_node(
             node["verified_at_ts"] = _now_ts()
             node["verified_at"] = _now_cst()
             node["last_error"] = str(token_summary.get("last_error") or "")
-            if present and node["last_error"]:
+            if present and not access_token:
+                node["status"] = "online_no_token"
+                if not node["last_error"]:
+                    node["last_error"] = "本地执行器在线，但尚未上报可执行 Graph API Token；Mira 不会把它作为操作号使用。"
+            elif present and node["last_error"]:
                 node["status"] = "token_error"
             elif present and node["has_ads_management"]:
                 node["status"] = "online"
@@ -582,6 +586,14 @@ def node_public_view(node_id: str) -> dict:
     expires_in_seconds = int(exp_ts - now) if exp_ts else None
     if expires_in_seconds is not None and expires_in_seconds <= 0 and status != "offline":
         status = "expired"
+    has_runtime_token = bool(node.get("token_plain"))
+    executable = bool(
+        online
+        and status == "online"
+        and has_runtime_token
+        and bool(node.get("has_ads_management"))
+        and len(node.get("account_ids") or []) > 0
+    )
     return {
         "node_id": node.get("node_id"),
         "node_name": node.get("node_name"),
@@ -599,6 +611,11 @@ def node_public_view(node_id: str) -> dict:
         "token_fingerprint": node.get("token_fp"),
         "token_expires_at": node.get("token_expires_at"),
         "expires_in_seconds": expires_in_seconds,
+        "has_runtime_token": has_runtime_token,
+        "executable": executable,
+        "activation_mode": "one_time_code",
+        "binding_permanent": True,
+        "heartbeat_interval_seconds": 30,
         "verified_at": node.get("verified_at"),
         "account_count": len(node.get("account_ids") or []),
         "account_ids": account_ids,
