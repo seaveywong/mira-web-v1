@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Mira 本地 Token",
-  "version": "1.1.0",
-  "description": "用户显式授权后，将本地 Meta Token 自动上报到 Mira，用于短时铺广告任务。",
+  "name": "Mira 本地执行器",
+  "version": "1.2.0",
+  "description": "绑定 Mira 后，在本机已登录 Chrome 中执行广告后台任务，不上传 Cookie 或隐藏凭证。",
   "action": {
-    "default_title": "Mira 本地 Token",
+    "default_title": "Mira 本地执行器",
     "default_popup": "popup.html"
   },
   "background": {
@@ -14,6 +14,8 @@
     "alarms",
     "identity",
     "identity.email",
+    "scripting",
+    "tabs",
     "storage"
   ],
   "host_permissions": [

@@ -1,7 +1,9 @@
 const DEFAULT_SERVER_URL = "https://shouhu.asia";
 const DEFAULT_META_SCOPES = "ads_management,ads_read,pages_show_list,pages_manage_ads,business_management";
 const HEARTBEAT_ALARM = "mira_local_token_heartbeat";
+const EXECUTOR_ALARM = "mira_local_executor_poll";
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
+const runningTasks = new Set();
 
 function normalizeServerUrl(value) {
   const raw = String(value || DEFAULT_SERVER_URL).trim().replace(/\/+$/, "");
@@ -77,6 +79,138 @@ async function postJson(serverUrl, path, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+  }
+  return data;
+}
+
+async function updateExecutorTask(task, status, progress, result = {}, error = "", screenshotDataUrl = "") {
+  const s = await getSettings();
+  if (!task || !task.id || !s.nodeId || !s.nodeSecret) return null;
+  return postJson(s.serverUrl, `/api/local-executor/tasks/${encodeURIComponent(task.id)}/update`, {
+    node_id: s.nodeId,
+    node_secret: s.nodeSecret,
+    status,
+    progress,
+    result,
+    error,
+    screenshot_data_url: screenshotDataUrl || ""
+  });
+}
+
+function waitForTabLoad(tabId, timeoutMs = 25000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve(false);
+    }, timeoutMs);
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId !== tabId) return;
+      if (changeInfo.status === "complete") {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve(true);
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function captureTabScreenshot(tab) {
+  try {
+    return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 55 });
+  } catch (err) {
+    return "";
+  }
+}
+
+async function analyzeAdsManagerTab(tabId) {
+  try {
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const text = (document.body && document.body.innerText || "").slice(0, 5000);
+        const low = text.toLowerCase();
+        const href = location.href;
+        let state = "opened";
+        let reason = "Ads Manager 页面已打开";
+        if (/login|登录|log in|忘记密码|password/.test(low) || /\/login/.test(href)) {
+          state = "need_login";
+          reason = "当前浏览器需要登录 Facebook";
+        } else if (/checkpoint|安全验证|验证身份|confirm your identity/.test(low) || /checkpoint/.test(href)) {
+          state = "need_user";
+          reason = "Facebook 要求人工验证";
+        } else if (/permission|权限不足|没有权限|not have permission|access denied/.test(low)) {
+          state = "no_permission";
+          reason = "当前登录账号可能没有此广告账户权限";
+        } else if (/ads manager|广告管理工具|广告系列|campaigns/i.test(text)) {
+          state = "ready";
+          reason = "Ads Manager 页面可访问";
+        }
+        return {
+          href,
+          title: document.title || "",
+          state,
+          reason,
+          sample: text.slice(0, 800)
+        };
+      }
+    });
+    return injected && injected[0] && injected[0].result ? injected[0].result : { state: "opened", reason: "页面已打开" };
+  } catch (err) {
+    return { state: "opened", reason: "页面已打开，但内容检测失败", error: err.message || String(err) };
+  }
+}
+
+async function executeOpenAdsManager(task) {
+  const params = task.params || {};
+  const targetUrl = params.target_url;
+  if (!targetUrl) throw new Error("任务缺少 target_url");
+  await updateExecutorTask(task, "running", "正在打开 Ads Manager");
+  const tab = await chrome.tabs.create({ url: targetUrl, active: true });
+  await waitForTabLoad(tab.id);
+  const analysis = await analyzeAdsManagerTab(tab.id);
+  const screenshot = await captureTabScreenshot(tab);
+  const finalStatus = ["ready", "opened"].includes(analysis.state) ? "success" : "need_user";
+  await updateExecutorTask(
+    task,
+    finalStatus,
+    analysis.reason || "页面状态已回传",
+    { ...analysis, tab_id: tab.id, task_type: task.task_type },
+    finalStatus === "success" ? "" : (analysis.reason || "需要人工处理"),
+    screenshot
+  );
+}
+
+async function executeTask(task) {
+  if (!task || !task.id || runningTasks.has(task.id)) return;
+  runningTasks.add(task.id);
+  try {
+    if (task.task_type === "open_ads_manager") {
+      await executeOpenAdsManager(task);
+      return;
+    }
+    await updateExecutorTask(task, "failed", "插件暂不支持此任务类型", {}, `Unsupported task type: ${task.task_type}`);
+  } catch (err) {
+    await updateExecutorTask(task, "failed", "本地执行失败", {}, err.message || String(err));
+  } finally {
+    runningTasks.delete(task.id);
+  }
+}
+
+async function pollExecutorTask() {
+  const s = await getSettings();
+  if (!s.nodeId || !s.nodeSecret || runningTasks.size > 0) return null;
+  const data = await postJson(s.serverUrl, "/api/local-executor/poll", {
+    node_id: s.nodeId,
+    node_secret: s.nodeSecret
+  });
+  if (data && data.task) {
+    executeTask(data.task).catch(() => {});
   }
   return data;
 }
@@ -218,6 +352,8 @@ async function maybeAutoRefresh() {
 async function ensureAlarm() {
   await chrome.alarms.clear(HEARTBEAT_ALARM);
   await chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
+  await chrome.alarms.clear(EXECUTOR_ALARM);
+  await chrome.alarms.create(EXECUTOR_ALARM, { periodInMinutes: 0.5 });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -225,6 +361,18 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === EXECUTOR_ALARM) {
+    pollExecutorTask().catch(async (err) => {
+      await chrome.storage.local.set({
+        lastStatus: {
+          ok: false,
+          message: err.message || String(err),
+          updatedAt: new Date().toLocaleString()
+        }
+      });
+    });
+    return;
+  }
   if (alarm.name !== HEARTBEAT_ALARM) return;
   (async () => {
     await maybeAutoRefresh();
@@ -289,6 +437,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message.type === "heartbeat") {
       sendResponse({ ok: true, data: await heartbeat() });
+      return;
+    }
+    if (message.type === "pollTask") {
+      sendResponse({ ok: true, data: await pollExecutorTask() });
       return;
     }
     if (message.type === "clearToken") {

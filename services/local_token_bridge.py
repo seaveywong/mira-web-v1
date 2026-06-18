@@ -496,6 +496,16 @@ def remove_node(node_id: str, user: dict) -> bool:
         return True
 
 
+def authenticate_node(node_id: str, node_secret: str) -> dict:
+    """Validate a bound local browser node and return its private metadata."""
+    raw_id = str(node_id or "").strip()
+    with _lock:
+        node = _nodes.get(raw_id)
+        if not node or not secrets.compare_digest(str(node.get("node_secret") or ""), str(node_secret or "")):
+            raise PermissionError("本地执行器不存在或密钥无效，请重新绑定")
+        return dict(node)
+
+
 def mark_local_token_selected(node_id: str) -> None:
     with _lock:
         node = _nodes.get(node_id)
