@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -549,6 +550,18 @@ def _public_page(row) -> dict:
     item.pop("raw_response", None)
     item.pop("ingest_secret", None)
     return item
+
+
+def _target_location_matches(location: str, targets: list[str]) -> bool:
+    loc = (location or "").strip()
+    if not loc:
+        return False
+    loc_norm = _normalize_url_for_match(loc)
+    for target in targets or []:
+        target_norm = _normalize_url_for_match(target)
+        if target_norm and (loc_norm == target_norm or loc_norm.startswith(target_norm + "?")):
+            return True
+    return False
 
 
 def _normalize_url_for_match(value: Optional[str]) -> str:
@@ -1501,6 +1514,167 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+@router.get("/pages/{page_id}/health")
+def landing_page_health(page_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    page = _assert_page_access(conn, page_id, user)
+    item = _public_page(page)
+    conn.close()
+
+    checks: list[dict[str, str]] = []
+    public_url = (item.get("public_url") or "").strip()
+    pages_url = (item.get("pages_url") or "").strip()
+    link_kind = str(item.get("link_kind") or "landing").strip().lower()
+    targets = [u for u in item.get("target_urls") or [] if isinstance(u, str) and u.strip()]
+    status = str(item.get("status") or "").strip().lower()
+
+    checks.append({
+        "key": "status",
+        "status": "pass" if status == "published" else "warn",
+        "label": "发布状态",
+        "detail": "已发布" if status == "published" else f"当前状态：{status or '未知'}",
+    })
+    checks.append({
+        "key": "public_url",
+        "status": "pass" if public_url else "fail",
+        "label": "公开链接",
+        "detail": public_url or "没有可访问的 Pages 或自定义域链接",
+    })
+    if item.get("custom_domain"):
+        checks.append({
+            "key": "custom_domain",
+            "status": "pass" if item.get("custom_domain_usable") else "warn",
+            "label": "自定义域名",
+            "detail": (
+                f"https://{item.get('custom_domain')} 已作为主链接"
+                if item.get("custom_domain_usable")
+                else f"域名还未确认可用，当前使用 Pages 备用域；{item.get('custom_domain_dns_hint') or '请在 Cloudflare DNS 中完成 CNAME 指向'}"
+            ),
+        })
+    elif pages_url:
+        checks.append({
+            "key": "custom_domain",
+            "status": "warn",
+            "label": "自定义域名",
+            "detail": "未配置自定义域名，当前使用 Cloudflare Pages 默认域",
+        })
+
+    checks.append({
+        "key": "targets",
+        "status": "pass" if targets else "fail",
+        "label": "跳转目标",
+        "detail": f"已配置 {len(targets)} 个目标链接" if targets else "没有配置跳转目标",
+    })
+    if link_kind == "form":
+        checks.append({
+            "key": "form_mode",
+            "status": "pass" if item.get("worker_enabled") else "fail",
+            "label": "表单直跳模式",
+            "detail": "根路径访问应直接 302 到轮询目标" if item.get("worker_enabled") else "表单直跳必须启用 Worker",
+        })
+    else:
+        checks.append({
+            "key": "landing_mode",
+            "status": "pass",
+            "label": "普通落地页模式",
+            "detail": "根路径访问应返回 HTML 页面，按钮点击后再跳转",
+        })
+    checks.append({
+        "key": "worker",
+        "status": "pass" if item.get("worker_enabled") else "warn",
+        "label": "Worker / 统计防护",
+        "detail": (
+            f"Worker 已启用；统计 {'开' if item.get('tracking_enabled') else '关'}，防护 {'开' if item.get('protection_enabled') else '关'}"
+            if item.get("worker_enabled")
+            else "未启用 Worker，无法做边缘统计、防护或服务端直跳"
+        ),
+    })
+
+    http_info: dict[str, Any] = {}
+    if public_url:
+        try:
+            resp = requests.get(
+                public_url,
+                allow_redirects=False,
+                timeout=12,
+                headers={
+                    "User-Agent": "MiraHealthCheck/1.0",
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                },
+            )
+            location = resp.headers.get("location", "")
+            content_type = resp.headers.get("content-type", "")
+            http_info = {
+                "status_code": resp.status_code,
+                "location": location,
+                "content_type": content_type,
+                "final_url": public_url,
+            }
+            if link_kind == "form":
+                if resp.status_code in {301, 302, 303, 307, 308} and location:
+                    checks.append({
+                        "key": "runtime_redirect",
+                        "status": "pass" if _target_location_matches(location, targets) else "warn",
+                        "label": "线上直跳",
+                        "detail": (
+                            f"访问根路径已 {resp.status_code} 跳转到目标链接"
+                            if _target_location_matches(location, targets)
+                            else f"访问根路径已跳转，但 Location 未命中当前目标列表：{location[:180]}"
+                        ),
+                    })
+                elif resp.status_code == 403 and item.get("protection_enabled"):
+                    checks.append({
+                        "key": "runtime_redirect",
+                        "status": "warn",
+                        "label": "线上直跳",
+                        "detail": "请求被防护规则拦截，无法在自检中确认跳转；请用符合规则的访问环境复测",
+                    })
+                else:
+                    checks.append({
+                        "key": "runtime_redirect",
+                        "status": "fail",
+                        "label": "线上直跳",
+                        "detail": f"表单直跳模式期望 302，实际 HTTP {resp.status_code}",
+                    })
+            else:
+                if resp.status_code == 200 and "html" in content_type.lower():
+                    checks.append({
+                        "key": "runtime_page",
+                        "status": "pass",
+                        "label": "线上页面",
+                        "detail": "公开链接返回 HTML，普通落地页可访问",
+                    })
+                elif resp.status_code == 403 and item.get("protection_enabled"):
+                    checks.append({
+                        "key": "runtime_page",
+                        "status": "warn",
+                        "label": "线上页面",
+                        "detail": "请求被防护规则拦截；页面可能正常，但当前自检环境不在允许范围内",
+                    })
+                else:
+                    checks.append({
+                        "key": "runtime_page",
+                        "status": "fail" if resp.status_code >= 400 else "warn",
+                        "label": "线上页面",
+                        "detail": f"公开链接返回 HTTP {resp.status_code}，Content-Type: {content_type or '--'}",
+                    })
+        except Exception as exc:
+            checks.append({
+                "key": "runtime_http",
+                "status": "fail",
+                "label": "线上访问",
+                "detail": f"请求公开链接失败：{exc}",
+            })
+
+    return {
+        "success": not any(c.get("status") == "fail" for c in checks),
+        "page": item,
+        "checks": checks,
+        "http": http_info,
+        "checked_at": _now_cst(),
+    }
 
 
 @router.get("/pages/{page_id}/stats")
