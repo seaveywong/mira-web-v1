@@ -539,7 +539,10 @@ def get_exec_token_candidates(
     第一项会被视为本次优先使用的 Token，并立即占位，避免并发账户扎堆打到同一颗 Token。
     """
     local_candidates = []
-    if action_type in (ACTION_CREATE, ACTION_UPDATE, ACTION_PAUSE):
+    # Local executor candidates never expose a server-side token.  Keep them out
+    # of CREATE until the browser-side plugin supports the full upload/create
+    # chain; PAUSE/UPDATE can be dispatched as local API tasks explicitly.
+    if action_type in (ACTION_UPDATE, ACTION_PAUSE):
         try:
             from services.local_token_bridge import get_local_token_candidates_for_account
             local_candidates = get_local_token_candidates_for_account(act_id, action_type)
@@ -657,8 +660,12 @@ def get_exec_token(
     4. READ 操作：直接使用管理号 Token。
     """
     candidates = get_exec_token_candidates(act_id, action_type, notify_exhausted=notify_exhausted)
-    if candidates:
-        return candidates[0]["token_plain"]
+    for candidate in candidates:
+        if candidate.get("local_executor") or candidate.get("source") == "local_token":
+            continue
+        token = candidate.get("token_plain") or candidate.get("token")
+        if token:
+            return token
     if action_type in (ACTION_PAUSE, ACTION_READ):
         logger.warning(f"[TokenManager] 账户 {act_id} 无可用 Token，{action_type} 操作无法执行")
         if action_type == ACTION_PAUSE:

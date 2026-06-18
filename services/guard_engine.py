@@ -18,6 +18,7 @@ from core.database import get_conn, decrypt_token
 from core.account_access import note_account_read_failure, note_account_read_success
 from core.perf_history import append_perf_snapshot_history
 from services.execution_safety import account_write_guard, note_write_failure, wait_for_write_slot
+from services.local_executor import run_local_graph_task
 from services.notifier import notify_account, notify_global, notify_team
 
 logger = logging.getLogger("mira.guard")
@@ -318,13 +319,39 @@ def _update_adset_budget(adset_id: str, token: str, delta_pct: float,
     except Exception as e:
         return False, _sanitize_error_text(e), 0, 0
 
-def _verify_status(obj_id: str, token: str, expected: str = "PAUSED", retries: int = 3, delay_sec: float = 0.6) -> bool:
+def _is_local_candidate(candidate: Optional[dict]) -> bool:
+    return bool(candidate and (candidate.get("local_executor") or candidate.get("source") == "local_token"))
+
+
+def _verify_status(
+    obj_id: str,
+    token: str,
+    expected: str = "PAUSED",
+    retries: int = 3,
+    delay_sec: float = 0.6,
+    candidate: Optional[dict] = None,
+    act_id: str = "",
+) -> bool:
     """Verify FB status with a short poll to avoid false escalation on API propagation lag."""
     paused_effective = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "DELETED", "ARCHIVED"}
     retries = max(1, int(retries or 1))
     for attempt in range(retries):
         try:
-            result = _fb_get(obj_id, token, {"fields": "status,effective_status"})
+            if _is_local_candidate(candidate):
+                result = run_local_graph_task(
+                    candidate,
+                    "graph_get",
+                    act_id,
+                    {
+                        "path": obj_id,
+                        "params": {"fields": "status,effective_status"},
+                        "_progress": "本地核验广告状态",
+                    },
+                    timeout_seconds=45,
+                    created_by_name="guard",
+                )
+            else:
+                result = _fb_get(obj_id, token, {"fields": "status,effective_status"})
             actual = str(result.get("status") or "")
             effective = str(result.get("effective_status") or "")
             if actual == expected:
@@ -899,11 +926,14 @@ def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
             notify_exhausted=False,
             reserve=True,
         ):
-            _add(
-                cand.get("token_plain") or cand.get("token") or "",
-                cand.get("label") or cand.get("alias") or cand.get("source") or "token",
-                cand.get("source") or cand.get("token_source") or "",
-            )
+            if cand.get("local_executor") or cand.get("source") == "local_token":
+                candidates.append(dict(cand))
+            else:
+                _add(
+                    cand.get("token_plain") or cand.get("token") or "",
+                    cand.get("label") or cand.get("alias") or cand.get("source") or "token",
+                    cand.get("source") or cand.get("token_source") or "",
+                )
     except Exception as exc:
         logger.warning("Failed to load PAUSE token candidates for %s: %s", act_id, _sanitize_error_text(exc))
 
@@ -921,14 +951,33 @@ def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str)
     candidates = _pause_token_candidates(account, primary_token)
     for cand in candidates:
         with account_write_guard(account.get("act_id", ""), f"guard_pause:{target_id}"):
-            ok, err = _fb_post(target_id, cand["token"], {"status": "PAUSED"}, source=cand.get("source") or "")
+            if _is_local_candidate(cand):
+                try:
+                    result = run_local_graph_task(
+                        cand,
+                        "graph_post",
+                        account.get("act_id", ""),
+                        {
+                            "path": target_id,
+                            "data": {"status": "PAUSED"},
+                            "_progress": "本地执行广告暂停",
+                        },
+                        timeout_seconds=60,
+                        created_by_name="guard",
+                    )
+                    ok = bool(result.get("success", True))
+                    err = "" if ok else str(result)
+                except Exception as exc:
+                    ok, err = False, f"本地执行器失败: {_sanitize_error_text(exc)}"
+            else:
+                ok, err = _fb_post(target_id, cand["token"], {"status": "PAUSED"}, source=cand.get("source") or "")
         if ok:
-            return True, "", cand["token"], cand["label"]
+            return True, "", cand.get("token") or "", cand.get("label") or cand.get("alias") or "token", cand
         if err:
-            errors.append(f"{cand['label']}: {err}")
+            errors.append(f"{cand.get('label') or cand.get('alias') or 'token'}: {err}")
     labels = ", ".join([str(c.get("label") or "token") for c in candidates]) or "none"
     reason = "; ".join(errors) or "all token candidates failed"
-    return False, f"已尝试{len(candidates)}个写入Token({labels})，均失败：{reason}", primary_token, ""
+    return False, f"已尝试{len(candidates)}个写入Token({labels})，均失败：{reason}", primary_token, "", None
 
 
 # ── 核心关闭逻辑（含向上升级）──────────────────────────────────────────────
@@ -971,11 +1020,11 @@ def _pause_with_escalation(
         return "ad", "dry_run"
 
     # Step 1: 尝试暂停广告
-    ok, err_msg, write_token, write_label = _fb_pause_with_candidates(account, ad_id, token)
+    ok, err_msg, write_token, write_label, write_candidate = _fb_pause_with_candidates(account, ad_id, token)
     if ok:
         # 核验
         time.sleep(0.8)
-        verified = _verify_status(ad_id, write_token, "PAUSED")
+        verified = _verify_status(ad_id, write_token, "PAUSED", candidate=write_candidate, act_id=act_id)
         status = "success" if verified else "failed"
         _log_action(act_id, "ad", ad_id, ad_name, "pause",
                     trigger_type, trigger_detail,
@@ -1015,10 +1064,10 @@ def _pause_with_escalation(
     # Step 2: 向上升级到广告组
     adset_error = ""
     if adset_id:
-        ok2, err2, write_token2, write_label2 = _fb_pause_with_candidates(account, adset_id, token)
+        ok2, err2, write_token2, write_label2, write_candidate2 = _fb_pause_with_candidates(account, adset_id, token)
         if ok2:
             time.sleep(0.8)
-            verified2 = _verify_status(adset_id, write_token2, "PAUSED")
+            verified2 = _verify_status(adset_id, write_token2, "PAUSED", candidate=write_candidate2, act_id=act_id)
             status2 = "escalated" if verified2 else "failed"
             _log_action(act_id, "adset", adset_id, f"[升级关闭] {ad_name}的广告组",
                         "pause", trigger_type,
@@ -1064,10 +1113,10 @@ def _pause_with_escalation(
     campaign_error = ""
     campaign_error = ""
     if campaign_id:
-        ok3, err3, write_token3, write_label3 = _fb_pause_with_candidates(account, campaign_id, token)
+        ok3, err3, write_token3, write_label3, write_candidate3 = _fb_pause_with_candidates(account, campaign_id, token)
         if ok3:
             time.sleep(0.8)
-            verified3 = _verify_status(campaign_id, write_token3, "PAUSED")
+            verified3 = _verify_status(campaign_id, write_token3, "PAUSED", candidate=write_candidate3, act_id=act_id)
             status3 = "escalated" if verified3 else "failed"
             campaign_error = "" if verified3 else "系列核验失败：状态未变更为PAUSED"
             _log_action(act_id, "campaign", campaign_id, f"[升级关闭] {ad_name}的系列",

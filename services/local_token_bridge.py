@@ -436,10 +436,11 @@ def heartbeat_node(
     browser: str = "",
     user_agent: str = "",
 ) -> dict:
-    # Accept only an explicitly reported Graph API token as an in-memory
-    # operation credential. Browser cookies or hidden session credentials are
-    # intentionally not accepted by this bridge.
-    access_token = str(access_token or "").strip()
+    # Local executors must keep credentials local.  The server stores only a
+    # summary reported by the extension and dispatches structured tasks back to
+    # the browser node; it never stores nor probes local executor access tokens.
+    access_token_present = bool(str(access_token or "").strip())
+    access_token = ""
     token_summary = dict(token_summary or {})
     with _lock:
         _load_persisted_nodes_locked()
@@ -455,14 +456,15 @@ def heartbeat_node(
             node["user_agent"] = user_agent
         node["last_seen_ts"] = now
         node["last_seen_at"] = _now_cst()
+        node["token_plain"] = ""
+        node["token_fp"] = ""
 
     if token_summary:
         present = bool(token_summary.get("present"))
         with _lock:
             node = _nodes[node_id]
-            if not access_token:
-                node["token_plain"] = ""
-                node["token_fp"] = ""
+            node["token_plain"] = ""
+            node["token_fp"] = ""
             node["token_mask"] = str(token_summary.get("token_mask") or "")
             node["token_expires_at"] = str(token_summary.get("token_expires_at") or expires_at or "")
             node["token_expires_at_ts"] = _parse_time_to_ts(node["token_expires_at"])
@@ -489,75 +491,35 @@ def heartbeat_node(
             node["verified_at_ts"] = _now_ts()
             node["verified_at"] = _now_cst()
             node["last_error"] = str(token_summary.get("last_error") or "")
-            if present and not access_token:
-                node["status"] = "online_no_token"
-                if not node["last_error"]:
-                    node["last_error"] = "本地执行器在线，但尚未上报可执行 Graph API Token；Mira 不会把它作为操作号使用。"
-            elif present and node["last_error"]:
+            node["local_runtime_ready"] = bool(
+                present and node["has_ads_management"] and node["account_ids"]
+            )
+            if present and node["last_error"]:
                 node["status"] = "token_error"
             elif present and node["has_ads_management"]:
-                node["status"] = "online"
+                node["status"] = "online" if node["account_ids"] else "no_accounts"
+                if not node["account_ids"] and not node["last_error"]:
+                    node["last_error"] = "本地执行器没有匹配到当前团队/运营名下的账户"
             elif present:
                 node["status"] = "permission_limited"
                 if not node["last_error"]:
-                    node["last_error"] = "本地 API Token 缺少 ads_management，无法执行广告创建/关闭/预算操作"
+                    node["last_error"] = "本地执行器缺少 ads_management，无法执行广告创建/关闭/预算操作"
             else:
                 node["status"] = "online_no_token"
-                node["last_error"] = "本地执行器在线，但尚未配置官方 Graph API Token"
-    if access_token:
-        token_fp = _token_fp(access_token)
-        should_probe = False
-        with _lock:
-            should_probe = (
-                token_fp != node.get("token_fp")
-                or now - float(node.get("verified_at_ts") or 0) > TOKEN_PROBE_TTL_SECONDS
-            )
-
-        probe_result = None
-        if should_probe:
-            try:
-                probe_result = _probe_token_for_node(node, access_token)
-            except Exception as exc:
-                probe_result = {
-                    "status": "token_error",
-                    "last_error": str(exc),
-                    "account_ids": [],
-                    "permissions": {"granted": [], "declined": []},
-                    "has_ads_management": False,
-                    "has_ads_read": False,
-                    "verified_at_ts": _now_ts(),
-                    "verified_at": _now_cst(),
-                }
-
-        with _lock:
-            node = _nodes[node_id]
-            node["token_plain"] = access_token
-            node["token_fp"] = token_fp
-            node["token_mask"] = _mask_token(access_token)
-            if expires_in_minutes is not None:
-                try:
-                    exp_ts = _now_ts() + max(0, int(expires_in_minutes)) * 60
-                    node["token_expires_at_ts"] = exp_ts
-                    node["token_expires_at"] = _iso_from_ts(exp_ts)
-                except Exception:
-                    pass
-            elif expires_at:
-                exp_ts = _parse_time_to_ts(expires_at)
-                if exp_ts:
-                    node["token_expires_at_ts"] = exp_ts
-                    node["token_expires_at"] = _iso_from_ts(exp_ts)
-                else:
-                    node["token_expires_at"] = str(expires_at)
-            if probe_result:
-                node.update(probe_result)
-            elif node.get("status") in {"registered", "offline", "no_token"}:
-                node["status"] = "online"
+                node["last_error"] = "本地执行器在线，但尚未汇报可执行摘要"
     elif not token_summary:
         with _lock:
             node = _nodes[node_id]
-            if not node.get("token_plain"):
-                node["status"] = "no_token"
-                node["last_error"] = "插件尚未上报本地 Token"
+            node["token_plain"] = ""
+            node["token_fp"] = ""
+            node["local_runtime_ready"] = False
+            node["status"] = "online_no_summary" if access_token_present else "no_summary"
+            node["last_error"] = (
+                "服务器已忽略本地 access_token；请让插件通过 token_summary 汇报账户/权限摘要，"
+                "实际 API 请求必须由本地执行器完成。"
+                if access_token_present
+                else "插件尚未汇报本地执行器摘要"
+            )
 
     with _lock:
         _save_persisted_nodes_locked()
@@ -595,7 +557,7 @@ def node_public_view(node_id: str) -> dict:
     cooldown_remaining = int(cooldown_until - now) if cooldown_until > now else 0
     if cooldown_remaining > 0 and status == "online":
         status = "cooldown"
-    has_runtime_token = bool(node.get("token_plain"))
+    has_runtime_token = bool(node.get("local_runtime_ready"))
     executable = bool(
         online
         and status == "online"
@@ -623,6 +585,7 @@ def node_public_view(node_id: str) -> dict:
         "cooldown_remaining_seconds": cooldown_remaining,
         "cooldown_reason": node.get("cooldown_reason") or "",
         "has_runtime_token": has_runtime_token,
+        "local_runtime_ready": has_runtime_token,
         "executable": executable,
         "activation_mode": "one_time_code",
         "binding_permanent": True,
@@ -765,12 +728,10 @@ def get_local_token_candidates_for_account(act_id: str, action_type: str = "CREA
             cooldown_until = float(node.get("cooldown_until_ts") or 0)
             if cooldown_until > now:
                 continue
-            if not node.get("token_plain"):
-                continue
             exp_ts = float(node.get("token_expires_at_ts") or 0)
             if exp_ts and exp_ts <= now + 90:
                 continue
-            if not node.get("has_ads_management"):
+            if not node.get("local_runtime_ready"):
                 continue
             if target not in set(node.get("account_ids") or []):
                 continue
@@ -778,15 +739,14 @@ def get_local_token_candidates_for_account(act_id: str, action_type: str = "CREA
                 continue
             candidates.append({
                 "token_id": f"local:{node_id[:8]}",
-                "token_plain": node["token_plain"],
-                "token": node["token_plain"],
                 "alias": node.get("node_name") or f"local_{node_id[:6]}",
-                "label": f"本地Token·{node.get('node_name') or node_id[:6]}",
+                "label": f"本地执行器·{node.get('node_name') or node_id[:6]}",
                 "matrix_id": None,
                 "token_source": "local_token",
                 "source": "local_token",
                 "node_id": node_id,
                 "local_token": True,
+                "local_executor": True,
                 "last_selected_at_ts": float(node.get("last_selected_at_ts") or 0),
                 "account_count": len(node.get("account_ids") or []),
             })

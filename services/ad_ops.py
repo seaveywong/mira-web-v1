@@ -10,6 +10,7 @@ import requests
 from core.database import get_conn
 from services.guard_engine import _local_per_usd_rate
 from services.execution_safety import account_write_guard, note_write_failure, wait_for_write_slot
+from services.local_executor import run_local_graph_task
 from services.token_manager import (
     ACTION_PAUSE,
     ACTION_UPDATE,
@@ -172,6 +173,53 @@ def _read_target(level: str, target_id: str, token: str) -> dict:
     return _fb_get(target_id, token, {"fields": fields})
 
 
+def _is_local_candidate(candidate: dict) -> bool:
+    return bool(candidate and (candidate.get("local_executor") or candidate.get("source") == "local_token"))
+
+
+def _read_target_with_candidate(act_id: str, level: str, target_id: str, token: str, candidate: dict) -> dict:
+    fields = LEVEL_FIELDS.get(level)
+    if not fields:
+        raise AdOpsError(f"Unsupported level: {level}")
+    if _is_local_candidate(candidate):
+        return run_local_graph_task(
+            candidate,
+            "graph_get",
+            act_id,
+            {
+                "path": target_id,
+                "params": {"fields": fields},
+                "_progress": f"本地读取 {level} 状态",
+            },
+            timeout_seconds=45,
+            created_by_name="ad_ops",
+        )
+    return _read_target(level, target_id, token)
+
+
+def _post_with_candidate(act_id: str, path: str, data: dict, token: str, candidate: dict, operation: str) -> dict:
+    if _is_local_candidate(candidate):
+        return run_local_graph_task(
+            candidate,
+            "graph_post",
+            act_id,
+            {
+                "path": path,
+                "data": dict(data or {}),
+                "_progress": f"本地执行 {operation}",
+            },
+            timeout_seconds=60,
+            created_by_name="ad_ops",
+        )
+    return _fb_post(
+        path,
+        token,
+        data,
+        source=candidate.get("source") or candidate.get("token_source") or "",
+        operation=operation,
+    )
+
+
 def _log_action(
     act_id: str,
     level: str,
@@ -255,16 +303,17 @@ def set_status(
     lock_key = f"status:{level}:{target_id}"
     with _target_lock(lock_key), account_write_guard(act_id, f"status:{level}:{desired_status}"):
         def _do(token, candidate):
-            before = _read_target(level, target_id, token)
-            _fb_post(
+            before = _read_target_with_candidate(act_id, level, target_id, token, candidate)
+            _post_with_candidate(
+                act_id,
                 target_id,
-                token,
                 {"status": desired_status},
-                source=candidate.get("source") or candidate.get("token_source") or "",
-                operation=f"status:{level}:{desired_status}",
+                token,
+                candidate,
+                f"status:{level}:{desired_status}",
             )
             time.sleep(0.8)
-            after = _read_target(level, target_id, token)
+            after = _read_target_with_candidate(act_id, level, target_id, token, candidate)
             return {"before": before, "after": after}
 
         result, used = _try_candidates(candidates, _do)
@@ -345,18 +394,19 @@ def set_daily_budget(
     lock_key = f"budget:{level}:{target_id}"
     with _target_lock(lock_key), account_write_guard(act_id, f"budget:{level}"):
         def _do(token, candidate):
-            before = _read_target(level, target_id, token)
+            before = _read_target_with_candidate(act_id, level, target_id, token, candidate)
             if before.get("lifetime_budget") and not before.get("daily_budget"):
                 raise AdOpsError("Target uses lifetime_budget and has no daily_budget to update")
-            _fb_post(
+            _post_with_candidate(
+                act_id,
                 target_id,
-                token,
                 {"daily_budget": str(minor)},
-                source=candidate.get("source") or candidate.get("token_source") or "",
-                operation=f"budget:{level}",
+                token,
+                candidate,
+                f"budget:{level}",
             )
             time.sleep(0.8)
-            after = _read_target(level, target_id, token)
+            after = _read_target_with_candidate(act_id, level, target_id, token, candidate)
             return {"before": before, "after": after}
 
         result, used = _try_candidates(candidates, _do)

@@ -2341,7 +2341,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        </div>
       <div class="token-split-note">
        <span style="font-weight:820;color:var(--t1)">说明</span>
-       <span>本地执行器绑定到当前团队/运营，在线且上报可执行凭证后会优先用于铺广告、预算和关停；传统 Token 继续作为凭证库和兜底来源。</span>
+       <span>本地执行器绑定到当前团队/运营，只上报账户与权限摘要；实际写操作由 Chrome 本地领取任务执行，传统 Token 继续作为凭证库和兜底来源。</span>
       </div>
       <div id="localTokenBridgePanel"></div>
       <div class="token-zone token-vault-zone">
@@ -7960,7 +7960,7 @@ function clearTokenFilters(){
  renderTokensView();
 }
 function _localTokenStatusLabel(status){
- var map={online:'API可用',cooldown:'冷却中',registered:'已绑定待心跳',online_no_token:'在线未接管',no_token:'未接管',permission_limited:'权限不足',no_accounts:'未匹配账户',token_error:'Token异常',expired:'Token过期',offline:'离线'};
+ var map={online:'本地可用',cooldown:'冷却中',registered:'已绑定待心跳',online_no_token:'在线未接管',online_no_summary:'待摘要',no_summary:'待摘要',no_token:'未接管',permission_limited:'权限不足',no_accounts:'未匹配账户',token_error:'执行器异常',expired:'已过期',offline:'离线'};
  return map[status]||status||'未知';
 }
 function _localTokenStatusStyle(status){
@@ -8006,7 +8006,7 @@ function renderLocalTokenPanel(){
     return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 170px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
      '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((a&&a.name)||'--')+'</div>'+
      '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml((a&&a.act_id)||'')+'</div></div>'+
-     '<div style="font-size:11px;color:var(--t3);text-align:right">'+(n.executable?'本地可写候选':'等待可执行凭证')+'</div>'+
+     '<div style="font-size:11px;color:var(--t3);text-align:right">'+(n.executable?'本地可写候选':'等待本地摘要')+'</div>'+
     '</div>';
    }).join('');
   return '<div style="border:1px solid var(--bd);background:rgba(255,255,255,.76);border-radius:12px;margin-top:8px;overflow:hidden">'+
@@ -8033,8 +8033,8 @@ function renderLocalTokenPanel(){
   }).join('');
    el.innerHTML='<div class="token-zone local-executor-zone">'+
    '<div class="token-zone-head">'+
-    '<div><div class="token-zone-title">本地执行器</div>'+
-     '<div class="token-zone-sub">Chrome 首次用一次性激活码绑定，之后凭节点密钥长期心跳。只有在线且已接管操作的执行器，才会优先参与铺广告、预算和关停。</div></div>'+
+     '<div><div class="token-zone-title">本地执行器</div>'+
+      '<div class="token-zone-sub">Chrome 首次用一次性激活码绑定，之后凭节点密钥长期心跳。Mira 只下发任务和接收结果，不保存本地 Token；在线且摘要匹配的执行器会优先参与预算和关停。</div></div>'+
     '<div class="token-zone-actions">'+
      '<button class="btn btn-p btn-sm role-hide-viewer" onclick="createLocalTokenRegistration()">绑定新 Chrome</button>'+
      '<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLocalExecutorTaskModal()">API自检账户</button>'+

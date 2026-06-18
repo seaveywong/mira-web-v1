@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -16,7 +17,14 @@ from services.local_token_bridge import authenticate_node
 
 TASK_STATUSES = {"queued", "running", "need_user", "success", "failed", "cancelled"}
 TERMINAL_STATUSES = {"success", "failed", "cancelled"}
-SUPPORTED_API_TASKS = {"graph_account_probe", "graph_update_status"}
+SUPPORTED_API_TASKS = {
+    "graph_account_probe",
+    "graph_update_status",
+    "graph_get",
+    "graph_post",
+    "graph_delete",
+}
+LOCAL_TASK_TIMEOUT_SECONDS = 45.0
 
 
 def _now_cst() -> str:
@@ -151,6 +159,127 @@ def _account_scope_for_task(conn: sqlite3.Connection, user: dict, act_id: str) -
     if owner_id is None and is_operator_user(user):
         owner_id = user_id(user)
     return team_id, owner_id, act_id
+
+
+def _account_scope_for_system_task(conn: sqlite3.Connection, act_id: str) -> tuple[Optional[int], Optional[int], str]:
+    act_id = _normalize_act_id(act_id)
+    if not act_id:
+        return None, None, ""
+    row = conn.execute(
+        "SELECT act_id, team_id, owner_user_id FROM accounts WHERE act_id=? LIMIT 1",
+        (act_id,),
+    ).fetchone()
+    if not row:
+        return None, None, act_id
+    owner_id = row["owner_user_id"] if "owner_user_id" in row.keys() else None
+    return row["team_id"], owner_id, act_id
+
+
+def create_local_graph_task(
+    task_type: str,
+    act_id: str,
+    params: Optional[dict],
+    node_id: str,
+    created_by_name: str = "system",
+) -> dict:
+    task_type = str(task_type or "").strip()
+    if task_type not in {"graph_get", "graph_post", "graph_delete", "graph_update_status", "graph_account_probe"}:
+        raise ValueError("Unsupported local graph task")
+    node_id = str(node_id or "").strip()
+    if not node_id:
+        raise ValueError("Local executor node_id is required")
+    params = dict(params or {})
+    conn = get_conn()
+    try:
+        ensure_local_executor_tables(conn)
+        team_id, owner_id, scoped_act_id = _account_scope_for_system_task(conn, act_id)
+        task_id = uuid.uuid4().hex
+        now = _now_cst()
+        progress = params.pop("_progress", "") or "等待本地执行器执行 Graph API 任务"
+        conn.execute(
+            """
+            INSERT INTO local_executor_tasks (
+                id, task_type, status, node_id, team_id, owner_user_id, created_by,
+                created_by_name, account_id, params_json, progress, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                task_id,
+                task_type,
+                "queued",
+                node_id,
+                team_id,
+                owner_id,
+                None,
+                created_by_name or "system",
+                scoped_act_id,
+                json.dumps(params, ensure_ascii=False),
+                progress,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM local_executor_tasks WHERE id=?", (task_id,)).fetchone()
+        return _row_to_task(row)
+    finally:
+        conn.close()
+
+
+def wait_for_local_task_result(task_id: str, timeout_seconds: float = LOCAL_TASK_TIMEOUT_SECONDS) -> dict:
+    deadline = time.time() + max(1.0, float(timeout_seconds or LOCAL_TASK_TIMEOUT_SECONDS))
+    last_task = {}
+    while time.time() < deadline:
+        conn = get_conn()
+        try:
+            ensure_local_executor_tables(conn)
+            row = conn.execute("SELECT * FROM local_executor_tasks WHERE id=?", (task_id,)).fetchone()
+            if not row:
+                raise RuntimeError("Local executor task not found")
+            task = _row_to_task(row)
+            last_task = task
+            if task.get("status") in TERMINAL_STATUSES or task.get("status") == "need_user":
+                if task.get("status") == "success":
+                    result = task.get("result") or {}
+                    if isinstance(result, dict):
+                        data = result.get("data")
+                        if data is None:
+                            data = result.get("result")
+                        if data is None:
+                            data = result.get("response")
+                        if data is None:
+                            data = result
+                        if isinstance(data, dict) and isinstance(data.get("error"), dict):
+                            err = data.get("error") or {}
+                            raise RuntimeError(err.get("message") or str(err))
+                        return data if isinstance(data, dict) else {"data": data}
+                    return {}
+                raise RuntimeError(task.get("error") or task.get("progress") or f"Local task {task.get('status')}")
+        finally:
+            conn.close()
+        time.sleep(0.5)
+    progress = last_task.get("progress") if last_task else ""
+    raise TimeoutError(f"本地执行器任务超时: {progress or task_id}")
+
+
+def run_local_graph_task(
+    candidate: dict,
+    task_type: str,
+    act_id: str,
+    params: Optional[dict],
+    timeout_seconds: float = LOCAL_TASK_TIMEOUT_SECONDS,
+    created_by_name: str = "system",
+) -> dict:
+    if not candidate or not candidate.get("local_executor"):
+        raise ValueError("candidate is not a local executor")
+    task = create_local_graph_task(
+        task_type=task_type,
+        act_id=act_id,
+        params=params or {},
+        node_id=candidate.get("node_id") or "",
+        created_by_name=created_by_name,
+    )
+    return wait_for_local_task_result(task["id"], timeout_seconds=timeout_seconds)
 
 
 def create_api_task(
