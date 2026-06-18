@@ -496,6 +496,7 @@ def _public_token(row) -> dict:
         "team_name": row["team_name"] if "team_name" in row.keys() else None,
         "owner_user_id": row["owner_user_id"],
         "owner_user_name": row["owner_user_name"] if "owner_user_name" in row.keys() else None,
+        "usage_count": int(row["usage_count"] or 0) if "usage_count" in row.keys() else 0,
         "created_by": row["created_by"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -907,16 +908,18 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/tokens")
 def list_cf_tokens(user=Depends(get_current_user)):
-    where, params = _scope_where(user)
+    where, params = _scope_where(user, "cf_tokens")
     sql = """SELECT cf_tokens.*,
                     tm.name AS team_name,
-                    COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+                    COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name,
+                    COUNT(lp.id) AS usage_count
              FROM cf_tokens
              LEFT JOIN teams tm ON tm.id=cf_tokens.team_id
-             LEFT JOIN users ou ON ou.id=cf_tokens.owner_user_id"""
+             LEFT JOIN users ou ON ou.id=cf_tokens.owner_user_id
+             LEFT JOIN landing_pages lp ON lp.cf_token_id=cf_tokens.id"""
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY id DESC"
+    sql += " GROUP BY cf_tokens.id ORDER BY cf_tokens.id DESC"
     conn = get_conn()
     rows = conn.execute(sql, params).fetchall()
     conn.close()
@@ -1062,6 +1065,28 @@ def diagnose_cf_token(token_id: int, user=Depends(get_current_user)):
             "checks": [{"key": "token", "status": "fail", "label": "API Token 不可用", "detail": str(exc)}],
             "hint": "Pages 发布需要 Cloudflare Account API Token，不是 R2/S3 Access Key 或 Secret Key。",
         }
+
+
+@router.delete("/tokens/{token_id}")
+def delete_cf_token(token_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_token_access(conn, token_id, user)
+        usage = conn.execute(
+            "SELECT COUNT(*) AS c FROM landing_pages WHERE cf_token_id=?",
+            (token_id,),
+        ).fetchone()
+        usage_count = int(usage["c"] or 0) if usage else 0
+        if usage_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cloudflare API 仍被 {usage_count} 条落地页记录引用，请先删除或归档相关落地页后再清理 API。",
+            )
+        conn.execute("DELETE FROM cf_tokens WHERE id=?", (token_id,))
+        conn.commit()
+        return {"success": True, "deleted": True, "id": token_id}
+    finally:
+        conn.close()
 
 
 @router.get("/templates")

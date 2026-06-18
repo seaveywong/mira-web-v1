@@ -15648,11 +15648,21 @@ function renderCloudflareTokens(){
   }else if(accounts.length===1){
    accountHtml='<div style="font-size:11px;color:var(--t3);margin-top:6px">账号：'+escHtml(accounts[0].name||accounts[0].id)+' · '+escHtml(accounts[0].id||'')+'</div>';
   }
+  var usageCount=parseInt(t.usage_count||0,10)||0;
+  var usageBadge=usageCount>0
+   ?'<span class="badge bg-wa" title="已有落地页记录使用该 API，不能直接删除">引用 '+usageCount+'</span>'
+   :'<span class="badge bg-mu" title="当前没有落地页记录引用该 API">未引用</span>';
   var ownerText=resourceOwnerLabel(t,'未指定负责人');
   var ownerHtml='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">'+
    resourceTeamBadge(t)+
    '<span class="resource-owner-pill '+(ownerText==='未指定负责人'?'muted':'')+'" title="Cloudflare API 负责人">'+escHtml(ownerText)+'</span>'+
+   usageBadge+
   '</div>';
+  var actionBtns='<button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">重新验证</button>'+
+   '<button class="btn btn-g btn-sm role-hide-viewer" onclick="diagnoseCloudflareToken('+t.id+')">诊断</button>';
+  if(usageCount===0){
+   actionBtns+='<button class="btn btn-g btn-sm role-hide-viewer" onclick="deleteCloudflareToken('+t.id+')">删除</button>';
+  }
   return '<div class="tkc" style="padding:10px;margin-bottom:8px;display:block">'+
    '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center">'+
     '<div style="min-width:0"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(t.name||('API '+t.id))+'</div>'+
@@ -15661,7 +15671,7 @@ function renderCloudflareTokens(){
    accountHtml+
    ownerHtml+
    '<div id="cfDiag'+t.id+'" style="display:none;margin-top:8px"></div>'+
-   '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">重新验证</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="diagnoseCloudflareToken('+t.id+')">诊断</button></div>'+
+   '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+actionBtns+'</div>'+
   '</div>';
  }).join('');
 }
@@ -15924,6 +15934,19 @@ async function diagnoseCloudflareToken(id){
   if(box)box.innerHTML=renderLandingChecks(r.checks||[]);
  }catch(e){
   if(box)box.innerHTML='<div style="font-size:12px;color:var(--er)">诊断失败：'+escHtml(e.message||e)+'</div>';
+ }
+}
+async function deleteCloudflareToken(id){
+ var item=(_cfTokens||[]).find(function(t){return String(t.id)===String(id);});
+ var name=(item&&item.name)||('API '+id);
+ var ok=await confirmDialog('确认删除 Cloudflare API「'+name+'」？只有未被任何落地页记录引用的 API 才能删除。');
+ if(!ok)return;
+ try{
+  await api('DELETE','/landing-pages/tokens/'+id);
+  toast('Cloudflare API 已删除','ok');
+  await loadLandingCenter(true);
+ }catch(e){
+  toast('删除失败：'+(e.message||e),'er');
  }
 }
 function renderLandingChecks(checks){
