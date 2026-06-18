@@ -1588,7 +1588,7 @@ tr:last-child td{border-bottom:0!important}
 .page>.ph:first-child>div:last-child:not(.ph-acts){display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;flex-wrap:wrap!important}
 .page>.ph:first-child>div:first-child:last-child{display:block!important;justify-self:start!important;text-align:left!important}
 .page>.ph:first-child>div:first-child:last-child h2,.page>.ph:first-child>div:first-child:last-child p{display:block!important;text-align:left!important}
-#page-dashboard .ph>div:last-child,#page-accounts .ph-acts,#page-kpi .ph-acts,#page-landing_urls .ph>div:last-child,#page-rules .ph>div:last-child{
+#page-dashboard .ph>div:last-child,#page-accounts .ph-acts,#page-kpi .ph-acts,#page-tokens .ph-acts,#page-landing_urls .ph>div:last-child,#page-rules .ph>div:last-child{
  width:auto!important;max-width:980px!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important
 }
 #page-assets .page>.ph:first-child,#page-assets>.ph:first-child{grid-template-columns:1fr!important;align-items:start!important;min-height:166px!important}
@@ -1834,7 +1834,7 @@ select.fc option{background:#fff;color:#1d1d1f}
 .guard-step-line{font-size:11px;color:var(--t2);line-height:1.55;margin-top:5px}
 #page-tokens .token-actions{
  width:auto!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;
- border:0!important;box-shadow:none!important;justify-content:flex-end!important;flex:0 0 auto!important
+ border:0!important;box-shadow:none!important;justify-content:flex-end!important;align-items:center!important;flex:0 0 auto!important
 }
 #page-tokens .token-actions .btn{height:42px!important;min-height:42px!important;padding:0 18px!important;font-weight:760!important}
 #page-tokens .token-actions .btn-oauth{background:#fff!important;border:1px solid #d2d2d7!important;color:#1d1d1f!important}
@@ -2321,7 +2321,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
        <div class="ph-acts token-actions">
         <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
-        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入账户（自动匹配 Token）</button>
+        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入并自动关联</button>
         <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
         <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
        </div>
@@ -2429,7 +2429,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        </select>
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
-        <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取 Token，并补齐同团队 / 同负责人可用读写 Token 关联">导入账户（自动匹配 Token）</button>
+        <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取 Token，并补齐同团队 / 同负责人可用读写 Token 关联">导入并自动关联</button>
         <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
        <button class="btn btn-g btn-sm" onclick="openMatrixDiagnostic()" title="检查账户、Token、素材等矩阵标签为什么显示未识别">矩阵诊断</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
@@ -7476,7 +7476,7 @@ function renderMetaOAuthModal(cfg){
    '<div class="fg" id="metaTokenMatrixWrap"><label class="fl">归属矩阵（操作号建议填写）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh" id="metaTokenMatrixHint">选择矩阵后，同矩阵账户、素材、主页库会自动显示矩阵标签；留空会继续显示未识别矩阵。</div></div>'+
   '</div>'+
   '<label class="meta-oauth-check"><input type="checkbox" id="metaForceReauth" checked><span>每次强制重新确认权限，避免账号没有勾选 ads_management 却被误判可用。</span></label>'+
-  '<div class="meta-oauth-note"><b>授权归属规则：</b>运营登录后授权，只自动匹配本人名下账户；团队管理员授权，匹配本团队账户；超级管理员授权只匹配未归属团队的账户。给某个运营稳定铺广告，建议让该运营自己登录 Mira 后授权，再用「导入账户（自动匹配 Token）」补齐账户关联。</div>'+
+  '<div class="meta-oauth-note"><b>授权归属规则：</b>运营登录后授权，只自动匹配本人名下账户；团队管理员授权，匹配本团队账户；超级管理员授权只匹配未归属团队的账户。给某个运营稳定铺广告，建议让该运营自己登录 Mira 后授权，再用「导入并自动关联」补齐账户关联。</div>'+
   '<div class="meta-oauth-note">这是 Meta 标准 OAuth / Business Login，不是绕过 API。App 开发模式下仍需要手动把个号加入开发者/测试用户；正式稳定使用需要 App Live 和权限审核。</div>'+
   '<div id="metaOAuthLinkBox" class="meta-oauth-linkbox">'+
    '<div class="meta-oauth-link-title">授权链接已生成</div>'+
@@ -7724,7 +7724,7 @@ async function checkMetaOAuthState(silent){
     '<div>授权成功：Token #'+escHtml(String(r.token_id||''))+' · '+escHtml(token.token_alias||'Meta OAuth')+'，已关联 '+escHtml(String(r.linked_count||0))+' 个账户。</div>'+
     renderMetaOAuthMatchDetails(r)+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
-     '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入账户</button>'+
+     '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入并关联</button>'+
      '<button class="btn btn-g btn-sm" onclick="loadTokens();toast(&quot;Token 列表已刷新&quot;,&quot;ok&quot;)">刷新 Token 列表</button>'+
     '</div>';
    toast('Meta 官方授权完成，已关联 '+(r.linked_count||0)+' 个账户','ok');
@@ -7759,7 +7759,7 @@ window.addEventListener('message',function(ev){
   '<div>授权成功：Token #'+escHtml(String(data.token_id||''))+'，已覆盖 '+escHtml(String(effective))+' 个已导入账户。</div>'+
   renderMetaOAuthMatchDetails({match_result:match})+
   '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
-   '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入账户</button>'+
+   '<button class="btn btn-p btn-sm" onclick="closeModal(&quot;moMetaOAuth&quot;);showPage(&quot;accounts&quot;);setTimeout(openSmartImportAccounts,120)">继续导入并关联</button>'+
    '<button class="btn btn-g btn-sm" onclick="loadTokens();toast(&quot;Token 列表已刷新&quot;,&quot;ok&quot;)">刷新 Token 列表</button>'+
   '</div>';
  toast('Meta 官方授权完成，已覆盖 '+effective+' 个账户','ok');
@@ -8367,7 +8367,7 @@ function parseDirectIds(){
 }
 function openSmartImportAccounts(){
  importAutoMode=true;importTkId=null;selAccs.clear();_allFetchedAccs=[];
-  var title=document.getElementById('importTitle');if(title)title.textContent='导入账户（自动匹配 Token）';
+  var title=document.getElementById('importTitle');if(title)title.textContent='导入并自动关联';
  var fbTab=document.getElementById('importTabFb');if(fbTab)fbTab.style.display='none';
  var directTab=document.getElementById('importTabDirect');if(directTab){directTab.style.display='inline-block';directTab.textContent='直接输入 ID';}
  var input=document.getElementById('directActIds');if(input)input.value='';
@@ -14669,7 +14669,7 @@ async function openMatrixDiagnostic(){
     '<button class="btn btn-p btn-sm" onclick="closeTopInfoModal();openMetaOAuthModal()">Meta 官方授权</button>'+
     '<button class="btn btn-g btn-sm" onclick="closeTopInfoModal();showPage(&quot;tokens&quot;)">去 Token 页分配矩阵</button>'+
     '<button class="btn btn-g btn-sm" onclick="closeTopInfoModal();var s=document.getElementById(&quot;accMatrixFilter&quot;);if(s){s.value=&quot;unassigned&quot;;accUiState.matrix=&quot;unassigned&quot;;filterAccs();}">只看未识别账户</button>'+
-    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="closeTopInfoModal();openSmartImportAccounts()">导入账户（自动匹配 Token）</button>'+
+    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="closeTopInfoModal();openSmartImportAccounts()">导入并自动关联</button>'+
    '</div>'+
   '</div>'+
   '<details open style="margin-bottom:12px"><summary style="cursor:pointer;font-weight:850">矩阵 Token</summary><div style="margin-top:8px">'+(tokens||'<div style="font-size:12px;color:var(--t3)">当前没有带矩阵的 Token。</div>')+'</div></details>'+
