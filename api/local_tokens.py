@@ -64,6 +64,8 @@ class HeartbeatRequest(BaseModel):
     status: Optional[str] = ""
     fb_user: Optional[dict] = None
     accounts: Optional[list] = None
+    businesses: Optional[list] = None
+    assets: Optional[dict] = None
     ad_accounts: Optional[list] = None
     adAccounts: Optional[list] = None
     account_ids: Optional[list] = None
@@ -219,6 +221,8 @@ def receive_heartbeat(body: HeartbeatRequest):
             or token_summary.get("adAccounts")
             or []
         )
+        businesses = body.businesses or token_summary.get("businesses") or []
+        assets = body.assets or token_summary.get("assets") or {}
         account_id_aliases = (
             body.account_ids
             or body.accountIds
@@ -261,6 +265,8 @@ def receive_heartbeat(body: HeartbeatRequest):
                 "fb_user_name": token_summary.get("fb_user_name") or fb_user.get("name") or "",
                 "account_ids": account_ids,
                 "accounts": accounts,
+                "businesses": businesses,
+                "assets": assets,
                 "has_ads_management": bool(
                     token_summary.get("has_ads_management")
                     or "ads_management" in caps

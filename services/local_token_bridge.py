@@ -638,18 +638,56 @@ def heartbeat_node(
                     "currency": str(item.get("currency") or ""),
                     "timezone": str(item.get("timezone") or item.get("timezone_name") or ""),
                     "write_status": str(item.get("write_status") or item.get("status") or ""),
+                    "business_id": str(item.get("business_id") or ""),
+                    "business_name": str(item.get("business_name") or ""),
                 })
                 raw_account_ids.add(act_id)
+            normalized_businesses = []
+            seen_biz_ids = set()
+            for item in (token_summary.get("businesses") or []):
+                if not isinstance(item, dict):
+                    continue
+                biz_id = "".join(ch for ch in str(item.get("id") or item.get("business_id") or "") if ch.isdigit())
+                if not biz_id or biz_id in seen_biz_ids:
+                    continue
+                seen_biz_ids.add(biz_id)
+                biz_accounts = []
+                for raw in (item.get("account_ids") or item.get("accounts") or []):
+                    if isinstance(raw, dict):
+                        act_id = _normalize_act_id(raw.get("act_id") or raw.get("account_id") or raw.get("id"))
+                    else:
+                        act_id = _normalize_act_id(raw)
+                    if act_id and act_id not in biz_accounts:
+                        biz_accounts.append(act_id)
+                normalized_businesses.append({
+                    "id": biz_id,
+                    "name": str(item.get("name") or item.get("business_name") or f"BM {biz_id}"),
+                    "source": str(item.get("source") or ""),
+                    "account_ids": biz_accounts[:MAX_ACCOUNT_PROBE],
+                    "account_count": int(item.get("account_count") or len(biz_accounts) or 0),
+                })
             visible_ids = {
                 _normalize_act_id(item.get("act_id"))
                 for item in _visible_accounts_for_node(node)
                 if _normalize_act_id(item.get("act_id"))
             }
             node["account_ids"] = sorted(raw_account_ids.intersection(visible_ids))[:MAX_ACCOUNT_PROBE]
+            matched_ids = set(node["account_ids"])
             node["reported_accounts"] = [
                 item for item in normalized_reported_accounts
-                if item.get("act_id") in set(node["account_ids"])
+                if item.get("act_id") in matched_ids
             ][:MAX_ACCOUNT_PROBE]
+            node["reported_unmatched_accounts"] = [
+                item for item in normalized_reported_accounts
+                if item.get("act_id") not in matched_ids
+            ][:MAX_ACCOUNT_PROBE]
+            node["reported_businesses"] = normalized_businesses[:MAX_ACCOUNT_PROBE]
+            node["reported_assets"] = {
+                "business_count": len(normalized_businesses),
+                "ad_account_count": len(normalized_reported_accounts),
+                "matched_account_count": len(node["reported_accounts"]),
+                "unmatched_account_count": len(node["reported_unmatched_accounts"]),
+            }
             if queue is not None:
                 node["queue"] = {
                     "running": int((queue or {}).get("running") or 0),
@@ -747,6 +785,30 @@ def node_public_view(node_id: str) -> dict:
             item["timezone"] = reported.get("timezone")
         if reported.get("write_status"):
             item["write_status"] = reported.get("write_status")
+        if reported.get("business_id"):
+            item["business_id"] = reported.get("business_id")
+        if reported.get("business_name"):
+            item["business_name"] = reported.get("business_name")
+    unmatched_accounts = list(node.get("reported_unmatched_accounts") or [])[:80]
+    businesses = []
+    matched_id_set = set(account_ids)
+    for item in list(node.get("reported_businesses") or [])[:80]:
+        if not isinstance(item, dict):
+            continue
+        biz_accounts = [
+            _normalize_act_id(x)
+            for x in (item.get("account_ids") or [])
+            if _normalize_act_id(x)
+        ]
+        businesses.append({
+            "id": str(item.get("id") or ""),
+            "name": str(item.get("name") or ""),
+            "source": str(item.get("source") or ""),
+            "account_ids": biz_accounts[:80],
+            "account_count": int(item.get("account_count") or len(biz_accounts) or 0),
+            "matched_account_ids": [x for x in biz_accounts if x in matched_id_set],
+            "matched_account_count": len([x for x in biz_accounts if x in matched_id_set]),
+        })
     now = _now_ts()
     last_seen = float(node.get("last_seen_ts") or 0)
     online = bool(last_seen and now - last_seen <= NODE_STALE_SECONDS)
@@ -802,6 +864,14 @@ def node_public_view(node_id: str) -> dict:
         "account_count": len(node.get("account_ids") or []),
         "account_ids": account_ids,
         "accounts": account_summaries,
+        "businesses": businesses,
+        "unmatched_accounts": unmatched_accounts,
+        "assets": node.get("reported_assets") or {
+            "business_count": len(businesses),
+            "ad_account_count": len(account_summaries) + len(unmatched_accounts),
+            "matched_account_count": len(account_summaries),
+            "unmatched_account_count": len(unmatched_accounts),
+        },
         "has_ads_management": bool(node.get("has_ads_management")),
         "has_ads_read": bool(node.get("has_ads_read")),
         "permissions": node.get("permissions") or {"granted": [], "declined": []},

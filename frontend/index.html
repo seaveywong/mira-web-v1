@@ -7984,6 +7984,12 @@ function _localTokenAccountLabel(a){
  if(name&&id&&name!==id)return name+' · '+id;
  return name||id||'--';
 }
+function _localTokenBusinessLabel(b){
+ var name=(b&&b.name)||'';
+ var id=(b&&b.id)||'';
+ if(name&&id&&name!=='BM '+id)return name+' · '+id;
+ return name||id||'--';
+}
 function toggleLocalTokenNode(nodeId){
  if(!localTokenUiState.open)localTokenUiState.open={};
  localTokenUiState.open[nodeId]=!localTokenUiState.open[nodeId];
@@ -8001,7 +8007,11 @@ function renderLocalTokenPanel(){
   var nodeId=n.node_id||'';
   var isOpen=!!(localTokenUiState.open&&localTokenUiState.open[nodeId]);
   var accs=(n.accounts&&n.accounts.length?n.accounts:(n.account_ids||[]).map(function(id){return {act_id:id,name:id};}));
+  var bizs=n.businesses||[];
+  var unmatched=n.unmatched_accounts||[];
+  var assets=n.assets||{};
   var accPreview=accs.slice(0,2).map(function(a){return escHtml(_localTokenAccountLabel(a));}).join('；');
+  var bizPreview=bizs.slice(0,2).map(function(b){return escHtml(_localTokenBusinessLabel(b));}).join('；');
   var q=n.queue||{};
   var queueText=(parseInt(q.running||0,10)||0)+' / '+(parseInt(q.waiting||0,10)||0);
   var capText=(n.capabilities&&n.capabilities.length)?n.capabilities.slice(0,4).join(' / '):'--';
@@ -8012,15 +8022,33 @@ function renderLocalTokenPanel(){
      '<div style="font-size:11px;color:var(--t3);text-align:right">'+(n.executable?'本地可写候选':'等待本地摘要')+'</div>'+
     '</div>';
    }).join('');
+   var bizRows=bizs.slice(0,80).map(function(b){
+    var matched=parseInt(b.matched_account_count||0,10)||0;
+    var total=parseInt(b.account_count||0,10)||0;
+    var ids=(b.account_ids||[]).slice(0,4).join(' ');
+    return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 120px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
+     '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((b&&b.name)||'--')+'</div>'+
+     '<div style="font-size:11px;color:var(--t3);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((b&&b.id)||'')+(ids?' · '+escHtml(ids):'')+'</div></div>'+
+     '<div style="font-size:11px;color:var(--t3);text-align:right">匹配 '+matched+' / 发现 '+total+'</div>'+
+    '</div>';
+   }).join('');
+   var unmatchedRows=unmatched.slice(0,80).map(function(a){
+    return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 170px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
+     '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((a&&a.name)||'--')+'</div>'+
+     '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml((a&&a.act_id)||'')+'</div></div>'+
+     '<div style="font-size:11px;color:var(--wa);text-align:right">未导入/未分配</div>'+
+    '</div>';
+   }).join('');
   return '<div style="border:1px solid var(--bd);background:rgba(255,255,255,.76);border-radius:12px;margin-top:8px;overflow:hidden">'+
-   '<div style="display:grid;grid-template-columns:34px minmax(220px,1.3fr) 92px 92px 108px minmax(180px,1fr) 76px;gap:10px;align-items:center;padding:11px 12px;cursor:pointer" onclick="toggleLocalTokenNode(\''+escHtml(nodeId)+'\')">'+
+   '<div style="display:grid;grid-template-columns:34px minmax(220px,1.3fr) 92px 72px 72px 98px minmax(180px,1fr) 76px;gap:10px;align-items:center;padding:11px 12px;cursor:pointer" onclick="toggleLocalTokenNode(\''+escHtml(nodeId)+'\')">'+
     '<div style="width:24px;height:24px;border-radius:8px;border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:12px">'+(isOpen?'▼':'▶')+'</div>'+
     '<div style="min-width:0"><div style="font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(n.node_name||'Chrome 本地执行器')+'</div>'+
      '<div style="font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(n.browser||'Chrome')+' · '+escHtml(n.username||'--')+' · '+escHtml(n.team_name||'--')+'</div></div>'+
     '<span class="badge" style="'+_localTokenStatusStyle(status)+';justify-self:start">'+_localTokenStatusLabel(status)+'</span>'+
-     '<div><div style="font-size:11px;color:var(--t3)">账户</div><div style="font-weight:800;color:var(--t1)">'+(n.account_count||0)+'</div></div>'+
+    '<div><div style="font-size:11px;color:var(--t3)">账户</div><div style="font-weight:800;color:var(--t1)">'+(n.account_count||0)+'</div></div>'+
+     '<div><div style="font-size:11px;color:var(--t3)">BM</div><div style="font-weight:800;color:var(--t1)">'+(bizs.length||0)+'</div></div>'+
      '<div><div style="font-size:11px;color:var(--t3)">队列</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap">'+escHtml(queueText)+'</div></div>'+
-    '<div style="min-width:0"><div style="font-size:11px;color:var(--t3)">账户预览</div><div style="font-size:12px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(accPreview||'--')+(n.account_count>2?' 等':'')+'</div></div>'+
+    '<div style="min-width:0"><div style="font-size:11px;color:var(--t3)">资产预览</div><div style="font-size:12px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(accPreview||bizPreview||'--')+(n.account_count>2?' 等':'')+'</div></div>'+
     '<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();removeLocalTokenNode(\''+escHtml(nodeId)+'\')">移除</button>'+
    '</div>'+
    (isOpen?'<div style="padding:0 12px 12px 56px">'+
@@ -8030,6 +8058,8 @@ function renderLocalTokenPanel(){
       '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">接管状态</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+(n.executable?'可用于写操作':(n.has_runtime_token?'等待账户匹配':'未接管操作'))+'</div></div>'+
       '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">版本 / 能力</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((n.extension_version||'--')+' · '+capText)+'</div></div>'+
      '</div>'+
+    (bizRows?'<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:800;color:var(--t1);margin:0 0 6px">BM 资产摘要</div><div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:0 10px;max-height:220px;overflow:auto">'+bizRows+'</div></div>':'')+
+    (unmatchedRows?'<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:800;color:var(--wa);margin:0 0 6px">已发现但未接管的账户</div><div style="border:1px solid rgba(245,158,11,.30);border-radius:10px;background:rgba(245,158,11,.06);padding:0 10px;max-height:220px;overflow:auto">'+unmatchedRows+'</div><div style="font-size:11px;color:var(--t3);margin-top:6px">这些账户由本地浏览器读到，但不在当前团队/运营资产范围内；导入并分配后才会参与本地执行。</div></div>':'')+
     (accRows?'<div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:0 10px;max-height:260px;overflow:auto">'+accRows+'</div>':'<div style="font-size:12px;color:var(--t3);padding:10px;border:1px dashed var(--bd);border-radius:10px;background:var(--bg2)">这个浏览器暂时没有匹配到当前身份可见的账户。</div>')+
     (n.last_error&&status!=='no_token'?'<div style="font-size:11px;color:var(--wa);margin-top:8px;line-height:1.5">'+escHtml(n.last_error)+'</div>':'')+
    '</div>':'')+
