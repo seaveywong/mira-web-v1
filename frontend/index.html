@@ -2775,7 +2775,15 @@ select.fc option{background:#fff;color:#1d1d1f}
      <option value="failed">失败</option>
      <option value="archived">已归档</option>
     </select>
+    <select class="fc" id="landingPageHealthFilter" style="width:120px;height:34px" onchange="renderLandingPages()">
+     <option value="all">全部自检</option>
+     <option value="fail">自检失败</option>
+     <option value="warn">有提醒</option>
+     <option value="pass">自检通过</option>
+     <option value="unchecked">未自检</option>
+    </select>
     <button class="btn btn-g btn-sm role-hide-viewer" onclick="refreshLandingDomains()" title="批量复检已发布页面的自定义域名；域名可用后会自动回绑原账户链接">复检全部域名</button>
+    <button class="btn btn-g btn-sm role-hide-viewer" onclick="checkVisibleLandingHealth()" title="按当前筛选逐个检查线上链接、表单直跳和自定义域">自检当前筛选</button>
    </div>
   </div>
   <div class="table-wrap">
@@ -15510,25 +15518,44 @@ function _landingPageSearchText(page){
   page&&page.created_by,
   page&&page.created_at,
   page&&page.status,
+  page&&page.last_health_status,
+  page&&page.last_health_summary,
   page&&page.link_kind,
   ((page&&page.bound_act_ids)||[]).join(' '),
   _landingMatrixIdsFromPage(page).map(function(mid){return '矩阵'+mid+' matrix'+mid;}).join(' '),
   accounts
  ].join(' ').toLowerCase();
 }
+function _landingHealthStatus(page){
+ return String((page&&page.last_health_status)||'').trim().toLowerCase();
+}
+function _landingHealthBadge(page){
+ var h=_landingHealthStatus(page);
+ var checked=(page&&page.last_health_checked_at)||'';
+ var summary=(page&&page.last_health_summary)||'';
+ var code=(page&&page.last_health_http_code)?('HTTP '+page.last_health_http_code+' · '):'';
+ var title=escHtml((code+(summary||'还没有执行线上自检'))+(checked?(' · '+checked):''));
+ if(h==='pass')return '<div style="margin-top:6px"><span class="badge bg-ok" title="'+title+'">自检通过</span><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(checked||'')+'</div></div>';
+ if(h==='warn')return '<div style="margin-top:6px"><span class="badge bg-wa" title="'+title+'">自检提醒</span><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(checked||'')+'</div></div>';
+ if(h==='fail')return '<div style="margin-top:6px"><span class="badge bg-er" title="'+title+'">自检失败</span><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(checked||'')+'</div></div>';
+ return '<div style="margin-top:6px"><span class="badge bg-mu" title="尚未执行线上自检">未自检</span></div>';
+}
 function renderLandingPages(){
  var tb=document.getElementById('landingPagesList'); if(!tb)return;
  var matrixFilter=_refreshLandingPageMatrixFilter();
  var kindFilter=(document.getElementById('landingPageKindFilter')||{}).value||'all';
  var statusFilter=(document.getElementById('landingPageStatusFilter')||{}).value||'all';
+ var healthFilter=(document.getElementById('landingPageHealthFilter')||{}).value||'all';
  var searchText=((document.getElementById('landingPageSearch')||{}).value||'').trim().toLowerCase();
  var pages=(_landingPages||[]).filter(function(p){
   var ids=_landingMatrixIdsFromPage(p);
   var matrixOk=matrixFilter==='all'||(matrixFilter==='unassigned'&&!ids.length)||ids.indexOf(parseInt(matrixFilter,10))>=0;
   var kindOk=kindFilter==='all'||String(p.link_kind||'landing')===kindFilter;
   var statusOk=statusFilter==='all'||String(p.status||'')===statusFilter;
+  var h=_landingHealthStatus(p);
+  var healthOk=healthFilter==='all'||(healthFilter==='unchecked'&&!h)||h===healthFilter;
   var searchOk=!searchText||_landingPageSearchText(p).indexOf(searchText)>=0;
-  return matrixOk&&kindOk&&statusOk&&searchOk;
+  return matrixOk&&kindOk&&statusOk&&healthOk&&searchOk;
  });
  var hint=document.getElementById('landingPageCountHint');
  if(hint)hint.textContent=_landingPages.length?('显示 '+pages.length+' / '+_landingPages.length+' 条发布记录'):'';
@@ -15578,6 +15605,7 @@ function renderLandingPages(){
    copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.custom_domain_dns_hint)+'\')" title="复制自定义域 DNS 配置">复制DNS</button>';
   }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
+  var healthBadge=_landingHealthBadge(p);
   var createdLine=(p.created_by||p.created_at)?'<div style="font-size:11px;color:var(--t3);margin-top:4px">发布：'+escHtml(p.created_by||'system')+(p.created_at?' · '+escHtml(p.created_at):'')+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
    '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+' '+matrixBadges+'</div>'+err+'</td>'+
@@ -15585,7 +15613,7 @@ function renderLandingPages(){
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+createdLine+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px">'+usageBadge+'</div></td>'+
-   '<td style="padding:10px 12px">'+status+'</td>'+
+   '<td style="padding:10px 12px">'+status+healthBadge+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
     copyBtns+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="checkLandingHealth('+p.id+')">自检</button>'+
@@ -15640,6 +15668,15 @@ async function checkLandingHealth(id){
   var r=await api('GET','/landing-pages/pages/'+id+'/health');
   var http=r.http||{};
   var page=r.page||p||{};
+  if(r.page){
+   var replaced=false;
+   _landingPages=(_landingPages||[]).map(function(x){
+    if(String(x.id)===String(id)){replaced=true;return Object.assign({},x,r.page);}
+    return x;
+   });
+   if(!replaced)_landingPages.unshift(r.page);
+   renderLandingPages();
+  }
   var httpLine=http.status_code
    ?('<div style="font-size:12px;color:var(--t3);margin-top:8px">HTTP '+escHtml(String(http.status_code))+(http.location?(' · Location: '+escHtml(http.location)):'')+(http.content_type?(' · '+escHtml(http.content_type)):'')+'</div>')
    :'';
@@ -15655,6 +15692,43 @@ async function checkLandingHealth(id){
  }catch(e){
   toast('落地页自检失败：'+(e.message||e),'er');
  }
+}
+async function checkVisibleLandingHealth(){
+ var matrixFilter=(document.getElementById('landingPageMatrixFilter')||{}).value||'all';
+ var kindFilter=(document.getElementById('landingPageKindFilter')||{}).value||'all';
+ var statusFilter=(document.getElementById('landingPageStatusFilter')||{}).value||'all';
+ var healthFilter=(document.getElementById('landingPageHealthFilter')||{}).value||'all';
+ var searchText=((document.getElementById('landingPageSearch')||{}).value||'').trim().toLowerCase();
+ var pages=(_landingPages||[]).filter(function(p){
+  var ids=_landingMatrixIdsFromPage(p);
+  var matrixOk=matrixFilter==='all'||(matrixFilter==='unassigned'&&!ids.length)||ids.indexOf(parseInt(matrixFilter,10))>=0;
+  var kindOk=kindFilter==='all'||String(p.link_kind||'landing')===kindFilter;
+  var statusOk=statusFilter==='all'||String(p.status||'')===statusFilter;
+  var h=_landingHealthStatus(p);
+  var healthOk=healthFilter==='all'||(healthFilter==='unchecked'&&!h)||h===healthFilter;
+  var searchOk=!searchText||_landingPageSearchText(p).indexOf(searchText)>=0;
+  return matrixOk&&kindOk&&statusOk&&healthOk&&searchOk&&String(p.status||'')!=='archived';
+ });
+ if(!pages.length){toast('当前筛选下没有可自检的发布记录','wa');return;}
+ if(!confirm('将按当前筛选自检 '+pages.length+' 条发布记录。继续？'))return;
+ var pass=0,warn=0,fail=0;
+ for(var i=0;i<pages.length;i++){
+  toast('自检中 '+(i+1)+'/'+pages.length+'：'+(pages[i].title||pages[i].id),'ac');
+  try{
+   var r=await api('GET','/landing-pages/pages/'+pages[i].id+'/health');
+   if(r.page){
+    _landingPages=(_landingPages||[]).map(function(x){return String(x.id)===String(r.page.id)?Object.assign({},x,r.page):x;});
+   }
+   var hs=(r.page&&r.page.last_health_status)||(r.success?'pass':'fail');
+   if(hs==='pass')pass++;
+   else if(hs==='warn')warn++;
+   else fail++;
+  }catch(e){
+   fail++;
+  }
+  renderLandingPages();
+ }
+ toast('自检完成：通过 '+pass+' / 提醒 '+warn+' / 失败 '+fail,fail?'wa':'ok');
 }
 function showLandingUsage(id){
  var p=(_landingPages||[]).find(function(x){return String(x.id)===String(id);});

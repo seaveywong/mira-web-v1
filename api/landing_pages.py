@@ -210,6 +210,10 @@ def _ensure_schema():
             "protection_rules": "TEXT DEFAULT '{}'",
             "ingest_secret": "TEXT",
             "worker_enabled": "INTEGER DEFAULT 0",
+            "last_health_status": "TEXT",
+            "last_health_summary": "TEXT",
+            "last_health_checked_at": "TEXT",
+            "last_health_http_code": "INTEGER",
         }
         for name, ddl in page_alters.items():
             if name not in page_cols:
@@ -562,6 +566,24 @@ def _target_location_matches(location: str, targets: list[str]) -> bool:
         if target_norm and (loc_norm == target_norm or loc_norm.startswith(target_norm + "?")):
             return True
     return False
+
+
+def _health_status_from_checks(checks: list[dict[str, Any]]) -> str:
+    if any(c.get("status") == "fail" for c in checks):
+        return "fail"
+    if any(c.get("status") == "warn" for c in checks):
+        return "warn"
+    return "pass"
+
+
+def _health_summary_from_checks(checks: list[dict[str, Any]]) -> str:
+    important = [c for c in checks if c.get("status") in {"fail", "warn"}]
+    if important:
+        first = important[0]
+        label = str(first.get("label") or first.get("key") or "check")
+        detail = str(first.get("detail") or "").strip()
+        return (label + (f": {detail}" if detail else ""))[:240]
+    return "All checks passed"
 
 
 def _normalize_url_for_match(value: Optional[str]) -> str:
@@ -1668,12 +1690,40 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                 "detail": f"请求公开链接失败：{exc}",
             })
 
+    health_status = _health_status_from_checks(checks)
+    health_summary = _health_summary_from_checks(checks)
+    health_checked_at = _now_cst()
+    health_http_code = http_info.get("status_code") if http_info else None
+    conn = None
+    try:
+        conn = get_conn()
+        conn.execute(
+            """UPDATE landing_pages
+               SET last_health_status=?,
+                   last_health_summary=?,
+                   last_health_checked_at=?,
+                   last_health_http_code=?,
+                   updated_at=datetime('now','+8 hours')
+               WHERE id=?""",
+            (health_status, health_summary, health_checked_at, health_http_code, page_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("landing page health persistence failed: page_id=%s", page_id)
+    finally:
+        if conn:
+            conn.close()
+    item["last_health_status"] = health_status
+    item["last_health_summary"] = health_summary
+    item["last_health_checked_at"] = health_checked_at
+    item["last_health_http_code"] = health_http_code
+
     return {
-        "success": not any(c.get("status") == "fail" for c in checks),
+        "success": health_status != "fail",
         "page": item,
         "checks": checks,
         "http": http_info,
-        "checked_at": _now_cst(),
+        "checked_at": health_checked_at,
     }
 
 
