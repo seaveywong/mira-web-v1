@@ -1,9 +1,40 @@
-const DEFAULT_SERVER_URL = "http://43.129.230.237:8000";
+const DEFAULT_SERVER_URL = "https://shouhu.asia";
+const DEFAULT_META_SCOPES = "ads_management,ads_read,pages_show_list,pages_manage_ads,business_management";
 const HEARTBEAT_ALARM = "mira_local_token_heartbeat";
+const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 function normalizeServerUrl(value) {
   const raw = String(value || DEFAULT_SERVER_URL).trim().replace(/\/+$/, "");
   return raw || DEFAULT_SERVER_URL;
+}
+
+function randomId(prefix) {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return `${prefix}_${Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function ensureInstallId() {
+  const data = await chrome.storage.local.get(["installId"]);
+  if (data.installId) return data.installId;
+  const installId = randomId("chrome");
+  await chrome.storage.local.set({ installId });
+  return installId;
+}
+
+async function detectChromeName() {
+  const installId = await ensureInstallId();
+  try {
+    const info = await chrome.identity.getProfileUserInfo({ accountStatus: "ANY" });
+    if (info && info.email) return `Chrome - ${info.email}`;
+  } catch (err) {
+    // Chrome may return empty profile info when the user is not signed in.
+  }
+  return `Chrome - ${installId.slice(-6).toUpperCase()}`;
+}
+
+function getRedirectUri() {
+  return chrome.identity.getRedirectURL("meta");
 }
 
 async function getSettings() {
@@ -15,16 +46,24 @@ async function getSettings() {
     "accessToken",
     "expiresInMinutes",
     "tokenExpiresAt",
+    "metaAppId",
+    "metaScopes",
+    "autoRefreshEnabled",
     "lastStatus"
   ]);
+  const detectedName = data.nodeName || await detectChromeName();
   return {
     serverUrl: normalizeServerUrl(data.serverUrl),
-    nodeName: data.nodeName || "Chrome 本地 Token",
+    nodeName: detectedName,
     nodeId: data.nodeId || "",
     nodeSecret: data.nodeSecret || "",
     accessToken: data.accessToken || "",
     expiresInMinutes: data.expiresInMinutes || "",
     tokenExpiresAt: data.tokenExpiresAt || "",
+    metaAppId: data.metaAppId || "",
+    metaScopes: data.metaScopes || DEFAULT_META_SCOPES,
+    autoRefreshEnabled: data.autoRefreshEnabled !== false,
+    redirectUri: getRedirectUri(),
     lastStatus: data.lastStatus || null
   };
 }
@@ -44,15 +83,16 @@ async function postJson(serverUrl, path, body) {
 
 async function registerNode(payload) {
   const serverUrl = normalizeServerUrl(payload.serverUrl);
+  const nodeName = payload.nodeName || await detectChromeName();
   const data = await postJson(serverUrl, "/api/local-tokens/register", {
     code: payload.code,
-    node_name: payload.nodeName || "Chrome 本地 Token",
+    node_name: nodeName,
     browser: "Chrome",
     user_agent: navigator.userAgent
   });
   await chrome.storage.local.set({
     serverUrl,
-    nodeName: payload.nodeName || data.node_name || "Chrome 本地 Token",
+    nodeName: payload.nodeName || data.node_name || nodeName,
     nodeId: data.node_id,
     nodeSecret: data.node_secret,
     lastStatus: {
@@ -63,6 +103,72 @@ async function registerNode(payload) {
   });
   await ensureAlarm();
   return data;
+}
+
+function parseAuthResult(redirectedUrl) {
+  const url = new URL(redirectedUrl);
+  const hash = new URLSearchParams((url.hash || "").replace(/^#/, ""));
+  const query = url.searchParams;
+  const params = hash.has("access_token") || hash.has("error")
+    ? hash
+    : query;
+  const error = params.get("error") || params.get("error_message") || params.get("error_description");
+  if (error) throw new Error(error);
+  const accessToken = params.get("access_token");
+  if (!accessToken) throw new Error("授权完成但未返回 access_token，请检查 App 回调地址和权限配置");
+  const expiresIn = parseInt(params.get("expires_in") || "0", 10);
+  const tokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
+    ? new Date(Date.now() + expiresIn * 1000).toISOString()
+    : "";
+  return {
+    accessToken,
+    expiresInMinutes: expiresIn > 0 ? String(Math.max(1, Math.floor(expiresIn / 60))) : "",
+    tokenExpiresAt
+  };
+}
+
+async function authorizeMeta(interactive = true) {
+  const s = await getSettings();
+  if (!s.nodeId || !s.nodeSecret) {
+    throw new Error("请先用 Mira 绑定码绑定插件，再执行 Meta 授权");
+  }
+  if (!s.metaAppId) {
+    throw new Error("请先填写 Meta App ID");
+  }
+  const state = randomId("mira_state");
+  const redirectUri = getRedirectUri();
+  const authUrl = new URL("https://www.facebook.com/v22.0/dialog/oauth");
+  authUrl.searchParams.set("client_id", s.metaAppId);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("response_type", "token");
+  authUrl.searchParams.set("scope", s.metaScopes || DEFAULT_META_SCOPES);
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("auth_type", "rerequest");
+
+  const redirectedUrl = await chrome.identity.launchWebAuthFlow({
+    url: authUrl.toString(),
+    interactive
+  });
+  if (!redirectedUrl) throw new Error("授权窗口未返回结果");
+  const resultUrl = new URL(redirectedUrl);
+  const resultHash = new URLSearchParams((resultUrl.hash || "").replace(/^#/, ""));
+  const resultState = resultHash.get("state") || resultUrl.searchParams.get("state");
+  if (resultState && resultState !== state) {
+    throw new Error("授权 state 校验失败，请重新授权");
+  }
+  const token = parseAuthResult(redirectedUrl);
+  await chrome.storage.local.set({
+    accessToken: token.accessToken,
+    expiresInMinutes: token.expiresInMinutes,
+    tokenExpiresAt: token.tokenExpiresAt,
+    autoRefreshEnabled: s.autoRefreshEnabled !== false,
+    lastStatus: {
+      ok: true,
+      message: "Meta 授权成功，正在上报 Mira",
+      updatedAt: new Date().toLocaleString()
+    }
+  });
+  return heartbeat();
 }
 
 async function heartbeat() {
@@ -76,7 +182,7 @@ async function heartbeat() {
     access_token: s.accessToken || "",
     expires_at: s.tokenExpiresAt || "",
     expires_in_minutes: null,
-    node_name: s.nodeName || "Chrome 本地 Token",
+    node_name: s.nodeName || await detectChromeName(),
     browser: "Chrome",
     user_agent: navigator.userAgent
   });
@@ -90,6 +196,25 @@ async function heartbeat() {
   return status;
 }
 
+async function maybeAutoRefresh() {
+  const s = await getSettings();
+  if (!s.autoRefreshEnabled || !s.metaAppId || !s.accessToken || !s.tokenExpiresAt) return null;
+  const expiresAt = Date.parse(s.tokenExpiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt - Date.now() > REFRESH_SKEW_MS) return null;
+  try {
+    return await authorizeMeta(false);
+  } catch (err) {
+    await chrome.storage.local.set({
+      lastStatus: {
+        ok: false,
+        message: `Token 即将过期，自动续取失败：${err.message || err}`,
+        updatedAt: new Date().toLocaleString()
+      }
+    });
+    return null;
+  }
+}
+
 async function ensureAlarm() {
   await chrome.alarms.clear(HEARTBEAT_ALARM);
   await chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
@@ -101,7 +226,10 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== HEARTBEAT_ALARM) return;
-  heartbeat().catch(async (err) => {
+  (async () => {
+    await maybeAutoRefresh();
+    await heartbeat();
+  })().catch(async (err) => {
     await chrome.storage.local.set({
       lastStatus: {
         ok: false,
@@ -131,10 +259,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       await chrome.storage.local.set({
         serverUrl: normalizeServerUrl(message.serverUrl),
-        nodeName: message.nodeName || "Chrome 本地 Token",
+        nodeName: message.nodeName || await detectChromeName(),
         accessToken: nextToken,
         expiresInMinutes: nextMinutes,
-        tokenExpiresAt
+        tokenExpiresAt,
+        metaAppId: message.metaAppId || "",
+        metaScopes: message.metaScopes || DEFAULT_META_SCOPES,
+        autoRefreshEnabled: message.autoRefreshEnabled !== false
       });
       await ensureAlarm();
       sendResponse({ ok: true, data: await getSettings() });
@@ -142,6 +273,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (message.type === "register") {
       sendResponse({ ok: true, data: await registerNode(message) });
+      return;
+    }
+    if (message.type === "authorizeMeta") {
+      const settings = await getSettings();
+      await chrome.storage.local.set({
+        serverUrl: normalizeServerUrl(message.serverUrl || settings.serverUrl),
+        nodeName: message.nodeName || settings.nodeName,
+        metaAppId: message.metaAppId || settings.metaAppId,
+        metaScopes: message.metaScopes || settings.metaScopes || DEFAULT_META_SCOPES,
+        autoRefreshEnabled: message.autoRefreshEnabled !== false
+      });
+      sendResponse({ ok: true, data: await authorizeMeta(true) });
       return;
     }
     if (message.type === "heartbeat") {

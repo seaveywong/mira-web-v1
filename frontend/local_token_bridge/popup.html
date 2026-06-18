@@ -5,14 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mira 本地 Token</title>
   <style>
-    body{width:360px;margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f5f5f7;color:#1d1d1f}
+    body{width:390px;margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f5f5f7;color:#1d1d1f}
     h1{font-size:17px;margin:0 0 4px;font-weight:760}
+    h2{font-size:13px;margin:18px 0 8px;font-weight:760;color:#1d1d1f}
     p{font-size:12px;color:#6e6e73;margin:0 0 14px;line-height:1.55}
     label{display:block;font-size:12px;font-weight:700;margin:10px 0 6px;color:#333}
     input,textarea{width:100%;box-sizing:border-box;border:1px solid #d2d2d7;border-radius:10px;padding:10px 11px;font-size:13px;background:#fff;outline:none}
-    textarea{min-height:82px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    textarea{min-height:70px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    input[readonly]{background:#fbfbfd;color:#515154}
     input:focus,textarea:focus{border-color:#0071e3;box-shadow:0 0 0 3px rgba(0,113,227,.14)}
     .row{display:grid;grid-template-columns:1fr 110px;gap:10px;align-items:end}
+    .copy-row{display:grid;grid-template-columns:1fr 84px;gap:8px;align-items:center}
     .btns{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
     button{border:0;border-radius:999px;padding:9px 13px;font-weight:740;cursor:pointer;background:#e8e8ed;color:#1d1d1f}
     button.primary{background:#0071e3;color:white}
@@ -23,40 +26,71 @@
     .status.bad{border-color:#fecaca;background:#fef2f2;color:#991b1b}
     .hint{font-size:11px;color:#86868b;margin-top:5px;line-height:1.45}
     .pill{display:inline-flex;border-radius:999px;background:#e8f2ff;color:#005bb5;padding:3px 8px;font-size:11px;font-weight:700;margin-top:8px}
+    .section{border-top:1px solid #e5e5ea;margin-top:16px;padding-top:12px}
+    .check{display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-size:12px;color:#515154;line-height:1.45}
+    .check input{width:auto;margin-top:2px}
   </style>
 </head>
 <body>
   <h1>Mira 本地 Token</h1>
-  <p>插件只上报你明确填写的本地 Token。Mira 会优先用它执行铺广告任务，过期或离线后自动回退系统 Token。</p>
+  <p>用户显式绑定并授权后，插件会把可用的 Meta Token 上报给 Mira。铺广告优先使用在线本地 Token，过期、离线或权限不足时自动回退系统 Token。</p>
 
   <label for="serverUrl">Mira 地址</label>
-  <input id="serverUrl" placeholder="http://43.129.230.237:8000">
+  <input id="serverUrl" placeholder="https://shouhu.asia">
 
   <label for="nodeName">浏览器名称</label>
-  <input id="nodeName" placeholder="例如：A电脑 Chrome-01">
+  <input id="nodeName" placeholder="自动识别 Chrome 登录信息，也可以自定义">
 
   <label for="bindCode">绑定码</label>
-  <input id="bindCode" placeholder="在 Mira Token 管理页生成">
-  <div class="hint">绑定码 10 分钟内有效，只使用一次。</div>
+  <input id="bindCode" placeholder="在 Mira 的本地 Token 窗口生成">
+  <div class="hint">绑定码 10 分钟内有效，只能使用一次。未绑定的插件不会污染 Mira 后台。</div>
 
   <div class="btns">
     <button class="primary" id="registerBtn">绑定插件</button>
     <button id="saveBtn">保存配置</button>
   </div>
 
-  <label for="accessToken">本地 Access Token</label>
-  <textarea id="accessToken" placeholder="粘贴当前浏览器拿到的短期 Token"></textarea>
-
-  <div class="row">
-    <div>
-      <label for="expiresInMinutes">预计有效分钟</label>
-      <input id="expiresInMinutes" type="number" min="1" max="1440" placeholder="例如 10">
+  <div class="section">
+    <h2>Meta 授权自动上报</h2>
+    <label for="redirectUri">插件回调地址</label>
+    <div class="copy-row">
+      <input id="redirectUri" readonly>
+      <button id="copyRedirectBtn">复制</button>
     </div>
-    <div>
-      <button class="primary" id="heartbeatBtn" style="width:100%">立即上报</button>
+    <div class="hint">这个地址需要加入 Meta App 的有效 OAuth 跳转 URI。每台浏览器安装后的地址可能不同。</div>
+
+    <label for="metaAppId">Meta App ID</label>
+    <input id="metaAppId" placeholder="填写已审核或可用的 App ID">
+
+    <label for="metaScopes">授权范围</label>
+    <textarea id="metaScopes" placeholder="ads_management,ads_read,pages_show_list,pages_manage_ads,business_management"></textarea>
+
+    <label class="check">
+      <input id="autoRefreshEnabled" type="checkbox" checked>
+      <span>到期前自动尝试续取。若 Facebook 要求重新确认，插件会提示重新点一次授权。</span>
+    </label>
+
+    <div class="btns">
+      <button class="primary" id="authorizeBtn">授权并自动上报</button>
     </div>
   </div>
-  <div class="hint">如果不确定过期时间可以留空；Mira 会按实际 API 返回继续校验。</div>
+
+  <div class="section">
+    <h2>手动备用 Token</h2>
+    <label for="accessToken">Access Token</label>
+    <textarea id="accessToken" placeholder="只有在官方授权不可用时，才需要手动粘贴短期 Token"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="expiresInMinutes">预计有效分钟</label>
+        <input id="expiresInMinutes" type="number" min="1" max="1440" placeholder="例如 10">
+      </div>
+      <div>
+        <button class="primary" id="heartbeatBtn" style="width:100%">立即上报</button>
+      </div>
+    </div>
+    <div class="hint">不知道过期时间可以留空；Mira 会按实际 API 返回继续校验。</div>
+  </div>
 
   <div class="btns">
     <button id="clearTokenBtn" class="danger">清除本地 Token</button>

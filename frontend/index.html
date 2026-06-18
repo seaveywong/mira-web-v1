@@ -2321,8 +2321,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
        <div class="ph-acts token-actions">
         <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
-        <button class="btn btn-g role-hide-viewer" onclick="createLocalTokenRegistration()" title="生成 Chrome 插件绑定码，让本地浏览器 Token 优先参与铺广告">本地 Token</button>
-        <button class="btn btn-g role-hide-viewer" onclick="downloadLocalTokenExtension()" title="下载 Mira Chrome 本地 Token 插件">下载插件</button>
+        <button class="btn btn-g role-hide-viewer" onclick="createLocalTokenRegistration()" title="下载 Chrome 插件并生成一次性绑定码">本地 Token</button>
         <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入并自动关联</button>
         <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
         <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
@@ -7968,17 +7967,17 @@ function renderLocalTokenPanel(){
    '</div>'+
   '</div>';
  }).join('');
- el.innerHTML='<div style="margin:0 0 16px;padding:14px;border:1px solid var(--bd);border-radius:14px;background:linear-gradient(180deg,rgba(0,113,227,.06),rgba(255,255,255,.02))">'+
+  el.innerHTML='<div style="margin:0 0 16px;padding:14px;border:1px solid var(--bd);border-radius:14px;background:linear-gradient(180deg,rgba(0,113,227,.06),rgba(255,255,255,.02))">'+
   '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">'+
-   '<div><div style="font-size:15px;font-weight:800;color:var(--t1)">本地 Token 桥</div>'+
-    '<div style="font-size:12px;color:var(--t3);margin-top:3px">Chrome 插件在线后，铺广告会优先使用本地 Token；离线、过期或权限不足时自动回退系统 Token。</div></div>'+
+   '<div><div style="font-size:15px;font-weight:800;color:var(--t1)">本地 Token</div>'+
+    '<div style="font-size:12px;color:var(--t3);margin-top:3px">Chrome 插件绑定后归属当前团队/运营；铺广告会优先使用在线本地 Token，离线、过期或权限不足时自动回退系统 Token。</div></div>'+
    '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
     '<span class="badge" style="background:rgba(59,130,246,.10);color:#005bb5;border:1px solid rgba(59,130,246,.2)">在线 '+online+'/'+nodes.length+'</span>'+
     '<span class="badge" style="background:rgba(34,197,94,.10);color:#15803d;border:1px solid rgba(34,197,94,.2)">映射账户 '+mapped+'</span>'+
     '<button class="btn btn-g btn-sm role-hide-viewer" onclick="loadLocalTokenNodes()">刷新</button>'+
    '</div>'+
   '</div>'+
-  (nodes.length?'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">'+cards+'</div>':'<div style="margin-top:12px;padding:12px;border:1px dashed var(--bd);border-radius:12px;color:var(--t3);font-size:12px;background:var(--bg2)">还没有绑定 Chrome 插件。点击右上角「本地 Token」生成绑定码，再在插件里完成绑定。</div>')+
+  (nodes.length?'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">'+cards+'</div>':'<div style="margin-top:12px;padding:12px;border:1px dashed var(--bd);border-radius:12px;color:var(--t3);font-size:12px;background:var(--bg2)">还没有绑定 Chrome 插件。点击右上角「本地 Token」下载插件并生成绑定码。</div>')+
  '</div>';
 }
 async function loadLocalTokenNodes(){
@@ -7995,17 +7994,17 @@ async function createLocalTokenRegistration(){
  try{
   var r=await api('POST','/local-tokens/registration',{node_name:''});
   var code=r.code||'';
-  var origin=location.origin;
+  var origin=(location.hostname==='43.129.230.237'||/^\d+\.\d+\.\d+\.\d+$/.test(location.hostname))?'https://shouhu.asia':location.origin;
   var mo=document.createElement('div');
   mo.className='mo';
   mo.id='moLocalTokenBind';
   mo.innerHTML='<div class="modal" style="max-width:560px;width:92%">'+
-   '<div class="mh"><h3 style="margin:0;font-size:15px">绑定 Chrome 本地 Token</h3><button class="mc" onclick="closeModal(\'moLocalTokenBind\')">✕</button></div>'+
+   '<div class="mh"><h3 style="margin:0;font-size:15px">本地 Token</h3><button class="mc" onclick="closeModal(\'moLocalTokenBind\')">✕</button></div>'+
    '<div class="mb">'+
-    '<div class="info-box" style="margin-bottom:12px">绑定码只用于把当前 Chrome 插件登记到你的 Mira 账号，10 分钟内有效且只能使用一次。</div>'+
+    '<div class="info-box" style="margin-bottom:12px">先下载并安装 Chrome 插件，再用下面的一次性绑定码登记到当前 Mira 账号。绑定后插件归属当前团队/运营，避免未授权插件污染后台。</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn btn-p" onclick="downloadLocalTokenExtension()">下载 Chrome 插件</button><button class="btn btn-g" onclick="loadLocalTokenNodes()">刷新节点</button></div>'+
     '<div class="fg"><label class="fl">Mira 地址</label><div style="display:flex;gap:8px"><input class="fc" id="localTokenServerUrl" value="'+escHtml(origin)+'" readonly><button class="btn btn-g" onclick="copyLocalTokenText(\'localTokenServerUrl\',\'Mira 地址已复制\')">复制</button></div></div>'+
     '<div class="fg"><label class="fl">绑定码</label><div style="display:flex;gap:8px"><input class="fc" id="localTokenBindCode" value="'+escHtml(code)+'" readonly style="font-weight:800;letter-spacing:.8px"><button class="btn btn-p" onclick="copyLocalTokenText(\'localTokenBindCode\',\'绑定码已复制\')">复制</button></div><div class="fh">过期时间：'+escHtml(r.expires_at||'')+'（北京时间）</div></div>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g" onclick="downloadLocalTokenExtension()">下载 Chrome 插件</button><button class="btn btn-g" onclick="loadLocalTokenNodes()">刷新节点</button></div>'+
    '</div>'+
    '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moLocalTokenBind\')">关闭</button></div>'+
   '</div>';

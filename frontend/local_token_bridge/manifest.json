@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Mira Local Token Bridge",
-  "version": "1.0.0",
-  "description": "Send an explicitly provided local Meta access token to Mira for short-lived launch tasks.",
+  "name": "Mira 本地 Token",
+  "version": "1.1.0",
+  "description": "用户显式授权后，将本地 Meta Token 自动上报到 Mira，用于短时铺广告任务。",
   "action": {
     "default_title": "Mira 本地 Token",
     "default_popup": "popup.html"
@@ -12,11 +12,14 @@
   },
   "permissions": [
     "alarms",
+    "identity",
+    "identity.email",
     "storage"
   ],
   "host_permissions": [
     "http://*/*",
     "https://*/*",
-    "https://graph.facebook.com/*"
+    "https://graph.facebook.com/*",
+    "https://www.facebook.com/*"
   ]
 }
