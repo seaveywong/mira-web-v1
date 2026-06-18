@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Mira Local Token Bridge",
+  "version": "1.0.0",
+  "description": "Send an explicitly provided local Meta access token to Mira for short-lived launch tasks.",
+  "action": {
+    "default_title": "Mira 本地 Token",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*",
+    "https://graph.facebook.com/*"
+  ]
+}

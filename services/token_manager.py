@@ -538,6 +538,14 @@ def get_exec_token_candidates(
     返回当前账户可用的 Token 候选池，按“矩阵内全局轮询 + 冷却避让”排序。
     第一项会被视为本次优先使用的 Token，并立即占位，避免并发账户扎堆打到同一颗 Token。
     """
+    local_candidates = []
+    if action_type in (ACTION_CREATE, ACTION_UPDATE):
+        try:
+            from services.local_token_bridge import get_local_token_candidates_for_account
+            local_candidates = get_local_token_candidates_for_account(act_id, action_type)
+        except Exception as exc:
+            logger.warning(f"[TokenManager] local token bridge unavailable for {act_id}: {exc}")
+
     with _selection_lock:
         raw_candidates = _get_op_tokens(act_id)
         ordered_candidates = _sort_token_candidates_locked(raw_candidates)
@@ -561,6 +569,15 @@ def get_exec_token_candidates(
                 logger.warning(
                     f"[TokenManager] 账户 {act_id} 操作号 token_id={candidate['token_id']} 心跳失败，跳过"
                 )
+
+        if local_candidates and action_type not in (ACTION_PAUSE, ACTION_READ):
+            if reserve:
+                try:
+                    from services.local_token_bridge import mark_local_token_selected
+                    mark_local_token_selected(local_candidates[0].get("node_id"))
+                except Exception:
+                    pass
+            return local_candidates + alive_candidates
 
         if alive_candidates and action_type not in (ACTION_PAUSE, ACTION_READ):
             if reserve:
