@@ -469,6 +469,16 @@ def _bind_page_to_accounts(conn, act_ids: list[str], bind_target: str, url: str,
     return {"requested": clean_ids, "bound": bound, "skipped": skipped, "target": bind_target}
 
 
+def _effective_bind_target_for_link_kind(link_kind: str, bind_target: str) -> str:
+    kind = (link_kind or "landing").strip().lower()
+    target = (bind_target or "none").strip().lower()
+    if target not in {"landing", "form", "both", "none"}:
+        return "none"
+    if kind == "form" and target in {"landing", "both"}:
+        return "form"
+    return target
+
+
 def _public_token(row) -> dict:
     accounts = _public_accounts(row["cf_accounts_json"] if "cf_accounts_json" in row.keys() else "[]")
     return {
@@ -495,7 +505,7 @@ def _domain_status_usable(domain_status: Any, last_error: Optional[str]) -> bool
     if err and "custom domain" in err:
         return False
     if not domain_status:
-        return not err
+        return False
     if isinstance(domain_status, dict):
         raw_values = [
             domain_status.get("status"),
@@ -771,13 +781,17 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
     item["domain_status"] = status
     binding = None
     if item.get("custom_domain_usable") and item.get("public_url"):
+        original_bind_target = item.get("bind_target") or "none"
+        safe_bind_target = _effective_bind_target_for_link_kind(item.get("link_kind"), original_bind_target)
         binding = _bind_page_to_accounts(
             conn,
             item.get("bound_act_ids") or [],
-            item.get("bind_target") or "none",
+            safe_bind_target,
             item.get("public_url"),
             user,
         )
+        if binding and safe_bind_target != original_bind_target:
+            binding["target_adjusted_from"] = original_bind_target
         if binding and binding.get("bound"):
             conn.commit()
     item["usage"] = _landing_page_usage(conn, item, user)
@@ -1170,7 +1184,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
                 json.dumps(urls, ensure_ascii=False),
                 body.rotation_mode,
                 json.dumps(_clean_act_ids(body.bind_act_ids), ensure_ascii=False),
-                body.bind_target,
+                bind_target,
                 1 if body.tracking_enabled else 0,
                 1 if body.protection_enabled else 0,
                 json.dumps(protection_rules, ensure_ascii=False),
@@ -1229,7 +1243,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
                     )
             except CloudflareError as exc:
                 domain_error = f"Custom domain binding failed: {exc}"
-        binding = _bind_page_to_accounts(conn, body.bind_act_ids, body.bind_target, public_url, user)
+        binding = _bind_page_to_accounts(conn, body.bind_act_ids, bind_target, public_url, user)
         response_payload = dict(response)
         if domain_result is not None:
             response_payload["custom_domain_result"] = domain_result
@@ -1293,7 +1307,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
                     json.dumps(urls, ensure_ascii=False),
                     body.rotation_mode,
                     json.dumps(_clean_act_ids(body.bind_act_ids), ensure_ascii=False),
-                    body.bind_target,
+                    bind_target,
                     1 if body.tracking_enabled else 0,
                     1 if body.protection_enabled else 0,
                     json.dumps(protection_rules, ensure_ascii=False),
