@@ -2426,6 +2426,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
         <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取的管理号 Token，并补齐同团队 / 同负责人可用 Token 关联">智能导入并关联</button>
         <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
+       <button class="btn btn-g btn-sm" onclick="openMatrixDiagnostic()" title="检查账户、Token、素材等矩阵标签为什么显示未识别">矩阵诊断</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">补齐 Token 关联</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
        <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
@@ -7432,7 +7433,7 @@ function renderMetaOAuthModal(cfg){
   '<div class="meta-oauth-grid">'+
    '<div class="fg"><label class="fl">Token 别名</label><input class="fc" id="metaTokenAlias" placeholder="如：vv 官方授权 / BM5 授权"></div>'+
    '<div class="fg"><label class="fl">授权用途</label><select class="fc" id="metaTokenType"><option value="operate">操作号：铺广告/预热/预算/关停</option><option value="manage">管理号：读取/导入/兜底</option><option value="user">个人号：仅兼容保留</option></select></div>'+
-   '<div class="fg"><label class="fl">归属矩阵（可选）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh">仅操作号使用。用于同矩阵轮换/兜底，不填也会自动匹配已导入账户。</div></div>'+
+   '<div class="fg"><label class="fl">归属矩阵（操作号建议填写）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh">操作号用于铺广告、预算和关闭广告。选择矩阵后，同矩阵账户、素材、主页库会自动显示矩阵标签；留空会继续显示未识别矩阵。</div></div>'+
   '</div>'+
   '<label class="meta-oauth-check"><input type="checkbox" id="metaForceReauth" checked><span>每次强制重新确认权限，避免账号没有勾选 ads_management 却被误判可用。</span></label>'+
   '<div class="meta-oauth-note">这是 Meta 标准 OAuth / Business Login，不是绕过 API。App 开发模式下仍需要手动把个号加入开发者/测试用户；正式稳定使用需要 App Live 和权限审核。</div>'+
@@ -7532,6 +7533,10 @@ async function startMetaOAuthConnect(){
    var matrixId=resolveMatrixId('metaTokenMatrix','metaTokenMatrixCustom');
    if(matrixId)payload.matrix_id=matrixId;
   }catch(e){toast(e.message,'er');return;}
+  if(!payload.matrix_id){
+   var go=confirm('当前授权用途是操作号，但没有选择归属矩阵。授权仍可使用，但账户、素材和主页库无法从这个 Token 推导矩阵标签。确定继续？');
+   if(!go)return;
+  }
  }
  try{
   toast('正在生成 Meta 授权链接...','ac');
@@ -8332,8 +8337,14 @@ async function doImport(){
   toast(msg,failedCount>0?'wa':'ok');
   if(importAutoMode&&autoMatch&&Array.isArray(autoMatch.accounts)){
    var detailRows=autoMatch.accounts.map(function(a){
-    var tokens=(a.matched_tokens||[]).map(function(t){return escHtml((t.alias||('Token '+t.token_id))+' · '+(t.token_type||'token'));}).join('、');
-    return '<div style="padding:8px 0;border-bottom:1px solid var(--bd)"><b>'+escHtml(a.act_id||'')+'</b><div style="color:var(--t3);margin-top:3px">'+(a.matched_count?('已关联 '+a.matched_count+' 个 Token：'+tokens):'未发现可关联 Token')+'</div></div>';
+    var tokens=(a.matched_tokens||[]).map(function(t){
+     var matrix=t.matrix_id?('矩阵'+t.matrix_id):'未分配矩阵';
+     return escHtml((t.alias||('Token '+t.token_id))+' · '+(t.token_type||'token')+' · '+matrix);
+    }).join('、');
+    var matrixHint=(a.matched_tokens||[]).some(function(t){return !!t.matrix_id;})
+     ?'<div style="color:var(--ok);font-size:11px;margin-top:3px">已可推导矩阵标签</div>'
+     :'<div style="color:var(--wa);font-size:11px;margin-top:3px">关联成功但没有矩阵 Token，账户仍会显示未识别矩阵</div>';
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--bd)"><b>'+escHtml(a.act_id||'')+'</b><div style="color:var(--t3);margin-top:3px">'+(a.matched_count?('已关联 '+a.matched_count+' 个 Token：'+tokens):'未发现可关联 Token')+'</div>'+(a.matched_count?matrixHint:'')+'</div>';
    }).join('');
    var failedTokens=(autoMatch.failed_tokens||[]).slice(0,6).map(function(t){
     return '<li>'+escHtml(t.alias||('Token '+t.token_id))+': '+escHtml(t.error||'检查失败')+'</li>';
@@ -14496,6 +14507,68 @@ function filterAccs(){
    return renderAccCard(a,idx>=0?idx:0);
   }).join('');
  data.forEach(function(a){loadOpPoolStatus(a.act_id);});
+}
+
+async function openMatrixDiagnostic(){
+ toast('正在诊断矩阵归属...','ac');
+ try{
+  var r=await api('GET','/accounts/matrix-diagnostic');
+  var s=r.summary||{};
+  function card(label,val,sub,tone){
+   var color=tone==='ok'?'var(--ok)':tone==='wa'?'var(--wa)':tone==='er'?'var(--er)':'var(--ac)';
+   return '<div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:12px;min-width:120px;flex:1">'+
+    '<div style="font-size:11px;color:var(--t3)">'+escHtml(label)+'</div>'+
+    '<div style="font-size:22px;font-weight:850;color:'+color+';margin-top:4px">'+escHtml(String(val==null?'--':val))+'</div>'+
+    (sub?'<div style="font-size:11px;color:var(--t3);margin-top:4px">'+escHtml(sub)+'</div>':'')+
+   '</div>';
+  }
+  var suggestions=(r.suggestions||[]).map(function(x){return '<li>'+escHtml(x)+'</li>';}).join('');
+  var tokens=(r.matrix_tokens||[]).slice(0,12).map(function(t){
+   var status=t.status==='active'?'<span class="badge bg-ok">active</span>':'<span class="badge bg-er">'+escHtml(t.status||'unknown')+'</span>';
+   var source=t.token_source==='oauth_user'?'Meta OAuth':(t.token_source==='system_user'?'System User':(t.token_source||'source'));
+   return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:8px 0;font-size:12px">'+
+    '<div style="min-width:0"><b>'+escHtml(t.token_alias||('Token '+t.id))+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(source)+' · '+escHtml(t.token_type||'token')+' · '+escHtml(t.owner_name||'未指定负责人')+'</div></div>'+
+    '<div style="white-space:nowrap;text-align:right"><span class="badge bg-ac">矩阵'+escHtml(String(t.matrix_id||''))+'</span> '+status+'</div>'+
+   '</div>';
+  }).join('');
+  var unassigned=(r.unassigned_accounts||[]).slice(0,20).map(function(a){
+   return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:8px 0;font-size:12px">'+
+    '<div style="min-width:0"><b>'+escHtml(a.name||a.act_id||'未命名账户')+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(a.act_id||'')+' · '+escHtml(a.owner_name||'未指定负责人')+'</div></div>'+
+    '<div style="color:var(--wa);white-space:nowrap">'+escHtml(a.reason||'未识别矩阵')+'</div>'+
+   '</div>';
+  }).join('');
+  var html='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">'+
+   card('账户总数',s.accounts_total,'当前权限范围','')+
+   card('已识别矩阵',s.accounts_with_matrix,'账户可显示矩阵','ok')+
+   card('未识别矩阵',s.accounts_without_matrix,'需要补 Token 关系','wa')+
+   card('矩阵操作号',s.active_matrix_operate_tokens,'active 且可写','ok')+
+  '</div>'+
+  '<div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:12px;margin-bottom:12px">'+
+   '<div style="font-weight:850;margin-bottom:6px">修复建议</div>'+
+   '<ul style="margin:0 0 0 18px;color:var(--t2);line-height:1.7">'+(suggestions||'<li>暂无建议</li>')+'</ul>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+    '<button class="btn btn-p btn-sm" onclick="closeTopInfoModal();openMetaOAuthModal()">Meta 官方授权</button>'+
+    '<button class="btn btn-g btn-sm" onclick="closeTopInfoModal();showPage(&quot;tokens&quot;)">去 Token 页分配矩阵</button>'+
+    '<button class="btn btn-g btn-sm" onclick="closeTopInfoModal();var s=document.getElementById(&quot;accMatrixFilter&quot;);if(s){s.value=&quot;unassigned&quot;;accUiState.matrix=&quot;unassigned&quot;;filterAccs();}">只看未识别账户</button>'+
+    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="closeTopInfoModal();openSmartImportAccounts()">智能导入并关联</button>'+
+   '</div>'+
+  '</div>'+
+  '<details open style="margin-bottom:12px"><summary style="cursor:pointer;font-weight:850">矩阵 Token</summary><div style="margin-top:8px">'+(tokens||'<div style="font-size:12px;color:var(--t3)">当前没有带矩阵的 Token。</div>')+'</div></details>'+
+  '<details '+((s.accounts_without_matrix||0)>0?'open':'')+'><summary style="cursor:pointer;font-weight:850">未识别账户样例</summary><div style="margin-top:8px">'+(unassigned||'<div style="font-size:12px;color:var(--t3)">没有未识别账户。</div>')+'</div></details>'+
+  '<div style="font-size:11px;color:var(--t3);margin-top:10px">说明：矩阵标签由账户主 Token 或已绑定操作号的 matrix_id 推导。只给素材、主页或账户手动写名字，不会产生矩阵标签。</div>';
+  showInfo(html,'矩阵归属诊断');
+ }catch(e){
+  toast('矩阵诊断失败：'+(e.message||e),'er');
+ }
+}
+
+function closeTopInfoModal(){
+ var nodes=Array.prototype.slice.call(document.querySelectorAll('.mo[id^="moInfo_"].show'));
+ var top=nodes[nodes.length-1];
+ if(!top)return;
+ var id=top.id;
+ closeModal(id);
+ setTimeout(function(){var el=document.getElementById(id);if(el)el.remove();},300);
 }
 
 // ── Date Selectors Init ──

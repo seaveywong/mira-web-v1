@@ -957,6 +957,7 @@ def _auto_link_tokens_for_accounts(
                     "alias": result.get("alias"),
                     "token_type": token_type,
                     "token_source": result.get("token_source"),
+                    "matrix_id": result.get("matrix_id"),
                 })
         for act_id, hits in account_hits.items():
             if hits:
@@ -5758,6 +5759,160 @@ def get_matrices(current_user=Depends(get_current_user)):
         matrix_ids.update(r["matrix_id"] for r in page_rows if r["matrix_id"] is not None)
     conn.close()
     return {"matrices": sorted(matrix_ids)}
+
+
+@router.get("/matrix-diagnostic")
+def matrix_diagnostic(current_user=Depends(get_current_user)):
+    """诊断当前可见账户的矩阵归属覆盖情况。"""
+    conn = get_conn()
+    ensure_token_source_columns(conn)
+    account_where, account_params = ["1=1"], []
+    apply_team_scope(account_where, account_params, current_user, "a.team_id", include_unassigned=False)
+    _apply_account_owner_scope(account_where, account_params, current_user, "a")
+    account_scope_sql = " AND ".join(account_where)
+
+    accounts = [
+        dict(r)
+        for r in conn.execute(
+            f"""
+            SELECT a.id, a.act_id, a.name, a.token_id, a.team_id, a.owner_user_id,
+                   COALESCE(NULLIF(u.display_name,''), u.username) AS owner_name,
+                   pt.token_alias AS primary_token_alias,
+                   pt.status AS primary_token_status,
+                   pt.token_type AS primary_token_type,
+                   pt.token_source AS primary_token_source,
+                   pt.matrix_id AS primary_matrix_id
+              FROM accounts a
+              LEFT JOIN users u ON u.id=a.owner_user_id
+              LEFT JOIN fb_tokens pt ON pt.id=a.token_id
+             WHERE {account_scope_sql}
+             ORDER BY a.id DESC
+            """,
+            account_params,
+        ).fetchall()
+    ]
+    act_ids = [str(a.get("act_id") or "").strip() for a in accounts if str(a.get("act_id") or "").strip()]
+    linked_by_act: dict[str, list[dict]] = {act: [] for act in act_ids}
+    if act_ids:
+        placeholders = ",".join("?" for _ in act_ids)
+        for row in conn.execute(
+            f"""
+            SELECT aot.act_id, aot.status AS bind_status, aot.priority,
+                   t.id AS token_id, t.token_alias, t.token_type, t.token_source,
+                   t.status AS token_status, t.matrix_id
+              FROM account_op_tokens aot
+              JOIN fb_tokens t ON t.id=aot.token_id
+             WHERE aot.act_id IN ({placeholders})
+             ORDER BY aot.act_id ASC, aot.priority DESC, t.id ASC
+            """,
+            act_ids,
+        ).fetchall():
+            item = dict(row)
+            linked_by_act.setdefault(item["act_id"], []).append(item)
+
+    token_where, token_params = ["1=1"], []
+    apply_team_scope(token_where, token_params, current_user, "t.team_id", include_unassigned=False)
+    from core.tenancy import apply_account_owner_scope as _apply_token_owner
+    _apply_token_owner(token_where, token_params, current_user, "t.owner_user_id")
+    token_scope_sql = " AND ".join(token_where)
+    matrix_tokens = []
+    for row in conn.execute(
+        f"""
+        SELECT t.id, t.token_alias, t.token_type, t.token_source, t.status,
+               t.matrix_id, t.team_id, t.owner_user_id,
+               COALESCE(NULLIF(u.display_name,''), u.username) AS owner_name
+          FROM fb_tokens t
+          LEFT JOIN users u ON u.id=t.owner_user_id
+         WHERE {token_scope_sql}
+           AND t.matrix_id IS NOT NULL
+         ORDER BY t.matrix_id ASC, t.status ASC, t.id DESC
+        """,
+        token_params,
+    ).fetchall():
+        matrix_tokens.append(dict(row))
+
+    unassigned = []
+    assigned = []
+    no_operate = 0
+    operate_without_matrix = 0
+    for acc in accounts:
+        matrix_ids = set()
+        if acc.get("primary_matrix_id") not in (None, "", 0):
+            try:
+                matrix_ids.add(int(acc["primary_matrix_id"]))
+            except (TypeError, ValueError):
+                pass
+        linked = linked_by_act.get(acc.get("act_id") or "", [])
+        active_operate = []
+        for token in linked:
+            if token.get("bind_status") == "active" and token.get("token_type") == "operate":
+                active_operate.append(token)
+            if token.get("bind_status") == "active" and token.get("matrix_id") not in (None, "", 0):
+                try:
+                    matrix_ids.add(int(token["matrix_id"]))
+                except (TypeError, ValueError):
+                    pass
+        if not active_operate:
+            no_operate += 1
+        elif not any(t.get("matrix_id") not in (None, "", 0) for t in active_operate):
+            operate_without_matrix += 1
+        public = {
+            "id": acc.get("id"),
+            "act_id": acc.get("act_id"),
+            "name": acc.get("name"),
+            "owner_name": acc.get("owner_name"),
+            "team_id": acc.get("team_id"),
+            "primary_token_alias": acc.get("primary_token_alias"),
+            "primary_token_status": acc.get("primary_token_status"),
+            "linked_matrix_ids": sorted(matrix_ids),
+            "active_operate_count": len(active_operate),
+            "operate_token_count": len([t for t in linked if t.get("token_type") == "operate"]),
+            "linked_token_count": len(linked),
+        }
+        if matrix_ids:
+            assigned.append(public)
+        else:
+            reason = "没有绑定带矩阵的有效操作号"
+            if not linked and not acc.get("primary_token_alias"):
+                reason = "没有主 Token 或操作号绑定"
+            elif not active_operate:
+                reason = "没有 active 操作号绑定"
+            elif active_operate:
+                reason = "操作号已绑定，但没有设置矩阵"
+            public["reason"] = reason
+            unassigned.append(public)
+
+    active_matrix_operate = [
+        t for t in matrix_tokens
+        if t.get("status") == "active" and t.get("token_type") == "operate"
+    ]
+    inactive_matrix_tokens = [t for t in matrix_tokens if t.get("status") != "active"]
+    suggestions = []
+    if unassigned and not active_matrix_operate:
+        suggestions.append("当前没有 active 的带矩阵操作号。请先在 Token 页把 System User / Meta 官方授权操作号分配到矩阵，或重新走 Meta 官方授权并选择矩阵。")
+    if operate_without_matrix:
+        suggestions.append("有账户已经绑定操作号，但操作号未设置矩阵。去 Token 页点击“矩阵”即可补齐，之后账户、素材、主页库会自动显示矩阵标签。")
+    if no_operate:
+        suggestions.append("有账户没有 active 操作号绑定。可在账户页点击“智能导入并关联”，或在 Token 页重新匹配 Token。")
+    if not suggestions:
+        suggestions.append("矩阵归属覆盖正常；若某个页面仍显示未识别，请刷新页面或检查该资源是否绑定到账户。")
+
+    conn.close()
+    return {
+        "success": True,
+        "summary": {
+            "accounts_total": len(accounts),
+            "accounts_with_matrix": len(assigned),
+            "accounts_without_matrix": len(unassigned),
+            "active_matrix_operate_tokens": len(active_matrix_operate),
+            "inactive_matrix_tokens": len(inactive_matrix_tokens),
+            "accounts_without_active_operate": no_operate,
+            "accounts_with_operate_without_matrix": operate_without_matrix,
+        },
+        "matrix_tokens": matrix_tokens[:60],
+        "unassigned_accounts": unassigned[:80],
+        "suggestions": suggestions,
+    }
 
 
 # ── 消费上限设置 ──────────────────────────────────────────────────────────────
