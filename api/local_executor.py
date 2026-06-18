@@ -10,6 +10,7 @@ from services.local_executor import (
     create_api_task,
     list_tasks,
     poll_task,
+    poll_tasks,
     update_task_from_node,
 )
 
@@ -32,16 +33,20 @@ class UpdateStatusTaskRequest(BaseModel):
 
 class PollRequest(BaseModel):
     node_id: str
-    node_secret: str
+    node_secret: Optional[str] = ""
+    capacity: Optional[int] = 1
+    running_task_ids: Optional[list] = None
 
 
 class TaskUpdateRequest(BaseModel):
     node_id: str
-    node_secret: str
+    node_secret: Optional[str] = ""
     status: str
     progress: Optional[str] = ""
     result: Optional[dict] = None
+    data: Optional[dict] = None
     error: Optional[str] = ""
+    duration_ms: Optional[int] = None
     screenshot_data_url: Optional[str] = ""
 
 
@@ -86,26 +91,47 @@ def create_open_account_disabled():
 @router.post("/poll")
 def poll(body: PollRequest):
     try:
-        return {"success": True, **poll_task(body.node_id, body.node_secret)}
+        if int(body.capacity or 1) > 1:
+            return {"success": True, **poll_tasks(
+                body.node_id,
+                body.node_secret or "",
+                capacity=int(body.capacity or 1),
+                running_task_ids=body.running_task_ids or [],
+            )}
+        return {"success": True, **poll_task(body.node_id, body.node_secret or "")}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/tasks/poll")
+def poll_task_batch(body: PollRequest):
+    return poll(body)
+
+
 @router.post("/tasks/{task_id}/update")
 def update_task(task_id: str, body: TaskUpdateRequest):
     try:
+        result = body.result if body.result is not None else {"data": body.data or {}}
+        if body.duration_ms is not None and isinstance(result, dict):
+            result = dict(result)
+            result.setdefault("duration_ms", body.duration_ms)
         task = update_task_from_node(
             task_id=task_id,
             node_id=body.node_id,
-            node_secret=body.node_secret,
+            node_secret=body.node_secret or "",
             status=body.status,
             progress=body.progress or "",
-            result=body.result or {},
+            result=result or {},
             error=body.error or "",
             screenshot_data_url="",
         )
         return {"success": True, "task": task}
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.post("/tasks/{task_id}/result")
+def complete_task(task_id: str, body: TaskUpdateRequest):
+    return update_task(task_id, body)

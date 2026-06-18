@@ -8002,6 +8002,9 @@ function renderLocalTokenPanel(){
   var isOpen=!!(localTokenUiState.open&&localTokenUiState.open[nodeId]);
   var accs=(n.accounts&&n.accounts.length?n.accounts:(n.account_ids||[]).map(function(id){return {act_id:id,name:id};}));
   var accPreview=accs.slice(0,2).map(function(a){return escHtml(_localTokenAccountLabel(a));}).join('；');
+  var q=n.queue||{};
+  var queueText=(parseInt(q.running||0,10)||0)+' / '+(parseInt(q.waiting||0,10)||0);
+  var capText=(n.capabilities&&n.capabilities.length)?n.capabilities.slice(0,4).join(' / '):'--';
    var accRows=accs.slice(0,80).map(function(a){
     return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 170px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
      '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((a&&a.name)||'--')+'</div>'+
@@ -8016,15 +8019,16 @@ function renderLocalTokenPanel(){
      '<div style="font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(n.browser||'Chrome')+' · '+escHtml(n.username||'--')+' · '+escHtml(n.team_name||'--')+'</div></div>'+
     '<span class="badge" style="'+_localTokenStatusStyle(status)+';justify-self:start">'+_localTokenStatusLabel(status)+'</span>'+
      '<div><div style="font-size:11px;color:var(--t3)">账户</div><div style="font-weight:800;color:var(--t1)">'+(n.account_count||0)+'</div></div>'+
-     '<div><div style="font-size:11px;color:var(--t3)">剩余</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap">'+escHtml(_localTokenExpireText(n.expires_in_seconds))+'</div></div>'+
+     '<div><div style="font-size:11px;color:var(--t3)">队列</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap">'+escHtml(queueText)+'</div></div>'+
     '<div style="min-width:0"><div style="font-size:11px;color:var(--t3)">账户预览</div><div style="font-size:12px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(accPreview||'--')+(n.account_count>2?' 等':'')+'</div></div>'+
     '<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();removeLocalTokenNode(\''+escHtml(nodeId)+'\')">移除</button>'+
    '</div>'+
    (isOpen?'<div style="padding:0 12px 12px 56px">'+
-    '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:2px 0 10px">'+
+    '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:2px 0 10px">'+
      '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">Meta 用户</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(n.fb_user_name||'--')+'</div></div>'+
      '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">最近心跳</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+escHtml(_fmtActionLogTime(n.last_seen_at||''))+'</div></div>'+
       '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">接管状态</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+(n.executable?'可用于写操作':(n.has_runtime_token?'等待账户匹配':'未接管操作'))+'</div></div>'+
+      '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">版本 / 能力</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((n.extension_version||'--')+' · '+capText)+'</div></div>'+
      '</div>'+
     (accRows?'<div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:0 10px;max-height:260px;overflow:auto">'+accRows+'</div>':'<div style="font-size:12px;color:var(--t3);padding:10px;border:1px dashed var(--bd);border-radius:10px;background:var(--bg2)">这个浏览器暂时没有匹配到当前身份可见的账户。</div>')+
     (n.last_error&&status!=='no_token'?'<div style="font-size:11px;color:var(--wa);margin-top:8px;line-height:1.5">'+escHtml(n.last_error)+'</div>':'')+
@@ -8034,7 +8038,7 @@ function renderLocalTokenPanel(){
    el.innerHTML='<div class="token-zone local-executor-zone">'+
    '<div class="token-zone-head">'+
      '<div><div class="token-zone-title">本地执行器</div>'+
-      '<div class="token-zone-sub">Chrome 首次用一次性激活码绑定，之后凭节点密钥长期心跳。Mira 只下发任务和接收结果，不保存本地 Token；在线且摘要匹配的执行器会优先参与预算和关停。</div></div>'+
+      '<div class="token-zone-sub">Chrome 首次用一次性激活码绑定，之后凭节点密钥长期心跳。Mira 只下发任务和接收结果，不保存本地凭证；在线且摘要匹配的执行器会优先参与预算和关停。</div></div>'+
     '<div class="token-zone-actions">'+
      '<button class="btn btn-p btn-sm role-hide-viewer" onclick="createLocalTokenRegistration()">绑定新 Chrome</button>'+
      '<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLocalExecutorTaskModal()">API自检账户</button>'+

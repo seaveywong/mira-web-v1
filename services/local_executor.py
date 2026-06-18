@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import time
 import uuid
@@ -55,7 +56,14 @@ def ensure_local_executor_tables(conn=None) -> None:
                 created_by_name TEXT,
                 account_id TEXT,
                 params_json TEXT DEFAULT '{}',
+                body_json TEXT DEFAULT '{}',
                 result_json TEXT DEFAULT '{}',
+                idempotency_key TEXT DEFAULT '',
+                operation TEXT DEFAULT '',
+                method TEXT DEFAULT '',
+                path TEXT DEFAULT '',
+                timeout_sec INTEGER DEFAULT 60,
+                attempts INTEGER DEFAULT 0,
                 progress TEXT DEFAULT '',
                 error TEXT DEFAULT '',
                 screenshot_data_url TEXT DEFAULT '',
@@ -66,8 +74,23 @@ def ensure_local_executor_tables(conn=None) -> None:
             )
             """
         )
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(local_executor_tasks)").fetchall()}
+        extra_cols = {
+            "body_json": "TEXT DEFAULT '{}'",
+            "idempotency_key": "TEXT DEFAULT ''",
+            "operation": "TEXT DEFAULT ''",
+            "method": "TEXT DEFAULT ''",
+            "path": "TEXT DEFAULT ''",
+            "timeout_sec": "INTEGER DEFAULT 60",
+            "attempts": "INTEGER DEFAULT 0",
+        }
+        for col, ddl in extra_cols.items():
+            if col not in cols:
+                conn.execute(f"ALTER TABLE local_executor_tasks ADD COLUMN {col} {ddl}")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_local_executor_status ON local_executor_tasks(status, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_local_executor_node ON local_executor_tasks(node_id, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_local_executor_account ON local_executor_tasks(account_id, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_local_executor_idem ON local_executor_tasks(idempotency_key)")
         conn.commit()
     finally:
         if own:
@@ -85,16 +108,90 @@ def _row_to_task(row) -> dict:
     if not row:
         return {}
     item = dict(row)
-    for key in ("params_json", "result_json"):
+    for key in ("params_json", "body_json", "result_json"):
         raw = item.pop(key, "") or "{}"
         try:
             item[key.replace("_json", "")] = json.loads(raw)
         except Exception:
             item[key.replace("_json", "")] = {}
+    item["task_id"] = item.get("id")
+    item["operation"] = item.get("operation") or item.get("task_type")
+    item["method"] = (item.get("method") or _default_method_for_task(item.get("task_type"))).upper()
+    params = item.get("params") if isinstance(item.get("params"), dict) else {}
+    item["path"] = item.get("path") or params.get("path") or _default_path_for_task(item.get("task_type"), item.get("account_id"), params)
+    if not isinstance(item.get("body"), dict):
+        item["body"] = {}
+    if not item["body"] and isinstance(params, dict):
+        item["body"] = params.get("body") or params.get("data") or {}
+    item["timeout_sec"] = int(item.get("timeout_sec") or 60)
     item["has_screenshot"] = bool(item.get("screenshot_data_url"))
     if item.get("screenshot_data_url"):
         item["screenshot_data_url"] = ""
     return item
+
+
+def _default_method_for_task(task_type: str) -> str:
+    return {
+        "graph_get": "GET",
+        "graph_post": "POST",
+        "graph_delete": "DELETE",
+        "graph_update_status": "POST",
+        "graph_account_probe": "GET",
+    }.get(str(task_type or ""), "POST")
+
+
+def _default_path_for_task(task_type: str, act_id: str, params: dict) -> str:
+    task_type = str(task_type or "")
+    if task_type == "graph_account_probe":
+        return "/" + _normalize_act_id(params.get("act_id") or act_id).lstrip("/")
+    if task_type == "graph_update_status":
+        return "/" + str(params.get("object_id") or "").strip().lstrip("/")
+    raw = str((params or {}).get("path") or "").strip()
+    if not raw:
+        return ""
+    return raw if raw.startswith("/") else "/" + raw
+
+
+def _task_transport(task_type: str, act_id: str, params: Optional[dict]) -> dict:
+    params = dict(params or {})
+    task_type = str(task_type or "").strip()
+    method = _default_method_for_task(task_type)
+    path = _default_path_for_task(task_type, act_id, params)
+    body = {}
+    query_params = {}
+    if task_type == "graph_get":
+        query_params = dict(params.get("params") or {})
+    elif task_type == "graph_post":
+        body = dict(params.get("body") or params.get("data") or {})
+        query_params = dict(params.get("params") or {})
+    elif task_type == "graph_delete":
+        body = dict(params.get("body") or params.get("data") or {})
+        query_params = dict(params.get("params") or {})
+    elif task_type == "graph_update_status":
+        body = {"status": str(params.get("status") or "PAUSED").upper()}
+        query_params = {}
+    elif task_type == "graph_account_probe":
+        query_params = {"fields": params.get("fields") or "id,name,account_status,currency,timezone_name,amount_spent,spend_cap,balance"}
+    timeout_sec = int(params.pop("_timeout_sec", 60) or 60)
+    idem = str(params.pop("_idempotency_key", "") or "").strip()
+    if not idem and params.get("_dedupe"):
+        raw = json.dumps({"t": task_type, "a": _normalize_act_id(act_id), "m": method, "p": path, "q": query_params, "b": body}, sort_keys=True, ensure_ascii=False)
+        idem = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    params["path"] = path.lstrip("/") if path.startswith("/") else path
+    if query_params:
+        params["params"] = query_params
+    if body:
+        params["data"] = body
+    return {
+        "operation": task_type,
+        "method": method,
+        "path": path,
+        "params": params,
+        "query_params": query_params,
+        "body": body,
+        "timeout_sec": max(5, min(timeout_sec, 180)),
+        "idempotency_key": idem,
+    }
 
 
 def _scope_where_for_user(user: dict, alias: str = "") -> tuple[list[str], list]:
@@ -196,12 +293,14 @@ def create_local_graph_task(
         task_id = uuid.uuid4().hex
         now = _now_cst()
         progress = params.pop("_progress", "") or "等待本地执行器执行 Graph API 任务"
+        transport = _task_transport(task_type, scoped_act_id or act_id, params)
         conn.execute(
             """
             INSERT INTO local_executor_tasks (
                 id, task_type, status, node_id, team_id, owner_user_id, created_by,
-                created_by_name, account_id, params_json, progress, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                created_by_name, account_id, params_json, body_json, idempotency_key,
+                operation, method, path, timeout_sec, progress, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 task_id,
@@ -213,7 +312,13 @@ def create_local_graph_task(
                 None,
                 created_by_name or "system",
                 scoped_act_id,
-                json.dumps(params, ensure_ascii=False),
+                json.dumps(transport["params"], ensure_ascii=False),
+                json.dumps(transport["body"], ensure_ascii=False),
+                transport["idempotency_key"],
+                transport["operation"],
+                transport["method"],
+                transport["path"],
+                transport["timeout_sec"],
                 progress,
                 now,
                 now,
@@ -324,12 +429,14 @@ def create_api_task(
 
         task_id = uuid.uuid4().hex
         now = _now_cst()
+        transport = _task_transport(task_type, scoped_act_id, params)
         conn.execute(
             """
             INSERT INTO local_executor_tasks (
                 id, task_type, status, node_id, team_id, owner_user_id, created_by,
-                created_by_name, account_id, params_json, progress, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                created_by_name, account_id, params_json, body_json, idempotency_key,
+                operation, method, path, timeout_sec, progress, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 task_id,
@@ -341,7 +448,13 @@ def create_api_task(
                 user.get("uid"),
                 user.get("username") or "",
                 scoped_act_id,
-                json.dumps(params, ensure_ascii=False),
+                json.dumps(transport["params"], ensure_ascii=False),
+                json.dumps(transport["body"], ensure_ascii=False),
+                transport["idempotency_key"],
+                transport["operation"],
+                transport["method"],
+                transport["path"],
+                transport["timeout_sec"],
                 progress,
                 now,
                 now,
@@ -354,62 +467,88 @@ def create_api_task(
         conn.close()
 
 
-def poll_task(node_id: str, node_secret: str) -> dict:
+def poll_tasks(node_id: str, node_secret: str, capacity: int = 1, running_task_ids: Optional[list] = None) -> dict:
     node = authenticate_node(node_id, node_secret)
     ensure_local_executor_tables()
+    capacity = max(1, min(int(capacity or 1), 5))
+    running_task_ids = [str(x) for x in (running_task_ids or []) if str(x or "").strip()]
     conn = get_conn()
     try:
-        running_for_node = conn.execute(
+        running_for_node_rows = conn.execute(
             """
-            SELECT id FROM local_executor_tasks
+            SELECT id, account_id FROM local_executor_tasks
             WHERE status='running' AND node_id=?
-            LIMIT 1
             """,
             (node_id,),
-        ).fetchone()
-        if running_for_node:
-            return {"task": None, "server_time": _now_cst(), "reason": "node_busy"}
+        ).fetchall()
+        current_running = [dict(r) for r in running_for_node_rows]
+        if len(current_running) >= capacity:
+            return {
+                "task": None,
+                "tasks": [],
+                "server_time": _now_cst(),
+                "reason": "node_busy",
+                "queue": {"running": len(current_running), "waiting": 0},
+            }
         rows = conn.execute(
             """
             SELECT * FROM local_executor_tasks
             WHERE status='queued'
             ORDER BY created_at ASC
-            LIMIT 20
+            LIMIT 50
             """
         ).fetchall()
-        picked = None
+        picked = []
+        busy_accounts = {r.get("account_id") for r in current_running if r.get("account_id")}
         for row in rows:
+            if len(picked) >= (capacity - len(current_running)):
+                break
             if row["account_id"]:
-                running_for_account = conn.execute(
-                    """
-                    SELECT id FROM local_executor_tasks
-                    WHERE status='running' AND account_id=?
-                    LIMIT 1
-                    """,
-                    (row["account_id"],),
-                ).fetchone()
-                if running_for_account:
+                if row["account_id"] in busy_accounts:
                     continue
             if _node_can_take_task(node, row):
-                picked = row
-                break
+                picked.append(row)
+                if row["account_id"]:
+                    busy_accounts.add(row["account_id"])
         if not picked:
-            return {"task": None, "server_time": _now_cst()}
+            waiting_count = conn.execute("SELECT COUNT(*) AS c FROM local_executor_tasks WHERE status='queued'").fetchone()["c"]
+            return {
+                "task": None,
+                "tasks": [],
+                "server_time": _now_cst(),
+                "queue": {"running": len(current_running), "waiting": int(waiting_count or 0)},
+            }
         now = _now_cst()
-        conn.execute(
-            """
-            UPDATE local_executor_tasks
-            SET status='running', node_id=?, started_at=COALESCE(started_at, ?),
-                updated_at=?, progress=?
-            WHERE id=? AND status='queued'
-            """,
-            (node_id, now, now, "本地 API 执行器已领取任务", picked["id"]),
-        )
+        for row in picked:
+            conn.execute(
+                """
+                UPDATE local_executor_tasks
+                SET status='running', node_id=?, started_at=COALESCE(started_at, ?),
+                    updated_at=?, progress=?, attempts=COALESCE(attempts,0)+1
+                WHERE id=? AND status='queued'
+                """,
+                (node_id, now, now, "本地 API 执行器已领取任务", row["id"]),
+            )
         conn.commit()
-        row = conn.execute("SELECT * FROM local_executor_tasks WHERE id=?", (picked["id"],)).fetchone()
-        return {"task": _row_to_task(row), "server_time": _now_cst()}
+        task_rows = conn.execute(
+            f"SELECT * FROM local_executor_tasks WHERE id IN ({','.join('?' for _ in picked)}) ORDER BY started_at ASC",
+            [r["id"] for r in picked],
+        ).fetchall()
+        tasks = [_row_to_task(row) for row in task_rows]
+        waiting_count = conn.execute("SELECT COUNT(*) AS c FROM local_executor_tasks WHERE status='queued'").fetchone()["c"]
+        return {
+            "task": tasks[0] if tasks else None,
+            "tasks": tasks,
+            "server_time": _now_cst(),
+            "queue": {"running": len(current_running) + len(tasks), "waiting": int(waiting_count or 0)},
+        }
     finally:
         conn.close()
+
+
+def poll_task(node_id: str, node_secret: str) -> dict:
+    data = poll_tasks(node_id, node_secret, capacity=1)
+    return {"task": data.get("task"), "server_time": data.get("server_time"), "reason": data.get("reason"), "queue": data.get("queue")}
 
 
 def update_task_from_node(

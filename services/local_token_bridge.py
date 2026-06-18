@@ -368,7 +368,15 @@ def create_registration(user: dict, node_name: str = "") -> dict:
         }
 
 
-def register_node(code: str, node_name: str, browser: str = "", user_agent: str = "") -> dict:
+def register_node(
+    code: str,
+    node_name: str,
+    browser: str = "",
+    user_agent: str = "",
+    install_id: str = "",
+    extension_version: str = "",
+    capabilities: Optional[list] = None,
+) -> dict:
     code = str(code or "").strip().upper()
     with _lock:
         _load_persisted_nodes_locked()
@@ -386,6 +394,9 @@ def register_node(code: str, node_name: str, browser: str = "", user_agent: str 
             "node_name": name,
             "browser": browser or "Chrome",
             "user_agent": user_agent or "",
+            "install_id": str(install_id or "").strip(),
+            "extension_version": str(extension_version or "").strip(),
+            "capabilities": list(capabilities or []),
             "user_id": meta.get("user_id"),
             "username": meta.get("username"),
             "role": meta.get("role"),
@@ -415,6 +426,8 @@ def register_node(code: str, node_name: str, browser: str = "", user_agent: str 
             "cooldown_until_ts": 0,
             "cooldown_reason": "",
             "last_error_code": None,
+            "reported_accounts": [],
+            "queue": {"running": 0, "waiting": 0},
         }
         _save_persisted_nodes_locked()
         return {
@@ -435,6 +448,12 @@ def heartbeat_node(
     node_name: str = "",
     browser: str = "",
     user_agent: str = "",
+    install_id: str = "",
+    extension_version: str = "",
+    capabilities: Optional[list] = None,
+    runtime_status: str = "",
+    reported_accounts: Optional[list] = None,
+    queue: Optional[dict] = None,
 ) -> dict:
     # Local executors must keep credentials local.  The server stores only a
     # summary reported by the extension and dispatches structured tasks back to
@@ -454,6 +473,12 @@ def heartbeat_node(
             node["browser"] = browser
         if user_agent:
             node["user_agent"] = user_agent
+        if install_id:
+            node["install_id"] = str(install_id or "").strip()
+        if extension_version:
+            node["extension_version"] = str(extension_version or "").strip()
+        if capabilities is not None:
+            node["capabilities"] = list(capabilities or [])
         node["last_seen_ts"] = now
         node["last_seen_at"] = _now_cst()
         node["token_plain"] = ""
@@ -480,12 +505,36 @@ def heartbeat_node(
                 for item in (token_summary.get("account_ids") or [])
                 if _normalize_act_id(item)
             }
+            normalized_reported_accounts = []
+            for item in (reported_accounts or token_summary.get("accounts") or []):
+                if not isinstance(item, dict):
+                    continue
+                act_id = _normalize_act_id(item.get("act_id") or item.get("account_id") or item.get("id"))
+                if not act_id:
+                    continue
+                normalized_reported_accounts.append({
+                    "act_id": act_id,
+                    "name": str(item.get("name") or item.get("account_name") or act_id),
+                    "currency": str(item.get("currency") or ""),
+                    "timezone": str(item.get("timezone") or item.get("timezone_name") or ""),
+                    "write_status": str(item.get("write_status") or item.get("status") or ""),
+                })
+                raw_account_ids.add(act_id)
             visible_ids = {
                 _normalize_act_id(item.get("act_id"))
                 for item in _visible_accounts_for_node(node)
                 if _normalize_act_id(item.get("act_id"))
             }
             node["account_ids"] = sorted(raw_account_ids.intersection(visible_ids))[:MAX_ACCOUNT_PROBE]
+            node["reported_accounts"] = [
+                item for item in normalized_reported_accounts
+                if item.get("act_id") in set(node["account_ids"])
+            ][:MAX_ACCOUNT_PROBE]
+            if queue is not None:
+                node["queue"] = {
+                    "running": int((queue or {}).get("running") or 0),
+                    "waiting": int((queue or {}).get("waiting") or 0),
+                }
             node["has_ads_management"] = bool(token_summary.get("has_ads_management"))
             node["has_ads_read"] = bool(token_summary.get("has_ads_read"))
             node["verified_at_ts"] = _now_ts()
@@ -494,6 +543,8 @@ def heartbeat_node(
             node["local_runtime_ready"] = bool(
                 present and node["has_ads_management"] and node["account_ids"]
             )
+            if runtime_status:
+                node["runtime_status"] = str(runtime_status or "")
             if present and node["last_error"]:
                 node["status"] = "token_error"
             elif present and node["has_ads_management"]:
@@ -543,6 +594,21 @@ def node_public_view(node_id: str) -> dict:
         raise KeyError("node not found")
     account_ids = list(node.get("account_ids") or [])[:80]
     account_summaries = _account_summaries_for_ids(account_ids)
+    reported_by_id = {
+        item.get("act_id"): item
+        for item in (node.get("reported_accounts") or [])
+        if isinstance(item, dict) and item.get("act_id")
+    }
+    for item in account_summaries:
+        reported = reported_by_id.get(item.get("act_id")) or {}
+        if reported.get("name") and (not item.get("name") or item.get("name") == item.get("act_id")):
+            item["name"] = reported.get("name")
+        if reported.get("currency"):
+            item["currency"] = reported.get("currency")
+        if reported.get("timezone"):
+            item["timezone"] = reported.get("timezone")
+        if reported.get("write_status"):
+            item["write_status"] = reported.get("write_status")
     now = _now_ts()
     last_seen = float(node.get("last_seen_ts") or 0)
     online = bool(last_seen and now - last_seen <= NODE_STALE_SECONDS)
@@ -569,7 +635,11 @@ def node_public_view(node_id: str) -> dict:
         "node_id": node.get("node_id"),
         "node_name": node.get("node_name"),
         "browser": node.get("browser"),
+        "install_id": node.get("install_id") or "",
+        "extension_version": node.get("extension_version") or "",
+        "capabilities": node.get("capabilities") or [],
         "username": node.get("username"),
+        "operator_id": node.get("user_id"),
         "team_id": node.get("team_id"),
         "team_name": node.get("team_name"),
         "status": status,
@@ -598,6 +668,8 @@ def node_public_view(node_id: str) -> dict:
         "has_ads_read": bool(node.get("has_ads_read")),
         "permissions": node.get("permissions") or {"granted": [], "declined": []},
         "last_error": node.get("last_error") or "",
+        "queue": node.get("queue") or {"running": 0, "waiting": 0},
+        "runtime_status": node.get("runtime_status") or "",
         "source": "local_token",
     }
 

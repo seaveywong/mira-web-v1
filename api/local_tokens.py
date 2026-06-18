@@ -29,15 +29,20 @@ class RegistrationRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    code: str
+    code: Optional[str] = ""
+    bind_code: Optional[str] = ""
+    install_id: Optional[str] = ""
     node_name: Optional[str] = ""
     browser: Optional[str] = "Chrome"
     user_agent: Optional[str] = ""
+    extension_version: Optional[str] = ""
+    capabilities: Optional[list] = None
 
 
 class HeartbeatRequest(BaseModel):
     node_id: str
     node_secret: str
+    install_id: Optional[str] = ""
     access_token: Optional[str] = ""
     expires_at: Optional[str] = ""
     expires_in_minutes: Optional[int] = None
@@ -45,6 +50,13 @@ class HeartbeatRequest(BaseModel):
     node_name: Optional[str] = ""
     browser: Optional[str] = "Chrome"
     user_agent: Optional[str] = ""
+    extension_version: Optional[str] = ""
+    capabilities: Optional[list] = None
+    status: Optional[str] = ""
+    fb_user: Optional[dict] = None
+    accounts: Optional[list] = None
+    queue: Optional[dict] = None
+    last_error: Optional[str] = ""
 
 
 def _require_operator(user):
@@ -136,28 +148,80 @@ def create_registration_code(body: RegistrationRequest, user=Depends(get_current
 def register_local_node(body: RegisterRequest):
     try:
         return {"success": True, **register_node(
-            code=body.code,
+            code=body.bind_code or body.code,
             node_name=body.node_name or "",
             browser=body.browser or "Chrome",
             user_agent=body.user_agent or "",
+            install_id=body.install_id or "",
+            extension_version=body.extension_version or "",
+            capabilities=body.capabilities or [],
         )}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/bind")
+def bind_local_node(body: RegisterRequest):
+    return register_local_node(body)
+
+
 @router.post("/heartbeat")
 def receive_heartbeat(body: HeartbeatRequest):
     try:
+        token_summary = dict(body.token_summary or {})
+        if body.accounts is not None or body.fb_user is not None or body.capabilities is not None or body.last_error:
+            accounts = body.accounts or []
+            account_ids = []
+            writable_count = 0
+            for item in accounts:
+                if not isinstance(item, dict):
+                    continue
+                act_id = item.get("act_id") or item.get("account_id") or item.get("id")
+                if act_id:
+                    account_ids.append(act_id)
+                write_status = str(item.get("write_status") or item.get("status") or "").lower()
+                if write_status in {"", "writable", "active", "ok", "可写"}:
+                    writable_count += 1
+            caps = set(body.capabilities or token_summary.get("capabilities") or [])
+            fb_user = body.fb_user or {}
+            token_summary.update({
+                "present": bool(token_summary.get("present") or accounts or body.status == "online"),
+                "fb_user_id": token_summary.get("fb_user_id") or fb_user.get("id") or "",
+                "fb_user_name": token_summary.get("fb_user_name") or fb_user.get("name") or "",
+                "account_ids": token_summary.get("account_ids") or account_ids,
+                "accounts": accounts,
+                "has_ads_management": bool(
+                    token_summary.get("has_ads_management")
+                    or "ad_write" in caps
+                    or "graph_post" in caps
+                    or writable_count > 0
+                ),
+                "has_ads_read": bool(
+                    token_summary.get("has_ads_read")
+                    or "account_probe" in caps
+                    or "graph_get" in caps
+                    or accounts
+                ),
+                "permissions": token_summary.get("permissions") or {"granted": sorted(caps), "declined": []},
+                "last_error": token_summary.get("last_error") or body.last_error or "",
+                "capabilities": sorted(caps),
+            })
         node = heartbeat_node(
             node_id=body.node_id,
             node_secret=body.node_secret,
             access_token=body.access_token or "",
             expires_at=body.expires_at or "",
             expires_in_minutes=body.expires_in_minutes,
-            token_summary=body.token_summary or {},
+            token_summary=token_summary,
             node_name=body.node_name or "",
             browser=body.browser or "Chrome",
             user_agent=body.user_agent or "",
+            install_id=body.install_id or "",
+            extension_version=body.extension_version or "",
+            capabilities=body.capabilities or token_summary.get("capabilities") or [],
+            runtime_status=body.status or "",
+            reported_accounts=body.accounts or token_summary.get("accounts") or [],
+            queue=body.queue or {},
         )
         return {"success": True, "node": node}
     except PermissionError as exc:
