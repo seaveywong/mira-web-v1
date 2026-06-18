@@ -2316,7 +2316,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <div><h2>Token 管理</h2><p>Facebook API Token（AES-128 加密存储，前端不展示明文）</p></div>
        <div class="ph-acts token-actions">
         <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
-        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联">智能导入并关联</button>
+        <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入账户（自动匹配 Token）</button>
         <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">补齐 Token 关联</button>
         <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
        </div>
@@ -2416,7 +2416,7 @@ select.fc option{background:#fff;color:#1d1d1f}
     <!-- Accounts -->
     <div class="page" id="page-accounts">
      <div class="ph">
-      <div><h2>广告账户</h2><p>已导入的账户白名单（点击账户可展开详情）</p></div>
+      <div><h2>广告账户</h2><p>账户资产与 Token 关联状态（点击账户可展开详情）</p></div>
       <div class="ph-acts">
        <input class="fc" type="text" id="accSearch" placeholder="搜索账户名称/ID..." oninput="filterAccs()" style="width:220px">
        <select class="fc" id="accMatrixFilter" onchange="filterAccs()" style="width:150px">
@@ -2424,7 +2424,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        </select>
        <input class="fc" type="date" id="accSpendDate" title="选择要复制有消耗账户ID的日期" style="width:145px">
        <button class="btn btn-g btn-sm" onclick="copySpentAccountIdsForDate()" title="复制指定日期有消耗的账户ID；本地无快照时自动拉 API">复制有消耗ID</button>
-        <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取的管理号 Token，并补齐同团队 / 同负责人可用 Token 关联">智能导入并关联</button>
+        <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取 Token，并补齐同团队 / 同负责人可用读写 Token 关联">导入账户（自动匹配 Token）</button>
         <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
        <button class="btn btn-g btn-sm" onclick="openMatrixDiagnostic()" title="检查账户、Token、素材等矩阵标签为什么显示未识别">矩阵诊断</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">补齐 Token 关联</button>
@@ -2899,7 +2899,7 @@ select.fc option{background:#fff;color:#1d1d1f}
    <div class="info-box" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
     <div style="min-width:260px;flex:1">
      <b>Token 自动关联</b><br>
-     首选用这里导入账户。系统会自动寻找可读取的 Token，并扫描同团队 / 同负责人可用 Token，把能管理该账户的 Token 一次性关联起来；无需再点到单个 Token 里手动匹配。
+     首选用这里导入账户。输入账户 ID 后，系统会先寻找可读取 Token 拉取账户信息，再扫描同团队 / 同负责人可用 Token，把能读、能写、能关停的 Token 一次性关联起来；无需再点到单个 Token 里手动匹配。
     </div>
     <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队 / 同负责人可用 Token 并补齐关联">补齐已导入账户关联</button>
    </div>
@@ -2920,7 +2920,7 @@ select.fc option{background:#fff;color:#1d1d1f}
    </div>
    <!-- 直接输入模式 -->
    <div id="importPanelDirect" style="display:none">
-    <div class="info-box" style="margin-bottom:12px">直接输入广告账户 ID，每行一个，或用逗号/空格分隔。<br>支持带 <code>act_</code>前缀或纯数字格式，系统会自动补全。
+    <div class="info-box" style="margin-bottom:12px">直接输入广告账户 ID，每行一个，或用逗号/空格分隔。<br>支持带 <code>act_</code> 前缀或纯数字格式；自动导入模式会同时匹配可用 Token。
     </div>
     <textarea id="directActIds" class="fc" rows="8"
      placeholder="示例：&#10;act_1234567890&#10;9876543210&#10;act_1111111111, act_2222222222"
@@ -8250,28 +8250,28 @@ function parseDirectIds(){
   infoEl.style.color='var(--ac)';
   btnEl.disabled=false;
   cntEl.textContent='\u5171 '+ids.length+' \u4e2a';
-  btnEl.textContent='\u5bfc\u5165 '+ids.length+' \u4e2a\u8d26\u6237';
+  btnEl.textContent=importAutoMode?('导入并匹配 '+ids.length+' 个账户'):('\u5bfc\u5165 '+ids.length+' \u4e2a\u8d26\u6237');
  } else {
   infoEl.textContent='\u8f93\u5165\u8d26\u6237 ID \u540e\u81ea\u52a8\u89e3\u6790';
   infoEl.style.color='var(--t3)';
   btnEl.disabled=true;
   cntEl.textContent='\u5df2\u9009 0 \u4e2a';
-  btnEl.textContent=importAutoMode?'智能导入并关联':'\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
+  btnEl.textContent=importAutoMode?'导入并匹配账户':'\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
  }
  return ids;
 }
 function openSmartImportAccounts(){
  importAutoMode=true;importTkId=null;selAccs.clear();_allFetchedAccs=[];
- var title=document.getElementById('importTitle');if(title)title.textContent='智能导入账户（自动识别并关联 Token）';
+  var title=document.getElementById('importTitle');if(title)title.textContent='导入账户（自动匹配 Token）';
  var fbTab=document.getElementById('importTabFb');if(fbTab)fbTab.style.display='none';
  var directTab=document.getElementById('importTabDirect');if(directTab){directTab.style.display='inline-block';directTab.textContent='直接输入 ID';}
  var input=document.getElementById('directActIds');if(input)input.value='';
- var info=document.getElementById('directParseInfo');if(info){info.textContent='输入账户 ID 后，系统会自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联';info.style.color='var(--t3)';}
+ var info=document.getElementById('directParseInfo');if(info){info.textContent='输入账户 ID 后，系统会自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联';info.style.color='var(--t3)';}
  openModal('moImport');
  switchImportTab('direct');
  parseDirectIds();
  var hint=document.getElementById('directParseInfo');
- if(hint){hint.textContent='输入账户 ID 后，系统会自动寻找可读取的管理号 Token，并补齐同团队/同负责人可用 Token 关联';hint.style.color='var(--t3)';}
+ if(hint){hint.textContent='输入账户 ID 后，系统会自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联';hint.style.color='var(--t3)';}
 }
 async function fetchAccs(tkId){
  importAutoMode=false;importTkId=tkId;selAccs.clear();_allFetchedAccs=[];
@@ -8356,7 +8356,7 @@ async function doImport(){
   }
   closeModal('moImport');loadAccounts();loadAccsPage();
  }catch(e){toast('导入失败：'+e.message,'er')}
- btn.disabled=false;btn.textContent=importAutoMode?'智能导入并关联':'导入选中账户';
+ btn.disabled=false;btn.textContent=importAutoMode?'导入并匹配账户':'导入选中账户';
 }
 
 // ── Accounts Page ──
@@ -14550,7 +14550,7 @@ async function openMatrixDiagnostic(){
     '<button class="btn btn-p btn-sm" onclick="closeTopInfoModal();openMetaOAuthModal()">Meta 官方授权</button>'+
     '<button class="btn btn-g btn-sm" onclick="closeTopInfoModal();showPage(&quot;tokens&quot;)">去 Token 页分配矩阵</button>'+
     '<button class="btn btn-g btn-sm" onclick="closeTopInfoModal();var s=document.getElementById(&quot;accMatrixFilter&quot;);if(s){s.value=&quot;unassigned&quot;;accUiState.matrix=&quot;unassigned&quot;;filterAccs();}">只看未识别账户</button>'+
-    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="closeTopInfoModal();openSmartImportAccounts()">智能导入并关联</button>'+
+    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="closeTopInfoModal();openSmartImportAccounts()">导入账户（自动匹配 Token）</button>'+
    '</div>'+
   '</div>'+
   '<details open style="margin-bottom:12px"><summary style="cursor:pointer;font-weight:850">矩阵 Token</summary><div style="margin-top:8px">'+(tokens||'<div style="font-size:12px;color:var(--t3)">当前没有带矩阵的 Token。</div>')+'</div></details>'+
@@ -15890,14 +15890,22 @@ function onLandingKindChanged(){
  var bindHint=document.getElementById('lpBindHint');
  var targetLabel=document.getElementById('lpTargetsLabel');
  var targets=document.getElementById('lpTargets');
+ function setBindOptionDisabled(values, disabled){
+  if(!bind)return;
+  Array.prototype.slice.call(bind.options||[]).forEach(function(opt){
+   if(values.indexOf(opt.value)>=0)opt.disabled=!!disabled;
+  });
+ }
  if(kind==='form'){
   if(formFlag){formFlag.checked=true;formFlag.disabled=true;formFlag.dataset.autoForm='1';}
-  if(bind&&(bind.value==='landing'||bind.value==='none'))bind.value='form';
+  setBindOptionDisabled(['landing','both'],true);
+  if(bind&&(bind.value==='landing'||bind.value==='both'||bind.value==='none'))bind.value='form';
   if(kindHint)kindHint.textContent='表单投放链接访问首页即由 Worker 302 跳转，适合 Lead Form / WhatsApp 聊单；发布包为轻量直跳页，不展示落地页正文。';
-  if(bindHint)bindHint.textContent='表单链接建议绑定到账户表单链接；铺 Lead Form / 聊单时优先读取这里。';
+  if(bindHint)bindHint.textContent='表单直跳链接只允许写入账户表单链接字段，避免覆盖普通落地页链接。';
   if(targetLabel)targetLabel.textContent='直跳轮询链接';
   if(targets)targets.placeholder='每行一个 WhatsApp / 表单提交后回跳链接；访问发布链接时由服务端按策略选择目标';
 }else{
+  setBindOptionDisabled(['landing','both'],false);
   if(formFlag){formFlag.disabled=false;if(formFlag.dataset.autoForm==='1'){formFlag.checked=false;formFlag.dataset.autoForm='';}}
   if(kindHint)kindHint.textContent='普通落地页会展示模板正文，按钮点击后由 Worker 按轮询策略跳转。';
   if(bindHint)bindHint.textContent='普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。';

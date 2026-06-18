@@ -1021,6 +1021,11 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
             checks.append({"key": "bind_target", "status": "warn", "label": "绑定位置", "detail": "当前是表单链接模式，建议绑定到账户表单链接，避免铺 Lead Form 时取不到链接"})
     else:
         checks.append({"key": "link_kind", "status": "pass", "label": "普通落地页", "detail": "访问时展示模板，按钮点击后按轮询策略跳转"})
+    if link_kind == "form":
+        if bind_target in {"landing", "both"}:
+            checks.append({"key": "bind_target_guard", "status": "fail", "label": "绑定位置", "detail": "表单直跳链接只能绑定到账户表单链接，不能写入落地页字段，避免普通落地页投放误用直跳链接"})
+        elif bind_target == "form":
+            checks.append({"key": "bind_target_guard", "status": "pass", "label": "绑定位置", "detail": "将写入账户表单链接字段，Lead Form / 聊单投放会优先读取这里"})
     rotation_mode = (body.rotation_mode or "sequential").strip().lower()
     if rotation_mode == "sequential":
         checks.append({"key": "rotation", "status": "pass", "label": "轮询方式", "detail": "服务端全局游标轮询；所有访客共享同一顺序，不依赖单个浏览器缓存。"})
@@ -1114,6 +1119,12 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
     link_kind = (body.link_kind or "landing").strip().lower()
     if link_kind not in ("landing", "form"):
         raise HTTPException(status_code=400, detail="link_kind must be landing or form")
+    bind_target = (body.bind_target or "none").strip().lower()
+    if link_kind == "form" and bind_target in {"landing", "both"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Form redirect links can only bind to account form_link or no account field; do not write them to landing_url",
+        )
     try:
         custom_domain = normalize_custom_domain(body.custom_domain)
     except ValueError as exc:
