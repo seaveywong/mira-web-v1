@@ -16053,8 +16053,16 @@ function onLandingKindChanged(){
  }
  updateLandingRotationHint();
 }
+function normalizeLandingBindTargetForKind(kind, target){
+ kind=String(kind||'landing').toLowerCase();
+ target=String(target||'none').toLowerCase();
+ if(['none','landing','form','both'].indexOf(target)<0)return 'none';
+ if(kind==='form'&&(target==='landing'||target==='both'))return 'form';
+ return target;
+}
 function _landingPublishPayload(){
  var kind=(document.getElementById('lpKind')||{}).value||'landing';
+ var bindTarget=normalizeLandingBindTargetForKind(kind,(document.getElementById('lpBindTarget')||{}).value||'none');
  return {
   token_id:parseInt((document.getElementById('lpToken')||{}).value||'0',10)||0,
   template_id:parseInt((document.getElementById('lpTemplate')||{}).value||'1',10)||1,
@@ -16067,7 +16075,7 @@ function _landingPublishPayload(){
   link_kind:kind,
   form_link_enabled:kind==='form'||!!((document.getElementById('lpFormEnabled')||{}).checked),
   bind_act_ids:_landingBindActIds(),
-  bind_target:(document.getElementById('lpBindTarget')||{}).value||'none',
+  bind_target:bindTarget,
   tracking_enabled:!!((document.getElementById('lpTrackingEnabled')||{}).checked),
   protection_enabled:!!((document.getElementById('lpProtectionEnabled')||{}).checked),
   protection_rules:_landingProtectionRules()
@@ -16305,11 +16313,11 @@ function filterLandingUrlSuggestions(q) {
  }
  // 用 data 属性存 URL，避免引号嵌套
  dd.innerHTML = opts.map(function(o, idx) {
-  var safeUrl = o.url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  var safeUrl = escHtml(o.url || '');
   var accName = o.label.split(' → ')[0];
   return '<div class="lu-opt" data-url="' + safeUrl + '" style="padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--bd)">' +
-   '<div style="color:var(--t1)">' + o.url + '</div>' +
-   '<div style="color:var(--t3);font-size:11px;margin-top:2px">' + accName + '</div>' +
+   '<div style="color:var(--t1)">' + escHtml(o.url || '') + '</div>' +
+   '<div style="color:var(--t3);font-size:11px;margin-top:2px">' + escHtml(accName) + '</div>' +
    '</div>';
  }).join('');
  // 绑定点击事件
