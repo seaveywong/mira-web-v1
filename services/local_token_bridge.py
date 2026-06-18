@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import secrets
 import threading
 import time
@@ -24,6 +26,51 @@ MAX_ACCOUNT_PROBE = 250
 _lock = threading.RLock()
 _registration_codes: dict[str, dict] = {}
 _nodes: dict[str, dict] = {}
+_nodes_loaded = False
+_NODE_STORE_PATH = os.environ.get("MIRA_LOCAL_TOKEN_NODES_FILE", "/opt/mira/data/local_token_nodes.json")
+
+
+def _persistable_node(node: dict) -> dict:
+    safe = dict(node or {})
+    safe["token_plain"] = ""
+    safe["token_fp"] = ""
+    return safe
+
+
+def _load_persisted_nodes_locked() -> None:
+    global _nodes_loaded
+    if _nodes_loaded:
+        return
+    _nodes_loaded = True
+    try:
+        if not os.path.exists(_NODE_STORE_PATH):
+            return
+        with open(_NODE_STORE_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        raw_nodes = data.get("nodes") if isinstance(data, dict) else data
+        if not isinstance(raw_nodes, dict):
+            return
+        for node_id, node in raw_nodes.items():
+            if not isinstance(node, dict):
+                continue
+            restored = dict(node)
+            restored["token_plain"] = ""
+            restored["token_fp"] = ""
+            _nodes[str(node_id)] = restored
+    except Exception:
+        return
+
+
+def _save_persisted_nodes_locked() -> None:
+    try:
+        os.makedirs(os.path.dirname(_NODE_STORE_PATH), exist_ok=True)
+        tmp_path = _NODE_STORE_PATH + ".tmp"
+        data = {"nodes": {node_id: _persistable_node(node) for node_id, node in _nodes.items()}}
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, _NODE_STORE_PATH)
+    except Exception:
+        return
 
 
 def _now_ts() -> float:
@@ -62,10 +109,6 @@ def _clean_expired() -> None:
     for code, meta in list(_registration_codes.items()):
         if float(meta.get("expires_at_ts") or 0) <= now:
             _registration_codes.pop(code, None)
-    for node_id, node in list(_nodes.items()):
-        last_seen = float(node.get("last_seen_ts") or 0)
-        if last_seen and now - last_seen > 24 * 3600:
-            _nodes.pop(node_id, None)
 
 
 def _token_fp(token: str) -> str:
@@ -156,6 +199,41 @@ def _account_allowed_for_node(act_id: str, node: dict) -> bool:
         if role == "operator" and row["owner_user_id"] != node.get("user_id"):
             return False
         return True
+    finally:
+        conn.close()
+
+
+def _account_summaries_for_ids(account_ids: list[str]) -> list[dict]:
+    normalized = []
+    seen = set()
+    for item in account_ids or []:
+        act_id = _normalize_act_id(item)
+        if act_id and act_id not in seen:
+            seen.add(act_id)
+            normalized.append(act_id)
+    if not normalized:
+        return []
+    conn = get_conn()
+    try:
+        placeholders = ",".join("?" for _ in normalized)
+        rows = conn.execute(
+            f"""
+            SELECT act_id, name, team_id, owner_user_id
+            FROM accounts
+            WHERE act_id IN ({placeholders})
+            """,
+            normalized,
+        ).fetchall()
+        by_id = {row["act_id"]: dict(row) for row in rows}
+        return [
+            {
+                "act_id": act_id,
+                "name": (by_id.get(act_id) or {}).get("name") or act_id,
+                "team_id": (by_id.get(act_id) or {}).get("team_id"),
+                "owner_user_id": (by_id.get(act_id) or {}).get("owner_user_id"),
+            }
+            for act_id in normalized
+        ]
     finally:
         conn.close()
 
@@ -268,6 +346,7 @@ def create_registration(user: dict, node_name: str = "") -> dict:
     if ROLE_LEVELS.get(user.get("role", "viewer"), 0) < ROLE_LEVELS["operator"]:
         raise PermissionError("Operator permission required")
     with _lock:
+        _load_persisted_nodes_locked()
         _clean_expired()
         code = "MLT-" + secrets.token_urlsafe(10).replace("-", "").replace("_", "")[:12].upper()
         expires_at_ts = _now_ts() + REGISTRATION_TTL_SECONDS
@@ -291,6 +370,7 @@ def create_registration(user: dict, node_name: str = "") -> dict:
 def register_node(code: str, node_name: str, browser: str = "", user_agent: str = "") -> dict:
     code = str(code or "").strip().upper()
     with _lock:
+        _load_persisted_nodes_locked()
         _clean_expired()
         meta = _registration_codes.pop(code, None)
         if not meta:
@@ -331,6 +411,7 @@ def register_node(code: str, node_name: str, browser: str = "", user_agent: str 
             "verified_at": "",
             "last_selected_at_ts": 0,
         }
+        _save_persisted_nodes_locked()
         return {
             "node_id": node_id,
             "node_secret": node_secret,
@@ -356,6 +437,7 @@ def heartbeat_node(
     access_token = str(access_token or "").strip()
     token_summary = dict(token_summary or {})
     with _lock:
+        _load_persisted_nodes_locked()
         node = _nodes.get(str(node_id or "").strip())
         if not node or not secrets.compare_digest(str(node.get("node_secret") or ""), str(node_secret or "")):
             raise PermissionError("本地 Token 节点不存在或密钥无效，请重新绑定")
@@ -468,6 +550,8 @@ def heartbeat_node(
                 node["status"] = "no_token"
                 node["last_error"] = "插件尚未上报本地 Token"
 
+    with _lock:
+        _save_persisted_nodes_locked()
     return node_public_view(node_id)
 
 
@@ -486,6 +570,8 @@ def node_public_view(node_id: str) -> dict:
         node = dict(_nodes.get(node_id) or {})
     if not node:
         raise KeyError("node not found")
+    account_ids = list(node.get("account_ids") or [])[:80]
+    account_summaries = _account_summaries_for_ids(account_ids)
     now = _now_ts()
     last_seen = float(node.get("last_seen_ts") or 0)
     online = bool(last_seen and now - last_seen <= NODE_STALE_SECONDS)
@@ -515,7 +601,8 @@ def node_public_view(node_id: str) -> dict:
         "expires_in_seconds": expires_in_seconds,
         "verified_at": node.get("verified_at"),
         "account_count": len(node.get("account_ids") or []),
-        "account_ids": list(node.get("account_ids") or [])[:80],
+        "account_ids": account_ids,
+        "accounts": account_summaries,
         "has_ads_management": bool(node.get("has_ads_management")),
         "has_ads_read": bool(node.get("has_ads_read")),
         "permissions": node.get("permissions") or {"granted": [], "declined": []},
@@ -526,6 +613,7 @@ def node_public_view(node_id: str) -> dict:
 
 def list_nodes(user: dict) -> list[dict]:
     with _lock:
+        _load_persisted_nodes_locked()
         _clean_expired()
         ids = [node_id for node_id, node in _nodes.items() if _node_visible_to_user(node, user)]
     return sorted(
@@ -536,12 +624,14 @@ def list_nodes(user: dict) -> list[dict]:
 
 def remove_node(node_id: str, user: dict) -> bool:
     with _lock:
+        _load_persisted_nodes_locked()
         node = _nodes.get(node_id)
         if not node:
             return False
         if not _node_visible_to_user(node, user):
             raise PermissionError("无权移除此本地 Token 节点")
         _nodes.pop(node_id, None)
+        _save_persisted_nodes_locked()
         return True
 
 
@@ -549,6 +639,7 @@ def authenticate_node(node_id: str, node_secret: str) -> dict:
     """Validate a bound local browser node and return its private metadata."""
     raw_id = str(node_id or "").strip()
     with _lock:
+        _load_persisted_nodes_locked()
         node = _nodes.get(raw_id)
         if not node or not secrets.compare_digest(str(node.get("node_secret") or ""), str(node_secret or "")):
             raise PermissionError("本地执行器不存在或密钥无效，请重新绑定")
@@ -557,9 +648,11 @@ def authenticate_node(node_id: str, node_secret: str) -> dict:
 
 def mark_local_token_selected(node_id: str) -> None:
     with _lock:
+        _load_persisted_nodes_locked()
         node = _nodes.get(node_id)
         if node:
             node["last_selected_at_ts"] = _now_ts()
+            _save_persisted_nodes_locked()
 
 
 def get_local_token_candidates_for_account(act_id: str, action_type: str = "CREATE") -> list[dict]:
@@ -570,6 +663,7 @@ def get_local_token_candidates_for_account(act_id: str, action_type: str = "CREA
     now = _now_ts()
     candidates = []
     with _lock:
+        _load_persisted_nodes_locked()
         for node_id, node in _nodes.items():
             last_seen = float(node.get("last_seen_ts") or 0)
             if not last_seen or now - last_seen > NODE_STALE_SECONDS:

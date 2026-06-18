@@ -2725,6 +2725,10 @@ def list_accounts(user=Depends(get_current_user)):
             "active": lr["token_status"] == "active" and lr["bind_status"] == "active",
         })
     conn.close()
+    try:
+        from services.local_token_bridge import get_local_token_candidates_for_account
+    except Exception:
+        get_local_token_candidates_for_account = None
     result = []
     for r in rows:
         d = dict(r)
@@ -2768,17 +2772,38 @@ def list_accounts(user=Depends(get_current_user)):
         d['recent_3d_snapshot_spend'] = recent_spend_map.get(d.get('act_id'), 0.0)
         d['recent_3d_spend_source'] = recent_spend_source_map.get(d.get('act_id'), 'none')
         d['recent_3d_spend_error'] = recent_spend_error_map.get(d.get('act_id'))
-        d['linked_tokens'] = all_tokens_map.get(d.get('act_id'), [])
+        local_write_tokens = []
+        if get_local_token_candidates_for_account:
+            try:
+                local_candidates = get_local_token_candidates_for_account(d.get('act_id'), "CREATE")
+            except Exception as exc:
+                logger.warning("[Accounts] local token candidates failed for %s: %s", d.get('act_id'), exc)
+                local_candidates = []
+            for cand in local_candidates or []:
+                local_write_tokens.append({
+                    "token_id": cand.get("token_id"),
+                    "alias": cand.get("alias") or cand.get("label") or "本地执行器",
+                    "type": "operate",
+                    "source": "local_token",
+                    "matrix_id": None,
+                    "token_status": "active",
+                    "bind_status": "active",
+                    "active": True,
+                    "local_token": True,
+                    "node_id": cand.get("node_id"),
+                })
+        d['linked_tokens'] = all_tokens_map.get(d.get('act_id'), []) + local_write_tokens
         active_linked_tokens = [
             t for t in d['linked_tokens']
             if t.get("active") or (
                 t.get("bind_status") == "active" and t.get("token_status") == "active"
             )
         ]
+        writable_sources = (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER, "local_token")
         writable_tokens = [
             t for t in active_linked_tokens
             if t.get("type") == "operate"
-            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER)
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in writable_sources
         ]
         d['manage_token_ok'] = any(t.get("type") == "manage" for t in active_linked_tokens)
         d['write_token_ok'] = bool(writable_tokens)
@@ -2787,12 +2812,12 @@ def list_accounts(user=Depends(get_current_user)):
         d['write_token_total'] = sum(
             1 for t in d['linked_tokens']
             if t.get("type") == "operate"
-            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER)
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in writable_sources
         )
         d['legacy_operate_token_total'] = sum(
             1 for t in d['linked_tokens']
             if t.get("type") == "operate"
-            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) not in (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER)
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) not in writable_sources
         )
         d['primary_token_invalid'] = bool(
             d.get("token_alias") and d.get("token_status") and d.get("token_status") != "active"

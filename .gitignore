@@ -62,6 +62,7 @@ frontend/uploads/
 frontend/media/
 tmp/
 temp/
+data/local_token_nodes.json
 *.tmp
 *.pid
 _archive/
