@@ -4336,6 +4336,22 @@ function resourceTeamBadge(item){
  var label=name||('团队 '+id);
  return '<span class="badge" style="background:rgba(20,184,166,.12);color:#0f766e;border:1px solid rgba(20,184,166,.22)" title="资源归属团队">'+escHtml(label)+'</span>';
 }
+function resourceTeamLabel(item, emptyLabel){
+ item=item||{};
+ var name=item.team_name||item.group_name||'';
+ var id=item.team_id;
+ if(name)return String(name);
+ if(id!==undefined&&id!==null&&id!=='')return '团队 '+id;
+ return emptyLabel||'未分配';
+}
+function resourceOwnerLabel(item, emptyLabel){
+ item=item||{};
+ var name=item.owner_user_name||item.owner_username||item.owner_name||item.owner_display_name||'';
+ var id=item.owner_user_id;
+ if(name)return String(name);
+ if(id!==undefined&&id!==null&&id!=='')return '用户 '+id;
+ return emptyLabel||'未指定';
+}
 
 async function loadUserList(filterGroup){
  if(!hasRole('admin')) return;
@@ -5079,12 +5095,14 @@ async function _renderTeamResources(kind){
  _teamResItems.forEach(function(item){
   var parts = _teamResMain(item, kind);
   var sub = parts.slice(1).filter(Boolean).map(escHtml).join(' · ');
-  var team = item.team_name ? '<span class="resource-team-pill">'+escHtml(item.team_name)+'</span>' : '<span class="resource-team-pill muted">未分配</span>';
+  var hasTeam = !!(item.team_name||item.group_name||item.team_id);
+  var team = '<span class="resource-team-pill '+(hasTeam?'':'muted')+'">'+escHtml(resourceTeamLabel(item,'未分配'))+'</span>';
   var matrixBadges = _teamResourceMatrixBadges(item, kind);
   var ownerCell = '';
   if(kind==='accounts'||kind==='tokens'){
    var emptyOwner = kind==='tokens' ? '未指定（运营不可见）' : '未指定';
-   ownerCell = '<td>'+(item.owner_user_name?'<span class="resource-owner-pill">'+escHtml(item.owner_user_name)+'</span>':'<span class="resource-owner-pill muted">'+emptyOwner+'</span>')+'</td>';
+   var hasOwner = !!(item.owner_user_name||item.owner_username||item.owner_name||item.owner_display_name||item.owner_user_id);
+   ownerCell = '<td><span class="resource-owner-pill '+(hasOwner?'':'muted')+'">'+escHtml(resourceOwnerLabel(item,emptyOwner))+'</span></td>';
   }
   html += '<tr>' +
    '<td class="team-resource-check"><input type="checkbox" class="team-res-check" value="'+item.id+'"></td>' +
@@ -14645,13 +14663,13 @@ async function openMatrixDiagnostic(){
    var status=t.status==='active'?'<span class="badge bg-ok">active</span>':'<span class="badge bg-er">'+escHtml(t.status||'unknown')+'</span>';
    var source=t.token_source==='oauth_user'?'Meta OAuth':(t.token_source==='system_user'?'System User':(t.token_source||'source'));
    return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:8px 0;font-size:12px">'+
-    '<div style="min-width:0"><b>'+escHtml(t.token_alias||('Token '+t.id))+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(source)+' · '+escHtml(t.token_type||'token')+' · '+escHtml(t.owner_name||'未指定负责人')+'</div></div>'+
+    '<div style="min-width:0"><b>'+escHtml(t.token_alias||('Token '+t.id))+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(source)+' · '+escHtml(t.token_type||'token')+' · '+escHtml(resourceOwnerLabel(t,'未指定负责人'))+'</div></div>'+
     '<div style="white-space:nowrap;text-align:right"><span class="badge bg-ac">矩阵'+escHtml(String(t.matrix_id||''))+'</span> '+status+'</div>'+
    '</div>';
   }).join('');
   var unassigned=(r.unassigned_accounts||[]).slice(0,20).map(function(a){
    return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:8px 0;font-size:12px">'+
-    '<div style="min-width:0"><b>'+escHtml(a.name||a.act_id||'未命名账户')+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(a.act_id||'')+' · '+escHtml(a.owner_name||'未指定负责人')+'</div></div>'+
+    '<div style="min-width:0"><b>'+escHtml(a.name||a.act_id||'未命名账户')+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(a.act_id||'')+' · '+escHtml(resourceOwnerLabel(a,'未指定负责人'))+'</div></div>'+
     '<div style="color:var(--wa);white-space:nowrap">'+escHtml(a.reason||'未识别矩阵')+'</div>'+
    '</div>';
   }).join('');
