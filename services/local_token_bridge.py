@@ -14,7 +14,7 @@ import requests
 
 from core.auth import ROLE_LEVELS, is_superadmin, normalize_user_claims
 from core.database import get_conn
-from core.tenancy import is_operator_user, user_id
+from core.tenancy import is_operator_user, team_id_for_create, user_id
 
 
 FB_API_BASE = "https://graph.facebook.com/v25.0"
@@ -153,6 +153,116 @@ def _normalize_act_id(value: str) -> str:
     if raw.startswith("act_"):
         return raw
     return f"act_{raw}"
+
+
+def _clean_label(value: str) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def _is_generic_business_label(value: str) -> bool:
+    raw = _clean_label(value).lower()
+    if not raw or raw.isdigit():
+        return True
+    generic_parts = (
+        "meta business suite",
+        "facebook",
+        "settings",
+        "business settings",
+        "business info",
+        "billing",
+        "billing & payments",
+        "billing and payments",
+        "payments",
+        "payment settings",
+        "business support home",
+        "security center",
+        "notifications",
+        "requests",
+        "partners",
+        "users",
+        "accounts",
+        "ad accounts",
+        "people",
+        "pages",
+        "select assets",
+        "assets assigned",
+    )
+    return any(raw == item or item in raw for item in generic_parts)
+
+
+def _business_display_name(biz_id: str, name: str = "") -> str:
+    biz_id = "".join(ch for ch in str(biz_id or "") if ch.isdigit())
+    name = _clean_label(name)
+    if name and not _is_generic_business_label(name):
+        return name[:90]
+    return f"BM {biz_id}" if biz_id else ""
+
+
+def _account_status_int(value) -> int:
+    raw = str(value or "").strip().lower()
+    if raw in {"", "ok", "active", "writable", "true", "可写"}:
+        return 1
+    if raw in {"disabled", "disable", "closed", "inactive", "restricted", "ineligible", "false", "不可写", "禁用", "停用", "受限"}:
+        return 2
+    try:
+        return int(float(raw))
+    except Exception:
+        return 1
+
+
+def _write_status_allows_write(value) -> bool:
+    raw = str(value or "").strip().lower()
+    return raw in {"ok", "active", "writable", "true", "可写"}
+
+
+def _refresh_node_matches_locked(node: dict) -> None:
+    visible_ids = {
+        _normalize_act_id(item.get("act_id"))
+        for item in _visible_accounts_for_node(node)
+        if _normalize_act_id(item.get("act_id"))
+    }
+    all_accounts = []
+    seen = set()
+    for item in (
+        list(node.get("reported_all_accounts") or [])
+        + list(node.get("reported_accounts") or [])
+        + list(node.get("reported_unmatched_accounts") or [])
+    ):
+        if not isinstance(item, dict):
+            continue
+        act_id = _normalize_act_id(item.get("act_id") or item.get("account_id") or item.get("id"))
+        if not act_id or act_id in seen:
+            continue
+        row = dict(item)
+        row["act_id"] = act_id
+        if row.get("business_id"):
+            row["business_name"] = _business_display_name(row.get("business_id"), row.get("business_name"))
+        all_accounts.append(row)
+        seen.add(act_id)
+    matched = sorted({item["act_id"] for item in all_accounts}.intersection(visible_ids))[:MAX_ACCOUNT_PROBE]
+    matched_set = set(matched)
+    node["account_ids"] = matched
+    node["reported_accounts"] = [item for item in all_accounts if item.get("act_id") in matched_set][:MAX_ACCOUNT_PROBE]
+    node["reported_unmatched_accounts"] = [item for item in all_accounts if item.get("act_id") not in matched_set][:MAX_ACCOUNT_PROBE]
+    node["reported_all_accounts"] = all_accounts[:MAX_ACCOUNT_PROBE]
+    business_count = len(node.get("reported_businesses") or [])
+    node["reported_assets"] = {
+        "business_count": business_count,
+        "ad_account_count": len(all_accounts),
+        "matched_account_count": len(node["reported_accounts"]),
+        "unmatched_account_count": len(node["reported_unmatched_accounts"]),
+    }
+    if node.get("has_ads_management"):
+        node["local_runtime_ready"] = bool(node["account_ids"])
+        if node["account_ids"]:
+            node["status"] = "online"
+            if "未匹配" in str(node.get("last_error") or "") or "没有匹配" in str(node.get("last_error") or ""):
+                node["last_error"] = ""
+        else:
+            node["status"] = "no_accounts"
+            if node["reported_unmatched_accounts"]:
+                preview = ", ".join(item["act_id"] for item in node["reported_unmatched_accounts"][:5])
+                node["last_error"] = f"本地执行器读到 {len(node['reported_unmatched_accounts'])} 个广告账户，但尚未导入/分配：{preview}"
 
 
 def _visible_accounts_for_node(node: dict) -> list[dict]:
@@ -324,24 +434,20 @@ def apply_discovered_accounts(node_id: str, data: dict) -> None:
             "currency": str(item.get("currency") or ""),
             "timezone": str(item.get("timezone") or item.get("timezone_name") or ""),
             "write_status": str(item.get("write_status") or item.get("status") or item.get("account_status") or ""),
+            "business_id": str(item.get("business_id") or ""),
+            "business_name": _business_display_name(item.get("business_id"), item.get("business_name")),
         })
     with _lock:
         _load_persisted_nodes_locked()
         node = _nodes.get(node_id)
         if not node:
             return
-        visible_ids = {
-            _normalize_act_id(item.get("act_id"))
-            for item in _visible_accounts_for_node(node)
-            if _normalize_act_id(item.get("act_id"))
-        }
-        matched = sorted(raw_ids.intersection(visible_ids))[:MAX_ACCOUNT_PROBE]
-        node["account_ids"] = matched
-        node["reported_accounts"] = [
-            item for item in normalized if item.get("act_id") in set(matched)
-        ][:MAX_ACCOUNT_PROBE]
+        node["reported_all_accounts"] = normalized[:MAX_ACCOUNT_PROBE]
+        if any(_write_status_allows_write(item.get("write_status")) for item in normalized):
+            node["has_ads_management"] = True
+        _refresh_node_matches_locked(node)
         node["has_ads_read"] = True
-        if matched and node.get("has_ads_management"):
+        if node.get("account_ids") and node.get("has_ads_management"):
             node["local_runtime_ready"] = True
             node["status"] = "online"
             node["last_error"] = ""
@@ -639,7 +745,7 @@ def heartbeat_node(
                     "timezone": str(item.get("timezone") or item.get("timezone_name") or ""),
                     "write_status": str(item.get("write_status") or item.get("status") or ""),
                     "business_id": str(item.get("business_id") or ""),
-                    "business_name": str(item.get("business_name") or ""),
+                    "business_name": _business_display_name(item.get("business_id"), item.get("business_name")),
                 })
                 raw_account_ids.add(act_id)
             normalized_businesses = []
@@ -661,46 +767,44 @@ def heartbeat_node(
                         biz_accounts.append(act_id)
                 normalized_businesses.append({
                     "id": biz_id,
-                    "name": str(item.get("name") or item.get("business_name") or f"BM {biz_id}"),
+                    "name": _business_display_name(biz_id, item.get("name") or item.get("business_name")),
                     "source": str(item.get("source") or ""),
                     "account_ids": biz_accounts[:MAX_ACCOUNT_PROBE],
                     "account_count": int(item.get("account_count") or len(biz_accounts) or 0),
                 })
-            visible_ids = {
-                _normalize_act_id(item.get("act_id"))
-                for item in _visible_accounts_for_node(node)
-                if _normalize_act_id(item.get("act_id"))
-            }
-            node["account_ids"] = sorted(raw_account_ids.intersection(visible_ids))[:MAX_ACCOUNT_PROBE]
-            matched_ids = set(node["account_ids"])
-            node["reported_accounts"] = [
-                item for item in normalized_reported_accounts
-                if item.get("act_id") in matched_ids
-            ][:MAX_ACCOUNT_PROBE]
-            node["reported_unmatched_accounts"] = [
-                item for item in normalized_reported_accounts
-                if item.get("act_id") not in matched_ids
-            ][:MAX_ACCOUNT_PROBE]
             node["reported_businesses"] = normalized_businesses[:MAX_ACCOUNT_PROBE]
-            node["reported_assets"] = {
-                "business_count": len(normalized_businesses),
-                "ad_account_count": len(normalized_reported_accounts),
-                "matched_account_count": len(node["reported_accounts"]),
-                "unmatched_account_count": len(node["reported_unmatched_accounts"]),
-            }
+            node["reported_all_accounts"] = normalized_reported_accounts[:MAX_ACCOUNT_PROBE]
+            cap_set = {str(item or "").strip().lower() for item in (capabilities or token_summary.get("capabilities") or [])}
+            has_writable_account = any(
+                _write_status_allows_write(item.get("write_status"))
+                for item in normalized_reported_accounts
+            )
             if queue is not None:
                 node["queue"] = {
                     "running": int((queue or {}).get("running") or 0),
                     "waiting": int((queue or {}).get("waiting") or 0),
                 }
-            node["has_ads_management"] = bool(token_summary.get("has_ads_management"))
-            node["has_ads_read"] = bool(token_summary.get("has_ads_read"))
+            node["has_ads_management"] = bool(
+                token_summary.get("has_ads_management")
+                or "ads_management" in cap_set
+                or "ad_write" in cap_set
+                or "graph_post" in cap_set
+                or has_writable_account
+            )
+            node["has_ads_read"] = bool(
+                token_summary.get("has_ads_read")
+                or node["has_ads_management"]
+                or "ads_read" in cap_set
+                or "account_probe" in cap_set
+                or "graph_get" in cap_set
+                or normalized_reported_accounts
+                or raw_account_ids
+            )
+            _refresh_node_matches_locked(node)
             node["verified_at_ts"] = _now_ts()
             node["verified_at"] = _now_cst()
             node["last_error"] = str(token_summary.get("last_error") or "")
-            node["local_runtime_ready"] = bool(
-                present and node["has_ads_management"] and node["account_ids"]
-            )
+            node["local_runtime_ready"] = bool(node["has_ads_management"] and node["account_ids"])
             if runtime_status:
                 node["runtime_status"] = str(runtime_status or "")
             if present and node["last_error"]:
@@ -788,8 +892,15 @@ def node_public_view(node_id: str) -> dict:
         if reported.get("business_id"):
             item["business_id"] = reported.get("business_id")
         if reported.get("business_name"):
-            item["business_name"] = reported.get("business_name")
-    unmatched_accounts = list(node.get("reported_unmatched_accounts") or [])[:80]
+            item["business_name"] = _business_display_name(reported.get("business_id"), reported.get("business_name"))
+    unmatched_accounts = []
+    for item in list(node.get("reported_unmatched_accounts") or [])[:80]:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        if row.get("business_id"):
+            row["business_name"] = _business_display_name(row.get("business_id"), row.get("business_name"))
+        unmatched_accounts.append(row)
     businesses = []
     matched_id_set = set(account_ids)
     for item in list(node.get("reported_businesses") or [])[:80]:
@@ -802,7 +913,7 @@ def node_public_view(node_id: str) -> dict:
         ]
         businesses.append({
             "id": str(item.get("id") or ""),
-            "name": str(item.get("name") or ""),
+            "name": _business_display_name(item.get("id"), item.get("name")),
             "source": str(item.get("source") or ""),
             "account_ids": biz_accounts[:80],
             "account_count": int(item.get("account_count") or len(biz_accounts) or 0),
@@ -891,6 +1002,152 @@ def list_nodes(user: dict) -> list[dict]:
         [node_public_view(node_id) for node_id in ids],
         key=lambda item: (not item.get("online"), item.get("node_name") or ""),
     )
+
+
+def adopt_discovered_accounts(node_id: str, act_ids: Optional[list[str]], user: dict) -> dict:
+    user = normalize_user_claims(user)
+    raw_node_id = str(node_id or "").strip()
+    with _lock:
+        _load_persisted_nodes_locked()
+        node = _nodes.get(raw_node_id)
+        if not node:
+            raise KeyError("node not found")
+        if not _node_visible_to_user(node, user):
+            raise PermissionError("No permission to adopt accounts from this local executor")
+        reported = [
+            item for item in list(node.get("reported_all_accounts") or [])
+            if isinstance(item, dict) and _normalize_act_id(item.get("act_id") or item.get("account_id") or item.get("id"))
+        ]
+        if not reported:
+            reported = [
+                item for item in (
+                    list(node.get("reported_accounts") or [])
+                    + list(node.get("reported_unmatched_accounts") or [])
+                )
+                if isinstance(item, dict) and _normalize_act_id(item.get("act_id") or item.get("account_id") or item.get("id"))
+            ]
+        allowed = {}
+        for item in reported:
+            act_id = _normalize_act_id(item.get("act_id") or item.get("account_id") or item.get("id"))
+            if act_id and act_id not in allowed:
+                allowed[act_id] = dict(item, act_id=act_id)
+    requested = []
+    seen = set()
+    for raw in (act_ids or []):
+        act_id = _normalize_act_id(raw)
+        if act_id and act_id not in seen:
+            requested.append(act_id)
+            seen.add(act_id)
+    if not requested:
+        requested = list(allowed.keys())
+    requested = requested[:MAX_ACCOUNT_PROBE]
+
+    imported = []
+    skipped = []
+    failed = []
+    team_id = node.get("team_id")
+    if team_id is None:
+        team_id = team_id_for_create(user)
+    owner_id = node.get("user_id") if str(node.get("role") or "") == "operator" else None
+    if owner_id is None and is_operator_user(user):
+        owner_id = user_id(user)
+
+    conn = get_conn()
+    try:
+        existing_rows = {
+            r["act_id"]: dict(r)
+            for r in conn.execute("SELECT id, act_id, name, team_id, owner_user_id FROM accounts").fetchall()
+        }
+        for act_id in requested:
+            item = allowed.get(act_id)
+            if not item:
+                failed.append({"act_id": act_id, "error": "not_reported_by_this_executor"})
+                continue
+            existing = existing_rows.get(act_id)
+            name = _clean_label(item.get("name") or act_id) or act_id
+            currency = _clean_label(item.get("currency") or "USD") or "USD"
+            timezone_name = _clean_label(item.get("timezone") or item.get("timezone_name") or "UTC") or "UTC"
+            account_status = _account_status_int(item.get("account_status") or item.get("write_status"))
+            note = f"local_executor:{raw_node_id[:8]}"
+            if existing:
+                existing_team_id = existing.get("team_id")
+                if existing_team_id is not None and team_id is not None and existing_team_id != team_id and not is_superadmin(user):
+                    failed.append({"act_id": act_id, "error": "account_belongs_to_another_team"})
+                    continue
+                existing_owner_id = existing.get("owner_user_id")
+                if owner_id is not None and existing_owner_id is not None and int(existing_owner_id) != int(owner_id) and not is_superadmin(user):
+                    failed.append({"act_id": act_id, "error": "account_belongs_to_another_operator"})
+                    continue
+                updates = [
+                    "name=CASE WHEN name IS NULL OR name='' OR name=act_id THEN ? ELSE name END",
+                    "currency=COALESCE(NULLIF(currency,''), ?)",
+                    "timezone=COALESCE(NULLIF(timezone,''), ?)",
+                    "timezone_name=COALESCE(NULLIF(timezone_name,''), ?)",
+                    "account_status=?",
+                    "read_permission_status='local_executor_reported'",
+                    "read_permission_error=''",
+                    "read_permission_checked_at=datetime('now')",
+                    "enabled=1",
+                ]
+                params = [name, currency, timezone_name, timezone_name, account_status]
+                if team_id is not None and existing_team_id is None:
+                    updates.append("team_id=?")
+                    params.append(team_id)
+                if owner_id is not None and existing_owner_id is None:
+                    updates.append("owner_user_id=?")
+                    params.append(owner_id)
+                updates.append("note=COALESCE(NULLIF(note,''), ?)")
+                params.append(note)
+                updates.append("updated_at=datetime('now')")
+                params.append(existing["id"])
+                conn.execute(f"UPDATE accounts SET {', '.join(updates)} WHERE id=?", params)
+                skipped.append({"act_id": act_id, "name": name, "reason": "already_exists"})
+                continue
+            conn.execute(
+                """
+                INSERT INTO accounts (
+                    act_id, name, currency, timezone, timezone_name,
+                    enabled, account_status, page_id, pixel_id,
+                    team_id, owner_user_id, read_permission_status,
+                    read_permission_error, read_permission_checked_at, note
+                ) VALUES (?,?,?,?,?,1,?,?,?,?,?,'local_executor_reported','',datetime('now'),?)
+                """,
+                (
+                    act_id,
+                    name,
+                    currency,
+                    timezone_name,
+                    timezone_name,
+                    account_status,
+                    "",
+                    "",
+                    team_id,
+                    owner_id,
+                    note,
+                ),
+            )
+            imported.append({"act_id": act_id, "name": name})
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    with _lock:
+        node = _nodes.get(raw_node_id)
+        if node:
+            _refresh_node_matches_locked(node)
+            node["verified_at_ts"] = _now_ts()
+            node["verified_at"] = _now_cst()
+            _save_persisted_nodes_locked()
+    return {
+        "success": True,
+        "imported": imported,
+        "skipped": skipped,
+        "failed": failed,
+        "node": node_public_view(raw_node_id),
+    }
 
 
 def remove_node(node_id: str, user: dict) -> bool:

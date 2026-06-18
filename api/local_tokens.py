@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from core.auth import ROLE_LEVELS, get_current_user, is_superadmin
 from services.local_token_bridge import (
+    adopt_discovered_accounts,
     create_registration,
     heartbeat_node,
     list_nodes,
@@ -27,6 +28,10 @@ MAX_EXTENSION_PACKAGE_BYTES = 30 * 1024 * 1024
 
 class RegistrationRequest(BaseModel):
     node_name: Optional[str] = ""
+
+
+class AdoptDiscoveredAccountsRequest(BaseModel):
+    act_ids: Optional[list[str]] = None
 
 
 class RegisterRequest(BaseModel):
@@ -378,6 +383,19 @@ def delete_node(node_id: str, user=Depends(get_current_user)):
     if not removed:
         raise HTTPException(status_code=404, detail="本地 Token 节点不存在")
     return {"success": True}
+
+
+@router.post("/nodes/{node_id}/adopt-accounts")
+def adopt_node_accounts(node_id: str, body: AdoptDiscoveredAccountsRequest, user=Depends(get_current_user)):
+    _require_operator(user)
+    try:
+        return adopt_discovered_accounts(node_id, body.act_ids or [], user)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="本地执行器不存在")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"接管本地发现账户失败: {exc}")
 
 
 @router.get("/extension.zip")
