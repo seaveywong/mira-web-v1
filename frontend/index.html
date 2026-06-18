@@ -2317,7 +2317,7 @@ select.fc option{background:#fff;color:#1d1d1f}
        <div class="ph-acts token-actions">
         <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
         <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入账户（自动匹配 Token）</button>
-        <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">补齐 Token 关联</button>
+        <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
         <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
        </div>
      </div>
@@ -2427,7 +2427,7 @@ select.fc option{background:#fff;color:#1d1d1f}
         <button class="btn btn-p btn-sm role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动识别可读取 Token，并补齐同团队 / 同负责人可用读写 Token 关联">导入账户（自动匹配 Token）</button>
         <button class="btn btn-g btn-sm" onclick="loadAccsPage()">刷新</button>
        <button class="btn btn-g btn-sm" onclick="openMatrixDiagnostic()" title="检查账户、Token、素材等矩阵标签为什么显示未识别">矩阵诊断</button>
-       <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">补齐 Token 关联</button>
+       <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描当前可见账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
        <button class="btn btn-g btn-sm role-hide-viewer" onclick="syncAllAccStatus()" id="btnSyncAll">同步账户状态</button>
        <button class="btn role-superadmin-only" onclick="scanAllWarmup()" title="扫描所有符合条件的账户并自动预热">扫描全部预热</button>
       </div>
@@ -2901,7 +2901,7 @@ select.fc option{background:#fff;color:#1d1d1f}
      <b>Token 自动关联</b><br>
      首选用这里导入账户。输入账户 ID 后，系统会先寻找可读取 Token 拉取账户信息，再扫描同团队 / 同负责人可用 Token，把能读、能写、能关停的 Token 一次性关联起来；无需再点到单个 Token 里手动匹配。
     </div>
-    <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队 / 同负责人可用 Token 并补齐关联">补齐已导入账户关联</button>
+    <button class="btn btn-g btn-sm role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队 / 同负责人可用 Token 并补齐关联">只补齐关联 Token</button>
    </div>
    <!-- Tab 切换 -->
    <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:2px solid var(--bd)">
@@ -8278,6 +8278,40 @@ function switchImportTab(tab){
   parseDirectIds();
  }
 }
+function buildAutoMatchResultHtml(autoMatch){
+ autoMatch=autoMatch||{};
+ var accounts=Array.isArray(autoMatch.accounts)?autoMatch.accounts:[];
+ var summary='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+  '<span class="badge bg-ac">检查 Token '+(autoMatch.token_checked||0)+' 个</span>'+
+  '<span class="badge bg-ok">新增 '+(autoMatch.matched||0)+'</span>'+
+  '<span class="badge bg-mu">恢复 '+(autoMatch.restored||0)+'</span>'+
+  '<span class="badge bg-mu">已有关联 '+(autoMatch.already_linked||0)+'</span>'+
+  ((autoMatch.token_failed||0)>0?'<span class="badge bg-wa">失败 '+autoMatch.token_failed+'</span>':'')+
+ '</div>';
+ var detailRows=accounts.map(function(a){
+  var tokens=(a.matched_tokens||[]).map(function(t){
+   var matrix=t.matrix_id?('矩阵'+t.matrix_id):'未分配矩阵';
+   return escHtml((t.alias||('Token '+t.token_id))+' · '+(t.token_type||'token')+' · '+matrix);
+  }).join('、');
+  var matrixHint=(a.matched_tokens||[]).some(function(t){return !!t.matrix_id;})
+   ?'<div style="color:var(--ok);font-size:11px;margin-top:3px">已可推导矩阵标签</div>'
+   :'<div style="color:var(--wa);font-size:11px;margin-top:3px">关联成功但没有矩阵 Token，账户仍会显示未识别矩阵</div>';
+  return '<div style="padding:8px 0;border-bottom:1px solid var(--bd)"><b>'+escHtml(a.act_id||'')+'</b><div style="color:var(--t3);margin-top:3px">'+(a.matched_count?('已关联 '+a.matched_count+' 个 Token：'+tokens):'未发现可关联 Token')+'</div>'+(a.matched_count?matrixHint:'')+'</div>';
+ }).join('');
+ var failedTokens=(autoMatch.failed_tokens||[]).slice(0,8).map(function(t){
+  return '<li>'+escHtml(t.alias||('Token '+t.token_id))+': '+escHtml(t.error||'检查失败')+'</li>';
+ }).join('');
+ return summary+
+  '<div style="margin-bottom:8px">系统已按当前团队 / 负责人权限扫描可用 Token。后续铺广告、预热、预算和关闭会优先使用这些已关联 Token。</div>'+
+  (detailRows||'<div style="color:var(--t3)">没有账户匹配明细。</div>')+
+  (failedTokens?'<div style="margin-top:12px;color:var(--wa)">部分 Token 检查失败：</div><ul style="margin:6px 0 0 18px;color:var(--t2)">'+failedTokens+'</ul>':'');
+}
+function showAutoMatchResult(autoMatch,title){
+ autoMatch=autoMatch||{};
+ var hasInfo=Array.isArray(autoMatch.accounts)||(autoMatch.token_checked||0)>0||(autoMatch.token_failed||0)>0;
+ if(!hasInfo)return;
+ showInfo(buildAutoMatchResultHtml(autoMatch),title||'账户 Token 自动关联');
+}
 function parseDirectIds(){
  var raw=document.getElementById('directActIds').value||'';
  var parts=raw.split(/[\n,;\s]+/).map(function(s){return s.trim()}).filter(Boolean);
@@ -8291,13 +8325,13 @@ function parseDirectIds(){
   infoEl.style.color='var(--ac)';
   btnEl.disabled=false;
   cntEl.textContent='\u5171 '+ids.length+' \u4e2a';
-  btnEl.textContent=importAutoMode?('导入并匹配 '+ids.length+' 个账户'):('\u5bfc\u5165 '+ids.length+' \u4e2a\u8d26\u6237');
+  btnEl.textContent=importAutoMode?('导入并自动关联 '+ids.length+' 个账户'):('\u5bfc\u5165 '+ids.length+' \u4e2a\u8d26\u6237');
  } else {
   infoEl.textContent='\u8f93\u5165\u8d26\u6237 ID \u540e\u81ea\u52a8\u89e3\u6790';
   infoEl.style.color='var(--t3)';
   btnEl.disabled=true;
   cntEl.textContent='\u5df2\u9009 0 \u4e2a';
-  btnEl.textContent=importAutoMode?'导入并匹配账户':'\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
+  btnEl.textContent=importAutoMode?'导入并自动关联账户':'\u5bfc\u5165\u9009\u4e2d\u8d26\u6237';
  }
  return ids;
 }
@@ -8376,28 +8410,10 @@ async function doImport(){
    if((autoMatch.token_failed||0)>0)msg+='，'+autoMatch.token_failed+' 个Token失败';
   }
   toast(msg,failedCount>0?'wa':'ok');
-  if(importAutoMode&&autoMatch&&Array.isArray(autoMatch.accounts)){
-   var detailRows=autoMatch.accounts.map(function(a){
-    var tokens=(a.matched_tokens||[]).map(function(t){
-     var matrix=t.matrix_id?('矩阵'+t.matrix_id):'未分配矩阵';
-     return escHtml((t.alias||('Token '+t.token_id))+' · '+(t.token_type||'token')+' · '+matrix);
-    }).join('、');
-    var matrixHint=(a.matched_tokens||[]).some(function(t){return !!t.matrix_id;})
-     ?'<div style="color:var(--ok);font-size:11px;margin-top:3px">已可推导矩阵标签</div>'
-     :'<div style="color:var(--wa);font-size:11px;margin-top:3px">关联成功但没有矩阵 Token，账户仍会显示未识别矩阵</div>';
-    return '<div style="padding:8px 0;border-bottom:1px solid var(--bd)"><b>'+escHtml(a.act_id||'')+'</b><div style="color:var(--t3);margin-top:3px">'+(a.matched_count?('已关联 '+a.matched_count+' 个 Token：'+tokens):'未发现可关联 Token')+'</div>'+(a.matched_count?matrixHint:'')+'</div>';
-   }).join('');
-   var failedTokens=(autoMatch.failed_tokens||[]).slice(0,6).map(function(t){
-    return '<li>'+escHtml(t.alias||('Token '+t.token_id))+': '+escHtml(t.error||'检查失败')+'</li>';
-   }).join('');
-   var html='<div style="margin-bottom:8px">智能导入完成。后续铺广告、预热、预算和关闭会优先使用这些已关联 Token。</div>'+
-    (detailRows||'<div style="color:var(--t3)">没有账户匹配明细。</div>')+
-    (failedTokens?'<div style="margin-top:12px;color:var(--wa)">部分 Token 检查失败：</div><ul style="margin:6px 0 0 18px;color:var(--t2)">'+failedTokens+'</ul>':'');
-   showInfo(html,'账户 Token 自动关联');
-  }
+  showAutoMatchResult(autoMatch,'账户 Token 自动关联');
   closeModal('moImport');loadAccounts();loadAccsPage();
  }catch(e){toast('导入失败：'+e.message,'er')}
- btn.disabled=false;btn.textContent=importAutoMode?'导入并匹配账户':'导入选中账户';
+ btn.disabled=false;btn.textContent=importAutoMode?'导入并自动关联账户':'导入选中账户';
 }
 
 // ── Accounts Page ──
@@ -8673,12 +8689,13 @@ async function rematchAllAccountTokens(btn){
   if((r.token_checked||0)>0)msg+='；检查 Token '+r.token_checked+' 个';
   if((r.token_failed||0)>0)msg+='，失败 '+r.token_failed+' 个';
   toast(msg,(r.token_failed||0)>0?'wa':'ok');
+  showAutoMatchResult(r,'自动识别关联 Token');
   loadAccsPage();
   if(typeof loadTokens==='function')loadTokens();
  }catch(e){
   toast('匹配Token失败：'+(e.message||e),'er');
 }finally{
-  if(btn){btn.disabled=false;btn.textContent=oldText||'补齐 Token 关联';}
+  if(btn){btn.disabled=false;btn.textContent=oldText||'自动识别关联 Token';}
  }
 }
 
