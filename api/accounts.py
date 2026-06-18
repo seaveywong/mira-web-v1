@@ -5887,9 +5887,27 @@ def matrix_diagnostic(current_user=Depends(get_current_user)):
         if t.get("status") == "active" and t.get("token_type") == "operate"
     ]
     inactive_matrix_tokens = [t for t in matrix_tokens if t.get("status") != "active"]
+    certified_pages_with_matrix = 0
+    certified_pages_without_matrix = 0
+    try:
+        page_counts = conn.execute(
+            """
+            SELECT
+              SUM(CASE WHEN matrix_id IS NOT NULL THEN 1 ELSE 0 END) AS with_matrix,
+              SUM(CASE WHEN matrix_id IS NULL THEN 1 ELSE 0 END) AS without_matrix
+            FROM tw_certified_pages
+            """
+        ).fetchone()
+        certified_pages_with_matrix = int(page_counts["with_matrix"] or 0) if page_counts else 0
+        certified_pages_without_matrix = int(page_counts["without_matrix"] or 0) if page_counts else 0
+    except Exception:
+        certified_pages_with_matrix = 0
+        certified_pages_without_matrix = 0
     suggestions = []
     if unassigned and not active_matrix_operate:
         suggestions.append("当前没有 active 的带矩阵操作号。请先在 Token 页把 System User / Meta 官方授权操作号分配到矩阵，或重新走 Meta 官方授权并选择矩阵。")
+    if certified_pages_with_matrix and unassigned:
+        suggestions.append("主页库已有矩阵记录，但账户矩阵仍由账户主 Token 或已绑定操作号推导；只给主页设置矩阵不会让账户自动归属矩阵。")
     if operate_without_matrix:
         suggestions.append("有账户已经绑定操作号，但操作号未设置矩阵。去 Token 页点击“矩阵”即可补齐，之后账户、素材、主页库会自动显示矩阵标签。")
     if no_operate:
@@ -5908,6 +5926,8 @@ def matrix_diagnostic(current_user=Depends(get_current_user)):
             "inactive_matrix_tokens": len(inactive_matrix_tokens),
             "accounts_without_active_operate": no_operate,
             "accounts_with_operate_without_matrix": operate_without_matrix,
+            "certified_pages_with_matrix": certified_pages_with_matrix,
+            "certified_pages_without_matrix": certified_pages_without_matrix,
         },
         "matrix_tokens": matrix_tokens[:60],
         "unassigned_accounts": unassigned[:80],

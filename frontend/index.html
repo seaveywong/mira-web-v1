@@ -14542,6 +14542,7 @@ async function openMatrixDiagnostic(){
    card('已识别矩阵',s.accounts_with_matrix,'账户可显示矩阵','ok')+
    card('未识别矩阵',s.accounts_without_matrix,'需要补 Token 关系','wa')+
    card('矩阵操作号',s.active_matrix_operate_tokens,'active 且可写','ok')+
+   card('主页矩阵记录',s.certified_pages_with_matrix,'主页库已标记矩阵','')+
   '</div>'+
   '<div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:12px;margin-bottom:12px">'+
    '<div style="font-weight:850;margin-bottom:6px">修复建议</div>'+
@@ -14555,7 +14556,7 @@ async function openMatrixDiagnostic(){
   '</div>'+
   '<details open style="margin-bottom:12px"><summary style="cursor:pointer;font-weight:850">矩阵 Token</summary><div style="margin-top:8px">'+(tokens||'<div style="font-size:12px;color:var(--t3)">当前没有带矩阵的 Token。</div>')+'</div></details>'+
   '<details '+((s.accounts_without_matrix||0)>0?'open':'')+'><summary style="cursor:pointer;font-weight:850">未识别账户样例</summary><div style="margin-top:8px">'+(unassigned||'<div style="font-size:12px;color:var(--t3)">没有未识别账户。</div>')+'</div></details>'+
-  '<div style="font-size:11px;color:var(--t3);margin-top:10px">说明：矩阵标签由账户主 Token 或已绑定操作号的 matrix_id 推导。只给素材、主页或账户手动写名字，不会产生矩阵标签。</div>';
+  '<div style="font-size:11px;color:var(--t3);margin-top:10px">说明：账户、素材、投放链接的矩阵标签由账户主 Token 或已绑定操作号的 matrix_id 推导；主页库自己的矩阵记录只用于认证主页匹配，不会反向让账户自动归属矩阵。</div>';
   showInfo(html,'矩阵归属诊断');
  }catch(e){
   toast('矩阵诊断失败：'+(e.message||e),'er');
@@ -15383,7 +15384,9 @@ function filterLandingUrls() {
  }) : _landingUrlAccs;
  if (matrixFilter !== 'all') {
   filtered = filtered.filter(function(a){
-   return getAccountMatrixIds(a).indexOf(parseInt(matrixFilter, 10)) >= 0;
+   var ids = getAccountMatrixIds(a);
+   if (matrixFilter === 'unassigned') return ids.length === 0;
+   return ids.indexOf(parseInt(matrixFilter, 10)) >= 0;
   });
  }
  var sel = document.getElementById('landingUrlMatrixFilter');
@@ -15391,8 +15394,8 @@ function filterLandingUrls() {
   var allIds = [];
   (_landingUrlAccs || []).forEach(function(a){ allIds = allIds.concat(getAccountMatrixIds(a)); });
   var matrixIds = Array.from(new Set(allIds)).sort(function(a,b){ return a-b; });
-  var current = matrixFilter !== 'all' && matrixIds.indexOf(parseInt(matrixFilter, 10)) < 0 ? 'all' : matrixFilter;
-  sel.innerHTML = '<option value="all">全部矩阵</option>' + matrixIds.map(function(mid){
+  var current = matrixFilter !== 'all' && matrixFilter !== 'unassigned' && matrixIds.indexOf(parseInt(matrixFilter, 10)) < 0 ? 'all' : matrixFilter;
+  sel.innerHTML = '<option value="all">全部矩阵</option><option value="unassigned">未识别/未绑定</option>' + matrixIds.map(function(mid){
    return '<option value="'+mid+'">矩阵 '+mid+'</option>';
   }).join('');
   sel.value = current;
