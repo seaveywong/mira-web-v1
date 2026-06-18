@@ -596,6 +596,83 @@ def _health_summary_from_checks(checks: list[dict[str, Any]]) -> str:
     return "All checks passed"
 
 
+def _stable_landing_health_checks(
+    checks: list[dict[str, Any]],
+    item: dict,
+    targets: list[str],
+    link_kind: str,
+    http_info: dict[str, Any],
+) -> list[dict[str, Any]]:
+    status_raw = str(item.get("status") or "").strip().lower()
+    custom_domain = (item.get("custom_domain") or "").strip()
+    public_url = (item.get("public_url") or "").strip()
+    pages_url = (item.get("pages_url") or "").strip()
+    target_count = len(targets or [])
+    http_code = http_info.get("status_code") if http_info else None
+    location = str(http_info.get("location") or "") if http_info else ""
+    content_type = str(http_info.get("content_type") or "") if http_info else ""
+    out: list[dict[str, Any]] = []
+    for raw in checks:
+        check = dict(raw)
+        key = str(check.get("key") or "")
+        state = str(check.get("status") or "")
+        if key == "status":
+            check["label"] = "Publish status"
+            check["detail"] = "Published" if status_raw == "published" else f"Current status: {status_raw or 'unknown'}"
+        elif key == "public_url":
+            check["label"] = "Public URL"
+            check["detail"] = public_url or "No reachable Pages or custom-domain URL"
+        elif key == "custom_domain":
+            check["label"] = "Custom domain"
+            if custom_domain:
+                check["detail"] = (
+                    f"https://{custom_domain} is the primary URL"
+                    if item.get("custom_domain_usable")
+                    else f"Domain is not active yet; currently using the Pages fallback URL. {item.get('custom_domain_dns_hint') or 'Finish the CNAME record in Cloudflare DNS.'}"
+                )
+            elif pages_url:
+                check["detail"] = "No custom domain configured; using the default Cloudflare Pages domain"
+        elif key == "targets":
+            check["label"] = "Redirect targets"
+            check["detail"] = f"{target_count} target link(s) configured" if target_count else "No redirect target configured"
+        elif key == "form_mode":
+            check["label"] = "Form direct-link mode"
+            check["detail"] = "Root path redirects directly to the rotating target" if item.get("worker_enabled") else "Form direct-link mode requires Worker"
+        elif key == "landing_mode":
+            check["label"] = "Landing-page mode"
+            check["detail"] = "Root path returns HTML; button clicks redirect to rotating targets"
+        elif key == "worker":
+            check["label"] = "Worker / tracking / protection"
+            if item.get("worker_enabled"):
+                check["detail"] = f"Worker enabled; tracking {'on' if item.get('tracking_enabled') else 'off'}, protection {'on' if item.get('protection_enabled') else 'off'}"
+            else:
+                check["detail"] = "Worker is disabled; edge tracking, protection and server-side rotation are unavailable"
+        elif key == "runtime_redirect":
+            check["label"] = "Live redirect"
+            if state == "pass":
+                check["detail"] = f"Root path returned HTTP {http_code} and redirected to a configured target"
+            elif state == "warn" and http_code in {301, 302, 303, 307, 308}:
+                check["detail"] = f"Root path redirected, but Location is not in the current target list: {location[:180]}"
+            elif state == "warn":
+                check["detail"] = "The request was blocked by protection rules; test again from an allowed environment"
+            else:
+                check["detail"] = f"Form direct-link mode expects a 302 redirect; got HTTP {http_code or '--'}"
+        elif key == "runtime_page":
+            check["label"] = "Live page"
+            if state == "pass":
+                check["detail"] = "Public URL returns HTML and the landing page is reachable"
+            elif state == "warn" and http_code == 403:
+                check["detail"] = "The request was blocked by protection rules; the page may still be healthy"
+            else:
+                check["detail"] = f"Public URL returned HTTP {http_code or '--'}, Content-Type: {content_type or '--'}"
+        elif key == "runtime_http":
+            check["label"] = "Live access"
+            if not str(check.get("detail") or "").strip():
+                check["detail"] = "Public URL request failed"
+        out.append(check)
+    return out
+
+
 def _normalize_url_for_match(value: Optional[str]) -> str:
     raw = (value or "").strip()
     if not raw:
@@ -1715,6 +1792,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                 "detail": f"请求公开链接失败：{exc}",
             })
 
+    checks = _stable_landing_health_checks(checks, item, targets, link_kind, http_info)
     health_status = _health_status_from_checks(checks)
     health_summary = _health_summary_from_checks(checks)
     health_checked_at = _now_cst()
