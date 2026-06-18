@@ -3894,7 +3894,7 @@ function _fmtActionLogTime(s){
  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)&&!(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)))return raw.replace('T',' ').slice(0,16);
  return _cst(raw);
 }
-var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],_teamResAllUsers=[],ruleMode='guard',importTkId=null,importAutoMode=false,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null,_globalMirrorEnabled=false,localTokenNodes=[],localExecutorTasks=[],localTokenUiState={open:{}};
+var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],_teamResAllUsers=[],ruleMode='guard',importTkId=null,importAutoMode=false,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null,_globalMirrorEnabled=false,localTokenNodes=[],localExecutorTasks=[],localExtensionPackage=null,localTokenUiState={open:{}};
 var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',ts:0}, _adsLoadSeq=0, ADS_CACHE_MS=60000;
 
 // ── API ──
@@ -8027,6 +8027,7 @@ function renderLocalTokenPanel(){
     '</div>'+
    '</div>'+
    (nodes.length?'<div style="margin-top:12px">'+rows+'</div>':'<div style="margin-top:12px;padding:12px;border:1px dashed var(--bd);border-radius:12px;color:var(--t3);font-size:12px;background:var(--bg2)">还没有激活 Chrome 执行器。点击「绑定新 Chrome」下载插件并生成一次性激活码。</div>')+
+   renderLocalExtensionPackageHtml()+
    renderLocalExecutorTasksHtml()+
   '</div>';
 }
@@ -8053,16 +8054,52 @@ function renderLocalExecutorTasksHtml(){
    '<div style="font-size:11px;color:var(--t3);text-align:right">'+escHtml(_fmtActionLogTime(t.updated_at||t.created_at||''))+'</div>'+
   '</div>';
  }).join('');
- return '<div style="margin-top:14px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.72);padding:12px">'+
-  '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div style="font-weight:800;color:var(--t1)">最近本地执行任务</div><button class="btn btn-g btn-sm" onclick="loadLocalExecutorTasks()">刷新任务</button></div>'+
-  rows+
+  return '<div style="margin-top:14px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.72);padding:12px">'+
+   '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div style="font-weight:800;color:var(--t1)">最近本地执行任务</div><button class="btn btn-g btn-sm" onclick="loadLocalExecutorTasks()">刷新任务</button></div>'+
+   rows+
+  '</div>';
+}
+
+function _localPkgSizeText(bytes){
+ bytes=parseInt(bytes||0,10)||0;
+ if(!bytes)return '--';
+ if(bytes>=1024*1024)return (bytes/1024/1024).toFixed(2)+' MB';
+ if(bytes>=1024)return (bytes/1024).toFixed(1)+' KB';
+ return bytes+' B';
+}
+function renderLocalExtensionPackageHtml(){
+ if(!hasRole('superadmin'))return '';
+ var pkg=(localExtensionPackage&&localExtensionPackage.package)||{};
+ var legacy=(localExtensionPackage&&localExtensionPackage.legacy)||{};
+ var exists=!!pkg.exists;
+ var sha=pkg.sha256?String(pkg.sha256).slice(0,12):'--';
+ return '<div class="role-superadmin-only" style="margin-top:14px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.72);padding:12px">'+
+  '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">'+
+   '<div style="min-width:0"><div style="font-weight:800;color:var(--t1)">插件包管理</div>'+
+    '<div style="font-size:12px;color:var(--t3);line-height:1.5;margin-top:3px">仅超级管理员可见。上传后会立即替换「下载 Chrome 插件」入口；删除后用户将无法下载插件。</div></div>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+    '<input type="file" id="localExtensionPackageInput" accept=".zip,application/zip" style="display:none" onchange="uploadLocalExtensionPackage(this.files)">'+
+    '<button class="btn btn-p btn-sm" onclick="document.getElementById(\'localExtensionPackageInput\').click()">上传新版</button>'+
+    '<button class="btn btn-g btn-sm" onclick="loadLocalExtensionPackage(true)">刷新包状态</button>'+
+    (exists?'<button class="btn btn-r btn-sm" onclick="deleteLocalExtensionPackage()">删除当前包</button>':'')+
+   '</div>'+
+  '</div>'+
+  '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px">'+
+   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">当前包</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(exists?(pkg.filename||'mira-local-api-executor.zip'):'未上传')+'</div></div>'+
+   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">大小</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+escHtml(_localPkgSizeText(pkg.size_bytes))+'</div></div>'+
+   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">更新时间</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+escHtml(pkg.updated_at_ts?_fmtActionLogTime(new Date(pkg.updated_at_ts*1000).toISOString()):'--')+'</div></div>'+
+   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">SHA</div><div style="font-size:12px;font-weight:760;color:var(--t1);font-family:monospace">'+escHtml(sha)+'</div></div>'+
+  '</div>'+
+  (legacy&&legacy.exists?'<div style="font-size:11px;color:var(--wa);margin-top:8px">检测到旧兼容包 '+escHtml(legacy.filename||'')+'，上传新版或删除当前包时会一并清理。</div>':'')+
  '</div>';
 }
+
 async function loadLocalTokenNodes(){
  var panel=document.getElementById('localTokenBridgePanel');
  if(panel&&!localTokenNodes.length)panel.innerHTML='<div style="margin-bottom:16px;padding:14px;border:1px solid var(--bd);border-radius:14px;background:var(--bg2);color:var(--t3);font-size:12px">正在加载本地 API 执行器...</div>';
  try{
   localTokenNodes=await api('GET','/local-tokens/nodes')||[];
+  if(hasRole('superadmin'))await loadLocalExtensionPackage(false);
   await loadLocalExecutorTasks(false);
   renderLocalTokenPanel();
  }catch(e){
@@ -8079,6 +8116,51 @@ async function loadLocalExecutorTasks(shouldRender){
   if(shouldRender!==false)renderLocalTokenPanel();
  }
 }
+
+async function loadLocalExtensionPackage(shouldRender){
+ if(!hasRole('superadmin'))return null;
+ try{
+  localExtensionPackage=await api('GET','/local-tokens/extension-package');
+  if(shouldRender!==false)renderLocalTokenPanel();
+  return localExtensionPackage;
+ }catch(e){
+  localExtensionPackage={package:{exists:false},legacy:{exists:false},error:e.message||String(e)};
+  if(shouldRender!==false)renderLocalTokenPanel();
+  return null;
+ }
+}
+
+async function uploadLocalExtensionPackage(files){
+ if(!hasRole('superadmin')){toast('仅超级管理员可上传插件包','wa');return;}
+ var input=document.getElementById('localExtensionPackageInput');
+ var file=files&&files[0];
+ if(input)input.value='';
+ if(!file)return;
+ if(!/\.zip$/i.test(file.name||'')){toast('请上传 .zip 插件包，不能直接上传 .rar','er');return;}
+ var fd=new FormData();
+ fd.append('file',file,file.name);
+ try{
+  toast('正在上传插件包...','ac');
+  var r=await fetch('/api/local-tokens/extension-package',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+  var d=await r.json().catch(function(){return{}});
+  if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+  localExtensionPackage=d;
+  renderLocalTokenPanel();
+  toast('插件包已更新','ok');
+ }catch(e){toast('上传失败：'+(e.message||e),'er');}
+}
+
+async function deleteLocalExtensionPackage(){
+ if(!hasRole('superadmin')){toast('仅超级管理员可删除插件包','wa');return;}
+ if(!confirm('确认删除当前本地执行器插件包？删除后用户将无法从 Mira 下载插件。'))return;
+ try{
+  var d=await api('DELETE','/local-tokens/extension-package');
+  localExtensionPackage=d;
+  renderLocalTokenPanel();
+  toast((d.removed&&d.removed.length)?'插件包已删除':'当前没有可删除的插件包','ok');
+ }catch(e){toast('删除失败：'+(e.message||e),'er');}
+}
+
 async function createLocalTokenRegistration(){
  try{
    var r=await api('POST','/local-tokens/registration',{node_name:''});
