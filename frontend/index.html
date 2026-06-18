@@ -7960,11 +7960,12 @@ function clearTokenFilters(){
  renderTokensView();
 }
 function _localTokenStatusLabel(status){
- var map={online:'API可用',registered:'已绑定待心跳',online_no_token:'在线未接管',no_token:'未接管',permission_limited:'权限不足',no_accounts:'未匹配账户',token_error:'Token异常',expired:'Token过期',offline:'离线'};
+ var map={online:'API可用',cooldown:'冷却中',registered:'已绑定待心跳',online_no_token:'在线未接管',no_token:'未接管',permission_limited:'权限不足',no_accounts:'未匹配账户',token_error:'Token异常',expired:'Token过期',offline:'离线'};
  return map[status]||status||'未知';
 }
 function _localTokenStatusStyle(status){
  if(status==='online')return 'background:rgba(34,197,94,.12);color:#15803d;border:1px solid rgba(34,197,94,.25)';
+ if(status==='cooldown')return 'background:rgba(245,158,11,.12);color:#92400e;border:1px solid rgba(245,158,11,.26)';
  if(status==='offline'||status==='expired'||status==='token_error')return 'background:rgba(239,68,68,.10);color:#b91c1c;border:1px solid rgba(239,68,68,.24)';
  return 'background:rgba(245,158,11,.12);color:#92400e;border:1px solid rgba(245,158,11,.26)';
 }

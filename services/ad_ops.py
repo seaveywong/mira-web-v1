@@ -9,6 +9,7 @@ import requests
 
 from core.database import get_conn
 from services.guard_engine import _local_per_usd_rate
+from services.execution_safety import account_write_guard, note_write_failure, wait_for_write_slot
 from services.token_manager import (
     ACTION_PAUSE,
     ACTION_UPDATE,
@@ -85,10 +86,11 @@ def _fb_get(path: str, token: str, params: Optional[dict] = None) -> dict:
     return data
 
 
-def _fb_post(path: str, token: str, data: dict) -> dict:
+def _fb_post(path: str, token: str, data: dict, source: str = "", operation: str = "ad_ops") -> dict:
     payload = dict(data or {})
     payload["access_token"] = token
     try:
+        wait_for_write_slot(token, source=source, operation=operation)
         resp = requests.post(f"{FB_API_BASE}/{path}", data=payload, timeout=25)
         result = resp.json()
     except requests.exceptions.RequestException as exc:
@@ -96,6 +98,7 @@ def _fb_post(path: str, token: str, data: dict) -> dict:
     except ValueError as exc:
         raise AdOpsError("FB API returned non-json response") from exc
     if resp.status_code >= 400 or result.get("error") or result.get("success") is False:
+        note_write_failure(token, result, operation=operation)
         raise AdOpsError(_fb_error(result))
     return result
 
@@ -250,10 +253,16 @@ def set_status(
     action_type = ACTION_PAUSE if desired_status == "PAUSED" else ACTION_UPDATE
     candidates = _pick_candidates(act_id, action_type)
     lock_key = f"status:{level}:{target_id}"
-    with _target_lock(lock_key):
+    with _target_lock(lock_key), account_write_guard(act_id, f"status:{level}:{desired_status}"):
         def _do(token, candidate):
             before = _read_target(level, target_id, token)
-            _fb_post(target_id, token, {"status": desired_status})
+            _fb_post(
+                target_id,
+                token,
+                {"status": desired_status},
+                source=candidate.get("source") or candidate.get("token_source") or "",
+                operation=f"status:{level}:{desired_status}",
+            )
             time.sleep(0.8)
             after = _read_target(level, target_id, token)
             return {"before": before, "after": after}
@@ -334,12 +343,18 @@ def set_daily_budget(
 
     candidates = _pick_candidates(act_id, ACTION_UPDATE)
     lock_key = f"budget:{level}:{target_id}"
-    with _target_lock(lock_key):
+    with _target_lock(lock_key), account_write_guard(act_id, f"budget:{level}"):
         def _do(token, candidate):
             before = _read_target(level, target_id, token)
             if before.get("lifetime_budget") and not before.get("daily_budget"):
                 raise AdOpsError("Target uses lifetime_budget and has no daily_budget to update")
-            _fb_post(target_id, token, {"daily_budget": str(minor)})
+            _fb_post(
+                target_id,
+                token,
+                {"daily_budget": str(minor)},
+                source=candidate.get("source") or candidate.get("token_source") or "",
+                operation=f"budget:{level}",
+            )
             time.sleep(0.8)
             after = _read_target(level, target_id, token)
             return {"before": before, "after": after}

@@ -230,6 +230,16 @@ def poll_task(node_id: str, node_secret: str) -> dict:
     ensure_local_executor_tables()
     conn = get_conn()
     try:
+        running_for_node = conn.execute(
+            """
+            SELECT id FROM local_executor_tasks
+            WHERE status='running' AND node_id=?
+            LIMIT 1
+            """,
+            (node_id,),
+        ).fetchone()
+        if running_for_node:
+            return {"task": None, "server_time": _now_cst(), "reason": "node_busy"}
         rows = conn.execute(
             """
             SELECT * FROM local_executor_tasks
@@ -240,6 +250,17 @@ def poll_task(node_id: str, node_secret: str) -> dict:
         ).fetchall()
         picked = None
         for row in rows:
+            if row["account_id"]:
+                running_for_account = conn.execute(
+                    """
+                    SELECT id FROM local_executor_tasks
+                    WHERE status='running' AND account_id=?
+                    LIMIT 1
+                    """,
+                    (row["account_id"],),
+                ).fetchone()
+                if running_for_account:
+                    continue
             if _node_can_take_task(node, row):
                 picked = row
                 break

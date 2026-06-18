@@ -17,6 +17,7 @@ import requests
 from core.database import get_conn, decrypt_token
 from core.account_access import note_account_read_failure, note_account_read_success
 from core.perf_history import append_perf_snapshot_history
+from services.execution_safety import account_write_guard, note_write_failure, wait_for_write_slot
 from services.notifier import notify_account, notify_global, notify_team
 
 logger = logging.getLogger("mira.guard")
@@ -240,11 +241,12 @@ def _fb_get(path: str, token: str, params: dict = None,
     return {"data": all_data}
 
 
-def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
+def _fb_post(path: str, token: str, data: dict, source: str = "") -> Tuple[bool, str]:
     """执行FB写操作，返回 (成功, 错误原因)"""
     import urllib.parse
     url = f"{FB_API_BASE}/{path}?access_token={urllib.parse.quote(token, safe='')}"
     try:
+        wait_for_write_slot(token, source=source, operation=f"guard:{path}")
         resp = requests.post(url, data=data, timeout=20)
         result = resp.json()
         if resp.status_code == 200 and result.get("success"):
@@ -260,10 +262,14 @@ def _fb_post(path: str, token: str, data: dict) -> Tuple[bool, str]:
             suffix = "权限拒绝"
             if subcode == 3498005:
                 suffix = "FB限制广告级状态修改，已按兜底逻辑升级处理"
+            note_write_failure(token, result, operation=f"guard:{path}")
             return False, f"{suffix}({code_part}): {msg}"
+        note_write_failure(token, result, operation=f"guard:{path}")
         return False, f"API错误({code_part}): {msg}"
     except requests.exceptions.RequestException as e:
         return False, f"网络错误: {e}"
+    except Exception as e:
+        return False, f"执行保护: {_sanitize_error_text(e)}"
 
 
 
@@ -879,11 +885,11 @@ def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
     candidates = []
     seen = set()
 
-    def _add(token: str, label: str):
+    def _add(token: str, label: str, source: str = ""):
         if not token or token in seen:
             return
         seen.add(token)
-        candidates.append({"token": token, "label": label or "token"})
+        candidates.append({"token": token, "label": label or "token", "source": source or ""})
 
     try:
         from services.token_manager import ACTION_PAUSE, get_exec_token_candidates
@@ -896,6 +902,7 @@ def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
             _add(
                 cand.get("token_plain") or cand.get("token") or "",
                 cand.get("label") or cand.get("alias") or cand.get("source") or "token",
+                cand.get("source") or cand.get("token_source") or "",
             )
     except Exception as exc:
         logger.warning("Failed to load PAUSE token candidates for %s: %s", act_id, _sanitize_error_text(exc))
@@ -913,7 +920,8 @@ def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str)
     errors = []
     candidates = _pause_token_candidates(account, primary_token)
     for cand in candidates:
-        ok, err = _fb_post(target_id, cand["token"], {"status": "PAUSED"})
+        with account_write_guard(account.get("act_id", ""), f"guard_pause:{target_id}"):
+            ok, err = _fb_post(target_id, cand["token"], {"status": "PAUSED"}, source=cand.get("source") or "")
         if ok:
             return True, "", cand["token"], cand["label"]
         if err:

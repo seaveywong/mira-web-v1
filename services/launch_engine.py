@@ -26,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from core.database import get_conn
+from services.execution_safety import note_write_failure, wait_for_write_slot
 from services.token_manager import (
     ACTION_CREATE,
     cooldown_token_by_plain,
@@ -366,6 +367,7 @@ class AutoPilotEngine:
                 "temporarily unavailable", "retry your request later",
                 "unexpected error", "code=1", "code=2", "code=4",
                 "code=17", "code=32", "code=341", "code=613",
+                "cooldown", "cooling",
             )
         ):
             return True
@@ -611,7 +613,7 @@ class AutoPilotEngine:
             req_payload = dict(base_payload)
             req_payload["access_token"] = token
             try:
-                wait_seconds = wait_for_token_slot_by_plain(token)
+                wait_seconds = wait_for_write_slot(token, operation=f"launch:{path}")
                 if wait_seconds > 0.2:
                     logger.info(
                         f"[AutoPilot] token request slot delayed {wait_seconds:.2f}s "
@@ -620,6 +622,9 @@ class AutoPilotEngine:
                 resp = requests.post(f"{FB_API_BASE}/{path}", json=req_payload, timeout=30)
                 data = resp.json()
             except Exception as req_err:
+                req_msg = str(req_err).lower()
+                if "cooldown" in req_msg or "cooling" in req_msg:
+                    raise
                 if attempt < 3:
                     delay = 1.5 * attempt
                     logger.warning(
@@ -635,6 +640,7 @@ class AutoPilotEngine:
 
             err = data["error"] or {}
             logger.error(f"[AutoPilot] FB API Error on {path}: {err} | payload={debug_payload}")
+            note_write_failure(token, data, operation=f"launch:{path}")
 
             # 自动检测并暂停需要认证的 Token（error_subcode=2859002）
             if err.get("error_subcode") == 2859002 or "certification" in str(err.get("error_user_title", "")).lower():
@@ -1570,6 +1576,7 @@ class AutoPilotEngine:
 
         if asset["file_type"] == "image":
             with open(file_path, "rb") as f:
+                wait_for_write_slot(token, operation=f"launch_upload_image:{act_id}")
                 resp = requests.post(
                     f"{FB_API_BASE}/act_{act_id_num}/adimages",
                     data={"access_token": token},
@@ -1578,6 +1585,7 @@ class AutoPilotEngine:
                 )
             data = resp.json()
             if "error" in data:
+                note_write_failure(token, data, operation=f"launch_upload_image:{act_id}")
                 raise Exception(f"图片上传失败: {data['error'].get('message', str(data))}")
             images = data.get("images", {})
             if not images:
@@ -1590,6 +1598,7 @@ class AutoPilotEngine:
 
         else:  # video
             with open(file_path, "rb") as f:
+                wait_for_write_slot(token, operation=f"launch_upload_video:{act_id}")
                 resp = requests.post(
                     f"https://graph-video.facebook.com/{FB_API_VERSION}/act_{act_id_num}/advideos",
                     data={"access_token": token, "title": asset["file_name"]},
@@ -1598,6 +1607,7 @@ class AutoPilotEngine:
                 )
             data = resp.json()
             if "error" in data:
+                note_write_failure(token, data, operation=f"launch_upload_video:{act_id}")
                 raise Exception(f"视频上传失败: {data['error'].get('message', str(data))}")
             video_id = data.get("id")
             if not video_id:

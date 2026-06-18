@@ -22,6 +22,7 @@ REGISTRATION_TTL_SECONDS = 10 * 60
 NODE_STALE_SECONDS = 90
 TOKEN_PROBE_TTL_SECONDS = 5 * 60
 MAX_ACCOUNT_PROBE = 250
+LOCAL_TOKEN_REQUEST_GAP_SECONDS = 3.0
 
 _lock = threading.RLock()
 _registration_codes: dict[str, dict] = {}
@@ -410,6 +411,10 @@ def register_node(code: str, node_name: str, browser: str = "", user_agent: str 
             "verified_at_ts": 0,
             "verified_at": "",
             "last_selected_at_ts": 0,
+            "next_request_at_ts": 0,
+            "cooldown_until_ts": 0,
+            "cooldown_reason": "",
+            "last_error_code": None,
         }
         _save_persisted_nodes_locked()
         return {
@@ -586,6 +591,10 @@ def node_public_view(node_id: str) -> dict:
     expires_in_seconds = int(exp_ts - now) if exp_ts else None
     if expires_in_seconds is not None and expires_in_seconds <= 0 and status != "offline":
         status = "expired"
+    cooldown_until = float(node.get("cooldown_until_ts") or 0)
+    cooldown_remaining = int(cooldown_until - now) if cooldown_until > now else 0
+    if cooldown_remaining > 0 and status == "online":
+        status = "cooldown"
     has_runtime_token = bool(node.get("token_plain"))
     executable = bool(
         online
@@ -611,6 +620,8 @@ def node_public_view(node_id: str) -> dict:
         "token_fingerprint": node.get("token_fp"),
         "token_expires_at": node.get("token_expires_at"),
         "expires_in_seconds": expires_in_seconds,
+        "cooldown_remaining_seconds": cooldown_remaining,
+        "cooldown_reason": node.get("cooldown_reason") or "",
         "has_runtime_token": has_runtime_token,
         "executable": executable,
         "activation_mode": "one_time_code",
@@ -672,6 +683,72 @@ def mark_local_token_selected(node_id: str) -> None:
             _save_persisted_nodes_locked()
 
 
+def _node_by_token_plain_locked(plain_token: str) -> Optional[dict]:
+    token_fp = _token_fp(plain_token)
+    if not token_fp:
+        return None
+    for node in _nodes.values():
+        if node.get("token_fp") == token_fp:
+            return node
+    return None
+
+
+def wait_for_local_token_slot_by_plain(
+    plain_token: str,
+    min_gap_seconds: float = LOCAL_TOKEN_REQUEST_GAP_SECONDS,
+) -> float:
+    plain_token = str(plain_token or "").strip()
+    if not plain_token:
+        return 0.0
+    with _lock:
+        _load_persisted_nodes_locked()
+        node = _node_by_token_plain_locked(plain_token)
+        if not node:
+            return 0.0
+        now = _now_ts()
+        cooldown_until = float(node.get("cooldown_until_ts") or 0)
+        if cooldown_until > now:
+            remain = int(cooldown_until - now)
+            reason = node.get("cooldown_reason") or "local token cooldown"
+            raise RuntimeError(f"Local token cooldown {remain}s: {reason}")
+        next_at = float(node.get("next_request_at_ts") or 0)
+        wait_seconds = max(0.0, next_at - now)
+        node["next_request_at_ts"] = max(now, next_at) + max(
+            0.2,
+            float(min_gap_seconds or LOCAL_TOKEN_REQUEST_GAP_SECONDS),
+        )
+        node["last_selected_at_ts"] = now
+        _save_persisted_nodes_locked()
+    if wait_seconds > 0:
+        time.sleep(wait_seconds)
+    return wait_seconds
+
+
+def cooldown_local_token_by_plain(
+    plain_token: str,
+    seconds: float,
+    reason: str = "",
+    error_code: Optional[int] = None,
+) -> bool:
+    plain_token = str(plain_token or "").strip()
+    if not plain_token or seconds <= 0:
+        return False
+    changed = False
+    with _lock:
+        _load_persisted_nodes_locked()
+        node = _node_by_token_plain_locked(plain_token)
+        if not node:
+            return False
+        now = _now_ts()
+        node["cooldown_until_ts"] = max(float(node.get("cooldown_until_ts") or 0), now + float(seconds))
+        node["cooldown_reason"] = str(reason or "")[:500]
+        node["last_error_code"] = error_code
+        node["last_error"] = str(reason or node.get("last_error") or "")[:500]
+        changed = True
+        _save_persisted_nodes_locked()
+    return changed
+
+
 def get_local_token_candidates_for_account(act_id: str, action_type: str = "CREATE") -> list[dict]:
     action = str(action_type or "").upper()
     if action not in {"CREATE", "UPDATE", "PAUSE"}:
@@ -684,6 +761,9 @@ def get_local_token_candidates_for_account(act_id: str, action_type: str = "CREA
         for node_id, node in _nodes.items():
             last_seen = float(node.get("last_seen_ts") or 0)
             if not last_seen or now - last_seen > NODE_STALE_SECONDS:
+                continue
+            cooldown_until = float(node.get("cooldown_until_ts") or 0)
+            if cooldown_until > now:
                 continue
             if not node.get("token_plain"):
                 continue

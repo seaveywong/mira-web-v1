@@ -16,6 +16,7 @@ from typing import Tuple, Optional
 from core.auth import is_superadmin
 from core.database import get_conn, decrypt_token
 from core.tenancy import is_operator_user, team_id_for_create, user_id
+from services.execution_safety import note_write_failure, wait_for_write_slot
 from services.guard_engine import _local_per_usd_rate
 from services.token_manager import get_exec_token, ACTION_CREATE, ACTION_READ, ACTION_UPDATE
 from services.notifier import notify_account, notify_global, notify_team
@@ -170,11 +171,13 @@ def _fb_post_result(path: str, token: str, data: dict) -> Tuple[bool, dict]:
     payload = dict(data or {})
     payload["access_token"] = token
     try:
+        wait_for_write_slot(token, operation=f"warmup:{path}")
         resp = requests.post(f"{FB_API_BASE}/{path}", json=payload, timeout=30)
         result = resp.json()
         if resp.status_code == 200 and result.get("success") is not False:
             return True, result
         err = result.get("error", {})
+        note_write_failure(token, result, operation=f"warmup:{path}")
         return False, {
             "error": True,
             "code": err.get("code", 0),
@@ -186,6 +189,8 @@ def _fb_post_result(path: str, token: str, data: dict) -> Tuple[bool, dict]:
         }
     except requests.exceptions.RequestException as e:
         return False, {"error": True, "message": f"网络错误: {e}"}
+    except Exception as e:
+        return False, {"error": True, "message": f"执行保护: {e}"}
 
 
 def _fb_get(path: str, token: str, params: dict = None) -> dict:
@@ -229,6 +234,7 @@ def _upload_image_to_fb(act_id: str, token: str, file_url: str) -> Tuple[bool, s
             return False, f"素材不是图片文件: {filename}"
 
         with open(file_path, "rb") as f:
+            wait_for_write_slot(token, operation=f"warmup_upload:{act_id}")
             resp = requests.post(
                 f"{FB_API_BASE}/{act_id}/adimages",
                 files={"filename": (filename, f, mime_type)},
@@ -245,6 +251,7 @@ def _upload_image_to_fb(act_id: str, token: str, file_url: str) -> Tuple[bool, s
                 if isinstance(val, dict) and val.get("hash"):
                     return True, val["hash"]
             return False, f"未获取到 image_hash: {result}"
+        note_write_failure(token, result, operation=f"warmup_upload:{act_id}")
         return False, _format_fb_response_error(resp)
     except FileNotFoundError:
         return False, f"素材文件不存在: {file_url}"
