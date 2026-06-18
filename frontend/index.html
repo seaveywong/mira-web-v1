@@ -5339,6 +5339,36 @@ async function fillMatrixSelects(){
  }
 }
 
+async function fillAssetMatrixPicker(selectId, customId, currentValue, mode){
+ var selectEl=document.getElementById(selectId);
+ if(!selectEl)return;
+ var customEl=document.getElementById(customId);
+ var current=(currentValue!==undefined&&currentValue!==null)?String(currentValue):((selectEl.value||'').trim());
+ var matrices=normalizeMatrixIds(await loadMatrixOptions(), current&&current!=='0'&&current!=='__nochange__'?[current]:[]);
+ var head=mode==='nochange'
+  ? '<option value="__nochange__">不修改素材级矩阵</option><option value="0">清空素材级矩阵</option>'
+  : '<option value="0">不指定素材级矩阵</option>';
+ selectEl.innerHTML=head+matrices.map(function(m){return '<option value="'+m+'">矩阵 '+m+'</option>';}).join('');
+ if(current&&Array.prototype.some.call(selectEl.options,function(o){return o.value===current;}))selectEl.value=current;
+ else selectEl.value=mode==='nochange'?'__nochange__':'0';
+ if(customEl)customEl.value='';
+}
+function resolveAssetMatrixPicker(selectId, customId, allowNoChange){
+ var customEl=document.getElementById(customId);
+ var customRaw=customEl?(customEl.value||'').trim():'';
+ if(customRaw){
+  if(!/^[1-9]\d*$/.test(customRaw))throw new Error('矩阵编号必须是正整数');
+  return parseInt(customRaw,10);
+ }
+ var selectEl=document.getElementById(selectId);
+ var raw=selectEl?(selectEl.value||'').trim():'';
+ if(allowNoChange&&raw==='__nochange__')return undefined;
+ if(!raw||raw==='0')return 0;
+ var value=parseInt(raw,10);
+ if(!value||value<1)throw new Error('矩阵编号必须是正整数');
+ return value;
+}
+
 async function doLogin(){
  var user=document.getElementById('loginUser').value.trim();
  var pwd=document.getElementById('loginPwd').value;
@@ -9608,6 +9638,11 @@ function _showCountrySelectThenPick(){
     '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材组（建议按产品/项目归类）</label>'+
     '<input id="uploadFolderInputPick" class="inp" style="width:100%" value="'+escHtml(_assetLastFolderName||'')+'" placeholder="例如：金融-US-消息 / 表单线索 / 减脂视频" />'+
    '</div>'+
+   '<div style="margin-bottom:12px">'+
+    '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材级矩阵（可选）</label>'+
+    '<select class="fc" id="uploadMatrixPick" onchange="onMatrixSelectChanged(\'uploadMatrixPick\',\'uploadMatrixCustomPick\')"></select>'+
+    '<input class="fc" id="uploadMatrixCustomPick" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'uploadMatrixPick\',\'uploadMatrixCustomPick\')">'+
+   '</div>'+
    '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">'+btns+'</div>'+
    '<div style="display:flex;gap:8px;margin-bottom:12px">'+
     '<input id="customCountryInputPick" placeholder="自定义（如 TW,HK）" style="flex:1;padding:6px 10px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rs);color:var(--t1);font-size:13px">'+
@@ -9618,15 +9653,20 @@ function _showCountrySelectThenPick(){
   '</div>'+
  '</div>';
  document.body.appendChild(modal);
+ fillAssetMatrixPicker('uploadMatrixPick','uploadMatrixCustomPick',null,'normal');
 }
 function _pickCountryAndUpload(country){
+ var matrixId=0;
+ try{matrixId=resolveAssetMatrixPicker('uploadMatrixPick','uploadMatrixCustomPick',false);}catch(e){toast(e.message,'er');return;}
+ var folderName=((document.getElementById('uploadFolderInputPick')||{}).value||'').trim();
  var modal=document.getElementById('moCountrySelectPick');
  if(modal)modal.remove();
  // 存储选择的国家，然后打开文件选择框
  window._selectedUploadCountry=country||'';
- window._selectedUploadFolder=((document.getElementById('uploadFolderInputPick')||{}).value||'').trim();
+ window._selectedUploadFolder=folderName;
+ window._selectedUploadMatrix=matrixId||0;
  window._selectedUploadBatch=_makeAssetBatchCode();
- if(window._selectedUploadFolder)_assetLastFolderName=window._selectedUploadFolder;
+ if(folderName)_assetLastFolderName=folderName;
  window._uploadCountrySet=true; // 标记国家已选择，防止 onchange 再次弹窗
  var fi=document.getElementById('assetFileInput');
  fi.value=''; // 清空之前的选择，确保 onchange 能触发
@@ -9640,12 +9680,14 @@ function _onAssetFileSelected(files){
   // 国家已通过 _pickCountryAndUpload 设置，直接上传
   var country=window._selectedUploadCountry;
   var folderName=window._selectedUploadFolder||'';
+  var matrixId=window._selectedUploadMatrix||0;
   var batchCode=window._selectedUploadBatch||_makeAssetBatchCode();
   window._uploadCountrySet=false;
   delete window._selectedUploadCountry;
   delete window._selectedUploadFolder;
+  delete window._selectedUploadMatrix;
   delete window._selectedUploadBatch;
-  handleAssetFiles(files, country!==undefined?[country].filter(Boolean):null, folderName, batchCode);
+  handleAssetFiles(files, country!==undefined?[country].filter(Boolean):null, folderName, batchCode, matrixId);
  } else {
   // 未经过国家选择流程（不应发生），弹出国家选择
   _showCountrySelectModal(files);
@@ -9674,6 +9716,11 @@ function _showCountrySelectModal(files){
     '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材组（建议按产品/项目归类）</label>'+
     '<input id="uploadFolderInput" class="inp" style="width:100%" value="'+escHtml(_assetLastFolderName||'')+'" placeholder="例如：金融-US-消息 / 表单线索 / 减脂视频" />'+
    '</div>'+
+   '<div style="margin-bottom:12px">'+
+    '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材级矩阵（可选）</label>'+
+    '<select class="fc" id="uploadMatrixMulti" onchange="onMatrixSelectChanged(\'uploadMatrixMulti\',\'uploadMatrixCustomMulti\')"></select>'+
+    '<input class="fc" id="uploadMatrixCustomMulti" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'uploadMatrixMulti\',\'uploadMatrixCustomMulti\')">'+
+   '</div>'+
    '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px" id="countryBtnGroup">'+
     ['US','美国','GB','英国','CA','加拿大','AU','澳大利亚','DE','德国','FR','法国','JP','日本','BR','巴西','MX','墨西哥','IN','印度','TH','泰国','VN','越南','ID','印尼','PH','菲律宾','MY','马来西亚','SG','新加坡','ZA','南非','NG','尼日利亚','EG','埃及'].reduce(function(acc,v,i){
      if(i%2===0){acc.push('<button class="btn btn-g btn-sm" style="min-width:80px" onclick="_toggleCountry(this,\''+v+'\')" data-code="'+v+'">'+v+'</button>');}
@@ -9692,6 +9739,7 @@ function _showCountrySelectModal(files){
   '</div>'+
  '</div>';
  document.body.appendChild(modal);
+ fillAssetMatrixPicker('uploadMatrixMulti','uploadMatrixCustomMulti',null,'normal');
 }
 function _toggleCountry(btn,code){
  btn.classList.toggle('btn-p');
@@ -9703,14 +9751,16 @@ function _confirmUploadWithCountries(){
  document.querySelectorAll('#countryBtnGroup button.btn-p').forEach(function(b){selected.push(b.getAttribute('data-code'));});
  var custom=document.getElementById('customCountryInput').value.trim();
  var folderName=((document.getElementById('uploadFolderInput')||{}).value||'').trim();
+ var matrixId=0;
+ try{matrixId=resolveAssetMatrixPicker('uploadMatrixMulti','uploadMatrixCustomMulti',false);}catch(e){toast(e.message,'er');return;}
  var batchCode=_makeAssetBatchCode();
  if(custom)custom.split(',').forEach(function(c){var t=c.trim();if(t&&!selected.includes(t))selected.push(t);});
  if(folderName)_assetLastFolderName=folderName;
  document.getElementById('moCountrySelect').remove();
- handleAssetFiles(_pendingUploadFiles,selected.length?selected:null,folderName,batchCode);
+ handleAssetFiles(_pendingUploadFiles,selected.length?selected:null,folderName,batchCode,matrixId);
  _pendingUploadFiles=null;
 }
-async function handleAssetFiles(files,countries,folderName,batchCode){
+async function handleAssetFiles(files,countries,folderName,batchCode,matrixId){
  if(!files||!files.length)return;
  // 如果是直接点击上传按鈕（非拖放），弹出国家选择
  if(countries===undefined&&folderName===undefined){
@@ -9723,10 +9773,11 @@ async function handleAssetFiles(files,countries,folderName,batchCode){
  var countriesStr=countries&&countries.length?countries.join(','):'';
  folderName=(folderName||'').trim();
  batchCode=(batchCode||'').trim();
+ matrixId=parseInt(matrixId||0,10)||0;
  var results=[];
  for(var i=0;i<files.length;i++){
   var file=files[i];
-  progEl.innerHTML='<div style="padding:10px 14px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);font-size:13px;color:var(--t2)">上传中 ('+(i+1)+'/'+files.length+'): '+file.name+'...'+(folderName?' · 素材组 '+folderName:'')+(batchCode?' · 批次 '+_formatAssetBatchLabel(batchCode):'')+'</div>';
+  progEl.innerHTML='<div style="padding:10px 14px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);font-size:13px;color:var(--t2)">上传中 ('+(i+1)+'/'+files.length+'): '+file.name+'...'+(folderName?' · 素材组 '+folderName:'')+(batchCode?' · 批次 '+_formatAssetBatchLabel(batchCode):'')+(matrixId?' · 矩阵 '+matrixId:'')+'</div>';
   try{
    var fd=new FormData();
    fd.append('file',file);
@@ -9734,6 +9785,7 @@ async function handleAssetFiles(files,countries,folderName,batchCode){
    if(countriesStr)fd.append('target_countries',countriesStr);
    if(folderName)fd.append('folder_name',folderName);
    if(batchCode)fd.append('batch_code',batchCode);
+   if(matrixId)fd.append('matrix_id',matrixId);
    var token=localStorage.getItem('mira_token');
    var resp=await fetch('/api/assets',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
    var data=await resp.json();
@@ -9746,7 +9798,7 @@ async function handleAssetFiles(files,countries,folderName,batchCode){
  var ok=results.filter(function(r){return r.ok&&!r.duplicate}).length;
  var dup=results.filter(function(r){return r.duplicate}).length;
  var fail=results.filter(function(r){return!r.ok}).length;
- var msg=ok+' 个上传成功'+(dup?' · '+dup+' 个重复跳过':'')+(fail?' · '+fail+' 个失败':'')+(countriesStr?' （'+countriesStr+'）':'')+(folderName?' · 素材组 '+folderName:'')+(batchCode?' · 批次 '+_formatAssetBatchLabel(batchCode):'');
+ var msg=ok+' 个上传成功'+(dup?' · '+dup+' 个重复跳过':'')+(fail?' · '+fail+' 个失败':'')+(countriesStr?' （'+countriesStr+'）':'')+(folderName?' · 素材组 '+folderName:'')+(batchCode?' · 批次 '+_formatAssetBatchLabel(batchCode):'')+(matrixId?' · 矩阵 '+matrixId:'');
  progEl.innerHTML='<div style="padding:10px 14px;background:var(--okg);border:1px solid var(--ok);border-radius:var(--rs);font-size:13px;color:var(--ok)">'+msg+'</div>';
  setTimeout(function(){progEl.style.display='none';},3000);
  await loadAssets();
@@ -10021,6 +10073,7 @@ function openBatchOrganizeAssets(){
    '<div style="font-size:13px;color:var(--t2);margin-bottom:12px">已选 '+ids.length+' 个素材。留空的字段不会修改。</div>'+
    '<div class="fg"><label class="fl">素材组</label><input class="fc" id="batchAssetFolder" placeholder="例如：金融-US-消息 / SG-表单"></div>'+
    '<div class="fg"><label class="fl">批次</label><input class="fc" id="batchAssetBatchCode" placeholder="留空=不修改；可填当前上传批次"></div>'+
+   '<div class="fg"><label class="fl">素材级矩阵</label><select class="fc" id="batchAssetMatrix" onchange="onMatrixSelectChanged(\'batchAssetMatrix\',\'batchAssetMatrixCustom\')"></select><input class="fc" id="batchAssetMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'batchAssetMatrix\',\'batchAssetMatrixCustom\')"><div class="fh">只影响素材库归类和筛选，不绕过账户/Token 权限校验。</div></div>'+
    '<div class="fg"><label class="fl">标签</label><input class="fc" id="batchAssetTags" placeholder="多个标签用逗号分隔，如：女主角, SG, YE"></div>'+
    '<div class="fg"><label class="fl">标签方式</label><select class="fc" id="batchAssetTagsMode"><option value="append">追加到原标签</option><option value="replace">替换原标签</option></select></div>'+
   '</div>'+
@@ -10028,6 +10081,7 @@ function openBatchOrganizeAssets(){
  '</div>';
  document.body.appendChild(mo);
  mo.style.display='flex';
+ fillAssetMatrixPicker('batchAssetMatrix','batchAssetMatrixCustom',null,'nochange');
 }
 async function submitBatchOrganizeAssets(){
  var ids=getSelectedAssetIds();
@@ -10036,10 +10090,13 @@ async function submitBatchOrganizeAssets(){
  var tagsText=((document.getElementById('batchAssetTags')||{}).value||'').trim();
  var tagsMode=((document.getElementById('batchAssetTagsMode')||{}).value||'append');
  var body={ids:ids,tags_mode:tagsMode};
+ var matrixVal;
+ try{matrixVal=resolveAssetMatrixPicker('batchAssetMatrix','batchAssetMatrixCustom',true);}catch(e){toast(e.message,'er');return;}
  if(folder)body.folder_name=folder;
  if(batch)body.batch_code=batch;
  if(tagsText)body.tags=tagsText.split(',').map(function(t){return t.trim();}).filter(Boolean);
- if(!body.folder_name&&!body.batch_code&&!body.tags){toast('请至少填写一个整理项','wa');return;}
+ if(matrixVal!==undefined)body.matrix_id=matrixVal;
+ if(!body.folder_name&&!body.batch_code&&!body.tags&&body.matrix_id===undefined){toast('请至少填写一个整理项','wa');return;}
  try{
   await api('POST','/assets/batch-update',body);
   closeModal('moAssetBatchOrganize');
@@ -10147,6 +10204,7 @@ async function openAssetDetail(assetId){
   html+='<div class="fg"><label class="fl">上传批次</label><input class="fc" id="detailBatchCode" value="'+safeBatchCode+'" placeholder="留空=未分批"></div>';
   html+='<div class="fg"><label class="fl">备注</label><input class="fc" id="detailAssetNote" value="'+safeNote+'" placeholder="可选备注"></div>';
   html+='</div>';
+  html+='<div class="fg"><label class="fl">素材级矩阵</label><select class="fc" id="detailAssetMatrix" onchange="onMatrixSelectChanged(\'detailAssetMatrix\',\'detailAssetMatrixCustom\')"></select><input class="fc" id="detailAssetMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'detailAssetMatrix\',\'detailAssetMatrixCustom\')"><div class="fh">素材级矩阵用于素材库归类；实际投放仍按账户和 Token 权限执行。</div></div>';
   html+='<div class="fg"><label class="fl">标签</label><input class="fc" id="detailAssetTags" value="'+safeTags+'" placeholder="多个标签用逗号分隔，例如：YE, SG, 女主角"></div>';
   html+='<div style="display:flex;justify-content:flex-end"><button class="btn btn-g btn-sm" onclick="saveAssetOrganization('+assetId+')">保存整理</button></div>';
   html+='</div>';
@@ -10209,6 +10267,7 @@ async function openAssetDetail(assetId){
 
   html+='</div>';
   document.getElementById('assetDetailBody').innerHTML=html;
+  fillAssetMatrixPicker('detailAssetMatrix','detailAssetMatrixCustom',a.matrix_id||0,'normal');
   document.getElementById('assetDetailTitle').textContent=' '+a.file_name;
   // 底部按钮
   var footHtml='<button class="btn btn-g" onclick="closeModal(\'moAssetDetail\')">关闭</button>';
@@ -10229,10 +10288,11 @@ async function saveAssetOrganization(assetId){
  var tagsText=((document.getElementById('detailAssetTags')||{}).value||'').trim();
  var tags=tagsText?tagsText.split(',').map(function(t){return t.trim();}).filter(Boolean):[];
  try{
+  var matrixVal=resolveAssetMatrixPicker('detailAssetMatrix','detailAssetMatrixCustom',false);
   if(displayName.trim()){
    await api('POST','/assets/'+assetId+'/rename',{display_name:displayName.trim()});
   }
-  await api('PUT','/assets/'+assetId,{folder_name:folderName||null,batch_code:batchCode||null,note:note||null,tags:tags});
+  await api('PUT','/assets/'+assetId,{folder_name:folderName||null,batch_code:batchCode||null,note:note||null,tags:tags,matrix_id:matrixVal});
   if(folderName)_assetLastFolderName=folderName;
   toast(' 素材整理已保存','ok');
   openAssetDetail(assetId);

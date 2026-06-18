@@ -256,6 +256,18 @@ def _row_to_dict(row) -> dict:
     return d
 
 
+def _asset_matrix_ids(asset: dict, account_matrix_ids: list[int] | None = None) -> list[int]:
+    ids = set()
+    for mid in [asset.get("matrix_id")] + list(account_matrix_ids or []):
+        try:
+            parsed = int(mid)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            ids.add(parsed)
+    return sorted(ids)
+
+
 def _act_id_variants(act_id: str) -> list[str]:
     raw = str(act_id or "").strip()
     if not raw:
@@ -317,6 +329,7 @@ def _ensure_asset_library_columns(conn) -> None:
         "tags": "TEXT",
         "source": "TEXT DEFAULT 'upload'",
         "team_id": "INTEGER",
+        "matrix_id": "INTEGER",
     }
     for col, definition in optional_cols.items():
         if col not in cols:
@@ -512,6 +525,8 @@ def list_assets(
     if matrix_id:
         where.append(
             """(
+                COALESCE(a.matrix_id,0)=?
+                OR
                 EXISTS (
                     SELECT 1
                       FROM accounts aa
@@ -529,7 +544,7 @@ def list_assets(
                 )
             )"""
         )
-        params.extend([int(matrix_id), int(matrix_id)])
+        params.extend([int(matrix_id), int(matrix_id), int(matrix_id)])
     if tag and tag.strip():
         where.append("COALESCE(tags,'') LIKE ?"); params.append(f"%{tag.strip()}%")
     if performance_filter:
@@ -617,7 +632,7 @@ def list_assets(
                 matrix_map.setdefault(source_act, set()).add(mid)
     for item in items:
         act_key = str(item.get("act_id") or "").strip()
-        item["linked_matrix_ids"] = sorted(matrix_map.get(act_key, set()))
+        item["linked_matrix_ids"] = _asset_matrix_ids(item, sorted(matrix_map.get(act_key, set())))
     conn.close()
     return {"total": total, "items": items}
 
@@ -667,7 +682,7 @@ def get_asset(asset_id: int, user=Depends(get_current_user)):
         conn.close()
         raise HTTPException(404, "素材不存在")
     data = _row_to_dict(row)
-    data["linked_matrix_ids"] = _matrix_ids_for_act(conn, data.get("act_id"))
+    data["linked_matrix_ids"] = _asset_matrix_ids(data, _matrix_ids_for_act(conn, data.get("act_id")))
     conn.close()
     return data
 
@@ -676,6 +691,7 @@ class AssetBatchUpdateBody(BaseModel):
     ids: list[int]
     folder_name: Optional[str] = None
     batch_code: Optional[str] = None
+    matrix_id: Optional[int] = None
     tags: Optional[list] = None
     tags_mode: Optional[str] = "replace"  # replace / append
     asset_status: Optional[str] = None
@@ -720,6 +736,13 @@ def _update_assets_batch(conn, body: AssetBatchUpdateBody, user, allow_unassigne
     if body.batch_code is not None:
         updates.append("batch_code=?")
         params.append((body.batch_code or "").strip() or None)
+    if body.matrix_id is not None:
+        try:
+            matrix_id = int(body.matrix_id or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "矩阵编号必须是正整数")
+        updates.append("matrix_id=?")
+        params.append(matrix_id if matrix_id > 0 else None)
     if body.asset_status is not None:
         status = (body.asset_status or "").strip().lower()
         if status not in ("active", "archived"):
@@ -895,6 +918,7 @@ async def upload_asset(
     target_countries: Optional[str] = Form(None),
     folder_name: Optional[str] = Form(None),
     batch_code: Optional[str] = Form(None),
+    matrix_id: Optional[int] = Form(None),
     user=Depends(get_current_user)
 ):
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -953,6 +977,13 @@ async def upload_asset(
         now = datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
         folder_name = (folder_name or "").strip() or None
         batch_code = (batch_code or "").strip() or None
+        clean_matrix_id = None
+        if matrix_id is not None:
+            try:
+                parsed_matrix_id = int(matrix_id or 0)
+            except (TypeError, ValueError):
+                parsed_matrix_id = 0
+            clean_matrix_id = parsed_matrix_id if parsed_matrix_id > 0 else None
         # display_name 用于展示(可重命名),file_name 保留原始文件名
         # v4.0: 生成 asset_code
         try:
@@ -967,10 +998,10 @@ async def upload_asset(
         cur = conn.execute(
             """INSERT INTO ad_assets
                (act_id, file_name, display_name, file_type, file_path, thumb_path,
-                file_size, file_hash, upload_status, note, target_countries, folder_name, batch_code, asset_code, team_id, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,'local_saved',?,?,?,?,?,?,?,?)""",
+                file_size, file_hash, upload_status, note, target_countries, folder_name, batch_code, asset_code, team_id, matrix_id, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,'local_saved',?,?,?,?,?,?,?,?,?)""",
             (act_id, file.filename, file.filename, file_type, save_path, thumb_path,
-             len(content), file_hash, note, target_countries, folder_name, batch_code, asset_code_new, resource_team_id, now, now)
+             len(content), file_hash, note, target_countries, folder_name, batch_code, asset_code_new, resource_team_id, clean_matrix_id, now, now)
         )
         asset_id = cur.lastrowid
         conn.commit()
@@ -1576,6 +1607,7 @@ class AssetUpdate(BaseModel):
     target_countries: Optional[str] = None
     folder_name: Optional[str] = None
     batch_code: Optional[str] = None
+    matrix_id: Optional[int] = None
     tags: Optional[list] = None
     asset_status: Optional[str] = None
 
@@ -1616,6 +1648,13 @@ def update_asset(asset_id: int, body: AssetUpdate, user=Depends(get_current_user
         updates.append("folder_name=?"); params.append((body.folder_name or "").strip() or None)
     if body.batch_code is not None:
         updates.append("batch_code=?"); params.append((body.batch_code or "").strip() or None)
+    if body.matrix_id is not None:
+        try:
+            matrix_id = int(body.matrix_id or 0)
+        except (TypeError, ValueError):
+            conn.close()
+            raise HTTPException(400, "矩阵编号必须是正整数")
+        updates.append("matrix_id=?"); params.append(matrix_id if matrix_id > 0 else None)
     if body.tags is not None:
         updates.append("tags=?"); params.append(json.dumps(_normalize_asset_tags(body.tags), ensure_ascii=False))
     if body.custom_headline is not None:

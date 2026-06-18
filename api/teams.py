@@ -67,7 +67,7 @@ RESOURCE_CONFIG: dict[str, dict[str, Any]] = {
         "label": "Assets",
         "select": """r.id, COALESCE(NULLIF(r.display_name,''), NULLIF(r.file_name,''), r.asset_code) AS name,
                        r.file_name, r.asset_code, r.act_id, r.file_type, r.source, r.upload_status,
-                       r.score_label, r.created_at, r.team_id, t.name AS team_name""",
+                       r.score_label, r.matrix_id, r.created_at, r.team_id, t.name AS team_name""",
         "search": ("r.display_name", "r.file_name", "r.asset_code", "r.act_id", "r.tags", "r.source"),
         "order": "r.created_at DESC, r.id DESC",
     },

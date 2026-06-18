@@ -5741,14 +5741,25 @@ def get_matrices(current_user=Depends(get_current_user)):
     has_tw_pages = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tw_certified_pages'"
     ).fetchone()
+    has_assets = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ad_assets'"
+    ).fetchone()
     matrix_ids = set()
+    def add_matrix_id(value):
+        try:
+            mid = int(value)
+        except (TypeError, ValueError):
+            return
+        if mid > 0:
+            matrix_ids.add(mid)
     token_where, token_params = ["matrix_id IS NOT NULL"], []
     apply_team_scope(token_where, token_params, current_user, "team_id", include_unassigned=False)
     token_rows = conn.execute(
         "SELECT DISTINCT matrix_id FROM fb_tokens WHERE " + " AND ".join(token_where),
         token_params,
     ).fetchall()
-    matrix_ids.update(r["matrix_id"] for r in token_rows if r["matrix_id"] is not None)
+    for r in token_rows:
+        add_matrix_id(r["matrix_id"])
     if has_tw_pages:
         page_where, page_params = ["matrix_id IS NOT NULL"], []
         apply_team_scope(page_where, page_params, current_user, "team_id", include_unassigned=False)
@@ -5756,7 +5767,22 @@ def get_matrices(current_user=Depends(get_current_user)):
             "SELECT DISTINCT matrix_id FROM tw_certified_pages WHERE " + " AND ".join(page_where),
             page_params,
         ).fetchall()
-        matrix_ids.update(r["matrix_id"] for r in page_rows if r["matrix_id"] is not None)
+        for r in page_rows:
+            add_matrix_id(r["matrix_id"])
+    if has_assets:
+        try:
+            asset_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ad_assets)").fetchall()}
+            if "matrix_id" in asset_cols:
+                asset_where, asset_params = ["matrix_id IS NOT NULL"], []
+                apply_team_scope(asset_where, asset_params, current_user, "team_id", include_unassigned=False)
+                asset_rows = conn.execute(
+                    "SELECT DISTINCT matrix_id FROM ad_assets WHERE " + " AND ".join(asset_where),
+                    asset_params,
+                ).fetchall()
+                for r in asset_rows:
+                    add_matrix_id(r["matrix_id"])
+        except Exception:
+            logging.exception("Failed to load asset matrix ids")
     conn.close()
     return {"matrices": sorted(matrix_ids)}
 
