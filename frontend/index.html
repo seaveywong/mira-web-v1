@@ -15677,10 +15677,55 @@ function _landingPageSearchText(page){
 function _landingHealthStatus(page){
  return String((page&&page.last_health_status)||'').trim().toLowerCase();
 }
+function _landingHealthText(text){
+ var s=String(text||'');
+ var map={
+  'Publish status':'发布状态',
+  'Public URL':'公开链接',
+  'Custom domain':'自定义域名',
+  'Redirect targets':'跳转目标',
+  'Form direct-link mode':'表单直跳模式',
+  'Landing-page mode':'普通落地页模式',
+  'Worker / tracking / protection':'Worker / 统计防护',
+  'Live redirect':'线上直跳',
+  'Live page':'线上页面',
+  'Live access':'线上访问',
+  'All checks passed':'所有检查通过',
+  'Published':'已发布',
+  'No reachable Pages or custom-domain URL':'没有可访问的 Pages 或自定义域链接',
+  'No custom domain configured; using the default Cloudflare Pages domain':'未配置自定义域名，当前使用 Cloudflare Pages 默认域',
+  'No redirect target configured':'没有配置跳转目标',
+  'Root path redirects directly to the rotating target':'根路径访问会直接 302 到轮询目标',
+  'Form direct-link mode requires Worker':'表单直跳必须启用 Worker',
+  'Root path returns HTML; button clicks redirect to rotating targets':'根路径访问返回 HTML 页面，按钮点击后按轮询策略跳转',
+  'Worker is disabled; edge tracking, protection and server-side rotation are unavailable':'未启用 Worker，无法做边缘统计、防护或服务端轮询',
+  'The request was blocked by protection rules; test again from an allowed environment':'请求被防护规则拦截，请使用符合规则的访问环境复测',
+  'The request was blocked by protection rules; the page may still be healthy':'请求被防护规则拦截；页面可能正常，但当前自检环境不在允许范围内',
+  'Public URL request failed':'请求公开链接失败',
+  'No custom domain configured':'未配置自定义域名'
+ };
+ Object.keys(map).forEach(function(k){s=s.split(k).join(map[k]);});
+ s=s.replace(/Current status:\s*/g,'当前状态：');
+ s=s.replace(/https:\/\/([^ ]+) is the primary URL/g,'https://$1 已作为主链接');
+ s=s.replace(/Domain is not active yet; currently using the Pages fallback URL\.\s*/g,'域名未激活，当前使用 Pages 备用域。');
+ s=s.replace(/Finish the CNAME record in Cloudflare DNS\./g,'请在 Cloudflare DNS 中完成 CNAME 指向。');
+ s=s.replace(/(\d+) target link\(s\) configured/g,'已配置 $1 个目标链接');
+ s=s.replace(/Worker enabled; tracking on, protection on/g,'Worker 已启用；统计开，防护开');
+ s=s.replace(/Worker enabled; tracking on, protection off/g,'Worker 已启用；统计开，防护关');
+ s=s.replace(/Worker enabled; tracking off, protection on/g,'Worker 已启用；统计关，防护开');
+ s=s.replace(/Worker enabled; tracking off, protection off/g,'Worker 已启用；统计关，防护关');
+ s=s.replace(/Root path returned HTTP (\d+) and redirected to a configured target/g,'根路径返回 HTTP $1，并已跳转到配置目标');
+ s=s.replace(/Root path redirected, but Location is not in the current target list:\s*/g,'根路径已跳转，但 Location 未命中当前目标列表：');
+ s=s.replace(/Form direct-link mode expects a 302 redirect; got HTTP\s*/g,'表单直跳模式期望 302，实际 HTTP ');
+ s=s.replace(/Public URL returns HTML and the landing page is reachable/g,'公开链接返回 HTML，普通落地页可访问');
+ s=s.replace(/Public URL returned HTTP\s*/g,'公开链接返回 HTTP ');
+ s=s.replace(/,\s*Content-Type:\s*/g,'，Content-Type：');
+ return s;
+}
 function _landingHealthBadge(page){
  var h=_landingHealthStatus(page);
  var checked=(page&&page.last_health_checked_at)||'';
- var summary=(page&&page.last_health_summary)||'';
+ var summary=_landingHealthText((page&&page.last_health_summary)||'');
  var code=(page&&page.last_health_http_code)?('HTTP '+page.last_health_http_code+' · '):'';
  var title=escHtml((code+(summary||'还没有执行线上自检'))+(checked?(' · '+checked):''));
  if(h==='pass')return '<div style="margin-top:6px"><span class="badge bg-ok" title="'+title+'">自检通过</span><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(checked||'')+'</div></div>';
@@ -15717,6 +15762,8 @@ function renderLandingPages(){
   var usage=p.usage||{};
   var usageTotal=parseInt(usage.total||0,10)||0;
   var usageBadge=usageTotal>0?'<span class="badge bg-wa" title="账户或投放任务仍在引用该链接">引用 '+usageTotal+'</span>':'<span class="badge bg-mu">未引用</span>';
+  var bindMap={none:'未自动绑定',landing:'绑定到账户落地页',form:'绑定到账户表单链接',both:'同时绑定落地页和表单链接'};
+  var bindText=bindMap[p.bind_target]||(p.bind_target||'未自动绑定');
   var matrixBadges=_landingMatrixBadgesFromPage(p);
   var rotationMap={sequential:'全局顺序轮询',random:'随机轮询',first:'固定第一个'};
   var modeText=rotationMap[p.rotation_mode]||escHtml(p.rotation_mode||'sequential');
@@ -15757,10 +15804,10 @@ function renderLandingPages(){
   var createdLine=(p.created_by||p.created_at)?'<div style="font-size:11px;color:var(--t3);margin-top:4px">发布：'+escHtml(p.created_by||'system')+(p.created_at?' · '+escHtml(p.created_at):'')+'</div>':'';
   return '<tr style="border-top:1px solid var(--bd)">'+
    '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+' '+matrixBadges+'</div>'+err+'</td>'+
-   '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span><div style="font-size:11px;color:var(--t3);margin-top:4px">访问即跳转</div>':'<span class="badge bg-mu">普通落地页</span><div style="font-size:11px;color:var(--t3);margin-top:4px">按钮跳转</div>')+'</td>'+
+   '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span><div style="font-size:11px;color:var(--t3);margin-top:4px">根路径 302 · 不展示模板</div>':'<span class="badge bg-mu">普通落地页</span><div style="font-size:11px;color:var(--t3);margin-top:4px">展示模板 · 按钮轮询</div>')+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+createdLine+'</td>'+
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px">'+usageBadge+'</div></td>'+
+   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px;color:var(--t3)">字段：'+escHtml(bindText)+'</div><div style="margin-top:4px">'+usageBadge+'</div></td>'+
    '<td style="padding:10px 12px">'+status+healthBadge+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
     copyBtns+
@@ -15806,7 +15853,7 @@ function renderLandingChecks(checks){
  return (checks||[]).map(function(c){
   var color=c.status==='pass'?'var(--ok)':(c.status==='warn'?'var(--wa)':'var(--er)');
   var txt=c.status==='pass'?'通过':(c.status==='warn'?'提醒':'失败');
-  return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin:5px 0"><span style="color:'+color+';font-weight:760;min-width:34px">'+txt+'</span><div><b>'+escHtml(c.label||c.key||'检查')+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(c.detail||'')+'</div></div></div>';
+  return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin:5px 0"><span style="color:'+color+';font-weight:760;min-width:34px">'+txt+'</span><div><b>'+escHtml(_landingHealthText(c.label||c.key||'检查'))+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(_landingHealthText(c.detail||''))+'</div></div></div>';
  }).join('');
 }
 async function checkLandingHealth(id){
@@ -16138,8 +16185,19 @@ async function showLandingStats(id){
    {label:'拦截率',value:blockRate},
    {label:'错误',value:errors}
   ];
+  var page=r.page||{};
+  var pageKind=String(page.link_kind||'landing')==='form'
+   ?'<span class="badge bg-ac">表单直跳</span><span style="color:var(--t3);font-size:12px;margin-left:6px">访问首页即按轮询策略跳转</span>'
+   :'<span class="badge bg-mu">普通落地页</span><span style="color:var(--t3);font-size:12px;margin-left:6px">展示模板，按钮点击后轮询跳转</span>';
+  var pageUrl=page.public_url||page.pages_url||'';
+  var bindMap={none:'未自动绑定',landing:'账户落地页',form:'账户表单链接',both:'落地页 + 表单链接'};
+  var bindText=bindMap[page.bind_target]||(page.bind_target||'未自动绑定');
   if(panel)panel.innerHTML=
    '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div class="card-title">落地页统计 · '+escHtml((r.page||{}).title||'')+'</div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
+   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px">'+
+    '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div>'+pageKind+'</div><div style="font-size:12px;color:var(--t3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(pageUrl)+'">主链接：'+(pageUrl?escHtml(pageUrl):'--')+'</div></div>'+
+    '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-size:12px;color:var(--t3)">账户绑定字段</div><div style="font-size:16px;font-weight:800;margin-top:4px">'+escHtml(bindText)+'</div></div>'+
+   '</div>'+
    '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:12px;margin:10px 0"><div><div style="font-size:13px;font-weight:800;margin-bottom:4px">运行诊断 <span class="badge '+healthClass+'" style="margin-left:6px">'+health+'</span></div><div style="font-size:12px;color:var(--t3);line-height:1.55">'+healthDesc+'</div></div><div style="font-size:12px;color:var(--t3);white-space:nowrap">统计周期：近 '+escHtml(String(r.days||7))+' 天</div></div>'+
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:10px 0">'+
     metricCards.map(function(m){return '<div class="ss"><div style="font-size:12px;color:var(--t3)">'+escHtml(m.label)+'</div><div style="font-size:22px;font-weight:800;margin-top:4px">'+escHtml(String(m.value))+'</div></div>';}).join('')+
