@@ -1958,11 +1958,50 @@ select.fc option{background:#fff;color:#1d1d1f}
 #page-landing_center .landing-work-card{display:none!important}
 .landing-drawer-close,.landing-api-close,.landing-protection-close{display:none!important}
 .landing-path-strip{
- display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-4px 0 14px;padding:10px 12px;background:#fff;border:1px solid #dedee4;
- border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.035);font-size:12px;color:#6e6e73
+ display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-6px 0 14px;padding:0;background:transparent;border:0;
+ border-radius:0;box-shadow:none;font-size:12px;color:#6e6e73
 }
 .landing-path-strip b{color:#1d1d1f;font-size:12px;margin-right:2px}
-.landing-path-strip span{display:inline-flex;align-items:center;min-height:24px;padding:0 9px;border:1px solid #e5e5ea;border-radius:999px;background:#f5f5f7;color:#424245;font-weight:680}
+.landing-path-strip span{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid #e5e5ea;border-radius:999px;background:#fff;color:#515154;font-weight:680}
+.landing-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.landing-top-actions .fc{height:36px!important}
+.landing-top-actions .btn{height:36px!important;min-height:36px!important}
+.landing-subnav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:4px;background:#ececf1;border-radius:999px;width:max-content;max-width:100%}
+.landing-subnav .btn{height:30px!important;min-height:30px!important;padding:0 12px!important;background:transparent!important;border:0!important;color:#424245!important}
+.landing-subnav .btn:first-child{background:#fff!important;color:#1d1d1f!important;box-shadow:0 1px 2px rgba(0,0,0,.10)!important}
+.landing-record-card{padding:14px!important}
+.landing-record-card .landing-card-head{align-items:center;margin-bottom:12px}
+.landing-record-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.landing-record-title .card-title{font-size:16px!important}
+.landing-filterbar{display:grid;grid-template-columns:minmax(220px,1fr) repeat(4,minmax(118px,148px)) auto auto;gap:8px;align-items:center;width:100%}
+.landing-filterbar .fc{height:34px!important;width:100%!important}
+.landing-filterbar .btn{height:34px!important;min-height:34px!important;padding:0 12px!important;white-space:nowrap}
+#page-landing_center .landing-record-card .table-wrap{border:0!important;box-shadow:none!important;background:transparent!important;overflow:visible!important}
+#page-landing_center .landing-record-table{width:100%;border-collapse:separate!important;border-spacing:0 10px!important;min-width:0!important}
+#page-landing_center .landing-record-table thead{display:none}
+#page-landing_center .landing-record-table td{padding:0!important;border:0!important}
+.landing-page-row{display:grid;grid-template-columns:minmax(240px,1.3fr) minmax(260px,1.35fr) minmax(230px,.95fr) auto;gap:14px;align-items:center;padding:14px;border:1px solid #e5e5ea;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.035)}
+.landing-page-main{min-width:0}
+.landing-page-title{display:flex;align-items:center;gap:8px;min-width:0}
+.landing-page-title b{font-size:14px;color:#1d1d1f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-page-sub{font-size:11px;color:#86868b;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-page-badges{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.landing-page-link{min-width:0}
+.landing-page-url{font-size:13px;line-height:1.35;min-width:0}
+.landing-page-url>a{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-page-url>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-page-note{font-size:11px;color:#86868b;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-page-meta{display:grid;gap:5px;min-width:0;font-size:12px;color:#515154}
+.landing-page-meta-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #f0f0f3;padding-bottom:4px}
+.landing-page-meta-row:last-child{border-bottom:0;padding-bottom:0}
+.landing-page-status{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-bottom:8px}
+.landing-page-actions{display:flex;align-items:center;gap:6px;justify-content:flex-end;white-space:nowrap}
+.landing-page-actions .btn{height:30px!important;min-height:30px!important;padding:0 10px!important}
+.landing-perf-grid{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:10px 0}
+.landing-perf-card{border:1px solid #e5e5ea;border-radius:10px;background:#fff;padding:12px;min-height:82px}
+.landing-perf-card span{display:block;font-size:12px;color:#86868b}
+.landing-perf-card b{display:block;font-size:22px;line-height:1.1;color:#1d1d1f;margin-top:5px}
+.landing-perf-card small{display:block;font-size:11px;color:#86868b;margin-top:5px;line-height:1.35}
 body.landing-publish-open{overflow:hidden}
 body.landing-api-open{overflow:hidden}
 body.landing-protection-open{overflow:hidden}
@@ -2030,6 +2069,17 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
  body.landing-protection-open #page-landing_center .landing-protection-card{left:12px;right:12px;top:64px;bottom:12px;width:auto}
  #page-landing_center .landing-row-actions{display:flex;flex-wrap:wrap;justify-content:flex-start}
  #page-landing_center .landing-record-card .table-wrap{overflow:auto!important}
+ .landing-filterbar{grid-template-columns:1fr 1fr}
+ .landing-page-row{grid-template-columns:1fr}
+ .landing-page-status,.landing-page-actions{justify-content:flex-start}
+ .landing-perf-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .landing-subnav{width:100%;border-radius:12px}
+}
+@media(max-width:640px){
+ .landing-filterbar{grid-template-columns:1fr}
+ .landing-perf-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .landing-top-actions{justify-content:flex-start}
+ .landing-top-actions .fc,.landing-top-actions .btn{flex:1 1 160px}
 }
 
 /* Dashboard metric cards: keep figures readable and avoid cramped one-row wrapping. */
@@ -2917,7 +2967,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 <div class="page" id="page-landing_center">
  <div class="ph">
   <div><h2>落地页工作台</h2><p>发布链接、管理短码、查看统计并回填真实结果</p></div>
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <div class="landing-top-actions">
    <select class="fc" id="landingPerfDays" style="width:130px;height:36px" onchange="setLandingPerfDays(this.value)">
     <option value="1">今日真实效果</option>
     <option value="3">近 3 天</option>
@@ -2927,9 +2977,9 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:36px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
    <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
-   <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">访问控制模板</button>
+   <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">访问控制</button>
    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">资产预设</button>
-   <button class="btn btn-g" onclick="scrollLandingApiPanel()">API 通道</button>
+   <button class="btn btn-g" onclick="scrollLandingApiPanel()">API</button>
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
  </div>
@@ -3101,24 +3151,28 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
  <div class="card landing-stats-card" id="landingStatsPanel" style="display:none"></div>
  <div class="card landing-record-card">
   <div class="landing-card-head">
-   <div><div class="card-title">链接库</div><p>查看发布状态、短码、统计和真实结果。</p><div id="landingPageCountHint" style="font-size:12px;color:var(--t3);margin-top:4px"></div></div>
-   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-    <input class="fc" id="landingPageSearch" style="width:210px;height:34px" placeholder="搜索名称/域名/发布人" oninput="renderLandingPages()">
-    <select class="fc" id="landingPageMatrixFilter" style="width:132px;height:34px" onchange="renderLandingPages()">
+   <div>
+    <div class="landing-record-title"><div class="card-title">链接库</div><div id="landingPageCountHint" style="font-size:12px;color:var(--t3)"></div></div>
+    <p>查看发布状态、主链接、短码入口和真实结果。</p>
+   </div>
+  </div>
+  <div class="landing-filterbar">
+    <input class="fc" id="landingPageSearch" placeholder="搜索名称 / 域名 / 发布人" oninput="renderLandingPages()">
+    <select class="fc" id="landingPageMatrixFilter" onchange="renderLandingPages()">
      <option value="all">全部矩阵</option>
     </select>
-    <select class="fc" id="landingPageKindFilter" style="width:120px;height:34px" onchange="renderLandingPages()">
+    <select class="fc" id="landingPageKindFilter" onchange="renderLandingPages()">
      <option value="all">全部类型</option>
      <option value="landing">普通落地页</option>
      <option value="form">表单直跳</option>
     </select>
-    <select class="fc" id="landingPageStatusFilter" style="width:120px;height:34px" onchange="renderLandingPages()">
+    <select class="fc" id="landingPageStatusFilter" onchange="renderLandingPages()">
      <option value="all">全部状态</option>
      <option value="published">已发布</option>
      <option value="failed">失败</option>
      <option value="archived">已归档</option>
     </select>
-    <select class="fc" id="landingPageHealthFilter" style="width:120px;height:34px" onchange="renderLandingPages()">
+    <select class="fc" id="landingPageHealthFilter" onchange="renderLandingPages()">
      <option value="all">全部自检</option>
      <option value="fail">自检失败</option>
      <option value="warn">有提醒</option>
@@ -3127,10 +3181,9 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
     </select>
     <button class="btn btn-g btn-sm role-hide-viewer" onclick="refreshLandingDomains()" title="批量复检已发布页面的自定义域名；域名可用后会自动回绑原账户链接">复检全部域名</button>
     <button class="btn btn-g btn-sm role-hide-viewer" onclick="checkVisibleLandingHealth()" title="按当前筛选逐个检查线上链接、表单直跳和自定义域">自检当前筛选</button>
-   </div>
   </div>
   <div class="table-wrap">
-   <table style="width:100%;border-collapse:collapse;min-width:980px">
+   <table class="landing-record-table">
     <thead><tr>
      <th style="text-align:left;padding:10px 12px">名称</th>
      <th style="text-align:left;padding:10px 12px">类型</th>
@@ -17011,19 +17064,14 @@ function renderLandingPerformance(){
   else globalTargetCount++;
  });
  var cards=[
-  ['广告链接',sum.total||0,'近 '+(data.days||7)+' 天事件窗口'],
-  ['专属唯一',uniqueTargetCount,'一广告一目标链接'],
-  ['目标重复',reusedTargetCount,'需要拆分 WhatsApp 目标'],
-  ['全局轮询',globalTargetCount,'只能做入口归因'],
-  ['消耗无动作',sum.waste||0,'优先检查或停投'],
-  ['成本偏高',highCostCount,_landingTrueCostTarget>0?('目标 $'+Number(_landingTrueCostTarget).toFixed(2)):'填写目标后显示'],
-  ['成本达标',Math.max(0,(sum.good||0)-highCostCount),'有真实动作且未超目标'],
-  ['FB消耗',money(sum.spend||0),'按日期窗口优先读取巡检历史'],
-  ['确认进线',sum.confirmed_actions||0,'人工/CSV 回填，最高优先级'],
-  ['最终动作',sum.final_true_contact||sum.effective_true_contact||sum.true_contact||0,'确认进线优先，其次唯一动作'],
-  ['真实成本',cost(sum.cost_per_final_true_contact||sum.cost_per_effective_true_contact||sum.cost_per_true_contact),'FB消耗 ÷ 最终动作']
+  ['广告链接',sum.total||0,'近 '+(data.days||7)+' 天'],
+  ['专属唯一',uniqueTargetCount,'可按广告核算'],
+  ['FB消耗',money(sum.spend||0),'优先读取巡检历史'],
+  ['确认进线',sum.confirmed_actions||0,'人工/CSV 最高优先级'],
+  ['真实成本',cost(sum.cost_per_final_true_contact||sum.cost_per_effective_true_contact||sum.cost_per_true_contact),'FB消耗 ÷ 最终动作'],
+  ['需处理',Number(sum.waste||0)+Number(highCostCount||0),'空动作 '+(sum.waste||0)+' / 高成本 '+highCostCount]
  ].map(function(c){
-  return '<div class="ss" style="min-width:130px"><div style="font-size:12px;color:var(--t3)">'+escHtml(c[0])+'</div><div style="font-size:22px;font-weight:850;margin-top:4px">'+escHtml(String(c[1]))+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(c[2])+'</div></div>';
+  return '<div class="landing-perf-card"><span>'+escHtml(c[0])+'</span><b>'+escHtml(String(c[1]))+'</b><small>'+escHtml(c[2])+'</small></div>';
  }).join('');
  var rows=items.slice(0,20).map(function(x){
   var stats=x.stats||{};
@@ -17066,7 +17114,7 @@ function renderLandingPerformance(){
    '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">按广告入口链接 /a/短码归因访问、点击、WhatsApp 跳转和表单动作；短码不会写入目标链接或对话内容。单个 WhatsApp 链接多广告共用时，后续真实进线需要回填确认。</p></div>'+
    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingAdMapping()">导出映射表</button><button class="btn btn-g btn-sm" onclick="exportLandingAdResultsTemplate()">导出回填模板</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
   '</div>'+
-  '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0">'+cards+'</div>'+
+  '<div class="landing-perf-grid">'+cards+'</div>'+
   '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1040px;border-collapse:collapse">'+
   '<thead><tr><th style="text-align:left;padding:8px 10px">判断</th><th style="text-align:left;padding:8px 10px">短码/页面</th><th style="text-align:left;padding:8px 10px">广告</th><th style="text-align:left;padding:8px 10px">链接</th><th style="text-align:right;padding:8px 10px">FB消耗</th><th style="text-align:right;padding:8px 10px">有效动作</th><th style="text-align:right;padding:8px 10px">真实成本</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
   '<tbody>'+rows+'</tbody></table></div>';
@@ -17215,20 +17263,37 @@ function renderLandingPages(){
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   var healthBadge=_landingHealthBadge(p);
   var ownerText=resourceOwnerLabel(p,'未指定负责人');
-  var ownerLine='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">'+
+  var ownerLine='<div class="landing-page-badges">'+
    resourceTeamBadge(p)+
    '<span class="resource-owner-pill '+(ownerText==='未指定负责人'?'muted':'')+'" title="落地页负责人">'+escHtml(ownerText)+'</span>'+
   '</div>';
   var createdLine=(p.created_by||p.created_at)?'<div style="font-size:11px;color:var(--t3);margin-top:4px">发布：'+escHtml(p.created_by||'system')+(p.created_at?' · '+escHtml(p.created_at):'')+'</div>':'';
-  return '<tr style="border-top:1px solid var(--bd)">'+
-   '<td style="padding:10px 12px"><div style="font-weight:760">'+escHtml(p.title||'未命名')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(p.project_name||'')+'</div><div style="margin-top:4px">'+flags+' '+matrixBadges+'</div>'+err+'</td>'+
-   '<td style="padding:10px 12px">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span><div style="font-size:11px;color:var(--t3);margin-top:4px">根路径 302 · 不展示模板</div>':'<span class="badge bg-mu">普通落地页</span><div style="font-size:11px;color:var(--t3);margin-top:4px">展示模板 · 按钮轮询</div>')+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+escHtml(p.cf_account_name||p.token_name||'--')+ownerLine+createdLine+'</td>'+
-   '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
-   '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px;color:var(--t3)">字段：'+escHtml(bindText)+'</div><div style="margin-top:4px">'+usageBadge+'</div></td>'+
-   '<td style="padding:10px 12px">'+status+healthBadge+'</td>'+
-   '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+_landingRowActionsHtml(p,link,usageTotal)+'</td>'+
-  '</tr>';
+  var kindHtml=p.link_kind==='form'
+   ?'<span class="badge bg-ac">表单直跳</span><span class="landing-page-note">根路径 302</span>'
+   :'<span class="badge bg-mu">普通落地页</span><span class="landing-page-note">模板 + 按钮轮询</span>';
+  return '<tr><td colspan="7">'+
+   '<div class="landing-page-row">'+
+    '<div class="landing-page-main">'+
+     '<div class="landing-page-title"><b title="'+escHtml(p.title||'未命名')+'">'+escHtml(p.title||'未命名')+'</b>'+status+'</div>'+
+     '<div class="landing-page-sub" title="'+escHtml(p.project_name||'')+'">'+escHtml(p.project_name||'未命名项目')+'</div>'+
+     '<div class="landing-page-badges">'+kindHtml+flags+' '+matrixBadges+'</div>'+
+     ownerLine+createdLine+err+
+    '</div>'+
+    '<div class="landing-page-link">'+
+     '<div class="landing-page-url">'+linkHtml+'</div>'+
+     '<div class="landing-page-note">'+escHtml(p.cf_account_name||p.token_name||'--')+'</div>'+
+    '</div>'+
+    '<div class="landing-page-meta">'+
+     '<div class="landing-page-meta-row"><span>跳转</span><b>'+urls.length+' 个 · '+escHtml(modeText)+'</b></div>'+
+     '<div class="landing-page-meta-row"><span>绑定</span><b>'+escHtml(bound.length?('已绑定 '+bound.length):bindText)+'</b></div>'+
+     '<div class="landing-page-meta-row"><span>引用</span><b>'+usageBadge+'</b></div>'+
+     '<div class="landing-page-meta-row"><span>自检</span><div style="text-align:right">'+healthBadge+'</div></div>'+
+    '</div>'+
+    '<div>'+
+     '<div class="landing-page-actions">'+_landingRowActionsHtml(p,link,usageTotal)+'</div>'+
+    '</div>'+
+   '</div>'+
+  '</td></tr>';
  }).join('');
 }
 function _landingAdLinksHtml(page, links){
