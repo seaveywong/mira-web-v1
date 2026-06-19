@@ -154,16 +154,11 @@ class LandingAdLinkCreate(BaseModel):
 
 
 def _landing_ad_link_create_count(requested_count: int, target_urls: list[str]) -> int:
-    """When explicit targets are provided, create one entry per target.
+    """Return how many ad entry links to reserve.
 
-    Repeating the same target URL because a user typed a larger count breaks
-    ad-level attribution: two ads may look separated by slug while sharing the
-    same WhatsApp destination. The fallback count is only used when no explicit
-    per-link target URLs were supplied.
+    `target_urls` is the per-ad redirect pool. It must not decide link count:
+    one ad entry can rotate through many WhatsApp/target URLs.
     """
-    targets = [u for u in (target_urls or []) if isinstance(u, str) and u.strip()]
-    if targets:
-        return min(len(targets), 200)
     return max(1, min(int(requested_count or 1), 200))
 
 
@@ -177,6 +172,7 @@ class LandingAdLinkPatch(BaseModel):
     ad_id: Optional[str] = None
     ad_name: Optional[str] = None
     target_url: Optional[str] = None
+    target_urls: Optional[list[str]] = None
     status: Optional[str] = None
     note: Optional[str] = None
 
@@ -354,6 +350,7 @@ def _ensure_schema():
             ad_id TEXT,
             ad_name TEXT,
             target_url TEXT,
+            target_urls TEXT DEFAULT '[]',
             status TEXT DEFAULT 'reserved',
             note TEXT,
             team_id INTEGER,
@@ -365,6 +362,12 @@ def _ensure_schema():
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_page ON landing_ad_links(page_id);
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_ad ON landing_ad_links(ad_id);
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_act ON landing_ad_links(act_id);
+
+        CREATE TABLE IF NOT EXISTS landing_ad_route_state (
+            link_id INTEGER PRIMARY KEY,
+            cursor INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
 
         CREATE TABLE IF NOT EXISTS landing_ad_link_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -459,6 +462,19 @@ def _ensure_schema():
                 conn.execute(f"ALTER TABLE landing_pages ADD COLUMN {name} {ddl}")
     except Exception:
         logger.exception("landing_pages schema patch failed")
+    try:
+        ad_link_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_ad_links)").fetchall()}
+        if "target_urls" not in ad_link_cols:
+            conn.execute("ALTER TABLE landing_ad_links ADD COLUMN target_urls TEXT DEFAULT '[]'")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS landing_ad_route_state (
+                link_id INTEGER PRIMARY KEY,
+                cursor INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+            )"""
+        )
+    except Exception:
+        logger.exception("landing_ad_links schema patch failed")
     try:
         token_cols = {r["name"] for r in conn.execute("PRAGMA table_info(cf_tokens)").fetchall()}
         if "cf_accounts_json" not in token_cols:
@@ -1042,6 +1058,7 @@ def _refresh_page_ad_link_urls(conn, page_id: int, page_public: dict) -> None:
 
 def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = None) -> dict:
     item = dict(row)
+    item["target_urls"] = _json_loads(item.get("target_urls"), [])
     if item.get("public_url"):
         item["public_url"] = str(item.get("public_url") or "").strip()
     elif page:
@@ -1776,6 +1793,57 @@ def _target_is_current_landing(target_url: str, page: dict) -> bool:
         if target == base or target.startswith(base + "/a/") or target.startswith(base + "/__mira/"):
             return True
     return False
+
+
+def _landing_ad_link_targets(link: Any, page: dict) -> list[str]:
+    if not link:
+        return []
+    data = dict(link)
+    targets = [
+        u.strip()
+        for u in _json_loads(data.get("target_urls"), [])
+        if isinstance(u, str) and u.strip()
+    ]
+    if not targets and data.get("target_url"):
+        targets = [str(data.get("target_url") or "").strip()]
+    return [
+        u
+        for u in targets
+        if (u.startswith("http://") or u.startswith("https://")) and not _target_is_current_landing(u, page)
+    ][:200]
+
+
+def _select_landing_ad_target(conn, link: Any, page: dict, mode: str) -> Optional[dict]:
+    targets = _landing_ad_link_targets(link, page)
+    if not targets:
+        return None
+    link_id = int(link["id"])
+    mode = str(mode or "sequential").strip().lower()
+    if mode == "first" or len(targets) == 1:
+        idx = 0
+    elif mode == "random":
+        idx = secrets.randbelow(len(targets))
+    else:
+        state = conn.execute(
+            "SELECT cursor FROM landing_ad_route_state WHERE link_id=?",
+            (link_id,),
+        ).fetchone()
+        cursor = int(state["cursor"] or 0) if state else 0
+        idx = cursor % len(targets)
+        conn.execute(
+            """INSERT INTO landing_ad_route_state (link_id, cursor, updated_at)
+               VALUES (?, ?, datetime('now','+8 hours'))
+               ON CONFLICT(link_id) DO UPDATE SET
+                 cursor=excluded.cursor,
+                 updated_at=excluded.updated_at""",
+            (link_id, cursor + 1),
+        )
+    return {
+        "target_url": targets[idx],
+        "index": idx,
+        "total": len(targets),
+        "mode": "ad_link_" + (mode if mode in {"first", "random"} else "sequential"),
+    }
 
 
 def _health_status_from_checks(checks: list[dict[str, Any]]) -> str:
@@ -2980,6 +3048,10 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
         if not base_url:
             raise HTTPException(status_code=400, detail="该落地页还没有可用主链接，发布成功后才能生成广告级链接")
         target_urls = [u.strip() for u in (body.target_urls or []) if isinstance(u, str) and u.strip()][:200]
+        if not target_urls and body.target_url and str(body.target_url).strip():
+            target_urls = [str(body.target_url).strip()]
+        if any(not (u.startswith("http://") or u.startswith("https://")) for u in target_urls):
+            raise HTTPException(status_code=400, detail="target_urls must be http(s) URLs")
         count = _landing_ad_link_create_count(body.count, target_urls)
         act_id = (_clean_act_ids([body.act_id or ""]) or [""])[0]
         team_id = page.get("team_id")
@@ -2998,9 +3070,9 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
             conn.execute(
                 """INSERT INTO landing_ad_links
                    (page_id, slug, public_url, act_id, account_name, campaign_id, campaign_name,
-                    adset_id, adset_name, ad_id, ad_name, target_url, status, note,
+                    adset_id, adset_name, ad_id, ad_name, target_url, target_urls, status, note,
                     team_id, owner_user_id, created_by)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     page_id,
                     slug,
@@ -3013,7 +3085,8 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
                     _truncate(body.adset_name, 255),
                     _truncate(body.ad_id, 80),
                     _truncate(body.ad_name, 255),
-                    _truncate((target_urls[idx] if target_urls else body.target_url), 1000),
+                    _truncate((target_urls[0] if target_urls else body.target_url), 1000),
+                    json.dumps(target_urls, ensure_ascii=False),
                     "active" if body.ad_id else "reserved",
                     _truncate(body.note, 1000),
                     team_id,
@@ -3051,6 +3124,12 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
             "target_url": _truncate(body.target_url, 1000) if body.target_url is not None else None,
             "note": _truncate(body.note, 1000) if body.note is not None else None,
         }
+        if body.target_urls is not None:
+            target_urls = [u.strip() for u in (body.target_urls or []) if isinstance(u, str) and u.strip()][:200]
+            if any(not (u.startswith("http://") or u.startswith("https://")) for u in target_urls):
+                raise HTTPException(status_code=400, detail="target_urls must be http(s) URLs")
+            mapping["target_urls"] = json.dumps(target_urls, ensure_ascii=False)
+            mapping["target_url"] = _truncate(target_urls[0] if target_urls else "", 1000)
         if body.act_id is not None:
             mapping["act_id"] = (_clean_act_ids([body.act_id]) or [""])[0]
         if body.status is not None:
@@ -3725,41 +3804,45 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
         ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("mira_ad_id") or "")
         if slug:
             link = conn.execute(
-                """SELECT target_url FROM landing_ad_links
+                """SELECT id, target_url, target_urls FROM landing_ad_links
                    WHERE page_id=? AND slug=?
                      AND COALESCE(status,'reserved') NOT IN ('paused','archived','failed','unused')
                    LIMIT 1""",
                 (body.page_id, slug),
             ).fetchone()
-            target_url = (link["target_url"] if link else "") or ""
-            if target_url and not _target_is_current_landing(target_url, dict(page)):
+            selected = _select_landing_ad_target(conn, link, dict(page), str(page["rotation_mode"] or "sequential"))
+            if selected:
                 conn.commit()
                 return {
                     "success": True,
-                    "target_url": target_url,
-                    "index": 0,
-                    "total": 1,
-                    "mode": "ad_link",
+                    "target_url": selected["target_url"],
+                    "index": selected["index"],
+                    "total": selected["total"],
+                    "mode": selected["mode"],
                     "slug": slug,
                 }
         if ad_id:
             link = conn.execute(
-                """SELECT target_url, slug FROM landing_ad_links
+                """SELECT id, target_url, target_urls, slug FROM landing_ad_links
                    WHERE page_id=? AND ad_id=?
                      AND COALESCE(status,'reserved') NOT IN ('paused','archived','failed','unused')
-                   ORDER BY CASE WHEN COALESCE(target_url,'')<>'' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                   ORDER BY CASE
+                              WHEN COALESCE(target_urls,'[]') NOT IN ('[]','') THEN 0
+                              WHEN COALESCE(target_url,'')<>'' THEN 1
+                              ELSE 2
+                            END, updated_at DESC, id DESC
                    LIMIT 1""",
                 (body.page_id, ad_id),
             ).fetchone()
-            target_url = (link["target_url"] if link else "") or ""
-            if target_url and not _target_is_current_landing(target_url, dict(page)):
+            selected = _select_landing_ad_target(conn, link, dict(page), str(page["rotation_mode"] or "sequential"))
+            if selected:
                 conn.commit()
                 return {
                     "success": True,
-                    "target_url": target_url,
-                    "index": 0,
-                    "total": 1,
-                    "mode": "ad_id",
+                    "target_url": selected["target_url"],
+                    "index": selected["index"],
+                    "total": selected["total"],
+                    "mode": selected["mode"],
                     "ad_id": ad_id,
                     "slug": (link["slug"] if link else "") or "",
                 }
@@ -3822,6 +3905,21 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
     ua = _truncate(body.user_agent or request.headers.get("user-agent") or "", 500)
     ua_hash = hashlib.sha256(ua.encode("utf-8", "ignore")).hexdigest() if ua else ""
     metadata = body.metadata if isinstance(body.metadata, dict) else {}
+    slug = _ad_slug_from_path(body.path or "") or str(metadata.get("ad_slug") or "").strip()
+    ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("mira_ad_id") or "")
+    if slug and ad_id:
+        try:
+            conn.execute(
+                """UPDATE landing_ad_links
+                   SET ad_id=?,
+                       status=CASE WHEN COALESCE(status,'reserved')='reserved' THEN 'active' ELSE status END,
+                       updated_at=datetime('now','+8 hours')
+                   WHERE page_id=? AND slug=?
+                     AND (COALESCE(ad_id,'')='' OR ad_id=?)""",
+                (ad_id, body.page_id, slug, ad_id),
+            )
+        except Exception:
+            logger.exception("landing ad link auto-bind failed: page_id=%s slug=%s ad_id=%s", body.page_id, slug, ad_id)
     conn.execute(
         """INSERT INTO landing_events
            (page_id, event_type, decision, reason, path, target_url, referrer, country, region, city,
