@@ -12,7 +12,7 @@ const HEARTBEAT_ALARM = "mira_heartbeat";
 const POLL_ALARM = "mira_poll";
 const TOKEN_ALARM = "mira_token_refresh";
 const GRAPH_BASE = "https://graph.facebook.com/v22.0";
-const VERSION = "2.4.0";
+const VERSION = "2.4.1";
 const ASSET_DISCOVERY_FRESH_MS = 6 * 60 * 60 * 1000;
 const ASSET_DISCOVERY_MIN_INTERVAL_MS = 20 * 60 * 1000;
 
@@ -488,14 +488,28 @@ async function buildAccountSummary(options = {}) {
   const token = String(s.accessToken || '').trim();
   const businessesById = new Map();
   if (!token) {
-    const tabAccounts = await discoverAccountsFromOpenTabs();
+    let tabAccounts = await discoverAccountsFromOpenTabs();
     const tabBusinesses = await scanBusinessAccountsFromOpenTabs().catch(() => ({ businesses: [] }));
     (tabBusinesses.businesses || []).forEach(b => pushUniqueBusiness(businessesById, b, b.source || 'page_scan'));
+    try {
+      const local = await runBusinessOperationInTab('list_ad_accounts', {});
+      tabAccounts = mergeAccountsById([...(tabAccounts || []), ...(local.accounts || []), ...(local.assets?.ad_accounts || [])]);
+      (local.businesses || local.assets?.businesses || []).forEach(b => pushUniqueBusiness(businessesById, b, b.source || 'adsmanager_graph'));
+      for (const account of tabAccounts) {
+        if (account.business_id) pushUniqueBusiness(businessesById, {
+          id: account.business_id,
+          name: account.business_name || '',
+        }, 'account_link', account.act_id || account.id || account.account_id);
+      }
+    } catch (e) {
+      // 页面扫描和缓存仍可兜底；错误会在深度发现里单独展示。
+    }
+    const businesses = businessListFromMap(businessesById);
     return await withCachedAssets({
       fb_user: null,
       accounts: tabAccounts,
-      businesses: businessListFromMap(businessesById),
-      assets: { ad_accounts: tabAccounts, businesses: businessListFromMap(businessesById), pixels: [] },
+      businesses,
+      assets: { ad_accounts: tabAccounts, businesses, pixels: [] },
       fb_status: tabAccounts.length ? 'ok' : 'no_token'
     }, options);
   }

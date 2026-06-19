@@ -244,8 +244,8 @@ function renderFb(s) {
       h += `<span class="badge y">权限探测中...</span>`;
     }
   } else {
-    h += '<div class="kv"><span class="k">Token</span><span class="v red">未获取</span></div>';
-    h += '<div style="font-size:8px;color:#86868b">打开 facebook.com 即可自动获取</div>';
+    h += '<div class="kv"><span class="k">本地会话</span><span class="v blue">浏览器执行</span></div>';
+    h += '<div style="font-size:8px;color:#86868b">Token 可选；账户/像素/邀请优先使用当前 Chrome 登录会话。</div>';
   }
   if (ts.error) h += `<div class="kv"><span class="k">错误</span><span class="v red" style="font-size:8px">${ts.error}</span></div>`;
   el.innerHTML = h;
@@ -259,7 +259,7 @@ function renderAccounts(summary) {
   allAccounts = accounts;
   count.textContent = accounts.length ? `(${accounts.length}个)` : '';
   if (!accounts.length) {
-    list.innerHTML = '<div style="font-size:9px;color:#86868b">暂无，点"刷新账户"</div>';
+    list.innerHTML = '<div style="font-size:9px;color:#86868b">暂无账户，点"刷新账户"会用当前 Chrome 登录会话读取。</div>';
     toggle.style.display = 'none';
     return;
   }
@@ -310,12 +310,12 @@ function renderError() {
   }
   if (!statusData.accessToken && !statusData.cookies?.c_user) {
     el.style.display = 'block'; el.className = 'msg info';
-    el.textContent = '💡 在 Chrome 中打开 facebook.com 即可自动获取 Token';
+    el.textContent = '请先在 Chrome 中登录 facebook.com 或 business.facebook.com';
     return;
   }
   if (ms?.fbStatus === 'need_fb_tab') {
     el.style.display = 'block'; el.className = 'msg info';
-    el.textContent = '💡 请打开 Facebook 页面以获取 Token';
+    el.textContent = '请打开 Facebook / Business 页面，本地执行器会使用当前浏览器会话工作';
     return;
   }
   el.style.display = 'none';
