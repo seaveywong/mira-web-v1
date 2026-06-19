@@ -6290,23 +6290,25 @@ function renderDashboardAllowanceList(){
   box.innerHTML='<div style="padding:24px;text-align:center;color:var(--t3)">当前筛选范围内没有今日放行广告。</div>';
   return;
  }
- box.innerHTML='<div class="table-wrap"><table><thead><tr><th>广告</th><th>账户</th><th>有效日期</th><th>备注</th><th>创建</th><th>操作</th></tr></thead><tbody>'+
+ box.innerHTML='<div style="display:grid;gap:10px">'+
   items.map(function(it){
    var adTitle=it.ad_name?escHtml(it.ad_name):'广告 '+escHtml(it.ad_id||'');
-   var adSub=it.ad_name?'<div class="td-id">'+escHtml(it.ad_id||'')+'</div>':'';
+   var adSub='<div class="td-id" style="margin-top:3px;word-break:break-all">'+escHtml(it.ad_id||'')+'</div>';
    var acc=displayAccountName(it.account_name,it.act_id);
    var date=it.allowance_date||it.account_local_date||'';
-   var tz=it.timezone?'<div class="td-id">'+escHtml(it.timezone)+'</div>':'';
-   return '<tr>'+
-    '<td><div class="td-name">'+adTitle+'</div>'+adSub+'</td>'+
-    '<td><div>'+escHtml(acc)+'</div><div class="td-id">'+escHtml(displayActId(it.act_id))+'</div></td>'+
-    '<td><div>'+escHtml(date)+'</div>'+tz+'</td>'+
-    '<td>'+escHtml(it.reason||'--')+'</td>'+
-    '<td><div>'+escHtml(it.created_by||'--')+'</div><div class="td-id">'+escHtml(it.updated_at||it.created_at||'')+'</div></td>'+
-    '<td><button class="btn btn-sm btn-r" onclick="deleteGuardAllowance('+Number(it.id)+')">撤销</button></td>'+
-   '</tr>';
+   var tz=it.timezone?'<span class="badge bg-mu">'+escHtml(it.timezone)+'</span>':'';
+   var createdAt=it.updated_at||it.created_at||'';
+   return '<div style="border:1px solid var(--bd);border-radius:10px;background:var(--bg3);padding:12px;display:flex;gap:12px;align-items:flex-start;justify-content:space-between;min-width:0">'+
+    '<div style="min-width:0;flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;align-items:start">'+
+     '<div style="min-width:0"><div style="font-weight:820;word-break:break-word">'+adTitle+'</div>'+adSub+'</div>'+
+     '<div style="min-width:0"><div style="font-weight:650;word-break:break-word">'+escHtml(acc)+'</div><div class="td-id" style="margin-top:3px">'+escHtml(displayActId(it.act_id))+'</div></div>'+
+     '<div><div style="font-weight:760">'+escHtml(date)+'</div><div style="margin-top:4px">'+tz+'</div></div>'+
+     '<div style="min-width:0"><div style="color:var(--t2);word-break:break-word">'+escHtml(it.reason||'--')+'</div><div class="td-id" style="margin-top:4px">'+escHtml(it.created_by||'--')+' · '+escHtml(createdAt)+'</div></div>'+
+    '</div>'+
+    '<button class="btn btn-sm btn-r" style="flex:0 0 auto" onclick="deleteGuardAllowance('+Number(it.id)+')">撤销</button>'+
+   '</div>';
   }).join('')+
-  '</tbody></table></div>';
+  '</div>';
 }
 
 function openDashboardAllowances(){
