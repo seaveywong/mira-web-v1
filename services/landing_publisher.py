@@ -159,6 +159,109 @@ def ensure_project(api_token: str, account_id: str, project_name: str) -> dict:
         return cf_request(api_token, "GET", f"/accounts/{account_id}/pages/projects/{project_name}")
 
 
+def get_pages_project(api_token: str, account_id: str, project_name: str) -> dict:
+    project_name = sanitize_project_name(project_name)
+    result = cf_request(api_token, "GET", f"/accounts/{account_id}/pages/projects/{project_name}")
+    return result if isinstance(result, dict) else {}
+
+
+def get_pages_deployment(api_token: str, account_id: str, project_name: str, deployment_id: str) -> dict:
+    project_name = sanitize_project_name(project_name)
+    deployment_id = (deployment_id or "").strip()
+    if not deployment_id:
+        return {}
+    result = cf_request(
+        api_token,
+        "GET",
+        f"/accounts/{account_id}/pages/projects/{project_name}/deployments/{deployment_id}",
+    )
+    return result if isinstance(result, dict) else {}
+
+
+def _deployment_state(deployment: dict) -> tuple[str, str]:
+    if not isinstance(deployment, dict):
+        return "", ""
+    latest = deployment.get("latest_stage") if isinstance(deployment.get("latest_stage"), dict) else {}
+    latest_name = str(latest.get("name") or "").lower()
+    latest_status = str(latest.get("status") or "").lower()
+    for stage in deployment.get("stages") or []:
+        if not isinstance(stage, dict):
+            continue
+        name = str(stage.get("name") or "").lower()
+        status = str(stage.get("status") or "").lower()
+        if name == "deploy":
+            return name, status
+    return latest_name, latest_status
+
+
+def wait_pages_deployment(
+    api_token: str,
+    account_id: str,
+    project_name: str,
+    deployment_id: str,
+    *,
+    timeout_seconds: int = 120,
+    interval_seconds: float = 2.0,
+) -> dict:
+    deadline = time.time() + max(10, timeout_seconds)
+    last = {}
+    while time.time() < deadline:
+        last = get_pages_deployment(api_token, account_id, project_name, deployment_id)
+        stage_name, stage_status = _deployment_state(last)
+        if stage_status in {"success", "succeeded", "complete", "completed"} and stage_name not in {
+            "queued",
+            "initialize",
+            "initializing",
+            "clone_repo",
+            "build",
+            "upload",
+        }:
+            return last
+        if stage_status in {"failure", "failed", "canceled", "cancelled", "error"}:
+            raise CloudflareError(f"Pages deployment failed at stage {stage_name or 'unknown'}: {stage_status}")
+        time.sleep(interval_seconds)
+    stage_name, stage_status = _deployment_state(last)
+    raise CloudflareError(
+        f"Pages deployment did not finish within {timeout_seconds}s"
+        + (f" (stage {stage_name or 'unknown'}: {stage_status or 'unknown'})" if last else "")
+    )
+
+
+def stable_pages_url(project_name: str, deployment: dict | None = None, project: dict | None = None) -> str:
+    project_name = sanitize_project_name(project_name)
+    expected_host = f"{project_name}.pages.dev"
+    candidates: list[str] = []
+
+    def _host_from(raw: str) -> str:
+        url = raw if raw.startswith(("http://", "https://")) else f"https://{raw}"
+        return re.sub(r"^https?://", "", url, flags=re.I).split("/", 1)[0].lower()
+
+    def _is_stable_pages_host(host: str) -> bool:
+        # Deployment preview hosts look like <deployment>.<project>.pages.dev.
+        # Stable Pages hosts have exactly <project>.pages.dev.
+        return bool(host.endswith(".pages.dev") and len(host.split(".")) == 3)
+
+    for source in (project or {}, deployment or {}):
+        if not isinstance(source, dict):
+            continue
+        for key in ("subdomain", "canonical_deployment", "url"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                candidates.append(value.strip())
+        aliases = source.get("aliases")
+        if isinstance(aliases, list):
+            candidates.extend(str(v).strip() for v in aliases if str(v or "").strip())
+    for raw in candidates:
+        host = _host_from(raw)
+        if host == expected_host:
+            return f"https://{host}"
+    for raw in candidates:
+        host = _host_from(raw)
+        if _is_stable_pages_host(host):
+            return f"https://{host}"
+    return f"https://{expected_host}"
+
+
 def sanitize_project_name(value: str) -> str:
     cleaned = (value or "").strip().lower()
     cleaned = re.sub(r"[^a-z0-9-]+", "-", cleaned)
@@ -665,7 +768,7 @@ def _file_map(directory: str) -> dict[str, dict[str, Any]]:
 
 def deploy_pages_static(api_token: str, account_id: str, project_name: str, directory: str) -> dict:
     project_name = sanitize_project_name(project_name)
-    ensure_project(api_token, account_id, project_name)
+    project = ensure_project(api_token, account_id, project_name)
     jwt_result = cf_request(
         api_token,
         "GET",
@@ -699,19 +802,30 @@ def deploy_pages_static(api_token: str, account_id: str, project_name: str, dire
             _pages_asset_request(upload_jwt, "POST", "/pages/assets/upload", chunk)
     _pages_asset_request(upload_jwt, "POST", "/pages/assets/upsert-hashes", {"hashes": hashes})
 
-    manifest = {rel: item["hash"] for rel, item in files.items()}
+    manifest = {f"/{rel.lstrip('/')}": item["hash"] for rel, item in files.items()}
     multipart = {
         "manifest": (None, json.dumps(manifest, separators=(",", ":"))),
         "branch": (None, "main"),
         "commit_message": (None, "Mira landing page publish"),
         "commit_dirty": (None, "true"),
     }
-    return cf_request(
+    deployment = cf_request(
         api_token,
         "POST",
         f"/accounts/{account_id}/pages/projects/{project_name}/deployments",
         files=multipart,
     )
+    deployment_id = str((deployment or {}).get("id") or "").strip()
+    if deployment_id:
+        deployment = wait_pages_deployment(api_token, account_id, project_name, deployment_id)
+    try:
+        project = get_pages_project(api_token, account_id, project_name)
+    except CloudflareError:
+        pass
+    if isinstance(deployment, dict):
+        deployment["deployment_url"] = deployment.get("url") or ""
+        deployment["stable_url"] = stable_pages_url(project_name, deployment=deployment, project=project)
+    return deployment
 
 
 def _pages_asset_request(jwt: str, method: str, path: str, payload: Any) -> Any:

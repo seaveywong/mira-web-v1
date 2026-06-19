@@ -725,6 +725,120 @@ def _default_dates(date_from: Optional[str], date_to: Optional[str]):
 
 
 # ─── 大盘汇总 ─────────────────────────────────────────────────
+
+def _local_snapshot_account_rows(conn, user, df: str, dt: str, act_id: Optional[str], kpi_filter: str) -> tuple[list[dict], dict]:
+    ensure_perf_snapshot_history_schema(conn)
+    accs = [dict(a) for a in _fetch_visible_accounts(conn, user, act_id)]
+    if not accs:
+        return [], {"account_count": 0, "snapshot_rows": 0, "source": "local_perf_snapshots"}
+    act_ids = [a["act_id"] for a in accs]
+    placeholders = ",".join("?" for _ in act_ids)
+    rows = conn.execute(
+        f"""SELECT p.act_id,
+                   COALESCE(a.name, p.act_id) AS name,
+                   COALESCE(a.timezone, 'UTC') AS timezone,
+                   COALESCE(a.currency, p.currency, 'USD') AS currency,
+                   a.balance, a.spend_cap, a.amount_spent, a.spending_limit,
+                   p.kpi_field,
+                   COUNT(*) AS snapshot_rows,
+                   SUM(COALESCE(p.spend, 0)) AS spend_usd,
+                   SUM(COALESCE(p.conversions, 0)) AS conversions,
+                   AVG(CASE WHEN p.roas IS NOT NULL AND p.roas > 0 THEN p.roas END) AS avg_roas
+            FROM perf_snapshots p
+            LEFT JOIN accounts a ON a.act_id = p.act_id
+            WHERE p.snapshot_date BETWEEN ? AND ?
+              AND p.act_id IN ({placeholders})
+            GROUP BY p.act_id, a.name, a.timezone, a.currency, a.balance, a.spend_cap, a.amount_spent, a.spending_limit, p.kpi_field""",
+        [df, dt] + act_ids,
+    ).fetchall()
+    grouped = {}
+    snapshot_rows = 0
+    for row in rows:
+        snapshot_rows += int(row["snapshot_rows"] or 0)
+        if kpi_filter and not _kpi_field_matches_filter(row["kpi_field"], kpi_filter):
+            continue
+        act = row["act_id"]
+        item = grouped.setdefault(act, {
+            "act_id": act,
+            "name": row["name"] or act,
+            "timezone": row["timezone"] or "UTC",
+            "currency": row["currency"] or "USD",
+            "balance": row["balance"],
+            "spend_cap": row["spend_cap"],
+            "amount_spent": row["amount_spent"],
+            "spending_limit": row["spending_limit"],
+            "spend_usd": 0.0,
+            "conversions": 0.0,
+            "roas_values": [],
+        })
+        item["spend_usd"] += float(row["spend_usd"] or 0)
+        item["conversions"] += float(row["conversions"] or 0)
+        if row["avg_roas"]:
+            item["roas_values"].append(float(row["avg_roas"] or 0))
+    out = []
+    for item in grouped.values():
+        spend = float(item["spend_usd"] or 0)
+        conv = float(item["conversions"] or 0)
+        avail, _, _ = _calc_available_balance(
+            item.get("balance"), item.get("spend_cap"), item.get("amount_spent"), item.get("spending_limit"), item.get("currency") or "USD"
+        )
+        out.append({
+            "act_id": item["act_id"],
+            "name": item["name"],
+            "timezone": item["timezone"],
+            "currency": item["currency"],
+            "spend_usd": round(spend, 2),
+            "conversions": conv,
+            "cpa_usd": round(spend / conv, 2) if spend > 0 and conv > 0 else None,
+            "roas": round(sum(item["roas_values"]) / len(item["roas_values"]), 2) if item["roas_values"] else None,
+            "available_balance": avail,
+            "status": "ok",
+            "source": "local_perf_snapshots",
+        })
+    out.sort(key=lambda x: x["spend_usd"], reverse=True)
+    return out, {"account_count": len(accs), "snapshot_rows": snapshot_rows, "source": "local_perf_snapshots"}
+
+
+def _local_snapshot_daily_trend(conn, user, df: str, dt: str, act_id: Optional[str], kpi_filter: str) -> dict:
+    start = datetime.strptime(df, "%Y-%m-%d").date()
+    end = datetime.strptime(dt, "%Y-%m-%d").date()
+    day_list = []
+    cur = start
+    while cur <= end:
+        day_list.append(cur.isoformat())
+        cur += timedelta(days=1)
+    accs = [dict(a) for a in _fetch_visible_accounts(conn, user, act_id)]
+    act_ids = [a["act_id"] for a in accs]
+    daily_spend = {d: 0.0 for d in day_list}
+    daily_conv = {d: 0.0 for d in day_list}
+    if act_ids:
+        placeholders = ",".join("?" for _ in act_ids)
+        rows = conn.execute(
+            f"""SELECT snapshot_date, spend, conversions, kpi_field
+                FROM perf_snapshots
+                WHERE snapshot_date BETWEEN ? AND ?
+                  AND act_id IN ({placeholders})""",
+            [df, dt] + act_ids,
+        ).fetchall()
+        for row in rows:
+            if kpi_filter and not _kpi_field_matches_filter(row["kpi_field"], kpi_filter):
+                continue
+            d = row["snapshot_date"]
+            if d in daily_spend:
+                daily_spend[d] += float(row["spend"] or 0)
+                daily_conv[d] += float(row["conversions"] or 0)
+    spend_arr = [round(daily_spend[d], 2) for d in day_list]
+    cpa_arr = [round(daily_spend[d] / daily_conv[d], 2) if daily_conv[d] > 0 else None for d in day_list]
+    return {
+        "date_from": df,
+        "date_to": dt,
+        "labels": [d[5:] for d in day_list],
+        "full_dates": day_list,
+        "spend": spend_arr,
+        "cpa": cpa_arr,
+        "conversions": [round(daily_conv[d], 2) for d in day_list],
+        "source": "local_perf_snapshots",
+    }
 def _fetch_account_summary(acc: dict, df: str, dt: str, kpi_filter: Optional[str] = None) -> dict:
     token = _get_token_for_account(acc)
     acc_name = acc.get("name") or acc["act_id"].replace("act_", "")
@@ -825,7 +939,7 @@ def get_summary(
     user=Depends(get_current_user)
 ):
     """
-    大盘汇总 - 实时从FB API拉取
+    大盘汇总 - 默认读取本地巡检快照
     date_from/date_to: YYYY-MM-DD 固定日期（用户自选）
     默认今日
     """
@@ -835,7 +949,7 @@ def get_summary(
     cache_key = (df, dt, act_id or "", kpi_filter, user.get("uid"), user.get("team_id"), user.get("role"))
     cached = _SUMMARY_CACHE.get(cache_key)
     if cached and time.time() - cached["ts"] < _SUMMARY_CACHE_TTL:
-        return dict(cached["data"], source="fb_insights_api_cache")
+        return dict(cached["data"], source="local_perf_snapshots_cache")
 
     conn = get_conn()
     accs = _fetch_visible_accounts(conn, user, act_id)
@@ -906,42 +1020,16 @@ def get_summary(
             ORDER BY last_at DESC LIMIT 20""",
         (df, dt, *log_join_filter_params)
     ).fetchall()
+    account_results, local_meta = _local_snapshot_account_rows(conn, user, df, dt, act_id, kpi_filter)
     conn.close()
 
     total_spend = 0.0
     total_conversions = 0
     cpa_list = []
     roas_list = []
-    account_count = len(accs)
+    account_count = int(local_meta.get("account_count") or len(accs))
     error_accounts = 0
     account_details = []  # 账户级明细
-
-    account_results = []
-    if accs:
-        max_workers = min(4, len(accs))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_map = {
-                executor.submit(_fetch_account_summary, dict(acc), df, dt, kpi_filter): dict(acc).get("act_id")
-                for acc in accs
-            }
-            for future in as_completed(future_map):
-                act_id_key = future_map[future]
-                try:
-                    account_results.append(future.result())
-                except Exception as e:
-                    account_results.append({
-                        "act_id": act_id_key,
-                        "name": act_id_key.replace("act_", "") if act_id_key else "",
-                        "timezone": "UTC",
-                        "currency": "USD",
-                        "spend_usd": 0,
-                        "conversions": 0,
-                        "cpa_usd": None,
-                        "roas": None,
-                        "available_balance": 0,
-                        "status": "error",
-                        "error": str(e),
-                    })
 
     for account_result in account_results:
         total_spend += account_result["spend_usd"]
@@ -1085,7 +1173,8 @@ def get_summary(
         "pause_details": [dict(r) for r in pause_details],    # 自动止损明细
         "emg_details": [dict(r) for r in emg_details],        # 紧急暂停明细（仅展示）
         "account_details": account_details,                   # 账户级明细（按消耗降序）
-        "source": "fb_insights_api",
+        "source": "local_perf_snapshots",
+        "snapshot_rows": int(local_meta.get("snapshot_rows") or 0),
     }
     _SUMMARY_CACHE[cache_key] = {"ts": time.time(), "data": result}
     return result
@@ -1102,7 +1191,7 @@ def get_trend(
     user=Depends(get_current_user)
 ):
     """
-    近N日趋势 - 实时从FB API拉取
+    近N日趋势 - 默认读取本地巡检快照
     date_from/date_to: 固定日期（优先）
     days: 如果没有传date_from/date_to，用days计算（默认7）
     """
@@ -1128,112 +1217,15 @@ def get_trend(
     if len(day_list) == 1:
         conn = get_conn()
         try:
-            hourly = _hourly_trend_from_fb_insights(conn, user, day_list[0], act_id, kpi_filter)
-            if hourly:
-                return hourly
             return _hourly_trend_from_local_snapshots(conn, user, day_list[0], act_id, kpi_filter)
         finally:
             conn.close()
 
     conn = get_conn()
-    accs = _fetch_visible_accounts(conn, user, act_id)
-    conn.close()
-
-    daily_spend = {d: 0.0 for d in day_list}
-    daily_conv = {d: 0 for d in day_list}
-
-    for acc in accs:
-        acc = dict(acc)
-        token = _get_token_for_account(acc)
-        if not token:
-            continue
-        currency = (acc.get('currency') or 'USD').upper()
-        conn2 = get_conn()
-        rate = _get_rate(currency, conn2)
-        conn2.close()
-
-        try:
-            if kpi_filter:
-                conn3 = get_conn()
-                kpi_rows = conn3.execute(
-                    'SELECT target_id, kpi_field FROM kpi_configs WHERE act_id=? AND level="ad" AND enabled=1',
-                    (acc["act_id"],)
-                ).fetchall()
-                conn3.close()
-                kpi_map = {row["target_id"]: row["kpi_field"] for row in kpi_rows}
-                items = []
-                next_url = f'https://graph.facebook.com/v25.0/{acc["act_id"]}/insights'
-                params = {
-                    'access_token': token,
-                    'fields': 'date_start,ad_id,spend,actions',
-                    'time_range': f'{{"since":"{df}","until":"{dt}"}}',
-                    'time_increment': 1,
-                    'level': 'ad',
-                    'limit': 500
-                }
-                fetched = 0
-                while next_url and fetched < 5000:
-                    resp = req.get(next_url, params=params, timeout=25)
-                    data = resp.json()
-                    if 'error' in data:
-                        items = []
-                        break
-                    page_items = data.get('data', [])
-                    items.extend(page_items)
-                    fetched += len(page_items)
-                    next_url = data.get('paging', {}).get('next')
-                    params = {}
-                for item in items:
-                    d = item.get('date_start', '')
-                    if d not in daily_spend:
-                        continue
-                    kpi_field = kpi_map.get(item.get('ad_id', ''))
-                    if not _kpi_field_matches_filter(kpi_field, kpi_filter):
-                        continue
-                    spend_orig = float(item.get('spend', 0) or 0)
-                    spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
-                    daily_spend[d] += spend_usd
-                    daily_conv[d] += _count_conversions(item.get('actions', []), kpi_field)
-                continue
-
-            resp = req.get(
-                f'https://graph.facebook.com/v25.0/{acc["act_id"]}/insights',
-                params={
-                    'access_token': token,
-                    'fields': 'date_start,spend,actions',
-                    'time_range': f'{{"since":"{df}","until":"{dt}"}}',
-                    'time_increment': 1,
-                    'level': 'account',
-                    'limit': 100
-                },
-                timeout=20
-            )
-            data = resp.json()
-            if 'error' in data:
-                continue
-            for item in data.get('data', []):
-                d = item.get('date_start', '')
-                if d not in daily_spend:
-                    continue
-                spend_orig = float(item.get('spend', 0) or 0)
-                spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
-                daily_spend[d] += spend_usd
-                daily_conv[d] += _count_conversions(item.get('actions', []), None)
-        except Exception:
-            continue
-
-    spend_arr = [round(daily_spend[d], 2) for d in day_list]
-    cpa_arr = [round(daily_spend[d] / daily_conv[d], 2) if daily_conv[d] > 0 else None for d in day_list]
-
-    return {
-        "date_from": df,
-        "date_to": dt,
-        "labels": [d[5:] for d in day_list],   # MM-DD
-        "full_dates": day_list,
-        "spend": spend_arr,
-        "cpa": cpa_arr,
-        "source": "fb_insights_api",
-    }
+    try:
+        return _local_snapshot_daily_trend(conn, user, df, dt, act_id, kpi_filter)
+    finally:
+        conn.close()
 
 
 # ─── 广告列表（实时） ─────────────────────────────────────────
@@ -1556,138 +1548,155 @@ def spend_query(
     account_id: Optional[str] = None,
     user=Depends(get_current_user)
 ):
-    """自定义日期范围消耗查询，固定日期字符串，适用于历史数据查询"""
+    """自定义日期范围消耗查询。
+
+    Dashboard uses local guard snapshots as the source of truth. This keeps the
+    cards, trend chart, ad-stop records and copied spent IDs on the same data
+    basis, and avoids repeated FB API calls while switching pages.
+    """
+    try:
+        df = datetime.strptime(date_from, "%Y-%m-%d").date().isoformat()
+        dt = datetime.strptime(date_to, "%Y-%m-%d").date().isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="date_from/date_to must be YYYY-MM-DD") from exc
+    if df > dt:
+        df, dt = dt, df
+
     conn = get_conn()
-    accs = _fetch_visible_accounts(conn, user, account_id)
-    conn.close()
-
     result_rows = []
-    total_usd = 0.0
-    total_conversions = 0
-    total_cpa_list = []
-    total_roas_list = []
+    grouped = {}
+    total_snapshot_rows = 0
+    try:
+        ensure_perf_snapshot_history_schema(conn)
+        accs = [dict(a) for a in _fetch_visible_accounts(conn, user, account_id)]
+        act_ids = [a["act_id"] for a in accs if a.get("act_id")]
+        perf_cols = {r["name"] for r in conn.execute("PRAGMA table_info(perf_snapshots)").fetchall()}
+        impressions_expr = "SUM(COALESCE(p.impressions,0))" if "impressions" in perf_cols else "0"
+        clicks_expr = "SUM(COALESCE(p.clicks,0))" if "clicks" in perf_cols else "0"
+        roas_expr = "AVG(CASE WHEN p.roas IS NOT NULL AND p.roas > 0 THEN p.roas END)" if "roas" in perf_cols else "NULL"
 
-    for acc in accs:
-        acc = dict(acc)
-        token = _get_token_for_account(acc)
-        if not token:
-            continue
-        act_id = acc['act_id']
-        currency = (acc.get('currency') or 'USD').upper()
-        conn2 = get_conn()
-        rate = _get_rate(currency, conn2)
-        conn2.close()
+        if act_ids:
+            placeholders = ",".join("?" for _ in act_ids)
+            rows = conn.execute(
+                f"""SELECT p.snapshot_date,
+                           p.act_id,
+                           COALESCE(a.name, p.act_id) AS account_name,
+                           COALESCE(a.timezone, 'UTC') AS timezone,
+                           COALESCE(a.currency, p.currency, 'USD') AS currency,
+                           p.kpi_field,
+                           COUNT(*) AS snapshot_rows,
+                           SUM(COALESCE(p.spend,0)) AS spend_usd,
+                           SUM(COALESCE(p.conversions,0)) AS conversions,
+                           {impressions_expr} AS impressions,
+                           {clicks_expr} AS clicks,
+                           {roas_expr} AS roas
+                    FROM perf_snapshots p
+                    LEFT JOIN accounts a ON a.act_id=p.act_id
+                    WHERE p.snapshot_date BETWEEN ? AND ?
+                      AND p.act_id IN ({placeholders})
+                    GROUP BY p.snapshot_date, p.act_id, a.name, a.timezone, a.currency, p.currency, p.kpi_field""",
+                [df, dt] + act_ids,
+            ).fetchall()
+            for row in rows:
+                total_snapshot_rows += int(row["snapshot_rows"] or 0)
+                key = (row["snapshot_date"], row["act_id"])
+                item = grouped.setdefault(key, {
+                    "date": row["snapshot_date"],
+                    "act_id": row["act_id"],
+                    "account_name": row["account_name"] or row["act_id"],
+                    "currency": (row["currency"] or "USD").upper(),
+                    "timezone": row["timezone"] or "UTC",
+                    "spend_usd": 0.0,
+                    "conversions": 0.0,
+                    "impressions": 0,
+                    "clicks": 0,
+                    "roas_values": [],
+                    "source": "local_perf_snapshots",
+                })
+                item["spend_usd"] += float(row["spend_usd"] or 0)
+                item["conversions"] += float(row["conversions"] or 0)
+                item["impressions"] += int(row["impressions"] or 0)
+                item["clicks"] += int(row["clicks"] or 0)
+                if row["roas"]:
+                    item["roas_values"].append(float(row["roas"] or 0))
 
-        try:
-            resp = req.get(
-                f'https://graph.facebook.com/v25.0/{act_id}/insights',
-                params={
-                    'access_token': token,
-                    'fields': 'date_start,date_stop,spend,impressions,clicks,actions,action_values,cpc,cpm',
-                    'time_range': f'{{"since":"{date_from}","until":"{date_to}"}}',
-                    'time_increment': 1,
-                    'level': 'account',
-                    'limit': 100
-                },
-                timeout=30
-            )
-            data = resp.json()
-            if 'error' in data:
-                # API报错时也生成占位行（每天一行$0.00）
-                from datetime import date as _date, timedelta
-                d_from = _date.fromisoformat(date_from)
-                d_to = _date.fromisoformat(date_to)
-                cur = d_from
-                while cur <= d_to:
-                    result_rows.append({
-                        'date': cur.isoformat(),
-                        'act_id': act_id,
-                        'account_name': acc.get('name', act_id),
-                        'currency': currency,
-                        'timezone': acc.get('timezone', 'UTC'),
-                        'spend_orig': 0.0, 'spend_usd': 0.0,
-                        'conversions': 0, 'cpa_orig': 0, 'cpa_usd': 0,
-                        'roas': 0, 'impressions': 0, 'clicks': 0,
-                        'note': data['error'].get('message', 'API Error'),
-                    })
-                    cur += timedelta(days=1)
-                continue
-            items = data.get('data', [])
-            if not items:
-                # FB返回空数据（该时段无消耗），生成占位行
-                from datetime import date as _date, timedelta
-                d_from = _date.fromisoformat(date_from)
-                d_to = _date.fromisoformat(date_to)
-                cur = d_from
-                while cur <= d_to:
-                    result_rows.append({
-                        'date': cur.isoformat(),
-                        'act_id': act_id,
-                        'account_name': acc.get('name', act_id),
-                        'currency': currency,
-                        'timezone': acc.get('timezone', 'UTC'),
-                        'spend_orig': 0.0, 'spend_usd': 0.0,
-                        'conversions': 0, 'cpa_orig': 0, 'cpa_usd': 0,
-                        'roas': 0, 'impressions': 0, 'clicks': 0,
-                    })
-                    cur += timedelta(days=1)
-            for item in items:
-                spend_orig = float(item.get('spend', 0) or 0)
-                spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
-                actions = item.get('actions', [])
-                conversions = _count_conversions(actions, None)
-                cpa_orig = round(spend_orig / conversions, 2) if conversions > 0 else 0
-                cpa_usd = round(spend_usd / conversions, 2) if conversions > 0 else 0
-                action_values = item.get('action_values', [])
-                revenue = _count_revenue(action_values, None)
-                roas = round(revenue / spend_orig, 2) if spend_orig > 0 and revenue > 0 else 0
-                row = {
-                    'date': item.get('date_start', ''),
-                    'act_id': act_id,
-                    'account_name': acc.get('name', act_id),
-                    'currency': currency,
-                    'timezone': acc.get('timezone', 'UTC'),
-                    'spend_orig': spend_orig,
-                    'spend_usd': spend_usd,
-                    'conversions': conversions,
-                    'cpa_orig': cpa_orig,
-                    'cpa_usd': cpa_usd,
-                    'roas': roas,
-                    'impressions': int(item.get('impressions', 0) or 0),
-                    'clicks': int(item.get('clicks', 0) or 0),
+        has_retention = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_spend_retention'"
+        ).fetchone()
+        if has_retention:
+            retention_where = ["r.snapshot_date BETWEEN ? AND ?"]
+            retention_params = [df, dt]
+            if account_id:
+                retention_where.append("r.act_id=?")
+                retention_params.append(account_id)
+            apply_team_scope(retention_where, retention_params, user, "r.team_id", include_unassigned=False)
+            apply_account_owner_scope(retention_where, retention_params, user, "r.owner_user_id")
+            retained = conn.execute(
+                f"""SELECT r.snapshot_date,
+                           r.act_id,
+                           COALESCE(r.account_name, r.act_id) AS account_name,
+                           COALESCE(r.currency, 'USD') AS currency,
+                           SUM(COALESCE(r.spend,0)) AS spend_usd,
+                           SUM(COALESCE(r.conversions,0)) AS conversions
+                    FROM account_spend_retention r
+                    WHERE {' AND '.join(retention_where)}
+                    GROUP BY r.snapshot_date, r.act_id, r.account_name, r.currency""",
+                retention_params,
+            ).fetchall()
+            for row in retained:
+                key = (row["snapshot_date"], row["act_id"])
+                if key in grouped:
+                    continue
+                grouped[key] = {
+                    "date": row["snapshot_date"],
+                    "act_id": row["act_id"],
+                    "account_name": row["account_name"] or row["act_id"],
+                    "currency": (row["currency"] or "USD").upper(),
+                    "timezone": "archived",
+                    "spend_usd": float(row["spend_usd"] or 0),
+                    "conversions": float(row["conversions"] or 0),
+                    "impressions": 0,
+                    "clicks": 0,
+                    "roas_values": [],
+                    "source": "removed_account_retention",
                 }
-                result_rows.append(row)
-                total_usd += spend_usd
-                total_conversions += conversions
-                if cpa_usd > 0:
-                    total_cpa_list.append(cpa_usd)
-                if roas > 0:
-                    total_roas_list.append(roas)
-        except Exception:
-            # 请求异常时也生成占位行
-            from datetime import date as _date, timedelta
-            try:
-                d_from = _date.fromisoformat(date_from)
-                d_to = _date.fromisoformat(date_to)
-                cur = d_from
-                while cur <= d_to:
-                    result_rows.append({
-                        'date': cur.isoformat(),
-                        'act_id': act_id,
-                        'account_name': acc.get('name', act_id),
-                        'currency': currency,
-                        'timezone': acc.get('timezone', 'UTC'),
-                        'spend_orig': 0.0, 'spend_usd': 0.0,
-                        'conversions': 0, 'cpa_orig': 0, 'cpa_usd': 0,
-                        'roas': 0, 'impressions': 0, 'clicks': 0,
-                        'note': 'Request failed',
-                    })
-                    cur += timedelta(days=1)
-            except Exception:
-                pass
-            continue
+    finally:
+        conn.close()
 
-    result_rows.sort(key=lambda x: x['date'], reverse=True)
+    total_usd = 0.0
+    total_conversions = 0.0
+    total_roas_list = []
+    for item in grouped.values():
+        spend_usd = float(item["spend_usd"] or 0)
+        conversions = float(item["conversions"] or 0)
+        currency = item["currency"] or "USD"
+        rate = _get_rate(currency, None)
+        spend_orig = round(spend_usd * rate, 2) if rate else spend_usd
+        cpa_usd = round(spend_usd / conversions, 2) if conversions > 0 else 0
+        cpa_orig = round(spend_orig / conversions, 2) if conversions > 0 else 0
+        roas = round(sum(item["roas_values"]) / len(item["roas_values"]), 2) if item["roas_values"] else 0
+        result_rows.append({
+            "date": item["date"],
+            "act_id": item["act_id"],
+            "account_name": item["account_name"],
+            "currency": currency,
+            "timezone": item["timezone"],
+            "spend_orig": spend_orig,
+            "spend_usd": round(spend_usd, 2),
+            "conversions": conversions,
+            "cpa_orig": cpa_orig,
+            "cpa_usd": cpa_usd,
+            "roas": roas,
+            "impressions": int(item["impressions"] or 0),
+            "clicks": int(item["clicks"] or 0),
+            "source": item["source"],
+        })
+        total_usd += spend_usd
+        total_conversions += conversions
+        if roas > 0:
+            total_roas_list.append(roas)
+
+    result_rows.sort(key=lambda x: (x["date"], x["spend_usd"]), reverse=True)
     avg_cpa = round(total_usd / total_conversions, 2) if total_conversions > 0 else 0
     avg_roas = round(sum(total_roas_list) / len(total_roas_list), 2) if total_roas_list else 0
     return {
@@ -1696,9 +1705,10 @@ def spend_query(
         "avg_cpa": avg_cpa,
         "avg_roas": avg_roas,
         "rows": result_rows,
-        "source": "fb_insights_api",
-        "date_from": date_from,
-        "date_to": date_to,
+        "source": "local_perf_snapshots",
+        "snapshot_rows": total_snapshot_rows,
+        "date_from": df,
+        "date_to": dt,
     }
 
 

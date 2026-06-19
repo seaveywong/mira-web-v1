@@ -28,6 +28,7 @@ from services.landing_publisher import (
     normalize_custom_domain,
     prepare_template,
     sanitize_project_name,
+    stable_pages_url,
     verify_token_and_accounts,
 )
 
@@ -784,6 +785,19 @@ def _ad_link_url(page: dict, slug: str) -> str:
     if not base or not slug:
         return ""
     return f"{base}/a/{slug}"
+
+
+def _refresh_page_ad_link_urls(conn, page_id: int, page_public: dict) -> None:
+    base = _page_public_url(page_public)
+    if not base:
+        return
+    rows = conn.execute("SELECT id, slug FROM landing_ad_links WHERE page_id=?", (page_id,)).fetchall()
+    for row in rows:
+        url = f"{base}/a/{row['slug']}"
+        conn.execute(
+            "UPDATE landing_ad_links SET public_url=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+            (url, int(row["id"])),
+        )
 
 
 def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = None) -> dict:
@@ -1774,6 +1788,12 @@ def diagnose_cf_token(token_id: int, user=Depends(get_current_user)):
             try:
                 projects = list_pages_projects(raw, account_id)
                 checks.append({"key": "pages", "status": "pass", "label": "发布权限可用", "detail": f"可读取 {len(projects)} 个站点项目"})
+                checks.append({
+                    "key": "usage",
+                    "status": "pass",
+                    "label": "发布资源概览",
+                    "detail": f"当前发布账号可读取 {len(projects)} 个 Pages 项目。Cloudflare API 未提供统一的免费额度剩余字段，Mira 只展示实际可读资源数量。",
+                })
             except CloudflareError as exc:
                 checks.append({"key": "pages", "status": "fail", "label": "发布权限不可用", "detail": _public_provider_error(exc, user)})
         else:
@@ -2394,7 +2414,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
         )
         response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
         deployment_id = str(response.get("id") or "")
-        pages_url = response.get("url") or response.get("aliases", [None])[0] or ""
+        pages_url = response.get("stable_url") or stable_pages_url(project_name, deployment=response) or response.get("url") or response.get("aliases", [None])[0] or ""
         public_url = pages_url
         domain_error = ""
         domain_notice = ""
@@ -2454,6 +2474,8 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
         conn.commit()
         saved = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
         item = _public_page(saved)
+        _refresh_page_ad_link_urls(conn, page_id, item)
+        conn.commit()
         item["binding"] = binding
         item["domain_error"] = domain_error
         item["domain_notice"] = domain_notice
@@ -2571,7 +2593,7 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
         )
         response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
         deployment_id = str(response.get("id") or "")
-        pages_url = response.get("url") or response.get("aliases", [None])[0] or page.get("pages_url") or ""
+        pages_url = response.get("stable_url") or stable_pages_url(project_name, deployment=response) or response.get("url") or response.get("aliases", [None])[0] or page.get("pages_url") or ""
         public_url = pages_url
         domain_error = ""
         domain_result = None
@@ -2613,6 +2635,8 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
         conn.commit()
         saved = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
         item = _public_page(saved)
+        _refresh_page_ad_link_urls(conn, page_id, item)
+        conn.commit()
         item["binding"] = binding
         item["domain_error"] = domain_error
         return {"success": True, "page": item}
