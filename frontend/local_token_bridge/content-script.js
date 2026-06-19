@@ -475,6 +475,7 @@ async function runBusinessOperation(operation, payload = {}) {
     const businesses = [];
     const accounts = [];
     const errors = [];
+    const blockReason = detectMetaBlockingState();
     const loadBusinessAccounts = async (bmId, bmName = '') => {
       if (!bmId) return;
       const businessCalls = [
@@ -545,7 +546,8 @@ async function runBusinessOperation(operation, payload = {}) {
       ? mergedAccounts.filter(a => String(a.business_id || '') === businessId)
       : mergedAccounts;
     const finalBusinesses = mergeGraphBusinesses(mergedBusinesses, filtered);
-    return { businesses: finalBusinesses, accounts: filtered, assets: { businesses: finalBusinesses, ad_accounts: filtered, pixels: [] }, errors: errors.slice(-12) };
+    const lastError = filtered.length ? '' : (blockReason || errors.slice(-4).join(' | ') || '');
+    return { businesses: finalBusinesses, accounts: filtered, assets: { businesses: finalBusinesses, ad_accounts: filtered, pixels: [] }, errors: errors.slice(-12), last_error: lastError, blocked: !!blockReason };
   }
 
   if (operation === 'list_pixels') {
@@ -681,6 +683,18 @@ function isGenericLabel(value) {
     'pages',
     'select assets',
     'assets assigned',
+    '设置',
+    '业务信息',
+    '业务设置',
+    '公共主页',
+    '广告账户',
+    '业务资产组合',
+    '用户',
+    '人员',
+    '合作伙伴',
+    '系统用户',
+    '账户',
+    '数据源',
   ].some(x => s === x || s.includes(x));
 }
 
@@ -690,6 +704,19 @@ function betterLabel(current, next, fallback) {
   if (!isGenericLabel(n)) return n.slice(0, 90);
   if (!isGenericLabel(c)) return c.slice(0, 90);
   return cleanLabelText(fallback || c || n).slice(0, 90);
+}
+
+function detectMetaBlockingState() {
+  try {
+    const text = `${document.title || ''}\n${document.body?.innerText || ''}`.slice(0, 20000);
+    if (/需要验证|验证账户|先验证你的账户|账号安全|账户安全|confirm your identity|verify your account|security check|checkpoint/i.test(text)) {
+      return 'Meta 要求先验证当前浏览器登录账号，暂时无法读取广告账户。请在此 Chrome 完成“验证账户”后再刷新本地执行器。';
+    }
+    if (/内容暂时无法显示|content (?:is )?not available|暂时无法显示/i.test(text)) {
+      return 'Meta 当前页面不可用或被拦截，暂时无法读取广告账户。';
+    }
+  } catch (e) {}
+  return '';
 }
 
 function pageBusinessName() {

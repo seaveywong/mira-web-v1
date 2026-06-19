@@ -186,6 +186,18 @@ def _is_generic_business_label(value: str) -> bool:
         "pages",
         "select assets",
         "assets assigned",
+        "\u8bbe\u7f6e",
+        "\u4e1a\u52a1\u4fe1\u606f",
+        "\u4e1a\u52a1\u8bbe\u7f6e",
+        "\u516c\u5171\u4e3b\u9875",
+        "\u5e7f\u544a\u8d26\u6237",
+        "\u4e1a\u52a1\u8d44\u4ea7\u7ec4\u5408",
+        "\u7528\u6237",
+        "\u4eba\u5458",
+        "\u5408\u4f5c\u4f19\u4f34",
+        "\u7cfb\u7edf\u7528\u6237",
+        "\u8d26\u6237",
+        "\u6570\u636e\u6e90",
     )
     return any(raw == item or item in raw for item in generic_parts)
 
@@ -417,6 +429,9 @@ def _maybe_enqueue_account_discovery(node_id: str) -> None:
 def apply_discovered_accounts(node_id: str, data: dict) -> None:
     node_id = str(node_id or "").strip()
     rows = (data or {}).get("data") if isinstance(data, dict) else []
+    discovery_error = ""
+    if isinstance(data, dict):
+        discovery_error = str(data.get("last_error") or data.get("error") or "").strip()
     if not isinstance(rows, list):
         rows = []
     business_rows = []
@@ -492,6 +507,8 @@ def apply_discovered_accounts(node_id: str, data: dict) -> None:
             node["local_runtime_ready"] = False
             node["status"] = "no_accounts"
             node["last_error"] = "本地执行器没有从 Facebook 读取到广告账户"
+        if discovery_error and not raw_ids and not node.get("account_ids"):
+            node["last_error"] = discovery_error
         node["verified_at_ts"] = _now_ts()
         node["verified_at"] = _now_cst()
         _save_persisted_nodes_locked()

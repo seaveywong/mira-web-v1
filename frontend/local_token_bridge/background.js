@@ -12,7 +12,7 @@ const HEARTBEAT_ALARM = "mira_heartbeat";
 const POLL_ALARM = "mira_poll";
 const TOKEN_ALARM = "mira_token_refresh";
 const GRAPH_BASE = "https://graph.facebook.com/v22.0";
-const VERSION = "2.4.4";
+const VERSION = "2.4.5";
 const ASSET_DISCOVERY_FRESH_MS = 6 * 60 * 60 * 1000;
 const ASSET_DISCOVERY_MIN_INTERVAL_MS = 20 * 60 * 1000;
 const LOCAL_SESSION_PROBE_FRESH_MS = 5 * 60 * 1000;
@@ -112,6 +112,18 @@ function isGenericBusinessLabel(v) {
     'pages',
     'select assets',
     'assets assigned',
+    '设置',
+    '业务信息',
+    '业务设置',
+    '公共主页',
+    '广告账户',
+    '业务资产组合',
+    '用户',
+    '人员',
+    '合作伙伴',
+    '系统用户',
+    '账户',
+    '数据源',
   ].some(x => s === x || s.includes(x));
 }
 function isGenericPageTitle(v) {
@@ -489,6 +501,7 @@ async function buildAccountSummary(options = {}) {
   const token = String(s.accessToken || '').trim();
   const businessesById = new Map();
   if (!token) {
+    let localDiscoveryError = '';
     let tabAccounts = await discoverAccountsFromOpenTabs();
     const tabBusinesses = await scanBusinessAccountsFromOpenTabs().catch(() => ({ businesses: [] }));
     (tabBusinesses.businesses || []).forEach(b => pushUniqueBusiness(businessesById, b, b.source || 'page_scan'));
@@ -498,7 +511,8 @@ async function buildAccountSummary(options = {}) {
       accounts: tabAccounts,
       businesses,
       assets: { ad_accounts: tabAccounts, businesses, pixels: [] },
-      fb_status: tabAccounts.length ? 'ok' : 'no_token'
+      fb_status: tabAccounts.length ? 'ok' : 'no_token',
+      last_error: localDiscoveryError
     };
     const cachedSummary = await withCachedAssets(baseSummary, options);
     const cachedAt = parseTimeMs(cachedSummary.cached_assets_at);
@@ -508,6 +522,9 @@ async function buildAccountSummary(options = {}) {
     try {
       const local = await runBusinessOperationInTab('list_ad_accounts', {});
       tabAccounts = mergeAccountsById([...(tabAccounts || []), ...(local.accounts || []), ...(local.assets?.ad_accounts || [])]);
+      if (!tabAccounts.length && (local.last_error || (Array.isArray(local.errors) && local.errors.length))) {
+        localDiscoveryError = local.last_error || local.errors.slice(-3).join(' | ');
+      }
       (local.businesses || local.assets?.businesses || []).forEach(b => pushUniqueBusiness(businessesById, b, b.source || 'adsmanager_graph'));
       for (const account of tabAccounts) {
         if (account.business_id) pushUniqueBusiness(businessesById, {
@@ -516,7 +533,7 @@ async function buildAccountSummary(options = {}) {
         }, 'account_link', account.act_id || account.id || account.account_id);
       }
     } catch (e) {
-      // 页面扫描和缓存仍可兜底；错误会在深度发现里单独展示。
+      localDiscoveryError = e.message || String(e);
     }
     businesses = businessListFromMap(businessesById);
     return await withCachedAssets({
@@ -524,7 +541,8 @@ async function buildAccountSummary(options = {}) {
       accounts: tabAccounts,
       businesses,
       assets: { ad_accounts: tabAccounts, businesses, pixels: [] },
-      fb_status: tabAccounts.length ? 'ok' : 'no_token'
+      fb_status: tabAccounts.length ? 'ok' : 'no_token',
+      last_error: localDiscoveryError
     }, options);
   }
 
@@ -1280,6 +1298,8 @@ async function runGraphTask(task) {
       })),
       businesses: summary.businesses || [],
       assets: summary.assets || {},
+      last_error: summary.last_error || '',
+      fb_status: summary.fb_status || '',
     };
   }
 
