@@ -77,6 +77,17 @@ def list_pages_projects(api_token: str, account_id: str) -> list:
     return result if isinstance(result, list) else result.get("result", [])
 
 
+def list_account_zones(api_token: str, account_id: str) -> list[dict[str, Any]]:
+    result = cf_request(api_token, "GET", "/zones", params={"account.id": account_id, "per_page": 100})
+    if isinstance(result, list):
+        return [x for x in result if isinstance(x, dict)]
+    if isinstance(result, dict):
+        items = result.get("result") or []
+        if isinstance(items, list):
+            return [x for x in items if isinstance(x, dict)]
+    return []
+
+
 def add_pages_custom_domain(api_token: str, account_id: str, project_name: str, domain: str) -> dict:
     domain = normalize_custom_domain(domain)
     if not domain:

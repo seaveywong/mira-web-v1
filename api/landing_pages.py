@@ -26,6 +26,7 @@ from services.landing_publisher import (
     delete_pages_project,
     deploy_pages_static,
     get_pages_custom_domain_status,
+    list_account_zones,
     list_pages_projects,
     normalize_custom_domain,
     prepare_template,
@@ -2397,6 +2398,23 @@ def diagnose_cf_token(token_id: int, user=Depends(get_current_user)):
         if account_id:
             try:
                 projects = list_pages_projects(raw, account_id)
+                try:
+                    zones = list_account_zones(raw, account_id)
+                    zone_names = [str(z.get("name") or "").strip() for z in zones if z.get("name")]
+                    checks.append({
+                        "key": "zones",
+                        "status": "pass",
+                        "label": "自定义域名读取",
+                        "detail": f"可读取 {len(zone_names)} 个域名" + (("：" + "、".join(zone_names[:6])) if zone_names else "。"),
+                    })
+                except CloudflareError as zone_exc:
+                    checks.append({
+                        "key": "zones",
+                        "status": "warn",
+                        "label": "自定义域名读取受限",
+                        "detail": "如需自动识别账号下可用域名，请给 API Token 增加 Zone Read 权限；当前仍可手动填写域名，并在发布或复检时验证。"
+                        + _public_provider_error(zone_exc, user),
+                    })
                 checks.append({"key": "pages", "status": "pass", "label": "发布权限可用", "detail": f"可读取 {len(projects)} 个站点项目"})
                 checks.append({
                     "key": "usage",

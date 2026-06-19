@@ -96,7 +96,7 @@ function _applyLaunchSettings(obj) {
  if(obj.landing_url){ var el=document.getElementById('launchLandingUrl'); if(el)el.value=obj.landing_url; }
 }
 async function saveLaunchTemplate() {
- var name = await promptAsync(' 保存投放设置模版', '请输入模版名称', '', '例如：台湾COD标准、仅FB动态');
+ var name = await promptAsync(' 保存投放设置模版', '请输入模版名称', '', '例如：标准投放配置、仅动态版位');
  if(!name || !name.trim()) return;
  name = name.trim();
  var store = _getLaunchTplStore();
@@ -1788,7 +1788,7 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .team-resource-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .team-resource-actions .fc{width:210px!important;flex:0 0 210px!important}
 .team-resource-box{border:1px solid #e5e5ea!important;border-radius:8px!important;overflow:auto!important;background:#fff!important}
-.team-resource-table{width:100%;min-width:860px;border-collapse:separate;border-spacing:0;font-size:13px}
+.team-resource-table{width:100%;min-width:1040px;border-collapse:separate;border-spacing:0;font-size:13px}
 .team-resource-table th{height:40px;padding:0 12px;text-align:left;color:#6e6e73;background:#f5f5f7;border-bottom:1px solid #e5e5ea;font-size:12px;font-weight:760}
 .team-resource-table td{padding:12px;border-bottom:1px solid #ececf1}
 .team-resource-table tr:last-child td{border-bottom:0}
@@ -1797,6 +1797,17 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .team-resource-check{width:42px;text-align:center!important}
 .team-resource-op{text-align:right!important;white-space:nowrap}
 .team-resource-op .btn+.btn{margin-left:6px}
+.team-resource-type{display:inline-flex;align-items:center;min-height:24px;padding:0 9px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:760;white-space:nowrap}
+.team-resource-type.token{background:#ecfeff;color:#155e75}
+.team-resource-type.asset{background:#f0fdf4;color:#166534}
+.team-resource-type.page{background:#fff7ed;color:#9a3412}
+.team-resource-type.template{background:#faf5ff;color:#6b21a8}
+.team-resource-type.form{background:#fdf2f8;color:#9d174d}
+.team-resource-status-pill{display:inline-flex;align-items:center;min-height:24px;padding:0 9px;border-radius:999px;background:#f5f5f7;color:#515154;font-size:12px;font-weight:760;white-space:nowrap}
+.team-resource-status-pill.ok{background:#e8f7ee;color:#137333}
+.team-resource-status-pill.warn{background:#fff7e6;color:#9a6700}
+.team-resource-status-pill.bad{background:#fff1f0;color:#b42318}
+.team-resource-status-pill.muted{background:#f5f5f7;color:#86868b}
 .resource-team-pill,.resource-owner-pill{display:inline-flex;align-items:center;max-width:220px;min-height:28px;padding:0 10px;border-radius:999px;background:#eef6ff;border:1px solid #cfe7ff;color:#005bb5;font-size:12px;font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .resource-owner-pill{background:#f5f5f7;border-color:#e5e5ea;color:#1d1d1f}
 .resource-team-pill.muted,.resource-owner-pill.muted{background:#fff8e6;border-color:#fde68a;color:#9a6700}
@@ -2024,18 +2035,18 @@ body.landing-publish-open{overflow:hidden}
 body.landing-api-open{overflow:hidden}
 body.landing-protection-open{overflow:hidden}
 body.landing-publish-open:before,body.landing-api-open:before,body.landing-protection-open:before{
- content:'';position:fixed;inset:0;background:rgba(15,23,42,.30);z-index:4100;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;pointer-events:none;
+ content:'';display:none!important;
 }
 body.landing-publish-open #page-landing_center .landing-work-card{
- display:block!important;position:fixed!important;z-index:4300;right:24px;top:70px;bottom:24px;width:min(900px,calc(100vw - 48px));
+ display:block!important;position:fixed!important;z-index:5200;right:24px;top:70px;bottom:24px;width:min(900px,calc(100vw - 48px));
  overflow:auto!important;border-radius:16px!important;padding:20px!important;box-shadow:0 24px 80px rgba(15,23,42,.24)!important;filter:none!important;
 }
 body.landing-api-open #page-landing_center .landing-side-card{
- display:block!important;position:fixed!important;z-index:4300;right:24px;top:70px;bottom:24px;width:min(460px,calc(100vw - 48px));
+ display:block!important;position:fixed!important;z-index:5200;right:24px;top:70px;bottom:24px;width:min(460px,calc(100vw - 48px));
  overflow:auto!important;border-radius:16px!important;padding:20px!important;box-shadow:0 24px 80px rgba(15,23,42,.24)!important;filter:none!important;
 }
 body.landing-protection-open #page-landing_center .landing-protection-card{
- display:block!important;position:fixed!important;z-index:4300;right:24px;top:70px;bottom:24px;width:min(760px,calc(100vw - 48px));
+ display:block!important;position:fixed!important;z-index:5200;right:24px;top:70px;bottom:24px;width:min(760px,calc(100vw - 48px));
  overflow:auto!important;border-radius:16px!important;padding:20px!important;box-shadow:0 24px 80px rgba(15,23,42,.24)!important;filter:none!important;
 }
 body.landing-publish-open .landing-drawer-close{display:inline-flex!important}
@@ -2078,6 +2089,8 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 .landing-protection-item-title{font-size:13px;font-weight:820;color:#1d1d1f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .landing-protection-item-rules{font-size:11px;color:#6e6e73;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:460px}
 .landing-protection-item-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.landing-ad-link-table{width:100%;min-width:760px;border-collapse:collapse;table-layout:fixed}
+.landing-ad-link-table th,.landing-ad-link-table td{word-break:break-word;vertical-align:top}
 .landing-template-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
 .landing-template-tools .fc{flex:1 1 180px;min-width:180px!important}
 @media(max-width:1100px){
@@ -3014,7 +3027,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
        </div>
        <div class="fg tw-add-name">
         <label class="fl">主页名称 <span style="font-size:11px;color:var(--t3)" id="twNameHint2">(失焦后自动获取)</span></label>
-        <input class="fc" id="twNewPageName2" placeholder="如：AI股市">
+        <input class="fc" id="twNewPageName2" placeholder="如：品牌主页名称">
        </div>
        <div class="fg tw-add-verified">
         <label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint2">(扫描时自动探测，也可手动填写)</span></label>
@@ -3022,7 +3035,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
        </div>
        <div class="fg tw-add-note">
         <label class="fl">备注（可选）</label>
-        <input class="fc" id="twNewPageNote2" placeholder="如：陈燕认证">
+        <input class="fc" id="twNewPageNote2" placeholder="可选，说明主页用途或负责人">
        </div>
        <div class="tw-add-action">
         <button class="btn btn-p role-hide-viewer" onclick="addTwCertPage2()">添加主页</button>
@@ -3054,7 +3067,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <div class="landing-guide-title">这页只做一件事：给账户设置默认投放链接</div>
    <div class="landing-guide-steps">
     <div class="landing-guide-step"><b>1</b><span>销售/流量广告</span><small>填“落地页链接”，铺广告时自动带入。</small></div>
-    <div class="landing-guide-step"><b>2</b><span>Lead 表单广告</span><small>填“表单链接”，通常是 WhatsApp 或直跳链接。</small></div>
+    <div class="landing-guide-step"><b>2</b><span>Lead 表单广告</span><small>填“表单链接”，通常是咨询链接或直跳链接。</small></div>
     <div class="landing-guide-step"><b>3</b><span>矩阵筛选</span><small>多团队/多账户时先按矩阵筛选，减少填错。</small></div>
     <div class="landing-guide-step"><b>4</b><span>批量维护</span><small>大量账户用 CSV 导入导出，少量账户直接保存。</small></div>
    </div>
@@ -3085,7 +3098,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    </tbody>
   </table>
  </div>
- <div class="landing-url-hint">保存后铺广告会优先读取账户绑定链接：销售、流量、互动类广告读取“落地页链接”；Lead 表单或聊单场景读取“表单链接”。如果账户没有绑定，铺广告弹窗仍可手动选择或粘贴链接。
+ <div class="landing-url-hint">保存后铺广告会优先读取账户绑定链接：销售、流量、互动类广告读取“落地页链接”；Lead 表单或咨询场景读取“表单链接”。如果账户没有绑定，铺广告弹窗仍可手动选择或粘贴链接。
  </div>
 </div>
 
@@ -3147,12 +3160,12 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
   <div class="landing-flow-step"><b>4</b><span>预检后发布并复制链接</span></div>
  </div>
  <div class="landing-help landing-long-help" style="margin-bottom:14px">
-  <b style="color:var(--t1)">广告级真实成本测试口径：</b>
-  每条广告可以使用独立入口 <code>/a/短码</code>，也可以使用同域广告参数入口 <code>/a?ad={{ad.id}}</code>。入口再绑定专属 WhatsApp / 目标链接，真实效果榜里只有显示“专属唯一”的广告，才适合按广告核算真实进线和真实成本；“目标重复”表示多个入口共用同一个 WhatsApp，“全局轮询”表示只能看入口访问和跳转。有效进线以人工或 CSV 回填为准，真实成本按 FB 消耗除以确认进线优先计算。
+  <b style="color:var(--t1)">投放链接口径：</b>
+  日常复制推荐链接 <code>/a/短码?ad={{ad.id}}</code> 到广告里。用户点击后，Mira 会按广告 ID 记录访问、跳转和 FB 消耗；真实进线可人工或 CSV 回填。没有回填时，系统仍按 FB 回传成效做监控判断，但不会把估算进线混进真实成本。
  </div>
  <div class="landing-ops-strip">
   <div class="landing-ops-card"><b>正式域名发布</b><span>投放链接应使用自定义域名；系统备用域只用于内部部署和健康检查。</span></div>
-  <div class="landing-ops-card"><b>广告级真实结果</b><span>短码或广告 ID 参数负责归因，真实进线/成交通过单条或批量回填进入成本榜。</span></div>
+  <div class="landing-ops-card"><b>广告链接效果</b><span>短码和广告 ID 参数负责归因；真实进线可单条或批量回填，未回填时参考 FB 成效。</span></div>
   <div class="landing-ops-card"><b>访问控制</b><span>按地区、设备、来源和 URL 参数做正常站点访问控制，并在发布前预检。</span></div>
  </div>
  <div class="landing-center-grid">
@@ -3161,8 +3174,8 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
     <div><div class="card-title">API 通道</div><p>保存可发布站点的账号 API，用于后续自动发布和复检域名。</p></div>
     <button class="btn btn-g btn-sm landing-api-close" onclick="closeLandingApiDrawer()">关闭</button>
    </div>
-   <div class="landing-help">只支持账号级 API Token；对象存储 Access Key、Secret Key 或 endpoint 不能用于发布。</div>
-   <div class="fg"><label class="fl">API 名称</label><input class="fc" id="cfApiName" placeholder="如：团队A发布号"></div>
+   <div class="landing-help">只支持账号级 API Token；对象存储 Access Key、Secret Key 或 endpoint 不能用于发布。若要自动识别可用自定义域名，API 还需要具备 Zone Read 权限；否则只能在发布/复检具体域名时校验。</div>
+   <div class="fg"><label class="fl">API 名称</label><input class="fc" id="cfApiName" placeholder="如：主发布通道"></div>
    <div class="fg"><label class="fl">Account ID</label><input class="fc" id="cfAccountId" placeholder="发布账号 ID，建议必填"></div>
    <div class="fg"><label class="fl">API Token</label><input class="fc" id="cfApiToken" type="password" placeholder="只保存加密值，前端不回显"></div>
    <button class="btn btn-p role-hide-viewer landing-full-btn" onclick="addCloudflareToken()">验证并保存</button>
@@ -3176,7 +3189,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <div class="landing-form-section">
     <div class="landing-section-title">新建 / 更新模板</div>
     <div class="landing-form-grid">
-     <div class="fg"><label class="fl">模板名称</label><input class="fc" id="ptName" placeholder="如：FB 新加坡移动端"></div>
+     <div class="fg"><label class="fl">模板名称</label><input class="fc" id="ptName" placeholder="如：移动端访问控制"></div>
      <div class="fg"><label class="fl">备注</label><input class="fc" id="ptNote" placeholder="可选，说明适用场景"></div>
     </div>
     <input type="hidden" id="ptEditingId" value="">
@@ -3189,7 +3202,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      <div class="landing-rule-groups">
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">地区</div>
-       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="ptCountryAllow" list="landingCountryOptions" oninput="renderProtectionTemplateSummary()" placeholder="US,SG,TW"></div>
+       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="ptCountryAllow" list="landingCountryOptions" oninput="renderProtectionTemplateSummary()" placeholder="US,VN,TH"></div>
        <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="ptCountryBlock" list="landingCountryOptions" oninput="renderProtectionTemplateSummary()" placeholder="CN,RU"></div>
       </div>
       <div class="landing-rule-card">
@@ -3200,10 +3213,10 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
       </div>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">来源与参数</div>
-       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="ptSourceAllow" list="landingSourceOptions" oninput="renderProtectionTemplateSummary()" placeholder="FB,IG,TK"></div>
+       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="ptSourceAllow" list="landingSourceOptions" oninput="renderProtectionTemplateSummary()" placeholder="Social,Search,Direct"></div>
        <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="ptSourceBlock" list="landingSourceOptions" oninput="renderProtectionTemplateSummary()" placeholder="Unknown,TK"></div>
-       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="ptRefererBlock" list="landingRefererOptions" oninput="renderProtectionTemplateSummary()" placeholder="example.com"></div>
-       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="ptQueryBlock" list="landingQueryOptions" oninput="renderProtectionTemplateSummary()" placeholder="test,preview"></div>
+       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="ptRefererBlock" list="landingRefererOptions" oninput="renderProtectionTemplateSummary()" placeholder="blocked-domain.com"></div>
+       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="ptQueryBlock" list="landingQueryOptions" oninput="renderProtectionTemplateSummary()" placeholder="preview,debug"></div>
        <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="ptRequiredQuery" list="landingRequiredQueryOptions" oninput="renderProtectionTemplateSummary()" placeholder="utm_source 或 fbclid"></div>
       </div>
      </div>
@@ -3230,20 +3243,20 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      <button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveLandingAssetBindingFromPublish()">当前配置存为预设</button>
     </div>
     <div class="landing-form-grid">
-     <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
+     <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：落地页-日期-版本"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-     <div class="fg"><label class="fl">自定义域名（建议填写）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">建议按团队、矩阵或国家分配域名。域名待验证时先用备用域自检，复检可用后自动回绑自定义域。</div></div>
+     <div class="fg"><label class="fl">自定义域名（建议填写）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.your-domain.com"><div class="fh">建议按团队、矩阵或投放区域分配域名。域名待验证时先用备用域自检，复检可用后自动回绑自定义域。</div></div>
      <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
-     <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
+     <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select><div class="fh">模板决定页面内容；统计、跳转和访问控制由发布配置执行。已发布页面要换内容，需要重新发布一次。</div></div>
      <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
      <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind" onchange="onLandingKindChanged()"><option value="landing">普通落地页：展示模板，按钮轮询跳转</option><option value="form">表单投放链接：访问即轮询跳转</option></select><div class="fh" id="lpKindHint">普通落地页会展示模板正文，按钮点击后按轮询策略跳转。</div></div>
     </div>
    </div>
    <div class="landing-form-section">
     <div class="landing-section-title">跳转与绑定</div>
-    <div class="fg"><label class="fl" id="lpTargetsLabel">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个 WhatsApp / 跳转链接；发布后页面按轮询策略跳转"></textarea></div>
+    <div class="fg"><label class="fl" id="lpTargetsLabel">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个咨询链接 / 外部跳转链接；发布后页面按轮询策略跳转"></textarea></div>
     <div class="landing-form-grid">
-     <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select><div class="fh" id="lpBindHint">普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。</div></div>
+     <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select><div class="fh" id="lpBindHint">普通落地页通常绑定到账户落地页；表单直跳链接建议绑定到账户表单链接。</div></div>
      <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，支持带前缀或纯数字"></textarea></div>
     </div>
    </div>
@@ -3271,8 +3284,8 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      <div class="landing-rule-groups">
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">地区</div>
-       <div class="landing-rule-card-desc">国家代码使用 ISO 两位码，例如 US、SG、TW。</div>
-       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" list="landingCountryOptions" oninput="renderLandingProtectionSummary()" placeholder="US,SG,TW；空=不限制"></div>
+       <div class="landing-rule-card-desc">国家代码使用 ISO 两位码，例如 US、VN、TH。</div>
+       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" list="landingCountryOptions" oninput="renderLandingProtectionSummary()" placeholder="US,VN,TH；空=不限制"></div>
        <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" list="landingCountryOptions" oninput="renderLandingProtectionSummary()" placeholder="CN,RU"></div>
       </div>
       <div class="landing-rule-card">
@@ -3285,10 +3298,10 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">来源与参数</div>
        <div class="landing-rule-card-desc">适合要求链接必须带指定追踪参数，或屏蔽测试参数。</div>
-       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="lpSourceAllow" list="landingSourceOptions" oninput="renderLandingProtectionSummary()" placeholder="FB,IG,TK,Google；空=不限制"></div>
+       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="lpSourceAllow" list="landingSourceOptions" oninput="renderLandingProtectionSummary()" placeholder="Social,Search,Direct；空=不限制"></div>
        <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="lpSourceBlock" list="landingSourceOptions" oninput="renderLandingProtectionSummary()" placeholder="Unknown,TK"></div>
-       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" list="landingRefererOptions" oninput="renderLandingProtectionSummary()" placeholder="example.com"></div>
-       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" list="landingQueryOptions" oninput="renderLandingProtectionSummary()" placeholder="test,preview"></div>
+       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" list="landingRefererOptions" oninput="renderLandingProtectionSummary()" placeholder="blocked-domain.com"></div>
+       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" list="landingQueryOptions" oninput="renderLandingProtectionSummary()" placeholder="preview,debug"></div>
        <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" list="landingRequiredQueryOptions" oninput="renderLandingProtectionSummary()" placeholder="utm_source 或 fbclid"></div>
       </div>
      </div>
@@ -3323,6 +3336,9 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
     <select class="fc" id="landingPageStatusFilter" onchange="renderLandingPages()">
      <option value="all">全部状态</option>
      <option value="published">已发布</option>
+     <option value="domain_pending">正式域名待验证</option>
+     <option value="no_custom_domain">未配置正式域名</option>
+     <option value="unbound">未绑定账户</option>
      <option value="failed">失败</option>
      <option value="archived">已归档</option>
     </select>
@@ -4323,7 +4339,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
   <div class="mb">
    <div class="fg">
     <label class="fl">模版名称 <span class="req">*</span></label>
-    <input class="fc" id="msgTplName" placeholder="如：商品咨询欢迎消息">
+    <input class="fc" id="msgTplName" placeholder="如：咨询欢迎消息">
    </div>
    <div class="fg">
     <label class="fl">目的地 <span class="req">*</span></label>
@@ -4345,7 +4361,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
       <button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeMsgTplBtn(this)">−</button>
      </div>
      <div class="btn-row" style="display:flex;gap:6px;margin-bottom:6px">
-      <input class="fc" placeholder="按钮文字" style="flex:1" value="如何购买">
+      <input class="fc" placeholder="按钮文字" style="flex:1" value="了解更多">
       <button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeMsgTplBtn(this)">−</button>
      </div>
      <div class="btn-row" style="display:flex;gap:6px;margin-bottom:6px">
@@ -4830,7 +4846,7 @@ function _validateLandingUrl(input) {
   msgEl.textContent=' 链接格式正确'; input.style.borderColor='var(--ok)';
  } catch(e) {
   msgEl.style.display='block'; msgEl.style.color='var(--er)';
-  msgEl.textContent=' 链接格式无效，请输入完整 URL（如 https://example.com）';
+  msgEl.textContent=' 链接格式无效，请输入完整 URL（如 https://your-domain.com）';
   input.style.borderColor='var(--er)';
  }
 }
@@ -5744,13 +5760,54 @@ function _teamResFillTeamOptions(teams){
 }
 
 function _teamResMain(item, kind){
- if(kind==='accounts') return [displayAccountName(item.name,item.act_id,'账户 '+item.id), displayActId(item.act_id), item.currency||'', item.account_status?'状态 '+item.account_status:''];
- if(kind==='tokens') return [item.name||('Token '+item.id), item.token_type||'', item.token_source||'', item.status||''];
- if(kind==='assets') return [item.name||item.file_name||('素材 '+item.id), item.asset_code||'', item.file_type||'', item.upload_status||''];
- if(kind==='pages') return [item.name||item.page_id||('主页 '+item.id), item.page_id||'', item.page_status||'', item.page_can_advertise===0?'不可投放':''];
- if(kind==='msg_templates') return [item.name||('消息模板 '+item.id), item.destination||'', item.note||'', ''];
- if(kind==='lead_forms') return [item.name||('表单模板 '+item.id), item.locale||'', item.note||'', ''];
+ if(kind==='accounts') return [displayAccountName(item.name,item.act_id,'账户 '+item.id), displayActId(item.act_id), item.currency||''];
+ if(kind==='tokens') return [item.name||('Token '+item.id), item.token_source||'', item.token_mask||''];
+ if(kind==='assets') return [item.name||item.file_name||('素材 '+item.id), item.asset_code||'', item.file_type||''];
+ if(kind==='pages') return [item.name||item.page_id||('主页 '+item.id), item.page_id||'', item.verified_id?('Verified '+item.verified_id):''];
+ if(kind==='msg_templates') return [item.name||('消息模板 '+item.id), item.destination||'', item.note||''];
+ if(kind==='lead_forms') return [item.name||('表单模板 '+item.id), item.locale||'', item.note||''];
  return [item.name||('资源 '+item.id), '', '', ''];
+}
+function _teamResTypeInfo(kind, item){
+ var map={
+  accounts:['广告账户','account','投放与巡检主体'],
+  tokens:['Token','token','写入和读取凭证'],
+  assets:['素材','asset','图片或视频素材'],
+  pages:['主页','page','铺广告可选主页'],
+  msg_templates:['消息模板','template','消息广告快捷模板'],
+  lead_forms:['表单模板','form','Lead Form 模板']
+ };
+ var v=map[kind]||['资源','',''];
+ if(kind==='tokens'&&item&&item.token_type)v[0]=String(item.token_type).toUpperCase();
+ if(kind==='assets'&&item&&item.file_type)v[0]=String(item.file_type).toUpperCase();
+ return {label:v[0],cls:v[1],hint:v[2]};
+}
+function _teamResStatusInfo(kind, item){
+ item=item||{};
+ if(kind==='accounts'){
+  var raw=String(item.account_status||item.status||'').trim();
+  var disabled=/disabled|closed|停|禁|disable|2|3/i.test(raw);
+  if(disabled)return {label:'不可用',cls:'bad',hint:raw||'账户状态不可投放'};
+  if(item.write_status&&String(item.write_status).indexOf('不可')>=0)return {label:'写入受限',cls:'warn',hint:item.write_status};
+  return {label:'可用',cls:'ok',hint:raw||'账户状态正常'};
+ }
+ if(kind==='tokens'){
+  var st=String(item.status||'').toLowerCase();
+  if(st==='active'||st==='ok')return {label:'可用',cls:'ok',hint:item.status||''};
+  if(st)return {label:'需检查',cls:'warn',hint:item.status||''};
+  return {label:'未知',cls:'muted',hint:'尚未验证'};
+ }
+ if(kind==='assets'){
+  var up=String(item.upload_status||item.status||'').toLowerCase();
+  if(!up||up==='ready'||up==='ok'||up==='uploaded')return {label:'可用',cls:'ok',hint:item.upload_status||''};
+  return {label:'需检查',cls:'warn',hint:item.upload_status||''};
+ }
+ if(kind==='pages'){
+  if(item.page_can_advertise===0)return {label:'不可投放',cls:'bad',hint:item.page_status||'主页不可投放'};
+  if(item.page_status)return {label:item.page_status,cls:'warn',hint:item.page_status};
+  return {label:'可投放',cls:'ok',hint:'未发现限制'};
+ }
+ return {label:'可用',cls:'ok',hint:''};
 }
 function _matrixBadgeHtmlFromIds(ids, emptyLabel, emptyTitle, marginStyle){
  var colors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
@@ -5788,6 +5845,8 @@ async function _renderTeamResources(kind){
  '<thead><tr>' +
   '<th class="team-resource-check"><input type="checkbox" onchange="toggleTeamResourceChecks(this.checked)"></th>' +
   '<th>资源</th>' +
+  '<th>类型</th>' +
+  '<th>状态</th>' +
   '<th>当前团队</th>' +
   (kind==='accounts'||kind==='tokens'?'<th>负责人</th>':'')+
   '<th class="team-resource-op">操作</th>' +
@@ -5795,6 +5854,8 @@ async function _renderTeamResources(kind){
  _teamResItems.forEach(function(item){
   var parts = _teamResMain(item, kind);
   var sub = parts.slice(1).filter(Boolean).map(escHtml).join(' · ');
+  var typeInfo = _teamResTypeInfo(kind, item);
+  var statusInfo = _teamResStatusInfo(kind, item);
   var hasTeam = !!(item.team_name||item.group_name||item.team_id);
   var team = '<span class="resource-team-pill '+(hasTeam?'':'muted')+'">'+escHtml(resourceTeamLabel(item,'未分配'))+'</span>';
   var matrixBadges = _teamResourceMatrixBadges(item, kind);
@@ -5808,6 +5869,8 @@ async function _renderTeamResources(kind){
    '<td class="team-resource-check"><input type="checkbox" class="team-res-check" value="'+item.id+'"></td>' +
    '<td><div class="team-resource-name">'+escHtml(parts[0])+matrixBadges+'</div>' +
    (sub?'<div class="team-resource-meta">'+sub+'</div>':'')+'</td>' +
+   '<td><span class="team-resource-type '+escHtml(typeInfo.cls)+'" title="'+escHtml(typeInfo.hint)+'">'+escHtml(typeInfo.label)+'</span></td>' +
+   '<td><span class="team-resource-status-pill '+escHtml(statusInfo.cls)+'" title="'+escHtml(statusInfo.hint)+'">'+escHtml(statusInfo.label)+'</span></td>' +
    '<td>'+team+'</td>' +
    ownerCell +
    '<td class="team-resource-op">'+
@@ -8352,7 +8415,7 @@ function renderMetaOAuthModal(cfg){
    '<div><b>3. 继续导入</b>如果覆盖为 0，去账户页输入账户 ID 自动补齐关联。</div>'+
   '</div>'+
   '<div class="meta-oauth-grid">'+
-   '<div class="fg"><label class="fl">Token 别名</label><input class="fc" id="metaTokenAlias" placeholder="如：vv 官方授权 / BM5 授权"></div>'+
+   '<div class="fg"><label class="fl">Token 别名</label><input class="fc" id="metaTokenAlias" placeholder="如：主授权 / 备用授权"></div>'+
    '<div class="fg"><label class="fl">授权用途</label><select class="fc" id="metaTokenType" onchange="onMetaOAuthTokenTypeChanged()"><option value="operate">操作号：铺广告/预热/预算/关停</option><option value="manage">管理号：读取/导入/兜底</option><option value="user">个人号：仅兼容保留</option></select><div class="fh" id="metaTokenTypeHint">操作号会参与铺广告、预算和关闭广告，建议填写矩阵。</div></div>'+
    '<div class="fg" id="metaTokenMatrixWrap"><label class="fl">归属矩阵（操作号建议填写）</label><select class="fc" id="metaTokenMatrix" onchange="onMatrixSelectChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><option value="">-- 不分配矩阵 --</option></select><input class="fc" id="metaTokenMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'metaTokenMatrix\',\'metaTokenMatrixCustom\')"><div class="fh" id="metaTokenMatrixHint">选择矩阵后，同矩阵账户、素材、主页库会自动显示矩阵标签；留空会继续显示未识别矩阵。</div></div>'+
   '</div>'+
@@ -10625,7 +10688,7 @@ function isWarmupAssetName(a){
 async function quickRenameAsset(assetId){
  var asset=(_assetsData||[]).find(function(a){return a.id===assetId;})||{};
  var current=asset.display_name||asset.file_name||'';
- var next=await promptAsync('重命名素材','预热素材必须以 YE 开头；例如 YE-SG-001',current,'输入展示名称');
+ var next=await promptAsync('重命名素材','预热素材必须以 YE 开头；例如 YE-001',current,'输入展示名称');
  if(next===null)return;
  next=(next||'').trim();
  if(!next){toast('名称不能为空','er');return;}
@@ -11402,10 +11465,10 @@ function openBatchOrganizeAssets(){
   '<div class="mh"><h3>批量整理素材</h3><button class="mc" onclick="closeModal(&quot;moAssetBatchOrganize&quot;)">✕</button></div>'+
   '<div class="mb">'+
    '<div style="font-size:13px;color:var(--t2);margin-bottom:12px">已选 '+ids.length+' 个素材。留空的字段不会修改。</div>'+
-   '<div class="fg"><label class="fl">素材组</label><input class="fc" id="batchAssetFolder" placeholder="例如：金融-US-消息 / SG-表单"></div>'+
+   '<div class="fg"><label class="fl">素材组</label><input class="fc" id="batchAssetFolder" placeholder="例如：素材组-区域-用途"></div>'+
    '<div class="fg"><label class="fl">批次</label><input class="fc" id="batchAssetBatchCode" placeholder="留空=不修改；可填当前上传批次"></div>'+
    '<div class="fg"><label class="fl">素材级矩阵</label><select class="fc" id="batchAssetMatrix" onchange="onMatrixSelectChanged(\'batchAssetMatrix\',\'batchAssetMatrixCustom\')"></select><input class="fc" id="batchAssetMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'batchAssetMatrix\',\'batchAssetMatrixCustom\')"><div class="fh">只影响素材库归类和筛选，不绕过账户/Token 权限校验。</div></div>'+
-   '<div class="fg"><label class="fl">标签</label><input class="fc" id="batchAssetTags" placeholder="多个标签用逗号分隔，如：女主角, SG, YE"></div>'+
+   '<div class="fg"><label class="fl">标签</label><input class="fc" id="batchAssetTags" placeholder="多个标签用逗号分隔，如：人物, 区域, YE"></div>'+
    '<div class="fg"><label class="fl">标签方式</label><select class="fc" id="batchAssetTagsMode"><option value="append">追加到原标签</option><option value="replace">替换原标签</option></select></div>'+
   '</div>'+
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moAssetBatchOrganize&quot;)">取消</button><button class="btn btn-p" onclick="submitBatchOrganizeAssets()">保存</button></div>'+
@@ -11536,7 +11599,7 @@ async function openAssetDetail(assetId){
   html+='<div class="fg"><label class="fl">备注</label><input class="fc" id="detailAssetNote" value="'+safeNote+'" placeholder="可选备注"></div>';
   html+='</div>';
   html+='<div class="fg"><label class="fl">素材级矩阵</label><select class="fc" id="detailAssetMatrix" onchange="onMatrixSelectChanged(\'detailAssetMatrix\',\'detailAssetMatrixCustom\')"></select><input class="fc" id="detailAssetMatrixCustom" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged(\'detailAssetMatrix\',\'detailAssetMatrixCustom\')"><div class="fh">素材级矩阵用于素材库归类；实际投放仍按账户和 Token 权限执行。</div></div>';
-  html+='<div class="fg"><label class="fl">标签</label><input class="fc" id="detailAssetTags" value="'+safeTags+'" placeholder="多个标签用逗号分隔，例如：YE, SG, 女主角"></div>';
+  html+='<div class="fg"><label class="fl">标签</label><input class="fc" id="detailAssetTags" value="'+safeTags+'" placeholder="多个标签用逗号分隔，例如：YE, 区域, 人物"></div>';
   html+='<div style="display:flex;justify-content:flex-end"><button class="btn btn-g btn-sm" onclick="saveAssetOrganization('+assetId+')">保存整理</button></div>';
   html+='</div>';
 
@@ -14349,7 +14412,7 @@ function openMsgTemplateModal(id){
   // 重置按钮列表
   document.getElementById('msgTplButtons').innerHTML=
    '<div class="btn-row" style="display:flex;gap:6px;margin-bottom:6px"><input class="fc" placeholder="按钮文字" style="flex:1" value="了解产品详情"><button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeMsgTplBtn(this)">−</button></div>'+
-   '<div class="btn-row" style="display:flex;gap:6px;margin-bottom:6px"><input class="fc" placeholder="按钮文字" style="flex:1" value="如何购买"><button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeMsgTplBtn(this)">−</button></div>'+
+   '<div class="btn-row" style="display:flex;gap:6px;margin-bottom:6px"><input class="fc" placeholder="按钮文字" style="flex:1" value="了解更多"><button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeMsgTplBtn(this)">−</button></div>'+
    '<div class="btn-row" style="display:flex;gap:6px;margin-bottom:6px"><input class="fc" placeholder="按钮文字" style="flex:1" value="有优惠吗"><button class="btn btn-g" style="padding:4px 8px;font-size:12px" onclick="removeMsgTplBtn(this)">−</button></div>';
  }
  openModal('moMsgTemplate');
@@ -14950,11 +15013,11 @@ function renderServerResourceSection() {
 
 function renderTwPagesSection() {
  return '<div class="ss" id="twPagesSection"><div class="ss-title">主页库</div>' +
-  '<div class="fh" style="margin-bottom:10px">录入已接入系统的主页。铺广告时系统会优先匹配 Token 有权限的主页；Verified ID 扫描时自动探测，也可手动填写。</div>' +
+  '<div class="fh" style="margin-bottom:10px">主页库用于铺广告时快速选择可投放主页。系统会按 Token 权限、主页状态和认证 ID 做过滤；无法自动识别的信息可以手动维护。</div>' +
   '<div id="twPagesList" style="margin-bottom:12px"><span class="spin"></span>加载中...</div>' +
   '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
   '<div class="fg" style="flex:1;min-width:140px;margin:0"><label class="fl">主页 ID</label><input class="fc" id="twNewPageId" placeholder="如：1020399831162841" onblur="autoFetchTwPageName(this.value)"></div>' +
-  '<div class="fg" style="flex:1;min-width:120px;margin:0"><label class="fl">主页名称 <span style="font-size:11px;color:var(--t3)" id="twNameHint">（失焦后尝试自动获取）</span></label><input class="fc" id="twNewPageName" placeholder="如：AI股市"></div>' +
+  '<div class="fg" style="flex:1;min-width:120px;margin:0"><label class="fl">主页名称 <span style="font-size:11px;color:var(--t3)" id="twNameHint">（失焦后尝试自动获取）</span></label><input class="fc" id="twNewPageName" placeholder="如：品牌主页名称"></div>' +
   '<div class="fg" style="flex:1;min-width:160px;margin:0"><label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint">（扫描时自动探测，也可手动填写）</span></label><input class="fc" id="twNewVerifiedId" placeholder="可选"></div>' +
   '<button class="btn btn-p" onclick="addTwCertPage()" style="white-space:nowrap;align-self:flex-end">+ 添加主页</button>' +
   '</div></div>';
@@ -17407,11 +17470,11 @@ function _landingTargetCounts(items){
 }
 function _landingTargetBindingStatus(item, counts){
  var targets=_landingItemTargets(item);
- if(!targets.length)return {code:'global_rotation',label:'全局轮询',cls:'bg-wa',hint:'该入口没有专属 WhatsApp 目标，会使用落地页全局轮询；不能证明一广告一 WhatsApp。'};
+ if(!targets.length)return {code:'global_rotation',label:'全局轮询',cls:'bg-wa',hint:'该入口没有专属目标链接，会使用落地页全局轮询；不能证明一广告一目标。'};
  if(targets.length>1)return {code:'dedicated_rotation',label:'专属轮询 '+targets.length+' 个',cls:'bg-ok',hint:'该广告入口拥有自己的跳转池，每次访问按页面轮询策略从这些目标中选择。'};
  var key=_landingTargetKey(targets[0]);
  var n=(counts&&counts[key])||0;
- if(n>1)return {code:'dedicated_reused',label:'目标重复',cls:'bg-wa',hint:'同一个目标链接绑定了 '+n+' 个入口；能区分入口表现，但后续对话仍可能混在同一个 WhatsApp 目标里。'};
+ if(n>1)return {code:'dedicated_reused',label:'目标重复',cls:'bg-wa',hint:'同一个目标链接绑定了 '+n+' 个入口；能区分入口表现，但后续咨询仍可能混在同一个目标里。'};
  return {code:'dedicated_unique',label:'专属唯一',cls:'bg-ok',hint:'该广告入口绑定了一个独立目标链接，适合按广告核算真实成本。'};
 }
 function _landingAttributionMode(item){
@@ -17439,7 +17502,7 @@ function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  if(publicUrl)buttons.push(_landingCopyBtn('复制短码',publicUrl,'btn-g'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定广告')+'</button>');
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
- return '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center;min-width:180px">'+buttons.join('')+'</div>';
+ return '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center;min-width:140px">'+buttons.join('')+'</div>';
 }
 function _landingAdLinkUrlCell(publicUrl,adParamUrl,target,binding,item){
  var html='';
@@ -17546,7 +17609,7 @@ function renderLandingPerformance(){
  }).join('');
  panel.innerHTML=
  '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">'+
-   '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">区分短码入口和广告参数入口。参数入口按广告 ID 归因，短码入口按独立短码归因；两种方式都不会改写 WhatsApp 或目标链接内容。单个 WhatsApp 链接多广告共用时，后续真实进线需要回填确认。</p></div>'+
+   '<div><div class="card-title">广告链接效果追踪</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">推荐把“投放链接”复制到广告里，Mira 会自动按广告 ID 归因。真实进线可回填；未回填时以 FB 成效作为监控参考。</p></div>'+
    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingAdMapping()">导出映射表</button><button class="btn btn-g btn-sm" onclick="exportLandingAdResultsTemplate()">导出回填模板</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
   '</div>'+
   '<div class="landing-perf-grid">'+cards+'</div>'+
@@ -17652,7 +17715,12 @@ function renderLandingPages(){
   var ids=_landingMatrixIdsFromPage(p);
   var matrixOk=matrixFilter==='all'||(matrixFilter==='unassigned'&&!ids.length)||ids.indexOf(parseInt(matrixFilter,10))>=0;
   var kindOk=kindFilter==='all'||String(p.link_kind||'landing')===kindFilter;
-  var statusOk=statusFilter==='all'||String(p.status||'')===statusFilter;
+  var boundCount=Array.isArray(p.bound_act_ids)?p.bound_act_ids.length:0;
+  var statusOk=statusFilter==='all'
+   ||String(p.status||'')===statusFilter
+   ||(statusFilter==='domain_pending'&&!!p.custom_domain&&!p.custom_domain_usable)
+   ||(statusFilter==='no_custom_domain'&&!p.custom_domain)
+   ||(statusFilter==='unbound'&&!boundCount);
   var h=_landingHealthStatus(p);
   var healthOk=healthFilter==='all'||(healthFilter==='unchecked'&&!h)||h===healthFilter;
   var searchOk=!searchText||_landingPageSearchText(p).indexOf(searchText)>=0;
@@ -17666,6 +17734,7 @@ function renderLandingPages(){
  var urls=Array.isArray(p.target_urls)?p.target_urls:[];
  var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
  var status=p.status==='published'?'<span class="badge bg-ok">已发布</span>':p.status==='failed'?'<span class="badge bg-er">失败</span>':p.status==='archived'?'<span class="badge bg-mu">已归档</span>':'<span class="badge bg-wa">'+escHtml(p.status||'草稿')+'</span>';
+ var domainBadge=p.custom_domain?(p.custom_domain_usable?'<span class="badge bg-ok">正式域名可用</span>':'<span class="badge bg-wa" title="域名未验证通过，当前复制备用域">正式域名待验证</span>'):'<span class="badge bg-mu">未配置正式域名</span>';
   var flags=_landingRuntimeBadge(p)+(p.tracking_enabled?'<span class="badge bg-ok">统计</span> ':'')+(p.protection_enabled?'<span class="badge bg-wa">防护</span> ':'');
   var usage=p.usage||{};
   var usageTotal=parseInt(usage.total||0,10)||0;
@@ -17711,7 +17780,7 @@ function renderLandingPages(){
     '<div class="landing-page-main">'+
      '<div class="landing-page-title"><b title="'+escHtml(p.title||'未命名')+'">'+escHtml(p.title||'未命名')+'</b>'+status+'</div>'+
      '<div class="landing-page-sub" title="'+escHtml(p.project_name||'')+'">'+escHtml(p.project_name||'未命名项目')+'</div>'+
-     '<div class="landing-page-badges">'+kindHtml+flags+' '+matrixBadges+'</div>'+
+     '<div class="landing-page-badges">'+kindHtml+domainBadge+flags+' '+matrixBadges+'</div>'+
      ownerLine+createdLine+err+
     '</div>'+
     '<div class="landing-page-link">'+
@@ -17762,21 +17831,22 @@ function _landingAdLinksHtml(page, links){
   return '<tr>'+
    '<td style="padding:8px 10px"><div style="display:flex;gap:8px;align-items:center"><b style="font-weight:760">'+escHtml(x.slug||'')+'</b><span class="badge '+(status==='active'?'bg-ok':status==='failed'?'bg-er':'bg-mu')+'">'+escHtml(statusMap[status]||status)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(meta)+'</div></td>'+
    '<td style="padding:8px 10px"><span class="badge '+attribution.cls+'" title="'+escHtml(attribution.hint)+'">'+escHtml(attribution.label)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+(adParamUrl?'按广告ID归因':'按短码归因')+'</div></td>'+
-   '<td style="padding:8px 10px;max-width:360px;overflow:hidden;text-overflow:ellipsis">'+_landingAdLinkUrlCell(url,adParamUrl,target,binding,x)+'</td>'+
+   '<td style="padding:8px 10px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+_landingAdLinkUrlCell(url,adParamUrl,target,binding,x)+'</td>'+
    '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">'+
-     '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+' · 最终动作 '+finalAction+'（'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+'） · 原始 '+(stats.true_contact||0)+'</div>'+
-     '<div style="margin-top:3px;color:var(--t3)">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+' · 收入 '+money(stats.confirmed_revenue||0)+' · 表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · FB消耗 '+money(spend)+' · 真实成本 '+cost(realCost)+' · '+escHtml(spendSource)+'</div>'+
+     '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+'</div>'+
+     '<div style="margin-top:3px">最终动作 '+finalAction+'（'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+'） · FB消耗 '+money(spend)+'</div>'+
+     '<div style="margin-top:3px;color:var(--t3)">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+' · 真实成本 '+cost(realCost)+' · '+escHtml(spendSource)+'</div>'+
    '</td>'+
    '<td style="padding:8px 10px;text-align:right">'+_landingAdLinkActionHtml(x,stats,(x.ad_id?'改绑定':'绑定广告'),url,adParamUrl)+'</td>'+
   '</tr>';
  }).join('');
  if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。点“生成链接”后，复制“投放链接”放进 FB 广告；用户点击后 Mira 会自动识别广告 ID。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
-  '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">日常只需要复制“投放链接”到 FB 广告。它会带 <code>{{ad.id}}</code>，点击后自动绑定广告；“测试短码”只用于打开预览或单条广告。</div></div>'+
+  '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">日常只需要复制“投放链接”到广告。它会带 <code>{{ad.id}}</code>，点击后自动绑定广告；“测试短码”只用于预览。</div></div>'+
   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+')">导出映射</button><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成链接</button></div>'+
  '</div>'+
- '<div class="table-wrap" style="max-height:420px;overflow:auto"><table style="width:100%;min-width:900px;border-collapse:collapse">'+
- '<thead><tr><th style="text-align:left;padding:8px 10px">短码</th><th style="text-align:left;padding:8px 10px">归因方式</th><th style="text-align:left;padding:8px 10px">广告链接</th><th style="text-align:left;padding:8px 10px">统计</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
+ '<div class="table-wrap" style="max-height:420px;overflow:auto"><table class="landing-ad-link-table">'+
+ '<thead><tr><th style="text-align:left;padding:8px 10px;width:112px">短码</th><th style="text-align:left;padding:8px 10px;width:92px">归因</th><th style="text-align:left;padding:8px 10px">投放链接</th><th style="text-align:left;padding:8px 10px;width:210px">统计</th><th style="text-align:right;padding:8px 10px;width:150px">操作</th></tr></thead>'+
  '<tbody>'+rows+'</tbody></table></div>';
 }
 async function showLandingAdLinks(pageId){
@@ -17793,7 +17863,7 @@ async function createLandingAdLinks(pageId){
  if(raw==null)return;
  var count=parseInt(String(raw).trim(),10)||0;
  if(count<1||count>200){toast('数量需要在 1-200 之间','wa');return;}
- var targetRaw=await promptTextareaAsync('该广告入口的跳转池（可选）','每行一个 WhatsApp / 跳转链接。多个地址会挂在同一个短码下按轮询策略跳转；留空则使用落地页全局轮询。','','https://wa.me/...\nhttps://api.whatsapp.com/send?phone=...');
+ var targetRaw=await promptTextareaAsync('该广告入口的跳转池（可选）','每行一个咨询链接或外部跳转链接。多个地址会挂在同一个短码下按轮询策略跳转；留空则使用落地页全局轮询。','','https://your-target.example/path\nhttps://your-target.example/backup');
  if(targetRaw==null)return;
  var targetUrls=String(targetRaw||'').split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
  try{
@@ -17975,7 +18045,7 @@ function updateLandingResultPreviewCost(){
  var hint=document.getElementById('landingResultCostHint');
  if(hint){
   var actions=Math.max(0,parseInt(((document.getElementById('landingResultActions')||{}).value)||'0',10)||0);
-  hint.textContent=actions>0?'当前输入真实进线优先用于计算':'真实进线为 0 时不会计算真实成本';
+  hint.textContent=actions>0?'当前输入真实进线优先用于计算':'未回填时，系统仍按 FB 成效参与监控判断';
  }
 }
 function renderLandingResultPreview(data, linkId){
@@ -18004,10 +18074,10 @@ function renderLandingResultPreview(data, linkId){
   '<div class="landing-result-preview-grid">'+
    '<div class="landing-result-preview-card"><span>对应广告</span><b style="font-size:13px">'+adName+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">'+adSub+'</div></div>'+
    '<div class="landing-result-preview-card"><span>FB 消耗</span><b>'+_landingResultMoney(spend)+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">'+escHtml(source)+'</div></div>'+
-   '<div class="landing-result-preview-card"><span>FB 成效</span><b>'+escHtml(String(fbConv||0))+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">仅参考，不替代真实进线</div></div>'+
+   '<div class="landing-result-preview-card"><span>FB 成效</span><b>'+escHtml(String(fbConv||0))+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">无回填时作为监控参考</div></div>'+
    '<div class="landing-result-preview-card"><span>按当前输入真实成本</span><b id="landingResultManualCost">'+_landingResultManualCost()+'</b><div id="landingResultCostHint" style="font-size:11px;color:var(--t3);margin-top:4px"></div></div>'+
   '</div>'+
-  '<div style="font-size:11px;color:var(--t3);margin-top:8px">计算口径：对应广告消耗 ÷ 当前填写的真实进线。保存后，真实效果榜会优先使用人工回填。</div>';
+  '<div style="font-size:11px;color:var(--t3);margin-top:8px">计算口径：真实成本 = 对应广告消耗 ÷ 当前填写的真实进线。保存后，效果追踪优先使用人工回填；未回填时展示 FB 口径。</div>';
  updateLandingResultPreviewCost();
 }
 async function loadLandingResultPreview(linkId, forceRefresh){
@@ -18038,7 +18108,7 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
     '<div class="fg"><label class="fl">真实进线</label><input class="fc" id="landingResultActions" type="number" min="0" step="1" value="'+escHtml(String(actions||0))+'"></div>'+
     '<div class="fg"><label class="fl">购买 / 成交</label><input class="fc" id="landingResultSales" type="number" min="0" step="1" value="'+escHtml(String(sales||0))+'"></div>'+
     '<div class="fg"><label class="fl">收入</label><input class="fc" id="landingResultRevenue" type="number" min="0" step="0.01" value="'+escHtml(String(revenue||0))+'"></div>'+
-    '<div class="fg wide"><label class="fl">备注</label><textarea class="fc" id="landingResultNote" placeholder="例如：WhatsApp 确认可聊 / 重复线索 / 无效咨询">'+escHtml(note||'')+'</textarea></div>'+
+    '<div class="fg wide"><label class="fl">备注</label><textarea class="fc" id="landingResultNote" placeholder="例如：有效咨询 / 重复线索 / 无效咨询">'+escHtml(note||'')+'</textarea></div>'+
    '</div>'+
   '</div>'+
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingResult&quot;)">取消</button><button class="btn btn-p" id="landingResultSaveBtn" type="button">保存回填</button></div>'+
@@ -18074,7 +18144,7 @@ async function saveLandingAdResult(linkId, encodedSlug){
  }
 }
 async function importLandingAdResults(){
- var sample='2026-06-19,m7K2Qp,2,1,39.9,有效聊单\n120245820014290302,0,0,0,无有效进线';
+ var sample=_landingResultToday()+',m7K2Qp,2,1,39.9,有效咨询\n123456789012345,0,0,0,无有效进线';
  var mo=document.createElement('div');
  mo.className='mo';
  mo.id='moLandingBulkResult';
@@ -18082,7 +18152,7 @@ async function importLandingAdResults(){
   '<div class="mh"><h3>批量回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingBulkResult&quot;)">✕</button></div>'+
   '<div class="mb">'+
    '<div class="landing-result-context">每行一条：日期,短码或广告ID,真实进线,购买/成交,收入,备注。日期可省略，省略时默认今天；短码和广告ID都可以匹配。</div>'+
-   '<textarea class="fc landing-result-bulk-area" id="landingBulkResultText" placeholder="2026-06-19,m7K2Qp,2,1,39.9,有效聊单&#10;120245820014290302,0,0,0,无有效进线"></textarea>'+
+   '<textarea class="fc landing-result-bulk-area" id="landingBulkResultText" placeholder="'+_landingResultToday()+',m7K2Qp,2,1,39.9,有效咨询&#10;123456789012345,0,0,0,无有效进线"></textarea>'+
   '</div>'+
   '<div class="mf"><button class="btn btn-g" id="landingBulkSampleBtn" type="button">填入示例</button><button class="btn btn-g" onclick="closeModal(&quot;moLandingBulkResult&quot;)">取消</button><button class="btn btn-p" id="landingBulkImportBtn" type="button">导入回填</button></div>'+
  '</div>';
@@ -18268,7 +18338,7 @@ async function verifyCloudflareToken(id){
 async function renameCloudflareToken(id){
  var item=(_cfTokens||[]).find(function(t){return String(t.id)===String(id);});
  var oldName=(item&&item.name)||'';
- var name=await promptAsync('重命名 API 通道','输入新的显示名称。这里只修改 Mira 内部名称，不会改变 API Token。',oldName,'例如：团队A主发布号');
+ var name=await promptAsync('重命名 API 通道','输入新的显示名称。这里只修改 Mira 内部名称，不会改变 API Token。',oldName,'例如：主发布通道');
  if(name==null)return;
  name=String(name||'').trim();
  if(!name){toast('请填写 API 名称','wa');return;}
@@ -18601,7 +18671,7 @@ async function saveCurrentRulesAsProtectionTemplate(prefix){
  var rules=_landingRulesByPrefix(prefix||'lp');
  var hasRule=Object.keys(rules||{}).some(function(k){return (rules[k]||[]).length;});
  if(!hasRule){toast('当前没有可保存的访问控制规则','wa');return;}
- var name=await promptAsync('保存访问控制模板','输入模板名称，后续发布落地页时可直接选择。','','例如：FB SG 移动端');
+ var name=await promptAsync('保存访问控制模板','输入模板名称，后续发布落地页时可直接选择。','','例如：移动端访问控制');
  if(name==null)return;
  name=String(name||'').trim();
  if(!name){toast('请填写模板名称','wa');return;}
@@ -18660,7 +18730,7 @@ function _landingRuleValue(r,key){
 function _landingRuntimeRuleFields(r){
  return '<div class="landing-rule-groups">'+
   '<div class="landing-rule-card"><div class="landing-rule-card-title">地区</div><div class="landing-rule-card-desc">国家代码使用 ISO 两位码。</div>'+
-   '<div class="fg"><label class="fl">只允许国家</label><input class="fc" id="rtCountryAllow" list="landingCountryOptions" placeholder="US,SG,TW" value="'+escHtml(_landingRuleValue(r,'country_allow'))+'"></div>'+
+   '<div class="fg"><label class="fl">只允许国家</label><input class="fc" id="rtCountryAllow" list="landingCountryOptions" placeholder="US,VN,TH" value="'+escHtml(_landingRuleValue(r,'country_allow'))+'"></div>'+
    '<div class="fg"><label class="fl">拦截国家</label><input class="fc" id="rtCountryBlock" list="landingCountryOptions" placeholder="CN,RU" value="'+escHtml(_landingRuleValue(r,'country_block'))+'"></div></div>'+
   '<div class="landing-rule-card"><div class="landing-rule-card-title">设备与环境</div><div class="landing-rule-card-desc">排除明确不投放的设备、系统或 UA。</div>'+
    '<div class="fg"><label class="fl">拦截设备</label><input class="fc" id="rtDeviceBlock" list="landingDeviceOptions" placeholder="mobile,desktop,tablet" value="'+escHtml(_landingRuleValue(r,'device_block'))+'"></div>'+
@@ -18669,8 +18739,8 @@ function _landingRuntimeRuleFields(r){
   '<div class="landing-rule-card"><div class="landing-rule-card-title">来源与参数</div><div class="landing-rule-card-desc">来源平台支持 FB、IG、TK、Google、Unknown 等。</div>'+
    '<div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="rtSourceAllow" list="landingSourceOptions" placeholder="FB,IG,TK,Google" value="'+escHtml(_landingRuleValue(r,'source_allow'))+'"></div>'+
    '<div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="rtSourceBlock" list="landingSourceOptions" placeholder="Unknown,TK" value="'+escHtml(_landingRuleValue(r,'source_block'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="rtRefererBlock" list="landingRefererOptions" placeholder="example.com" value="'+escHtml(_landingRuleValue(r,'referer_block'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="rtQueryBlock" list="landingQueryOptions" placeholder="test,preview" value="'+escHtml(_landingRuleValue(r,'query_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="rtRefererBlock" list="landingRefererOptions" placeholder="blocked-domain.com" value="'+escHtml(_landingRuleValue(r,'referer_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="rtQueryBlock" list="landingQueryOptions" placeholder="preview,debug" value="'+escHtml(_landingRuleValue(r,'query_block'))+'"></div>'+
    '<div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="rtRequiredQuery" list="landingRequiredQueryOptions" placeholder="utm_source 或 fbclid" value="'+escHtml(_landingRuleValue(r,'required_query'))+'"></div></div>'+
  '</div>';
 }
@@ -18702,7 +18772,7 @@ function editLandingRuntimeConfig(pageId){
     '<div class="fg"><label class="fl">轮询方式</label><select class="fc" id="rtRotation"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select></div>'+
     '<div class="fg"><label class="fl">运行开关</label><div class="landing-switch-row"><label><input type="checkbox" id="rtTrackingEnabled"> 边缘统计</label><label><input type="checkbox" id="rtProtectionEnabled" onchange="toggleLandingRuntimeProtectionRules()"> 访问控制</label></div></div>'+
    '</div>'+
-   '<div class="fg"><label class="fl">跳转目标链接</label><textarea class="fc" id="rtTargets" style="min-height:120px" placeholder="每行一个 WhatsApp / 跳转链接">'+escHtml(urls.join('\n'))+'</textarea><div class="fh">这里改的是运行时跳转目标，不会改变已投广告入口短链。</div></div>'+
+   '<div class="fg"><label class="fl">跳转目标链接</label><textarea class="fc" id="rtTargets" style="min-height:120px" placeholder="每行一个咨询链接 / 外部跳转链接">'+escHtml(urls.join('\n'))+'</textarea><div class="fh">这里改的是运行时跳转目标，不会改变已投广告入口短链。</div></div>'+
    '<div class="landing-template-tools"><select class="fc" id="rtProtectionTemplate" onchange="applyProtectionTemplateToPrefix(this.value,&quot;rt&quot;)"><option value="">选择访问控制模板</option></select><button class="btn btn-g btn-sm" type="button" onclick="openLandingProtectionDrawer()">管理模板</button><button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveCurrentRulesAsProtectionTemplate(&quot;rt&quot;)">当前规则存为模板</button></div>'+
    '<div id="rtRulesBox" class="landing-rules-box" style="display:'+(p.protection_enabled?'block':'none')+'">'+_landingRuntimeRuleFields(r)+'</div>'+
   '</div>'+
@@ -18746,7 +18816,7 @@ function updateLandingRotationHint(){
   ?'表单投放链接访问即跳转；'
   :'普通落地页会展示页面正文，按钮点击后跳转；';
  var detail='顺序轮询由 Mira 服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。';
- if(mode==='random')detail='随机轮询会在每次访问时随机选择一个目标链接，适合均匀分散到多个 WhatsApp 或外部链接。';
+ if(mode==='random')detail='随机轮询会在每次访问时随机选择一个目标链接，适合均匀分散到多个咨询链接或外部链接。';
  if(mode==='first')detail='固定第一个只使用第一条目标链接，适合临时验证，不适合多链接分流。';
  el.textContent=prefix+detail;
 }
@@ -18768,17 +18838,17 @@ function onLandingKindChanged(){
   if(formFlag){formFlag.checked=true;formFlag.disabled=true;formFlag.dataset.autoForm='1';}
   setBindOptionDisabled(['landing','both'],true);
   if(bind&&(bind.value==='landing'||bind.value==='both'||bind.value==='none'))bind.value='form';
-  if(kindHint)kindHint.textContent='表单投放链接访问首页即由 Worker 302 跳转，适合 Lead Form / WhatsApp 聊单；发布包为轻量直跳页，不展示落地页正文。';
+  if(kindHint)kindHint.textContent='表单投放链接访问首页即由 Worker 302 跳转，适合 Lead Form 或直跳咨询场景；发布包为轻量直跳页，不展示落地页正文。';
   if(bindHint)bindHint.textContent='表单直跳链接只允许写入账户表单链接字段，避免覆盖普通落地页链接。';
   if(targetLabel)targetLabel.textContent='直跳轮询链接';
-  if(targets)targets.placeholder='每行一个 WhatsApp / 表单提交后回跳链接；访问发布链接时由服务端按策略选择目标';
+  if(targets)targets.placeholder='每行一个咨询链接 / 表单提交后回跳链接；访问发布链接时由服务端按策略选择目标';
 }else{
   setBindOptionDisabled(['landing','both'],false);
   if(formFlag){formFlag.disabled=false;if(formFlag.dataset.autoForm==='1'){formFlag.checked=false;formFlag.dataset.autoForm='';}}
   if(kindHint)kindHint.textContent='普通落地页会展示模板正文，按钮点击后由 Worker 按轮询策略跳转。';
-  if(bindHint)bindHint.textContent='普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。';
+  if(bindHint)bindHint.textContent='普通落地页通常绑定到账户落地页；表单直跳链接建议绑定到账户表单链接。';
   if(targetLabel)targetLabel.textContent='按钮跳转链接';
-  if(targets)targets.placeholder='每行一个 WhatsApp / 跳转链接；发布后按钮点击由服务端按策略选择目标';
+  if(targets)targets.placeholder='每行一个咨询链接 / 外部跳转链接；发布后按钮点击由服务端按策略选择目标';
  }
  updateLandingRotationHint();
 }
@@ -18844,7 +18914,6 @@ async function publishLandingPage(){
   else if(domainNotice)msg+='，自定义域待验证，账户已先写入 Pages 备用域；域名可用后点复检会自动回绑';
   toast(msg,(domainError||domainNotice)?'wa':'ok');
   if(res&&res.page&&(res.page.public_url||res.page.pages_url))copyText(encodeURIComponent(res.page.public_url||res.page.pages_url),true);
-  closeLandingPublishDrawer();
   markPageStale('landing_center');
  await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}
@@ -18896,17 +18965,17 @@ function openLandingAssetBindingModal(editId){
    '<div class="landing-result-context">手动维护像素、域名和落地页的常用组合。发布新链接时选择预设，只会自动填表，不会自动发布或覆盖已有广告。</div>'+
    '<input type="hidden" id="abEditingId" value="'+escHtml(b?String(b.id):'')+'">'+
    '<div class="landing-form-grid">'+
-    '<div class="fg"><label class="fl">预设名称</label><input class="fc" id="abName" placeholder="如：SG 购买 - PixelA - go.example.com" value="'+escHtml((b&&b.name)||'')+'"></div>'+
+   '<div class="fg"><label class="fl">预设名称</label><input class="fc" id="abName" placeholder="如：域名-像素-落地页组合" value="'+escHtml((b&&b.name)||'')+'"></div>'+
     '<div class="fg"><label class="fl">关联已有落地页</label><select class="fc" id="abLandingPage">'+pageOptions+'</select></div>'+
-    '<div class="fg"><label class="fl">自定义域名</label><input class="fc" id="abDomain" placeholder="go.example.com" value="'+escHtml((b&&b.custom_domain)||'')+'"></div>'+
+   '<div class="fg"><label class="fl">自定义域名</label><input class="fc" id="abDomain" placeholder="go.your-domain.com" value="'+escHtml((b&&b.custom_domain)||'')+'"></div>'+
     '<div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="abPixel" placeholder="Facebook Pixel ID" value="'+escHtml((b&&b.pixel_id)||'')+'"></div>'+
     '<div class="fg"><label class="fl">链接类型</label><select class="fc" id="abKind"><option value="landing">普通落地页</option><option value="form">表单直跳</option></select></div>'+
     '<div class="fg"><label class="fl">轮询方式</label><select class="fc" id="abRotation"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select></div>'+
     '<div class="fg"><label class="fl">访问控制模板</label><select class="fc" id="abProtectionTemplate">'+protectionOptions+'</select></div>'+
     '<div class="fg"><label class="fl">备注</label><input class="fc" id="abNote" placeholder="可选，说明适用账户/国家/素材" value="'+escHtml((b&&b.note)||'')+'"></div>'+
    '</div>'+
-   '<div class="fg"><label class="fl">默认跳转链接</label><textarea class="fc" id="abTargets" style="min-height:90px" placeholder="每行一个 WhatsApp / 跳转链接">'+escHtml(((b&&b.target_urls)||[]).join('\n'))+'</textarea></div>'+
-   '<div class="landing-template-tools"><button class="btn btn-p btn-sm role-hide-viewer" onclick="saveLandingAssetBinding()">保存并关闭</button><button class="btn btn-g btn-sm" onclick="closeLandingAssetBindingModal()">取消</button></div>'+
+   '<div class="fg"><label class="fl">默认跳转链接</label><textarea class="fc" id="abTargets" style="min-height:90px" placeholder="每行一个咨询链接 / 外部跳转链接">'+escHtml(((b&&b.target_urls)||[]).join('\n'))+'</textarea></div>'+
+   '<div class="landing-template-tools"><button class="btn btn-p btn-sm role-hide-viewer" onclick="saveLandingAssetBinding()">保存预设</button><button class="btn btn-g btn-sm" onclick="closeLandingAssetBindingModal()">关闭</button></div>'+
    '<div class="landing-form-section"><div class="landing-section-title">已保存预设</div><div id="landingAssetBindingList">'+_landingAssetBindingRowsHtml()+'</div></div>'+
   '</div>'+
  '</div>';
@@ -18939,14 +19008,17 @@ async function saveLandingAssetBinding(){
   if(res&&res.binding){
    var sel=document.getElementById('lpAssetBinding');
    if(sel)sel.value=String(res.binding.id);
+   var editing=document.getElementById('abEditingId');
+   if(editing)editing.value=String(res.binding.id);
   }
-  closeLandingAssetBindingModal();
+  var list=document.getElementById('landingAssetBindingList');
+  if(list)list.innerHTML=_landingAssetBindingRowsHtml();
   toast(id?'资产预设已更新':'资产预设已保存','ok');
- }catch(e){toast('保存资产预设失败：'+(e.message||e),'er')}
+}catch(e){toast('保存资产预设失败：'+(e.message||e),'er')}
 }
 async function saveLandingAssetBindingFromPublish(){
  var payload=_landingPublishPayload();
- var name=await promptAsync('保存资产预设','给当前像素、域名、跳转链接组合起一个名称。','','例如：SG 购买 - PixelA - go.example.com');
+ var name=await promptAsync('保存资产预设','给当前像素、域名、落地页和跳转链接组合起一个名称。','','例如：域名-像素-落地页组合');
  if(name==null)return;
  name=String(name||'').trim();
  if(!name){toast('请填写预设名称','wa');return;}
