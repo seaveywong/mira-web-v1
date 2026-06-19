@@ -303,9 +303,15 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
 <script>
 (function(){{
   var PAGE_ID = {json.dumps(page_id)};
+  function adSlug(){{
+    var m = String(location.pathname || '').match(/^\\/a\\/([A-Za-z0-9_-]{{4,64}})\\/?$/);
+    return m ? m[1] : '';
+  }}
   function send(type, payload){{
     try {{
-      var data = Object.assign({{event_type:type,page_id:PAGE_ID,path:location.pathname,referrer:document.referrer||''}}, payload||{{}});
+      var base = {{event_type:type,page_id:PAGE_ID,path:location.pathname,referrer:document.referrer||'',metadata:{{ad_slug:adSlug()}}}};
+      var data = Object.assign(base, payload||{{}});
+      data.metadata = Object.assign(base.metadata || {{}}, (payload && payload.metadata) || {{}});
       var blob = new Blob([JSON.stringify(data)], {{type:'application/json'}});
       if (navigator.sendBeacon) navigator.sendBeacon('/__mira/event', blob);
       else fetch('/__mira/event', {{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify(data),keepalive:true}}).catch(function(){{}});
@@ -431,6 +437,11 @@ function isHtmlRequest(request) {
   return request.method === 'GET' && (url.pathname === '/' || url.pathname.endsWith('.html') || accept.includes('text/html'));
 }
 
+function adSlugFromPath(pathname) {
+  const m = String(pathname || '').match(/^\/a\/([A-Za-z0-9_-]{4,64})\/?$/);
+  return m ? m[1] : '';
+}
+
 async function nextTargetFromServer(request) {
   const mode = String(MIRA_CONFIG.rotation_mode || 'sequential').toLowerCase();
   if (mode !== 'sequential' || !MIRA_CONFIG.route_url) return '';
@@ -517,6 +528,7 @@ function blockedResponse(reason) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const adSlug = adSlugFromPath(url.pathname);
     if (url.pathname === '/__mira/event' && request.method === 'POST') {
       let body = {};
       try { body = await request.json(); } catch (e) {}
@@ -525,17 +537,28 @@ export default {
     }
     const directFormRedirect = String(MIRA_CONFIG.link_kind || '').toLowerCase() === 'form'
       && request.method === 'GET'
-      && (url.pathname === '/' || url.pathname === '/index.html');
+      && (url.pathname === '/' || url.pathname === '/index.html' || !!adSlug);
     if (url.pathname === '/__mira/redirect' || directFormRedirect) {
       const decision = evaluate(request);
       if (!decision.pass) {
-        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason }));
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }));
         return blockedResponse(decision.reason);
       }
       const target = await selectTarget(request);
       if (!target) return new Response('No target configured', { status: 503 });
-      ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target }));
+      ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug } }));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request), 'cache-control': 'no-store' } });
+    }
+    if (adSlug && request.method === 'GET') {
+      const decision = evaluate(request);
+      if (!decision.pass) {
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }));
+        return blockedResponse(decision.reason);
+      }
+      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass', metadata: { ad_slug: adSlug } }));
+      const assetUrl = new URL(request.url);
+      assetUrl.pathname = '/index.html';
+      return env.ASSETS.fetch(new Request(assetUrl.toString(), request));
     }
     if (isHtmlRequest(request)) {
       const decision = evaluate(request);

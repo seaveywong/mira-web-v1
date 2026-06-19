@@ -2721,13 +2721,13 @@ select.fc option{background:#fff;color:#1d1d1f}
 <!-- Page: 落地页发布中心 -->
 <div class="page" id="page-landing_center">
  <div class="ph">
-  <div><h2>落地页发布</h2><p>发布 Cloudflare Pages 落地页，预检后可自动绑定到账户投放链接</p></div>
+  <div><h2>落地页发布</h2><p>通过发布通道生成投放链接，预检后可自动绑定到账户</p></div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
  </div>
  <div class="landing-flow">
-  <div class="landing-flow-step"><b>1</b><span>保存 Cloudflare Account Token</span></div>
+  <div class="landing-flow-step"><b>1</b><span>保存发布通道 API</span></div>
   <div class="landing-flow-step"><b>2</b><span>选择模板并填写跳转链接</span></div>
   <div class="landing-flow-step"><b>3</b><span>开启统计 / 防护 / 账户绑定</span></div>
   <div class="landing-flow-step"><b>4</b><span>预检后发布并复制链接</span></div>
@@ -2735,11 +2735,11 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="landing-center-grid">
   <div class="card landing-side-card">
    <div class="landing-card-head">
-    <div><div class="card-title">Cloudflare API</div><p>只支持 Account API Token。R2/S3 Access Key、Secret Key 或 S3 endpoint 不能用于 Pages 发布。</p></div>
+    <div><div class="card-title">发布通道 API</div><p>只支持账号级 API Token。对象存储 Access Key、Secret Key 或 endpoint 不能用于站点发布。</p></div>
    </div>
-   <div class="landing-help">建议填写 Account ID，系统会直接校验 Pages Edit 权限，并保留可诊断的发布账号。</div>
+   <div class="landing-help">建议填写 Account ID，系统会直接校验发布权限，并保留可诊断的发布账号。</div>
    <div class="fg"><label class="fl">API 名称</label><input class="fc" id="cfApiName" placeholder="如：团队A发布号"></div>
-   <div class="fg"><label class="fl">Account ID</label><input class="fc" id="cfAccountId" placeholder="Cloudflare 账号 ID，建议必填"></div>
+   <div class="fg"><label class="fl">Account ID</label><input class="fc" id="cfAccountId" placeholder="发布账号 ID，建议必填"></div>
    <div class="fg"><label class="fl">API Token</label><input class="fc" id="cfApiToken" type="password" placeholder="只保存加密值，前端不回显"></div>
    <button class="btn btn-p role-hide-viewer landing-full-btn" onclick="addCloudflareToken()">验证并保存</button>
    <div id="cfTokenList" class="landing-token-list"></div>
@@ -2747,15 +2747,15 @@ select.fc option{background:#fff;color:#1d1d1f}
   <div class="card landing-work-card">
    <div class="landing-card-head">
     <div><div class="card-title">发布新落地页</div><p>发布配置、跳转轮询、防护规则和账户绑定在这里一次完成。</p></div>
-    <div class="landing-mode-pill">Pages</div>
+    <div class="landing-mode-pill">站点发布</div>
    </div>
    <div class="landing-form-section">
     <div class="landing-section-title">基础信息</div>
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后会尝试绑定到 Pages；域名待验证时先绑定 Pages 备用域，复检可用后自动回绑自定义域。</div></div>
-     <div class="fg"><label class="fl">Cloudflare API</label><select class="fc" id="lpToken"></select></div>
+     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后会尝试绑定到发布站点；域名待验证时先使用备用域，复检可用后自动回绑自定义域。</div></div>
+     <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
      <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
      <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind" onchange="onLandingKindChanged()"><option value="landing">普通落地页：展示模板，按钮轮询跳转</option><option value="form">表单投放链接：访问即轮询跳转</option></select><div class="fh" id="lpKindHint">普通落地页会展示模板正文，按钮点击后按轮询策略跳转。</div></div>
@@ -2795,14 +2795,14 @@ select.fc option{background:#fff;color:#1d1d1f}
    </div>
    <div class="landing-actions">
     <button class="btn btn-g role-hide-viewer" onclick="preflightLandingPage(true)">发布前检查</button>
-    <button class="btn btn-p role-hide-viewer" onclick="publishLandingPage()">发布到 Cloudflare</button>
+    <button class="btn btn-p role-hide-viewer" onclick="publishLandingPage()">发布落地页</button>
    </div>
   </div>
  </div>
  <div class="card landing-stats-card" id="landingStatsPanel" style="display:none"></div>
  <div class="card landing-record-card">
   <div class="landing-card-head">
-   <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。仍被引用的页面只能归档，未引用的页面可删除 Cloudflare 项目。</p><div id="landingPageCountHint" style="font-size:12px;color:var(--t3);margin-top:4px"></div></div>
+   <div><div class="card-title">发布记录</div><p>查看链接状态、跳转数量和统计详情。仍被引用的页面只能归档，未引用的页面可删除远程项目。</p><div id="landingPageCountHint" style="font-size:12px;color:var(--t3);margin-top:4px"></div></div>
    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
     <input class="fc" id="landingPageSearch" style="width:210px;height:34px" placeholder="搜索名称/域名/发布人" oninput="renderLandingPages()">
     <select class="fc" id="landingPageMatrixFilter" style="width:132px;height:34px" onchange="renderLandingPages()">
@@ -2835,7 +2835,7 @@ select.fc option{background:#fff;color:#1d1d1f}
     <thead><tr>
      <th style="text-align:left;padding:10px 12px">名称</th>
      <th style="text-align:left;padding:10px 12px">类型</th>
-     <th style="text-align:left;padding:10px 12px">Cloudflare</th>
+     <th style="text-align:left;padding:10px 12px">发布通道</th>
      <th style="text-align:left;padding:10px 12px">链接</th>
      <th style="text-align:left;padding:10px 12px">跳转数</th>
      <th style="text-align:left;padding:10px 12px">状态</th>
@@ -16060,7 +16060,7 @@ async function loadLandingCenter(force){
 }
 function renderCloudflareTokens(){
  var el=document.getElementById('cfTokenList'); if(!el)return;
- if(!_cfTokens.length){el.innerHTML='<div style="font-size:12px;color:var(--t3);padding:12px;border:1px dashed var(--bd);border-radius:8px">暂无 Cloudflare API。保存后系统会自动识别账号。</div>';return;}
+ if(!_cfTokens.length){el.innerHTML='<div style="font-size:12px;color:var(--t3);padding:12px;border:1px dashed var(--bd);border-radius:8px">暂无发布通道 API。保存后系统会自动识别账号。</div>';return;}
  el.innerHTML=_cfTokens.map(function(t){
   var status=t.status==='active'?'<span class="badge bg-ok">可用</span>':'<span class="badge bg-er">'+escHtml(t.status||'异常')+'</span>';
   var accounts=Array.isArray(t.cf_accounts)?t.cf_accounts:[];
@@ -16080,7 +16080,7 @@ function renderCloudflareTokens(){
   var ownerText=resourceOwnerLabel(t,'未指定负责人');
   var ownerHtml='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">'+
    resourceTeamBadge(t)+
-   '<span class="resource-owner-pill '+(ownerText==='未指定负责人'?'muted':'')+'" title="Cloudflare API 负责人">'+escHtml(ownerText)+'</span>'+
+   '<span class="resource-owner-pill '+(ownerText==='未指定负责人'?'muted':'')+'" title="发布通道负责人">'+escHtml(ownerText)+'</span>'+
    usageBadge+
   '</div>';
   var actionBtns='<button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">重新验证</button>'+
@@ -16102,7 +16102,7 @@ function renderCloudflareTokens(){
 }
 function renderLandingPublishOptions(){
  var tk=document.getElementById('lpToken');
- if(tk)tk.innerHTML=_cfTokens.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('API '+t.id))+' · '+escHtml(t.cf_account_name||'未识别')+'</option>';}).join('');
+ if(tk)tk.innerHTML=_cfTokens.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('API '+t.id))+' · '+escHtml(t.cf_account_name||'未识别账号')+'</option>';}).join('');
  var tp=document.getElementById('lpTemplate');
  if(tp)tp.innerHTML=_lpTemplates.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('模板 '+t.id))+'</option>';}).join('');
  onLandingKindChanged();
@@ -16199,8 +16199,8 @@ function _landingHealthText(text){
   'Live access':'线上访问',
   'All checks passed':'所有检查通过',
   'Published':'已发布',
-  'No reachable Pages or custom-domain URL':'没有可访问的 Pages 或自定义域链接',
-  'No custom domain configured; using the default Cloudflare Pages domain':'未配置自定义域名，当前使用 Cloudflare Pages 默认域',
+  'No reachable Pages or custom-domain URL':'没有可访问的备用域或自定义域链接',
+  'No custom domain configured; using the default Cloudflare Pages domain':'未配置自定义域名，当前使用系统备用域',
   'No redirect target configured':'没有配置跳转目标',
   'Root path redirects directly to the rotating target':'根路径访问会直接 302 到轮询目标',
   'Form direct-link mode requires Worker':'表单直跳必须启用 Worker',
@@ -16214,8 +16214,8 @@ function _landingHealthText(text){
  Object.keys(map).forEach(function(k){s=s.split(k).join(map[k]);});
  s=s.replace(/Current status:\s*/g,'当前状态：');
  s=s.replace(/https:\/\/([^ ]+) is the primary URL/g,'https://$1 已作为主链接');
- s=s.replace(/Domain is not active yet; currently using the Pages fallback URL\.\s*/g,'域名未激活，当前使用 Pages 备用域。');
- s=s.replace(/Finish the CNAME record in Cloudflare DNS\./g,'请在 Cloudflare DNS 中完成 CNAME 指向。');
+ s=s.replace(/Domain is not active yet; currently using the Pages fallback URL\.\s*/g,'域名未激活，当前使用备用域。');
+ s=s.replace(/Finish the CNAME record in Cloudflare DNS\./g,'请完成 DNS CNAME 指向。');
  s=s.replace(/(\d+) target link\(s\) configured/g,'已配置 $1 个目标链接');
  s=s.replace(/Worker enabled; tracking on, protection on/g,'Worker 已启用；统计开，防护开');
  s=s.replace(/Worker enabled; tracking on, protection off/g,'Worker 已启用；统计开，防护关');
@@ -16280,14 +16280,14 @@ function renderLandingPages(){
   if(p.custom_domain&&p.custom_domain_usable){
    linkHtml+='<div style="font-size:11px;color:var(--ok);margin-top:3px">自定义域已作为主链接</div>';
   }else if(p.custom_domain&&pagesUrl){
-   linkHtml+='<div style="font-size:11px;color:var(--wa);margin-top:3px">自定义域待验证，当前复制 Pages 备用域</div>';
+   linkHtml+='<div style="font-size:11px;color:var(--wa);margin-top:3px">自定义域待验证，当前复制备用域</div>';
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">自定义域: https://'+escHtml(p.custom_domain)+'</div>';
    if(p.custom_domain_dns_hint){
     linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">DNS: '+escHtml(p.custom_domain_dns_hint)+'</div>';
    }
   }
   if(p.custom_domain&&pagesUrl&&link!==pagesUrl&&p.custom_domain_usable){
-   linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">Pages: '+escHtml(pagesUrl)+'</div>';
+   linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">备用域: '+escHtml(pagesUrl)+'</div>';
   }
   if(p.domain_status){
    var ds=p.domain_status||{};
@@ -16301,7 +16301,7 @@ function renderLandingPages(){
    copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(customUrl)+'\')" title="复制自定义域名链接，域名未验证时请先完成 DNS/复检">复制自定义域</button>';
   }
   if(p.pages_url&&(!link||link!==p.pages_url)){
-   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.pages_url)+'\')" title="复制 Cloudflare Pages 备用域">复制备用域</button>';
+   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.pages_url)+'\')" title="复制系统备用域">复制备用域</button>';
   }
   if(p.custom_domain_dns_hint){
    copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.custom_domain_dns_hint)+'\')" title="复制自定义域 DNS 配置">复制DNS</button>';
@@ -16325,12 +16325,63 @@ function renderLandingPages(){
     copyBtns+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="checkLandingHealth('+p.id+')">自检</button>'+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingStats('+p.id+')">统计</button>'+
+    '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingAdLinks('+p.id+')">广告链接</button>'+
     (usageTotal>0?'<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingUsage('+p.id+')">引用</button>':'')+
     (p.custom_domain?'<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="refreshLandingDomain('+p.id+')">域名</button>':'')+
     '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="archiveLandingPage('+p.id+','+(usageTotal>0?'false':'true')+')">'+(usageTotal>0?'归档':'删除项目')+'</button>'+
    '</td>'+
   '</tr>';
  }).join('');
+}
+function _landingAdLinksHtml(page, links){
+ links=Array.isArray(links)?links:[];
+ var pageTitle=escHtml((page&&page.title)||'落地页');
+ var rows=links.map(function(x){
+  var stats=x.stats||{};
+  var meta=[
+   x.act_id?('账户 '+x.act_id):'',
+   x.campaign_id?('系列 '+x.campaign_id):'',
+   x.adset_id?('组 '+x.adset_id):'',
+   x.ad_id?('广告 '+x.ad_id):''
+  ].filter(Boolean).join(' · ')||'待回填广告信息';
+  var url=x.public_url||'';
+  return '<tr>'+
+   '<td style="padding:8px 10px"><div style="font-weight:760">'+escHtml(x.slug||'')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(meta)+'</div></td>'+
+   '<td style="padding:8px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(url)+'" style="color:var(--ac)">'+escHtml(url)+'</a></td>'+
+   '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+' · 跳转 '+(stats.redirect||0)+' · 拦截 '+(stats.block||0)+'</td>'+
+   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button></td>'+
+  '</tr>';
+ }).join('');
+ if(!rows)rows='<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--t3)">还没有广告级链接。生成后，每条广告使用一个链接，Mira 会按短码做广告级统计。</td></tr>';
+ return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
+  '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">同一个域名下用 /a/短码 区分每条广告。</div></div>'+
+  '<button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成链接</button>'+
+ '</div>'+
+ '<div class="table-wrap" style="max-height:420px;overflow:auto"><table style="width:100%;min-width:720px;border-collapse:collapse">'+
+ '<thead><tr><th style="text-align:left;padding:8px 10px">短码</th><th style="text-align:left;padding:8px 10px">广告链接</th><th style="text-align:left;padding:8px 10px">统计</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
+ '<tbody>'+rows+'</tbody></table></div>';
+}
+async function showLandingAdLinks(pageId){
+ var page=(_landingPages||[]).find(function(p){return String(p.id)===String(pageId);})||{id:pageId};
+ try{
+  var links=await api('GET','/landing-pages/pages/'+pageId+'/ad-links');
+  showInfo(_landingAdLinksHtml(page,links||[]),'广告级链接');
+ }catch(e){
+  toast('加载广告级链接失败：'+(e.message||e),'er');
+ }
+}
+async function createLandingAdLinks(pageId){
+ var raw=await promptAsync('生成广告级链接','输入本次要生成的链接数量。建议一条广告一个链接。','1','1-200');
+ if(raw==null)return;
+ var count=parseInt(String(raw).trim(),10)||0;
+ if(count<1||count>200){toast('数量需要在 1-200 之间','wa');return;}
+ try{
+  var res=await api('POST','/landing-pages/pages/'+pageId+'/ad-links',{count:count});
+  toast('已生成 '+(((res||{}).links||[]).length||count)+' 条广告级链接','ok');
+  await showLandingAdLinks(pageId);
+ }catch(e){
+  toast('生成失败：'+(e.message||e),'er');
+ }
 }
 async function addCloudflareToken(){
  var name=(document.getElementById('cfApiName')||{}).value||'';
@@ -16340,7 +16391,7 @@ async function addCloudflareToken(){
  try{
   await api('POST','/landing-pages/tokens',{name:name.trim(),account_id:accountId.trim(),api_token:apiToken.trim()});
   document.getElementById('cfApiToken').value='';
-  toast('Cloudflare API 已保存','ok');
+  toast('发布通道 API 已保存','ok');
   markPageStale('landing_center');
   await loadLandingCenter(true);
  }catch(e){toast('保存失败：'+(e.message||e),'er')}
@@ -16364,11 +16415,11 @@ async function diagnoseCloudflareToken(id){
 async function deleteCloudflareToken(id){
  var item=(_cfTokens||[]).find(function(t){return String(t.id)===String(id);});
  var name=(item&&item.name)||('API '+id);
- var ok=await confirmDialog('确认删除 Cloudflare API「'+name+'」？只有未被任何落地页记录引用的 API 才能删除。');
+ var ok=await confirmDialog('确认删除发布通道 API「'+name+'」？只有未被任何落地页记录引用的 API 才能删除。');
  if(!ok)return;
  try{
   await api('DELETE','/landing-pages/tokens/'+id);
-  toast('Cloudflare API 已删除','ok');
+  toast('发布通道 API 已删除','ok');
   await loadLandingCenter(true);
  }catch(e){
   toast('删除失败：'+(e.message||e),'er');
@@ -16591,7 +16642,7 @@ function _landingPublishPayload(){
 async function preflightLandingPage(showToast){
  var box=document.getElementById('lpPreflightBox');
  var payload=_landingPublishPayload();
- if(!payload.token_id){toast('请先添加 Cloudflare API','wa');return false;}
+ if(!payload.token_id){toast('请先添加发布通道 API','wa');return false;}
  if(box){box.style.display='block';box.innerHTML='<div style="font-size:12px;color:var(--t3)">检查中...</div>';}
  try{
   var r=await api('POST','/landing-pages/preflight',payload);
@@ -16605,13 +16656,13 @@ async function preflightLandingPage(showToast){
 }
 async function publishLandingPage(){
  var payload=_landingPublishPayload();
- if(!payload.token_id){toast('请先添加 Cloudflare API','wa');return;}
+ if(!payload.token_id){toast('请先添加发布通道 API','wa');return;}
  if(!payload.title){toast('请填写发布名称','wa');return;}
  if(!payload.target_urls.length){toast('请至少填写一个按钮跳转链接','wa');return;}
  var ok=await preflightLandingPage(false);
  if(!ok){toast('发布前检查未通过，请先处理红色项','er');return;}
  try{
-  toast('正在发布到 Cloudflare，请稍候...','wa');
+  toast('正在发布落地页，请稍候...','wa');
   var res=await api('POST','/landing-pages/publish',payload);
   var bound=(res&&res.page&&res.page.binding&&res.page.binding.bound||[]).length;
   var skipped=(res&&res.page&&res.page.binding&&res.page.binding.skipped||[]).length;
@@ -16628,7 +16679,7 @@ async function publishLandingPage(){
 }
 async function refreshLandingDomain(id){
  try{
-  toast('正在复检 Cloudflare 域名状态...','ac');
+  toast('正在复检域名状态...','ac');
   var r=await api('POST','/landing-pages/pages/'+id+'/refresh-domain',{});
   var st=(r&&r.domain_status)||{};
   var label=st.status||st.verified||st.name||'已获取';
@@ -16654,14 +16705,14 @@ async function refreshLandingDomains(){
 }
 async function archiveLandingPage(id,cleanup){
  var msg=cleanup
-  ?'确认删除这个未引用的落地页？系统会删除 Cloudflare Pages 项目和本地记录，操作不可恢复。'
-  :'确认归档这个仍被引用的落地页记录？Cloudflare 项目和账户链接不会被删除。';
+  ?'确认删除这个未引用的落地页？系统会删除远程项目和本地记录，操作不可恢复。'
+ :'确认归档这个仍被引用的落地页记录？远程项目和账户链接不会被删除。';
  var ok=await confirmDialog(msg);
  if(!ok)return;
  try{
   var r=await api('DELETE','/landing-pages/pages/'+id+(cleanup?'?cleanup=1':''));
   var cf=(r&&r.cloudflare)||{};
-  var cfText=cleanup?(cf.status==='not_found'?'，Cloudflare 项目已不存在':(cf.skipped?'，没有远程项目':'，Cloudflare 项目已删除')):'';
+  var cfText=cleanup?(cf.status==='not_found'?'，远程项目已不存在':(cf.skipped?'，没有远程项目':'，远程项目已删除')):'';
   toast((cleanup?'落地页已删除':'已归档')+cfText,'ok');
   await loadLandingCenter(true);
  }catch(e){toast((cleanup?'删除项目':'归档')+'失败：'+(e.message||e),'er')}

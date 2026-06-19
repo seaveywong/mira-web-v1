@@ -97,6 +97,34 @@ class LandingRouteNextReq(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class LandingAdLinkCreate(BaseModel):
+    count: int = Field(default=1, ge=1, le=200)
+    act_id: Optional[str] = None
+    account_name: Optional[str] = None
+    campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
+    adset_id: Optional[str] = None
+    adset_name: Optional[str] = None
+    ad_id: Optional[str] = None
+    ad_name: Optional[str] = None
+    target_url: Optional[str] = None
+    note: Optional[str] = None
+
+
+class LandingAdLinkPatch(BaseModel):
+    act_id: Optional[str] = None
+    account_name: Optional[str] = None
+    campaign_id: Optional[str] = None
+    campaign_name: Optional[str] = None
+    adset_id: Optional[str] = None
+    adset_name: Optional[str] = None
+    ad_id: Optional[str] = None
+    ad_name: Optional[str] = None
+    target_url: Optional[str] = None
+    status: Optional[str] = None
+    note: Optional[str] = None
+
+
 def _ensure_schema():
     conn = get_conn()
     conn.executescript(
@@ -196,6 +224,32 @@ def _ensure_schema():
             cursor INTEGER DEFAULT 0,
             updated_at TEXT DEFAULT (datetime('now','+8 hours'))
         );
+
+        CREATE TABLE IF NOT EXISTS landing_ad_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            page_id INTEGER NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            public_url TEXT,
+            act_id TEXT,
+            account_name TEXT,
+            campaign_id TEXT,
+            campaign_name TEXT,
+            adset_id TEXT,
+            adset_name TEXT,
+            ad_id TEXT,
+            ad_name TEXT,
+            target_url TEXT,
+            status TEXT DEFAULT 'reserved',
+            note TEXT,
+            team_id INTEGER,
+            owner_user_id INTEGER,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now','+8 hours')),
+            updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_landing_ad_links_page ON landing_ad_links(page_id);
+        CREATE INDEX IF NOT EXISTS idx_landing_ad_links_ad ON landing_ad_links(ad_id);
+        CREATE INDEX IF NOT EXISTS idx_landing_ad_links_act ON landing_ad_links(act_id);
         """
     )
     try:
@@ -255,6 +309,34 @@ def _truncate(value: Optional[str], limit: int = 255) -> str:
     if value is None:
         return ""
     return str(value).strip()[:limit]
+
+
+def _provider_label(user=None) -> str:
+    return "发布通道"
+
+
+def _public_provider_error(message: Any, user=None) -> str:
+    text = str(message or "").strip()
+    replacements = {
+        "Cloudflare Pages": "发布通道",
+        "Cloudflare API": "发布通道 API",
+        "Cloudflare Account API Token": "账号级发布 API Token",
+        "Cloudflare account": "发布账号",
+        "Cloudflare token": "发布通道 Token",
+        "Cloudflare": "发布通道",
+        "Pages": "站点发布",
+        "R2/S3 Access Key": "对象存储 Access Key",
+        "Secret Key": "对象存储 Secret Key",
+        "S3 endpoint": "对象存储 endpoint",
+    }
+    for src, dst in replacements.items():
+        text = text.replace(src, dst)
+    return text
+
+
+def _short_slug(size: int = 8) -> str:
+    alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    return "".join(secrets.choice(alphabet) for _ in range(size))
 
 
 def _json_loads(raw: Optional[str], default):
@@ -397,14 +479,14 @@ def _route_url(request: Optional[Request] = None) -> str:
 def _assert_token_access(conn, token_id: int, user) -> dict:
     row = conn.execute("SELECT * FROM cf_tokens WHERE id=?", (token_id,)).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Cloudflare API token not found")
+        raise HTTPException(status_code=404, detail="发布通道 API 不存在")
     if is_superadmin(user):
         return dict(row)
     tid = team_id_for_create(user)
     if row["team_id"] != tid:
-        raise HTTPException(status_code=403, detail="Cloudflare token belongs to another team")
+        raise HTTPException(status_code=403, detail="发布通道属于其他团队")
     if is_operator_user(user) and row["owner_user_id"] not in (None, user_id(user)):
-        raise HTTPException(status_code=403, detail="Cloudflare token belongs to another operator")
+        raise HTTPException(status_code=403, detail="发布通道属于其他运营")
     return dict(row)
 
 
@@ -569,6 +651,50 @@ def _public_page(row) -> dict:
     return item
 
 
+def _page_public_url(item: dict) -> str:
+    if not item:
+        return ""
+    public_url = (item.get("public_url") or item.get("pages_url") or "").strip()
+    return public_url.rstrip("/")
+
+
+def _ad_link_url(page: dict, slug: str) -> str:
+    base = _page_public_url(page)
+    if not base or not slug:
+        return ""
+    return f"{base}/a/{slug}"
+
+
+def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = None) -> dict:
+    item = dict(row)
+    if item.get("public_url"):
+        item["public_url"] = str(item.get("public_url") or "").strip()
+    elif page:
+        item["public_url"] = _ad_link_url(page, item.get("slug") or "")
+    if stats:
+        item["stats"] = stats
+    return item
+
+
+def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
+    path = f"/a/{slug}"
+    rows = conn.execute(
+        """SELECT event_type, COUNT(*) AS cnt
+           FROM landing_events
+           WHERE page_id=? AND path=?
+           GROUP BY event_type""",
+        (page_id, path),
+    ).fetchall()
+    out = {r["event_type"]: int(r["cnt"] or 0) for r in rows}
+    return {
+        "visit": out.get("visit", 0),
+        "click": out.get("click", 0),
+        "redirect": out.get("redirect", 0),
+        "block": out.get("block", 0),
+        "total": sum(out.values()),
+    }
+
+
 def _target_location_matches(location: str, targets: list[str]) -> bool:
     loc = (location or "").strip()
     if not loc:
@@ -631,10 +757,10 @@ def _stable_landing_health_checks(
                 check["detail"] = (
                     f"https://{custom_domain} is the primary URL"
                     if item.get("custom_domain_usable")
-                    else f"Domain is not active yet; currently using the Pages fallback URL. {item.get('custom_domain_dns_hint') or 'Finish the CNAME record in Cloudflare DNS.'}"
+                    else f"Domain is not active yet; currently using the fallback URL. {item.get('custom_domain_dns_hint') or 'Finish the CNAME record in DNS.'}"
                 )
             elif pages_url:
-                check["detail"] = "No custom domain configured; using the default Cloudflare Pages domain"
+                check["detail"] = "No custom domain configured; using the default fallback domain"
         elif key == "targets":
             check["label"] = "Redirect targets"
             check["detail"] = f"{target_count} target link(s) configured" if target_count else "No redirect target configured"
@@ -831,12 +957,12 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
         raise HTTPException(status_code=400, detail="This landing page has no custom domain")
     token_id = page.get("cf_token_id")
     if not token_id:
-        raise HTTPException(status_code=400, detail="This landing page has no Cloudflare token")
+        raise HTTPException(status_code=400, detail="这个落地页没有可用发布通道")
     token_row = _assert_token_access(conn, int(token_id), user)
     raw_token = decrypt_token(token_row["access_token_enc"])
     cf_account_id = page.get("cf_account_id") or token_row.get("cf_account_id")
     if not cf_account_id:
-        raise HTTPException(status_code=400, detail="Cloudflare token has no selected account; choose a Cloudflare account first")
+        raise HTTPException(status_code=400, detail="发布通道没有选择默认发布账号，请先选择账号")
     status = get_pages_custom_domain_status(
         raw_token,
         cf_account_id,
@@ -932,16 +1058,16 @@ def create_cf_token(body: CloudflareTokenCreate, user=Depends(get_current_user))
     raw_token = (body.api_token or "").strip()
     account_id = (body.account_id or "").strip()
     if not name or not raw_token:
-        raise HTTPException(status_code=400, detail="API name and token are required")
+        raise HTTPException(status_code=400, detail="请填写发布通道名称和 API Token")
     try:
         info = verify_token_and_accounts(raw_token, account_id=account_id or None)
     except CloudflareError as exc:
-        raise HTTPException(status_code=400, detail=f"Cloudflare token verify failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"发布通道验证失败：{_public_provider_error(exc, user)}") from exc
     accounts = _normalize_cf_accounts(info.get("accounts") or [])
     if not accounts:
         raise HTTPException(
             status_code=400,
-            detail="Cloudflare token verified, but no accessible account was returned. Fill Account ID for account-scoped tokens, or use a token with Account Settings Read and Cloudflare Pages Edit permissions.",
+            detail="API Token 已返回有效响应，但没有读取到可用发布账号。请填写 Account ID，或给 Token 增加账号读取和站点发布权限。",
         )
     account = accounts[0]
     selected_account_id = account_id or (account.get("id") if len(accounts) == 1 else None)
@@ -983,7 +1109,7 @@ def verify_cf_token(token_id: int, user=Depends(get_current_user)):
         info = verify_token_and_accounts(raw, account_id=existing_account_id or None)
         accounts = _normalize_cf_accounts(info.get("accounts") or [])
         if not accounts:
-            raise ValueError("Cloudflare token verified, but no accessible account was returned")
+            raise ValueError("API Token 已验证，但没有读取到可用发布账号；请填写 Account ID 后重试")
         account = accounts[0]
         selected_account_id = row.get("selected_account_id")
         if selected_account_id and not any(a.get("id") == selected_account_id for a in accounts):
@@ -1008,7 +1134,7 @@ def verify_cf_token(token_id: int, user=Depends(get_current_user)):
             (token_id,),
         )
         conn.commit()
-        raise HTTPException(status_code=400, detail=f"Cloudflare verify failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"发布通道验证失败：{_public_provider_error(exc, user)}") from exc
     finally:
         conn.close()
 
@@ -1024,7 +1150,7 @@ def set_cf_token_account(token_id: int, body: CloudflareTokenAccountPatch, user=
     matched = next((acct for acct in accounts if isinstance(acct, dict) and acct.get("id") == account_id), None)
     if not matched:
         conn.close()
-        raise HTTPException(status_code=400, detail="This Cloudflare account is not available for this token")
+        raise HTTPException(status_code=400, detail="该发布账号不在当前 API Token 可用范围内")
     conn.execute(
         """UPDATE cf_tokens
            SET selected_account_id=?, cf_account_id=?, cf_account_name=?, updated_at=datetime('now','+8 hours')
@@ -1049,21 +1175,22 @@ def diagnose_cf_token(token_id: int, user=Depends(get_current_user)):
         if not accounts:
             info = verify_token_and_accounts(raw, account_id=account_id or None)
             accounts = _normalize_cf_accounts(info.get("accounts") or [])
-        checks = [{"key": "token", "status": "pass", "label": "API Token 有效", "detail": "Cloudflare API 已通过验证"}]
+        provider = _provider_label(user)
+        checks = [{"key": "token", "status": "pass", "label": "API Token 有效", "detail": f"{provider} API 已通过验证"}]
         if account_id:
             try:
                 projects = list_pages_projects(raw, account_id)
-                checks.append({"key": "pages", "status": "pass", "label": "Pages 权限可用", "detail": f"可读取 {len(projects)} 个 Pages 项目"})
+                checks.append({"key": "pages", "status": "pass", "label": "发布权限可用", "detail": f"可读取 {len(projects)} 个站点项目"})
             except CloudflareError as exc:
-                checks.append({"key": "pages", "status": "fail", "label": "Pages 权限不可用", "detail": str(exc)})
+                checks.append({"key": "pages", "status": "fail", "label": "发布权限不可用", "detail": _public_provider_error(exc, user)})
         else:
-            checks.append({"key": "account", "status": "warn", "label": "需要选择 Cloudflare 账号", "detail": "该 Token 能看到多个账号，请先选择默认发布账号"})
+            checks.append({"key": "account", "status": "warn", "label": "需要选择发布账号", "detail": "该 Token 能看到多个账号，请先选择默认发布账号"})
         return {"success": True, "accounts": accounts, "selected_account_id": account_id, "selected_account_name": account_name, "checks": checks}
     except Exception as exc:
         return {
             "success": False,
-            "checks": [{"key": "token", "status": "fail", "label": "API Token 不可用", "detail": str(exc)}],
-            "hint": "Pages 发布需要 Cloudflare Account API Token，不是 R2/S3 Access Key 或 Secret Key。",
+            "checks": [{"key": "token", "status": "fail", "label": "API Token 不可用", "detail": _public_provider_error(exc, user)}],
+            "hint": "站点发布需要账号级 API Token，不是对象存储 Access Key 或 Secret Key。",
         }
 
 
@@ -1080,7 +1207,7 @@ def delete_cf_token(token_id: int, user=Depends(get_current_user)):
         if usage_count > 0:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cloudflare API 仍被 {usage_count} 条落地页记录引用。为保留域名复检和 Pages 项目清理能力，请先处理相关落地页记录后再清理 API。",
+                detail=f"发布通道仍被 {usage_count} 条落地页记录引用。为保留域名复检和远程项目清理能力，请先处理相关落地页记录后再清理 API。",
             )
         conn.execute("DELETE FROM cf_tokens WHERE id=?", (token_id,))
         conn.commit()
@@ -1123,14 +1250,14 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
             "key": "custom_domain",
             "status": "warn",
             "label": "自定义域名",
-            "detail": f"{custom_domain} 将绑定到 Cloudflare Pages；请确保域名已在 Cloudflare 可管理并完成 DNS 指向。",
+            "detail": f"{custom_domain} 将绑定到发布站点；请确保域名可管理并完成 DNS 指向。",
         })
         project_hint = sanitize_project_name(body.project_name or title or "mira-landing")
         checks.append({
             "key": "custom_domain_dns",
             "status": "warn",
             "label": "DNS 提示",
-            "detail": f"通常配置 CNAME {custom_domain} -> {project_hint}.pages.dev；域名未激活前系统只会把 Pages 备用域写入账户，复检可用后自动回绑自定义域。",
+            "detail": f"通常配置 CNAME {custom_domain} -> 系统分配的备用域；域名未激活前系统只会把备用域写入账户，复检可用后自动回绑自定义域。",
         })
     checks.append({"key": "title", "status": "pass" if title else "fail", "label": "发布名称", "detail": title or "不能为空"})
     if urls:
@@ -1157,7 +1284,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
     else:
         checks.append({"key": "rotation", "status": "warn", "label": "轮询方式", "detail": "固定第一个跳转目标，适合临时验证，不适合多链接分流。"})
     if body.tracking_enabled:
-        checks.append({"key": "tracking", "status": "pass", "label": "边缘统计", "detail": "将通过 Cloudflare Worker 同域采集访问、点击、跳转、拦截事件"})
+        checks.append({"key": "tracking", "status": "pass", "label": "边缘统计", "detail": "将通过同域边缘脚本采集访问、点击、跳转、拦截事件"})
     if body.protection_enabled:
         checks.append({"key": "protection", "status": "pass" if rules else "warn", "label": "防护规则", "detail": "已配置防护规则" if rules else "已启用防护，但当前没有规则"})
     if body.tracking_enabled or body.protection_enabled or link_kind == "form":
@@ -1173,15 +1300,15 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
         token_row = _assert_token_access(conn, body.token_id, user)
         account_id, account_name = _resolve_token_account(token_row)
         if account_id:
-            checks.append({"key": "cloudflare_account", "status": "pass", "label": "Cloudflare 账号", "detail": account_name or account_id})
+            checks.append({"key": "cloudflare_account", "status": "pass", "label": "发布账号", "detail": account_name or account_id})
             raw_token = decrypt_token(token_row["access_token_enc"])
             try:
                 list_pages_projects(raw_token, account_id)
-                checks.append({"key": "pages_permission", "status": "pass", "label": "Pages 权限", "detail": "可读取 Pages 项目"})
+                checks.append({"key": "pages_permission", "status": "pass", "label": "发布权限", "detail": "可读取站点项目"})
             except CloudflareError as exc:
-                checks.append({"key": "pages_permission", "status": "fail", "label": "Pages 权限", "detail": str(exc)})
+                checks.append({"key": "pages_permission", "status": "fail", "label": "发布权限", "detail": _public_provider_error(exc, user)})
         else:
-            checks.append({"key": "cloudflare_account", "status": "fail", "label": "Cloudflare 账号", "detail": "请先在 API 卡片里选择默认发布账号"})
+            checks.append({"key": "cloudflare_account", "status": "fail", "label": "发布账号", "detail": "请先在 API 卡片里选择默认发布账号"})
         _assert_template_access(conn, body.template_id, user)
         checks.append({"key": "template", "status": "pass", "label": "模板", "detail": "模板可用"})
         clean_ids = _clean_act_ids(body.bind_act_ids)
@@ -1201,7 +1328,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
         else:
             checks.append({"key": "account_binding", "status": "pass", "label": "发布后绑定", "detail": "未启用自动绑定"})
     except HTTPException as exc:
-        checks.append({"key": "token", "status": "fail", "label": "Cloudflare API", "detail": str(exc.detail)})
+        checks.append({"key": "token", "status": "fail", "label": "发布通道 API", "detail": _public_provider_error(exc.detail, user)})
     finally:
         conn.close()
     return {"success": not any(c["status"] == "fail" for c in checks), "checks": checks}
@@ -1231,6 +1358,129 @@ def list_landing_pages(user=Depends(get_current_user)):
         pages.append(item)
     conn.close()
     return pages
+
+
+@router.get("/pages/{page_id}/ad-links")
+def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+        page_public = _public_page(page)
+        rows = conn.execute(
+            "SELECT * FROM landing_ad_links WHERE page_id=? ORDER BY id DESC LIMIT 500",
+            (page_id,),
+        ).fetchall()
+        return [
+            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"]))
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+@router.post("/pages/{page_id}/ad-links")
+def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+        page_public = _public_page(page)
+        base_url = _page_public_url(page_public)
+        if not base_url:
+            raise HTTPException(status_code=400, detail="该落地页还没有可用主链接，发布成功后才能生成广告级链接")
+        count = max(1, min(int(body.count or 1), 200))
+        act_id = (_clean_act_ids([body.act_id or ""]) or [""])[0]
+        team_id = page.get("team_id")
+        owner_id = page.get("owner_user_id") if page.get("owner_user_id") is not None else (user_id(user) if is_operator_user(user) else None)
+        created = []
+        for _ in range(count):
+            slug = _short_slug()
+            for _attempt in range(8):
+                exists = conn.execute("SELECT 1 FROM landing_ad_links WHERE slug=?", (slug,)).fetchone()
+                if not exists:
+                    break
+                slug = _short_slug()
+            else:
+                raise HTTPException(status_code=500, detail="短链生成冲突，请重试")
+            public_url = _ad_link_url(page_public, slug)
+            conn.execute(
+                """INSERT INTO landing_ad_links
+                   (page_id, slug, public_url, act_id, account_name, campaign_id, campaign_name,
+                    adset_id, adset_name, ad_id, ad_name, target_url, status, note,
+                    team_id, owner_user_id, created_by)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    page_id,
+                    slug,
+                    public_url,
+                    act_id,
+                    _truncate(body.account_name, 255),
+                    _truncate(body.campaign_id, 80),
+                    _truncate(body.campaign_name, 255),
+                    _truncate(body.adset_id, 80),
+                    _truncate(body.adset_name, 255),
+                    _truncate(body.ad_id, 80),
+                    _truncate(body.ad_name, 255),
+                    _truncate(body.target_url, 1000),
+                    "active" if body.ad_id else "reserved",
+                    _truncate(body.note, 1000),
+                    team_id,
+                    owner_id,
+                    user.get("username", "unknown"),
+                ),
+            )
+            link_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+            created.append(_public_ad_link(row, page_public, {"visit": 0, "click": 0, "redirect": 0, "block": 0, "total": 0}))
+        conn.commit()
+        return {"success": True, "page_id": page_id, "links": created}
+    finally:
+        conn.close()
+
+
+@router.patch("/ad-links/{link_id}")
+def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(get_current_user)):
+    allowed_status = {"reserved", "active", "paused", "archived"}
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="广告级链接不存在")
+        page = _assert_page_access(conn, int(row["page_id"]), user)
+        updates, params = [], []
+        mapping = {
+            "account_name": _truncate(body.account_name, 255) if body.account_name is not None else None,
+            "campaign_id": _truncate(body.campaign_id, 80) if body.campaign_id is not None else None,
+            "campaign_name": _truncate(body.campaign_name, 255) if body.campaign_name is not None else None,
+            "adset_id": _truncate(body.adset_id, 80) if body.adset_id is not None else None,
+            "adset_name": _truncate(body.adset_name, 255) if body.adset_name is not None else None,
+            "ad_id": _truncate(body.ad_id, 80) if body.ad_id is not None else None,
+            "ad_name": _truncate(body.ad_name, 255) if body.ad_name is not None else None,
+            "target_url": _truncate(body.target_url, 1000) if body.target_url is not None else None,
+            "note": _truncate(body.note, 1000) if body.note is not None else None,
+        }
+        if body.act_id is not None:
+            mapping["act_id"] = (_clean_act_ids([body.act_id]) or [""])[0]
+        if body.status is not None:
+            status = (body.status or "").strip().lower()
+            if status not in allowed_status:
+                raise HTTPException(status_code=400, detail="状态只能是 reserved / active / paused / archived")
+            mapping["status"] = status
+        for key, value in mapping.items():
+            if value is not None:
+                updates.append(f"{key}=?")
+                params.append(value)
+        if not updates:
+            page_public = _public_page(page)
+            return {"success": True, "link": _public_ad_link(row, page_public, _ad_link_stats(conn, int(row["page_id"]), row["slug"]))}
+        updates.append("updated_at=datetime('now','+8 hours')")
+        params.append(link_id)
+        conn.execute(f"UPDATE landing_ad_links SET {', '.join(updates)} WHERE id=?", params)
+        conn.commit()
+        updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+        page_public = _public_page(page)
+        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"]))}
+    finally:
+        conn.close()
 
 
 @router.post("/publish")
@@ -1264,7 +1514,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
     cf_account_id, cf_account_name = _resolve_token_account(token_row)
     if not cf_account_id:
         conn.close()
-        raise HTTPException(status_code=400, detail="Cloudflare token has no selected account; choose a Cloudflare account first")
+        raise HTTPException(status_code=400, detail="发布通道没有选择默认发布账号，请先选择账号")
 
     team_id, owner_id = _stamp(user, None)
     if team_id is None:
@@ -1352,7 +1602,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
                     status_text = _domain_status_text(domain_result) or "pending"
                     domain_notice = (
                         f"Custom domain {custom_domain} is {status_text}; "
-                        "auto-binding used the Pages fallback URL until the domain is active."
+                        "auto-binding used the fallback URL until the domain is active."
                     )
             except CloudflareError as exc:
                 domain_error = f"Custom domain binding failed: {exc}"
@@ -1530,25 +1780,25 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
         if usage["total"] > 0:
             conn.close()
             raise HTTPException(status_code=400, detail=f"Landing page is still in use by {usage['total']} resource(s)")
-        cloudflare_cleanup = {"skipped": True, "reason": "no published Cloudflare project"}
+        cloudflare_cleanup = {"skipped": True, "reason": "no published remote project"}
         project_name = (page.get("project_name") or "").strip()
         has_remote_project = bool(project_name and (page.get("pages_url") or page.get("deployment_id") or page.get("status") == "published"))
         if has_remote_project:
             token_id = page.get("cf_token_id")
             if not token_id:
                 conn.close()
-                raise HTTPException(status_code=400, detail="Cloudflare project exists but token is missing; archive it instead or restore the API token")
+                raise HTTPException(status_code=400, detail="远程项目存在但发布通道已缺失，请先归档或恢复 API Token")
             token_row = _assert_token_access(conn, int(token_id), user)
             cf_account_id = (page.get("cf_account_id") or token_row.get("selected_account_id") or token_row.get("cf_account_id") or "").strip()
             if not cf_account_id:
                 conn.close()
-                raise HTTPException(status_code=400, detail="Cloudflare account is missing; choose the API account before deleting the project")
+                raise HTTPException(status_code=400, detail="发布账号缺失，请先选择 API 账号再删除远程项目")
             try:
                 raw_token = decrypt_token(token_row["access_token_enc"])
                 cloudflare_cleanup = delete_pages_project(raw_token, cf_account_id, project_name)
             except CloudflareError as exc:
                 conn.close()
-                raise HTTPException(status_code=400, detail=f"Cloudflare project delete failed: {exc}") from exc
+                raise HTTPException(status_code=400, detail=f"远程项目删除失败：{_public_provider_error(exc, user)}") from exc
         conn.execute("DELETE FROM landing_pages WHERE id=?", (page_id,))
         conn.commit()
         conn.close()
@@ -1710,7 +1960,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
             "detail": (
                 f"https://{item.get('custom_domain')} 已作为主链接"
                 if item.get("custom_domain_usable")
-                else f"域名还未确认可用，当前使用 Pages 备用域；{item.get('custom_domain_dns_hint') or '请在 Cloudflare DNS 中完成 CNAME 指向'}"
+                else f"域名还未确认可用，当前使用备用域；{item.get('custom_domain_dns_hint') or '请完成 DNS CNAME 指向'}"
             ),
         })
     elif pages_url:
@@ -1718,7 +1968,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
             "key": "custom_domain",
             "status": "warn",
             "label": "自定义域名",
-            "detail": "未配置自定义域名，当前使用 Cloudflare Pages 默认域",
+            "detail": "未配置自定义域名，当前使用系统备用域",
         })
 
     checks.append({
