@@ -205,6 +205,184 @@ def _active_guard_allowance(conn, account, ad_id: str, allowance_date: str | Non
     return row
 
 
+def _table_exists(conn, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+        (table,),
+    ).fetchone()
+    return bool(row)
+
+
+def _table_columns(conn, table: str) -> set[str]:
+    try:
+        return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    except Exception:
+        return set()
+
+
+def _guard_ad_lookup_candidates(conn, ad_id: str, user) -> list[dict]:
+    ad_id = _normalize_ad_id(ad_id)
+    if not ad_id:
+        return []
+    candidates: dict[str, dict] = {}
+
+    def add_candidate(act_id, source, ad_name="", seen_at="", account_name=""):
+        act = _allowance_norm_act_id(act_id)
+        if not act:
+            return
+        item = candidates.setdefault(act, {
+            "act_id": act,
+            "account_name": account_name or act,
+            "ad_id": ad_id,
+            "ad_name": ad_name or "",
+            "sources": [],
+            "seen_at": "",
+            "account_exists": False,
+            "accessible": False,
+        })
+        if source and source not in item["sources"]:
+            item["sources"].append(source)
+        if ad_name and not item["ad_name"]:
+            item["ad_name"] = ad_name
+        if account_name and item["account_name"] == act:
+            item["account_name"] = account_name
+        if seen_at and (not item["seen_at"] or str(seen_at) > str(item["seen_at"])):
+            item["seen_at"] = str(seen_at)
+
+    if _table_exists(conn, "perf_snapshots"):
+        cols = _table_columns(conn, "perf_snapshots")
+        seen_expr = "p.snapshot_at" if "snapshot_at" in cols else ("p.updated_at" if "updated_at" in cols else "p.snapshot_date")
+        rows = conn.execute(
+            f"""SELECT p.act_id, p.ad_name, p.snapshot_date, {seen_expr} AS seen_at,
+                       COALESCE(a.name, p.act_id) AS account_name
+                FROM perf_snapshots p
+                LEFT JOIN accounts a ON a.act_id=p.act_id
+                WHERE p.ad_id=?
+                ORDER BY p.snapshot_date DESC, seen_at DESC
+                LIMIT 20""",
+            (ad_id,),
+        ).fetchall()
+        for r in rows:
+            add_candidate(r["act_id"], "巡检快照", r["ad_name"], r["seen_at"] or r["snapshot_date"], r["account_name"])
+
+    if _table_exists(conn, "perf_snapshot_history"):
+        rows = conn.execute(
+            """SELECT h.act_id, h.ad_name, h.snapshot_at AS seen_at,
+                      COALESCE(a.name, h.act_id) AS account_name
+               FROM perf_snapshot_history h
+               LEFT JOIN accounts a ON a.act_id=h.act_id
+               WHERE h.ad_id=?
+               ORDER BY h.snapshot_at DESC
+               LIMIT 20""",
+            (ad_id,),
+        ).fetchall()
+        for r in rows:
+            add_candidate(r["act_id"], "小时历史", r["ad_name"], r["seen_at"], r["account_name"])
+
+    if _table_exists(conn, "inspect_cache"):
+        rows = conn.execute(
+            """SELECT c.act_id, c.data, c.updated_at AS seen_at,
+                      COALESCE(a.name, c.act_id) AS account_name
+               FROM inspect_cache c
+               LEFT JOIN accounts a ON a.act_id=c.act_id
+               WHERE c.ad_id=?
+               ORDER BY c.updated_at DESC
+               LIMIT 20""",
+            (ad_id,),
+        ).fetchall()
+        for r in rows:
+            ad_name = ""
+            try:
+                payload = json.loads(r["data"] or "{}")
+                ad_name = payload.get("ad_name") or payload.get("name") or ""
+            except Exception:
+                pass
+            add_candidate(r["act_id"], "巡检缓存", ad_name, r["seen_at"], r["account_name"])
+
+    if _table_exists(conn, "kpi_configs"):
+        cols = _table_columns(conn, "kpi_configs")
+        seen_expr = "k.updated_at" if "updated_at" in cols else "k.created_at"
+        target_name_expr = "k.target_name" if "target_name" in cols else "k.target_id"
+        rows = conn.execute(
+            f"""SELECT k.act_id, {target_name_expr} AS ad_name, {seen_expr} AS seen_at,
+                      COALESCE(a.name, k.act_id) AS account_name
+               FROM kpi_configs k
+               LEFT JOIN accounts a ON a.act_id=k.act_id
+               WHERE k.target_id=? AND COALESCE(k.level,'ad')='ad'
+               ORDER BY seen_at DESC
+               LIMIT 20""",
+            (ad_id,),
+        ).fetchall()
+        for r in rows:
+            add_candidate(r["act_id"], "KPI配置", r["ad_name"], r["seen_at"], r["account_name"])
+
+    if _table_exists(conn, "action_logs"):
+        rows = conn.execute(
+            """SELECT l.act_id, l.target_name AS ad_name, l.created_at AS seen_at,
+                      COALESCE(a.name, l.act_id) AS account_name
+               FROM action_logs l
+               LEFT JOIN accounts a ON a.act_id=l.act_id
+               WHERE l.target_id=? OR l.trigger_detail LIKE ?
+               ORDER BY l.created_at DESC
+               LIMIT 30""",
+            (ad_id, f"%{ad_id}%"),
+        ).fetchall()
+        for r in rows:
+            add_candidate(r["act_id"], "操作日志", r["ad_name"], r["seen_at"], r["account_name"])
+
+    if _table_exists(conn, "landing_ad_links"):
+        cols = _table_columns(conn, "landing_ad_links")
+        seen_expr = "l.updated_at" if "updated_at" in cols else ("l.created_at" if "created_at" in cols else "''")
+        ad_name_expr = "l.ad_name" if "ad_name" in cols else "l.ad_id"
+        rows = conn.execute(
+            f"""SELECT l.act_id, {ad_name_expr} AS ad_name, {seen_expr} AS seen_at,
+                      COALESCE(a.name, l.act_id) AS account_name
+               FROM landing_ad_links l
+               LEFT JOIN accounts a ON a.act_id=l.act_id
+               WHERE l.ad_id=?
+               ORDER BY seen_at DESC
+               LIMIT 20""",
+            (ad_id,),
+        ).fetchall()
+        for r in rows:
+            add_candidate(r["act_id"], "广告链接", r["ad_name"], r["seen_at"], r["account_name"])
+
+    if _table_exists(conn, "auto_campaign_ads"):
+        cols = _table_columns(conn, "auto_campaign_ads")
+        if "fb_ad_id" in cols:
+            seen_expr = "aca.updated_at" if "updated_at" in cols else ("aca.created_at" if "created_at" in cols else "''")
+            ad_name_expr = "aca.ad_name" if "ad_name" in cols else "aca.fb_ad_id"
+            rows = conn.execute(
+                f"""SELECT aca.act_id, {ad_name_expr} AS ad_name, {seen_expr} AS seen_at,
+                          COALESCE(a.name, aca.act_id) AS account_name
+                   FROM auto_campaign_ads aca
+                   LEFT JOIN accounts a ON a.act_id=aca.act_id
+                   WHERE aca.fb_ad_id=?
+                   ORDER BY seen_at DESC
+                   LIMIT 20""",
+                (ad_id,),
+            ).fetchall()
+            for r in rows:
+                add_candidate(r["act_id"], "创建记录", r["ad_name"], r["seen_at"], r["account_name"])
+
+    items = []
+    for item in candidates.values():
+        row = _account_row(conn, item["act_id"])
+        item["account_exists"] = bool(row)
+        if row:
+            item["account_name"] = row["name"] if "name" in row.keys() and row["name"] else item["account_name"]
+            try:
+                _assert_rule_target_access(conn, item["act_id"], user)
+                item["accessible"] = True
+            except HTTPException:
+                item["accessible"] = False
+        else:
+            item["accessible"] = bool(is_superadmin(user))
+        items.append(item)
+    items.sort(key=lambda x: (bool(x["accessible"]), bool(x["account_exists"]), str(x["seen_at"] or "")), reverse=True)
+    return items
+
+
 def _rule_scope_for_body(conn, act_id: str | None, user) -> tuple[str, str, int | None, int | None]:
     _ensure_rule_scope_columns(conn)
     target = (act_id or "").strip()
@@ -454,6 +632,41 @@ def add_guard_rule(body: GuardRuleIn, user=Depends(get_current_user)):
     conn.commit()
     conn.close()
     return {"success": True, "id": new_id, "message": "规则添加成功"}
+
+
+@router.get("/guard/ad-account-lookup")
+def lookup_guard_ad_account(ad_id: str, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        target = _normalize_ad_id(ad_id)
+        if not target:
+            raise HTTPException(400, "请填写广告 ID")
+        matches = _guard_ad_lookup_candidates(conn, target, user)
+        selectable = [m for m in matches if m.get("accessible") and m.get("account_exists")]
+        unique_acts = []
+        seen = set()
+        for item in selectable:
+            act = item.get("act_id")
+            if act and act not in seen:
+                seen.add(act)
+                unique_acts.append(act)
+        selected = None
+        if len(unique_acts) == 1:
+            selected = next((m for m in selectable if m.get("act_id") == unique_acts[0]), None)
+        return {
+            "success": True,
+            "ad_id": target,
+            "selected_act_id": selected.get("act_id") if selected else "",
+            "selected_account_name": selected.get("account_name") if selected else "",
+            "ambiguous": len(unique_acts) > 1,
+            "matches": matches,
+            "message": (
+                "已匹配账户" if selected else
+                ("广告 ID 匹配到多个账户，请手动选择" if len(unique_acts) > 1 else "未从本地缓存找到可用账户")
+            ),
+        }
+    finally:
+        conn.close()
 
 
 @router.get("/guard/allowances")

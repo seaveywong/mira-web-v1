@@ -13280,6 +13280,7 @@ function guardAllowanceAccountOptions(selected){
  }).join('');
  return '<option value="">请选择账户</option>'+opts;
 }
+var guardAllowanceLookupTimer=null;
 function openGuardAllowanceModal(){
  var selected=(document.getElementById('rulesAct')||{}).value||'';
  var mo=document.getElementById('moGuardAllowance');
@@ -13291,7 +13292,7 @@ function openGuardAllowanceModal(){
     '<div class="fg"><label class="fl">账户</label><select class="fc" id="allowAct" onchange="loadGuardAllowances()">'+guardAllowanceAccountOptions(selected)+'</select></div>'+
     '<div class="fg"><label class="fl">放行日期</label><input class="fc" id="allowDate" type="date" onchange="loadGuardAllowances()"><div class="fh">留空则按账户当前日期</div></div>'+
    '</div>'+
-   '<div class="fg"><label class="fl">广告 ID</label><textarea class="fc" id="allowAdIds" rows="4" placeholder="每行一个广告 ID，也支持逗号或空格分隔"></textarea></div>'+
+   '<div class="fg"><label class="fl">广告 ID</label><textarea class="fc" id="allowAdIds" rows="4" placeholder="每行一个广告 ID，也支持逗号或空格分隔" oninput="scheduleGuardAllowanceLookup()"></textarea><div class="fh" id="allowLookupHint">粘贴广告 ID 后会从本地巡检缓存自动匹配账户。</div></div>'+
    '<div class="fg"><label class="fl">备注</label><input class="fc" id="allowReason" placeholder="例如：好广告，今日放开阈值继续观察"></div>'+
    '<div class="fh">保存后只在该账户日期当天生效。规则预演会显示该广告已放行；正式巡检命中规则时会记录跳过，不会关闭广告/广告组/系列。</div>'+
    '<div id="allowList" style="border:1px solid var(--bd);border-radius:8px;min-height:82px;padding:10px;background:var(--bg2);color:var(--t3)">请选择账户查看。</div>'+
@@ -13312,6 +13313,78 @@ function guardAllowanceIdsFromInput(){
   if(!x||seen[x])return false;
   seen[x]=1;return true;
  });
+}
+function scheduleGuardAllowanceLookup(){
+ if(guardAllowanceLookupTimer)clearTimeout(guardAllowanceLookupTimer);
+ guardAllowanceLookupTimer=setTimeout(function(){guardAllowanceAutoResolve(false);},350);
+}
+function setGuardAllowanceHint(html,type){
+ var hint=document.getElementById('allowLookupHint');
+ if(!hint)return;
+ var color=type==='ok'?'var(--ok)':(type==='wa'?'var(--wa)':(type==='er'?'var(--er)':'var(--t3)'));
+ hint.style.color=color;
+ hint.innerHTML=html||'粘贴广告 ID 后会从本地巡检缓存自动匹配账户。';
+}
+async function lookupGuardAllowanceAd(adId){
+ return await api('GET','/rules/guard/ad-account-lookup?ad_id='+encodeURIComponent(adId));
+}
+async function guardAllowanceAutoResolve(force){
+ var ids=guardAllowanceIdsFromInput();
+ if(!ids.length){setGuardAllowanceHint('', '');return false;}
+ var actEl=document.getElementById('allowAct');
+ var current=(actEl&&actEl.value)||'';
+ if(current&&!force){return true;}
+ var lookupIds=ids.slice(0,8);
+ setGuardAllowanceHint('正在根据广告 ID 匹配账户...', '');
+ try{
+  var results=await Promise.all(lookupIds.map(function(id){
+   return lookupGuardAllowanceAd(id).catch(function(e){return {success:false,ad_id:id,error:e.message||String(e),matches:[]};});
+  }));
+  var byAct={}, unresolved=[], inaccessible=[], sourceMap={};
+  results.forEach(function(r){
+   if(r&&r.selected_act_id){
+    byAct[r.selected_act_id]=r.selected_account_name||r.selected_act_id;
+    sourceMap[r.selected_act_id]=((r.matches||[])[0]||{}).sources||[];
+   }else if(r&&r.matches&&r.matches.length){
+    inaccessible.push(r.ad_id||'');
+   }else{
+    unresolved.push(r&&r.ad_id?r.ad_id:'');
+   }
+  });
+  var acts=Object.keys(byAct);
+  if(acts.length===1){
+   if(actEl){
+    actEl.value=acts[0];
+    if(!actEl.value){
+     var opt=document.createElement('option');
+     opt.value=acts[0];
+     opt.textContent=(byAct[acts[0]]||acts[0])+' ('+displayActId(acts[0])+')';
+     actEl.appendChild(opt);
+     actEl.value=acts[0];
+    }
+   }
+   var src=(sourceMap[acts[0]]||[]).join('、')||'本地缓存';
+   setGuardAllowanceHint('已自动匹配账户：<b>'+escHtml(displayAccountName(byAct[acts[0]],acts[0]))+'</b>（来源：'+escHtml(src)+'）','ok');
+   await loadGuardAllowances();
+   return true;
+  }
+  if(acts.length>1){
+   setGuardAllowanceHint('这些广告 ID 分属多个账户，请分批放行：'+acts.map(function(a){return escHtml(displayAccountName(byAct[a],a));}).join('、'),'wa');
+   return false;
+  }
+  if(inaccessible.length){
+   setGuardAllowanceHint('本地找到了广告记录，但当前用户没有可写账户或账户已移除，请手动确认账户。','wa');
+   return false;
+  }
+  if(unresolved.length){
+   setGuardAllowanceHint('本地缓存未找到该广告 ID，请手动选择账户。','wa');
+   return false;
+  }
+ }catch(e){
+  setGuardAllowanceHint('账户匹配失败：'+escHtml(e.message||e),'er');
+  return false;
+ }
+ return false;
 }
 async function loadGuardAllowances(){
  var box=document.getElementById('allowList');if(!box)return;
@@ -13340,8 +13413,12 @@ async function loadGuardAllowances(){
 async function saveGuardAllowances(){
  var act=(document.getElementById('allowAct')||{}).value||'';
  var ids=guardAllowanceIdsFromInput();
- if(!act){toast('请选择账户','wa');return;}
  if(!ids.length){toast('请填写广告 ID','wa');return;}
+ if(!act){
+  var resolved=await guardAllowanceAutoResolve(true);
+  act=(document.getElementById('allowAct')||{}).value||'';
+  if(!resolved||!act){toast('未能从本地缓存匹配账户，请手动选择账户','wa');return;}
+ }
  var btn=document.getElementById('btnSaveAllowance');
  if(btn){btn.disabled=true;btn.textContent='保存中...';}
  try{
