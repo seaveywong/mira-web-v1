@@ -16069,19 +16069,22 @@ async function importLandingUrlsCsv(input) {
 }
 
 // ── 落地页发布中心 ──
-var _cfTokens=[], _lpTemplates=[], _landingPages=[];
+var _cfTokens=[], _lpTemplates=[], _landingPages=[], _landingAdPerf=null;
 async function loadLandingCenter(force){
  try{
   var data=await Promise.all([
    api('GET','/landing-pages/tokens'),
    api('GET','/landing-pages/templates'),
-   api('GET','/landing-pages/pages')
+   api('GET','/landing-pages/pages'),
+   api('GET','/landing-pages/ad-links/performance?days=7&limit=200').catch(function(){return null;})
   ]);
   _cfTokens=data[0]||[];
   _lpTemplates=data[1]||[];
   _landingPages=data[2]||[];
+  _landingAdPerf=data[3]||null;
   renderCloudflareTokens();
   renderLandingPublishOptions();
+  renderLandingPerformance();
   renderLandingPages();
  }catch(e){
   toast('落地页发布中心加载失败：'+(e.message||e),'er');
@@ -16268,6 +16271,70 @@ function _landingHealthBadge(page){
  if(h==='warn')return '<div style="margin-top:6px"><span class="badge bg-wa" title="'+title+'">自检提醒</span><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(checked||'')+'</div></div>';
  if(h==='fail')return '<div style="margin-top:6px"><span class="badge bg-er" title="'+title+'">自检失败</span><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(checked||'')+'</div></div>';
  return '<div style="margin-top:6px"><span class="badge bg-mu" title="尚未执行线上自检">未自检</span></div>';
+}
+function renderLandingPerformance(){
+ var panel=document.getElementById('landingStatsPanel'); if(!panel)return;
+ var data=_landingAdPerf||{};
+ var items=Array.isArray(data.items)?data.items:[];
+ if(!items.length){panel.style.display='none';panel.innerHTML='';return;}
+ panel.style.display='block';
+ var sum=data.summary||{};
+ var money=function(v){var n=Number(v||0);return '$'+(isFinite(n)?n:0).toFixed(2);};
+ var cost=function(v){return v==null||v===''?'--':money(v);};
+ var stateLabel={good:'有真实动作',waste:'消耗无动作',watch:'待观察',no_data:'无数据'};
+ var stateClass={good:'bg-ok',waste:'bg-er',watch:'bg-wa',no_data:'bg-mu'};
+ var stateHelp={
+  good:'已有 WhatsApp 跳转、表单提交或有效跳转。',
+  waste:'已有 FB 消耗，但广告级短链没有采集到有效动作。',
+  watch:'已有访问或点击，还没有形成有效动作。',
+  no_data:'暂未采集到访问、点击或消耗。'
+ };
+ var cards=[
+  ['广告链接',sum.total||0,'近 '+(data.days||7)+' 天事件窗口'],
+  ['消耗无动作',sum.waste||0,'优先检查或停投'],
+  ['有真实动作',sum.good||0,'按真实动作算成本'],
+  ['FB消耗',money(sum.spend||0),'来自最近同步广告指标'],
+  ['有效动作',sum.true_contact||0,'WA跳转 / 表单 / 有效跳转'],
+  ['真实成本',cost(sum.cost_per_true_contact),'FB消耗 ÷ 有效动作']
+ ].map(function(c){
+  return '<div class="ss" style="min-width:130px"><div style="font-size:12px;color:var(--t3)">'+escHtml(c[0])+'</div><div style="font-size:22px;font-weight:850;margin-top:4px">'+escHtml(String(c[1]))+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(c[2])+'</div></div>';
+ }).join('');
+ var rows=items.slice(0,20).map(function(x){
+  var stats=x.stats||{};
+  var d=x.decision||{};
+  var state=d.state||'no_data';
+  var publicUrl=x.public_url||'';
+  var target=x.target_url||'';
+  var adName=x.ad_name||x.ad_id||'未回填广告';
+  var meta=[x.account_name||x.act_id||'',x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
+  var trueCost=stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||null;
+  var reason=state==='waste'
+   ?('已消耗 '+money(stats.spend||0)+'，有效动作 0')
+   :state==='good'
+    ?('有效动作 '+(stats.true_contact||0)+'，真实成本 '+cost(trueCost))
+    :state==='watch'
+     ?('访问 '+(stats.visit||0)+'，点击 '+(stats.click||0)+'，等待有效动作')
+     :stateHelp.no_data;
+  return '<tr>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd)"><span class="badge '+(stateClass[state]||'bg-mu')+'" title="'+escHtml(stateHelp[state]||'')+'">'+escHtml(stateLabel[state]||state)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+escHtml(reason)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);min-width:180px"><div style="font-weight:760">'+escHtml(x.slug||'')+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(x.page_title||'--')+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:260px"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(adName)+'">'+escHtml(adName)+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(meta)+'">'+escHtml(meta||'待绑定账户/系列/组')+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:280px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac)">'+escHtml(publicUrl||'--')+'</a><div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">'+(target?'专属跳转：'+escHtml(target):'使用落地页全局轮询')+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+money(stats.spend||0)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">FB成效 '+(stats.fb_conversions||0)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(stats.true_contact||0))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">表单 '+(stats.submit||0)+' · WA '+(stats.whatsapp_redirect||0)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+cost(trueCost)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button></td>'+
+  '</tr>';
+ }).join('');
+ panel.innerHTML=
+  '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">'+
+   '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">按 /a/短码统计真实访问、点击、跳转和表单动作；消耗来自最近一次广告指标同步。</p></div>'+
+   '<button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button>'+
+  '</div>'+
+  '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0">'+cards+'</div>'+
+  '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1040px;border-collapse:collapse">'+
+  '<thead><tr><th style="text-align:left;padding:8px 10px">判断</th><th style="text-align:left;padding:8px 10px">短码/页面</th><th style="text-align:left;padding:8px 10px">广告</th><th style="text-align:left;padding:8px 10px">链接</th><th style="text-align:right;padding:8px 10px">FB消耗</th><th style="text-align:right;padding:8px 10px">有效动作</th><th style="text-align:right;padding:8px 10px">真实成本</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
+  '<tbody>'+rows+'</tbody></table></div>';
 }
 function renderLandingPages(){
  var tb=document.getElementById('landingPagesList'); if(!tb)return;

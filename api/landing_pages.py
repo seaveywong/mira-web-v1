@@ -677,14 +677,49 @@ def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = No
     return item
 
 
-def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
+def _ad_link_decision(stats: dict) -> dict:
+    spend = float(stats.get("spend") or 0)
+    true_contact = float(stats.get("true_contact") or 0)
+    visits = float(stats.get("visit") or 0)
+    clicks = float(stats.get("click") or 0)
+    if true_contact > 0:
+        return {
+            "state": "good",
+            "label": "true_action",
+            "reason": f"true_action={true_contact:g}; cost_per_true_action={stats.get('cost_per_true_contact') or '--'}",
+        }
+    if spend > 0:
+        return {
+            "state": "waste",
+            "label": "spend_no_action",
+            "reason": f"spend_usd={spend:.2f}; true_action=0",
+        }
+    if visits > 0 or clicks > 0:
+        return {
+            "state": "watch",
+            "label": "traffic_no_action",
+            "reason": f"visits={visits:g}; clicks={clicks:g}; true_action=0",
+        }
+    return {"state": "no_data", "label": "no_data", "reason": "no events or spend"}
+
+
+def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) -> dict:
     path = f"/a/{slug}"
+    since = None
+    if days:
+        try:
+            d = max(1, min(int(days), 90))
+            since = (datetime.now(CST) - timedelta(days=d - 1)).strftime("%Y-%m-%d 00:00:00")
+        except Exception:
+            since = None
+    where_extra = " AND created_at>=?" if since else ""
+    params = [page_id, path] + ([since] if since else [])
     rows = conn.execute(
-        """SELECT event_type, COUNT(*) AS cnt
+        f"""SELECT event_type, COUNT(*) AS cnt
            FROM landing_events
-           WHERE page_id=? AND path=?
+           WHERE page_id=? AND path=?{where_extra}
            GROUP BY event_type""",
-        (page_id, path),
+        params,
     ).fetchall()
     out = {r["event_type"]: int(r["cnt"] or 0) for r in rows}
     whatsapp_click = 0
@@ -694,24 +729,30 @@ def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
             """SELECT COUNT(*) AS cnt
                FROM landing_events
                WHERE page_id=? AND path=? AND event_type='click'
-                 AND (
+            """
+            + where_extra
+            + """
+                  AND (
                    lower(COALESCE(target_url,'')) LIKE '%whatsapp%'
                    OR lower(COALESCE(target_url,'')) LIKE '%wa.me/%'
                    OR lower(COALESCE(target_url,'')) LIKE '%api.whatsapp.com%'
-                 )""",
-            (page_id, path),
+                  )""",
+            params,
         ).fetchone()
         whatsapp_click = int(row["cnt"] or 0) if row else 0
         row = conn.execute(
             """SELECT COUNT(*) AS cnt
                FROM landing_events
                WHERE page_id=? AND path=? AND event_type='redirect'
-                 AND (
+            """
+            + where_extra
+            + """
+                  AND (
                    lower(COALESCE(target_url,'')) LIKE '%whatsapp%'
                    OR lower(COALESCE(target_url,'')) LIKE '%wa.me/%'
                    OR lower(COALESCE(target_url,'')) LIKE '%api.whatsapp.com%'
-                 )""",
-            (page_id, path),
+                  )""",
+            params,
         ).fetchone()
         whatsapp_redirect = int(row["cnt"] or 0) if row else 0
     except Exception:
@@ -1498,6 +1539,85 @@ def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
             _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"]))
             for row in rows
         ]
+    finally:
+        conn.close()
+
+
+@router.get("/ad-links/performance")
+def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(get_current_user)):
+    days = max(1, min(int(days or 7), 90))
+    limit = max(20, min(int(limit or 200), 500))
+    where, params = _scope_where(user, "p")
+    sql = """SELECT l.*, p.title AS page_title, p.pages_url AS page_pages_url,
+                    p.custom_domain AS page_custom_domain, p.raw_response AS page_raw_response,
+                    p.status AS page_status
+             FROM landing_ad_links l
+             JOIN landing_pages p ON p.id=l.page_id"""
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY l.id DESC LIMIT ?"
+    conn = get_conn()
+    try:
+        rows = conn.execute(sql, params + [limit]).fetchall()
+        items = []
+        summary = {
+            "total": 0,
+            "good": 0,
+            "waste": 0,
+            "watch": 0,
+            "no_data": 0,
+            "spend": 0.0,
+            "true_contact": 0.0,
+            "cost_per_true_contact": None,
+        }
+        for row in rows:
+            item = dict(row)
+            page_public = _public_page(
+                {
+                    "id": item.get("page_id"),
+                    "title": item.get("page_title"),
+                    "pages_url": item.get("page_pages_url"),
+                    "custom_domain": item.get("page_custom_domain"),
+                    "raw_response": item.get("page_raw_response"),
+                    "status": item.get("page_status"),
+                    "target_urls": "[]",
+                    "bound_act_ids": "[]",
+                    "protection_rules": "{}",
+                    "tracking_enabled": 0,
+                    "protection_enabled": 0,
+                    "worker_enabled": 0,
+                    "last_error": "",
+                }
+            )
+            stats = _ad_link_stats(conn, int(item["page_id"]), item.get("slug") or "", days=days)
+            decision = _ad_link_decision(stats)
+            public_link = _public_ad_link(row, page_public, stats)
+            public_link["page_title"] = item.get("page_title") or ""
+            public_link["page_status"] = item.get("page_status") or ""
+            public_link["decision"] = decision
+            items.append(public_link)
+
+            state = decision.get("state") or "no_data"
+            if state not in summary:
+                state = "no_data"
+            summary[state] += 1
+            summary["spend"] += float(stats.get("spend") or 0)
+            summary["true_contact"] += float(stats.get("true_contact") or 0)
+
+        severity = {"waste": 0, "watch": 1, "good": 2, "no_data": 3}
+        items.sort(
+            key=lambda x: (
+                severity.get((x.get("decision") or {}).get("state"), 9),
+                -float((x.get("stats") or {}).get("spend") or 0),
+                float((x.get("stats") or {}).get("cost_per_true_contact") or 999999),
+            )
+        )
+        summary["total"] = len(items)
+        summary["spend"] = round(summary["spend"], 4)
+        summary["true_contact"] = round(summary["true_contact"], 4)
+        if summary["spend"] > 0 and summary["true_contact"] > 0:
+            summary["cost_per_true_contact"] = round(summary["spend"] / summary["true_contact"], 4)
+        return {"success": True, "days": days, "limit": limit, "summary": summary, "items": items}
     finally:
         conn.close()
 
