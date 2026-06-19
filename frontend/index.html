@@ -4429,8 +4429,21 @@ function toast(msg,type){
  },3000);
 }
 function showToast(msg,type){toast(msg,type)}
-function openModal(id){document.getElementById(id).classList.add('show')}
-function closeModal(id){document.getElementById(id).classList.remove('show')}
+function openModal(id){
+ var el=document.getElementById(id);
+ if(!el)return;
+ el.style.display='';
+ el.classList.add('show');
+}
+function closeModal(id){
+ var el=document.getElementById(id);
+ if(!el)return;
+ el.classList.remove('show');
+ el.style.display='none';
+ if(el.dataset&&el.dataset.dynamicModal==='1'){
+  setTimeout(function(){if(el&&el.parentNode)el.remove();},220);
+ }
+}
 function showConfirm(msg, onOk) {
  var moId = 'moConfirm';
  var mo = document.getElementById(moId);
@@ -17841,6 +17854,12 @@ function toggleLandingRuntimeProtectionRules(){
  var on=!!((document.getElementById('rtProtectionEnabled')||{}).checked);
  if(box)box.style.display=on?'block':'none';
 }
+function closeLandingRuntimeModal(){
+ closeModal('moLandingRuntime');
+}
+document.addEventListener('mousedown',function(ev){
+ if(ev.target&&ev.target.id==='moLandingRuntime')closeLandingRuntimeModal();
+});
 function editLandingRuntimeConfig(pageId){
  var p=(_landingPages||[]).find(function(x){return String(x.id)===String(pageId);});
  if(!p){toast('没有找到落地页记录','er');return;}
@@ -17849,8 +17868,9 @@ function editLandingRuntimeConfig(pageId){
  var mo=document.createElement('div');
  mo.className='mo';
  mo.id='moLandingRuntime';
+ mo.dataset.dynamicModal='1';
  mo.innerHTML='<div class="modal" style="max-width:980px">'+
-  '<div class="mh"><h3>落地页运行配置</h3><button class="mc" onclick="closeModal(&quot;moLandingRuntime&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>落地页运行配置</h3><button class="mc" onclick="closeLandingRuntimeModal()">✕</button></div>'+
   '<div class="mb">'+
    '<div class="landing-result-context"><b>'+escHtml(p.title||'未命名落地页')+'</b><br>保存后会更新 Mira 运行配置；已升级 Worker 的页面约 30 秒内生效。若是旧发布包，先点一次“重新发布”升级 Worker，之后再改规则无需重发。</div>'+
    '<div class="landing-form-grid">'+
@@ -17861,10 +17881,10 @@ function editLandingRuntimeConfig(pageId){
    '<div class="landing-template-tools"><select class="fc" id="rtProtectionTemplate" onchange="applyProtectionTemplateToPrefix(this.value,&quot;rt&quot;)"><option value="">选择访问控制模板</option></select><button class="btn btn-g btn-sm" type="button" onclick="openLandingProtectionDrawer()">管理模板</button><button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveCurrentRulesAsProtectionTemplate(&quot;rt&quot;)">当前规则存为模板</button></div>'+
    '<div id="rtRulesBox" class="landing-rules-box" style="display:'+(p.protection_enabled?'block':'none')+'">'+_landingRuntimeRuleFields(r)+'</div>'+
   '</div>'+
-  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingRuntime&quot;)">取消</button><button class="btn btn-p" onclick="saveLandingRuntimeConfig('+pageId+')">保存配置</button></div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeLandingRuntimeModal()">取消</button><button class="btn btn-p" id="landingRuntimeSaveBtn" onclick="saveLandingRuntimeConfig('+pageId+')">保存并关闭</button></div>'+
  '</div>';
  document.body.appendChild(mo);
- mo.style.display='flex';
+ openModal('moLandingRuntime');
  var rot=document.getElementById('rtRotation');if(rot)rot.value=p.rotation_mode||'sequential';
  var tr=document.getElementById('rtTrackingEnabled');if(tr)tr.checked=!!p.tracking_enabled;
  var pr=document.getElementById('rtProtectionEnabled');if(pr)pr.checked=!!p.protection_enabled;
@@ -17873,6 +17893,8 @@ function editLandingRuntimeConfig(pageId){
 async function saveLandingRuntimeConfig(pageId){
  var targets=((document.getElementById('rtTargets')||{}).value||'').split(/\n+/).map(function(s){return s.trim();}).filter(Boolean);
  if(!targets.length){toast('请至少保留一个跳转目标链接','wa');return;}
+ var btn=document.getElementById('landingRuntimeSaveBtn');
+ if(btn){btn.disabled=true;btn.textContent='保存中...';}
  var payload={
   target_urls:targets,
   rotation_mode:(document.getElementById('rtRotation')||{}).value||'sequential',
@@ -17882,10 +17904,11 @@ async function saveLandingRuntimeConfig(pageId){
  };
  try{
   var res=await api('PATCH','/landing-pages/pages/'+pageId+'/runtime-config',payload);
-  closeModal('moLandingRuntime');
+  closeLandingRuntimeModal();
   toast((res&&res.requires_republish_once)?'配置已保存；旧页面请重新发布一次后启用动态配置':'配置已保存，约 30 秒内生效','ok');
   await loadLandingCenter(true);
  }catch(e){
+  if(btn){btn.disabled=false;btn.textContent='保存并关闭';}
   toast('保存配置失败：'+(e.message||e),'er');
  }
 }
