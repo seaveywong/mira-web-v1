@@ -39,6 +39,8 @@ from services.landing_publisher import (
 logger = logging.getLogger("mira.landing_pages")
 router = APIRouter()
 CST = timezone(timedelta(hours=8))
+LANDING_TRACKING_RETENTION_DAYS = 7
+_landing_cleanup_last: Optional[datetime] = None
 
 
 class CloudflareTokenCreate(BaseModel):
@@ -201,6 +203,26 @@ class LandingAdLinkResultImport(BaseModel):
     rows: list[LandingAdLinkResultImportRow] = []
     result_date: Optional[str] = None
     source: Optional[str] = "csv"
+
+
+def _landing_tracking_cutoffs() -> tuple[str, str]:
+    keep_from = datetime.now(CST) - timedelta(days=LANDING_TRACKING_RETENTION_DAYS - 1)
+    return keep_from.strftime("%Y-%m-%d 00:00:00"), keep_from.strftime("%Y-%m-%d")
+
+
+def _cleanup_landing_tracking(conn, force: bool = False) -> None:
+    global _landing_cleanup_last
+    now = datetime.now(CST)
+    if (
+        not force
+        and _landing_cleanup_last is not None
+        and (now - _landing_cleanup_last).total_seconds() < 1800
+    ):
+        return
+    event_cutoff, result_cutoff = _landing_tracking_cutoffs()
+    conn.execute("DELETE FROM landing_events WHERE created_at < ?", (event_cutoff,))
+    conn.execute("DELETE FROM landing_ad_link_results WHERE result_date < ?", (result_cutoff,))
+    _landing_cleanup_last = now
 
 
 def _ensure_schema():
@@ -496,6 +518,10 @@ def _ensure_schema():
         conn.execute(
             "UPDATE landing_templates SET name='RH FP 高级默认模板' WHERE id=1 AND COALESCE(created_by,'system')='system'"
         )
+    try:
+        _cleanup_landing_tracking(conn, force=True)
+    except Exception:
+        logger.exception("landing tracking retention cleanup failed")
     conn.commit()
     conn.close()
 
@@ -1345,7 +1371,7 @@ def _ad_link_stats(
         where_parts = []
     if not where_parts and days:
         try:
-            d = max(1, min(int(days), 90))
+            d = max(1, min(int(days), LANDING_TRACKING_RETENTION_DAYS))
             since = (datetime.now(CST) - timedelta(days=d - 1)).strftime("%Y-%m-%d 00:00:00")
             where_parts = ["created_at>=?"]
             date_params = [since]
@@ -2241,6 +2267,112 @@ def list_cf_tokens(user=Depends(get_current_user)):
     return [_public_token(r) for r in rows]
 
 
+@router.get("/domains")
+def list_landing_domains(token_id: Optional[int] = None, user=Depends(get_current_user)):
+    """Return the domain library visible to the current user.
+
+    Sources are merged from readable publisher accounts, existing landing pages,
+    and saved asset presets. The result is intentionally metadata-light so users
+    can pick a domain without seeing provider internals.
+    """
+    conn = get_conn()
+    domains: dict[str, dict[str, Any]] = {}
+
+    def add_domain(host: str, source: str, **extra):
+        try:
+            clean = normalize_custom_domain(host)
+        except Exception:
+            return
+        if not clean:
+            return
+        item = domains.setdefault(
+            clean,
+            {
+                "domain": clean,
+                "sources": [],
+                "token_id": None,
+                "token_name": "",
+                "account_id": "",
+                "account_name": "",
+                "status": "",
+                "suggested": False,
+            },
+        )
+        if source and source not in item["sources"]:
+            item["sources"].append(source)
+        for key, value in extra.items():
+            if value not in (None, ""):
+                if key == "suggested":
+                    item[key] = bool(value)
+                elif not item.get(key):
+                    item[key] = value
+
+    try:
+        page_where, page_params = _scope_where(user, "p")
+        page_sql = "SELECT custom_domain, raw_response FROM landing_pages p WHERE COALESCE(p.custom_domain,'')!='' AND COALESCE(p.status,'')!='archived'"
+        if page_where:
+            page_sql += " AND " + " AND ".join(page_where)
+        for row in conn.execute(page_sql, page_params).fetchall():
+            raw = _json_loads(row["raw_response"], {})
+            status = _domain_status_text(raw.get("domain_status") or raw.get("custom_domain_result") or "")
+            add_domain(row["custom_domain"], "已发布", status=status)
+
+        bind_where, bind_params = _scope_where(user, "b")
+        bind_sql = "SELECT custom_domain FROM landing_asset_bindings b WHERE COALESCE(b.custom_domain,'')!='' AND COALESCE(b.status,'active')='active'"
+        if bind_where:
+            bind_sql += " AND " + " AND ".join(bind_where)
+        for row in conn.execute(bind_sql, bind_params).fetchall():
+            add_domain(row["custom_domain"], "资产预设")
+
+        token_where, token_params = _scope_where(user, "cf_tokens")
+        token_sql = "SELECT * FROM cf_tokens"
+        if token_where:
+            token_sql += " WHERE " + " AND ".join(token_where)
+        if token_id:
+            token_sql += (" AND " if token_where else " WHERE ") + "cf_tokens.id=?"
+            token_params.append(token_id)
+        for row in conn.execute(token_sql, token_params).fetchall():
+            item = dict(row)
+            account_id, account_name = _resolve_token_account(item)
+            if not account_id or item.get("status") == "error":
+                continue
+            try:
+                raw_token = decrypt_token(item["access_token_enc"])
+                zones = list_account_zones(raw_token, account_id)
+            except Exception:
+                continue
+            for zone in zones:
+                root = str(zone.get("name") or "").strip()
+                if not root:
+                    continue
+                common_host = f"go.{root}"
+                add_domain(
+                    common_host,
+                    "发布账号",
+                    token_id=item.get("id"),
+                    token_name=item.get("name") or "",
+                    account_id=account_id,
+                    account_name=account_name or "",
+                    status=str(zone.get("status") or ""),
+                    root_domain=root,
+                    suggested=True,
+                )
+                add_domain(
+                    root,
+                    "根域名",
+                    token_id=item.get("id"),
+                    token_name=item.get("name") or "",
+                    account_id=account_id,
+                    account_name=account_name or "",
+                    status=str(zone.get("status") or ""),
+                    root_domain=root,
+                )
+        items = sorted(domains.values(), key=lambda x: (0 if x.get("suggested") else 1, x.get("domain") or ""))
+        return {"success": True, "retention_days": LANDING_TRACKING_RETENTION_DAYS, "domains": items}
+    finally:
+        conn.close()
+
+
 @router.post("/tokens")
 def create_cf_token(body: CloudflareTokenCreate, user=Depends(get_current_user)):
     name = (body.name or "").strip()
@@ -2937,7 +3069,7 @@ def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
             (page_id,),
         ).fetchall()
         return [
-            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], ad_id=row["ad_id"]))
+            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], ad_id=row["ad_id"], days=LANDING_TRACKING_RETENTION_DAYS))
             for row in rows
         ]
     finally:
@@ -2946,7 +3078,7 @@ def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
 
 @router.get("/ad-links/performance")
 def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(get_current_user)):
-    days = max(1, min(int(days or 7), 90))
+    days = max(1, min(int(days or 7), LANDING_TRACKING_RETENTION_DAYS))
     limit = max(20, min(int(limit or 200), 500))
     where, params = _scope_where(user, "p")
     sql = """SELECT l.*, p.title AS page_title, p.pages_url AS page_pages_url,
@@ -3966,6 +4098,10 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
             _now_cst(),
         ),
     )
+    try:
+        _cleanup_landing_tracking(conn)
+    except Exception:
+        logger.exception("landing tracking retention cleanup failed")
     conn.commit()
     conn.close()
     return {"success": True}
@@ -4163,7 +4299,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
 
 @router.get("/pages/{page_id}/stats")
 def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_user)):
-    days = max(1, min(int(days or 7), 90))
+    days = max(1, min(int(days or 7), LANDING_TRACKING_RETENTION_DAYS))
     since = (datetime.now(CST) - timedelta(days=days - 1)).strftime("%Y-%m-%d 00:00:00")
     conn = get_conn()
     page = _assert_page_access(conn, page_id, user)

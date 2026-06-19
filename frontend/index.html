@@ -2091,6 +2091,9 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 .landing-protection-item-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .landing-ad-link-table{width:100%;min-width:760px;border-collapse:collapse;table-layout:fixed}
 .landing-ad-link-table th,.landing-ad-link-table td{word-break:break-word;vertical-align:top}
+.landing-ad-link-toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:10px 0}
+.landing-ad-link-toolbar .fc{height:34px!important;min-width:180px!important}
+.landing-ad-link-summary{font-size:12px;color:#6e6e73}
 .landing-template-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
 .landing-template-tools .fc{flex:1 1 180px;min-width:180px!important}
 @media(max-width:1100px){
@@ -3118,6 +3121,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
    <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
    <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">访问控制</button>
+   <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()">域名库</button>
    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">资产预设</button>
    <button class="btn btn-g" onclick="scrollLandingApiPanel()">API</button>
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
@@ -3245,7 +3249,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：落地页-日期-版本"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-     <div class="fg"><label class="fl">自定义域名（建议填写）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.your-domain.com"><div class="fh">建议按团队、矩阵或投放区域分配域名。域名待验证时先用备用域自检，复检可用后自动回绑自定义域。</div></div>
+     <div class="fg"><label class="fl">自定义域名（建议填写）</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpCustomDomain" list="landingDomainDatalist" placeholder="例如：go.example.com"><select class="fc" id="lpDomainSelect" onchange="applyLandingDomainFromSelect(this.value)"><option value="">从域名库选择</option></select></div><datalist id="landingDomainDatalist"></datalist><div class="fh">优先从域名库选择；也可手动输入完整域名。保存发布时仍会校验域名状态。</div></div>
      <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select><div class="fh">模板决定页面内容；统计、跳转和访问控制由发布配置执行。已发布页面要换内容，需要重新发布一次。</div></div>
      <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
@@ -17159,10 +17163,10 @@ async function importLandingUrlsCsv(input) {
 }
 
 // ── 落地页发布中心 ──
-var _cfTokens=[], _lpTemplates=[], _lpProtectionTemplates=[], _lpAssetBindings=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
+var _cfTokens=[], _lpTemplates=[], _lpProtectionTemplates=[], _lpAssetBindings=[], _landingDomains=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
 var _landingTrueCostTarget=parseFloat(localStorage.getItem('landing_true_cost_target_usd')||'')||0;
 function setLandingPerfDays(v){
- _landingPerfDays=Math.max(1,Math.min(90,parseInt(v||'7',10)||7));
+ _landingPerfDays=Math.max(1,Math.min(7,parseInt(v||'7',10)||7));
  loadLandingCenter(true);
 }
 function setLandingTrueCostTarget(v){
@@ -17177,7 +17181,7 @@ async function loadLandingCenter(force){
   var daysSel=document.getElementById('landingPerfDays');
   if(daysSel){
    var parsedDays=parseInt(daysSel.value||_landingPerfDays||7,10)||7;
-   _landingPerfDays=Math.max(1,Math.min(90,parsedDays));
+   _landingPerfDays=Math.max(1,Math.min(7,parsedDays));
    daysSel.value=String(_landingPerfDays);
   }
   var costEl=document.getElementById('landingTrueCostTarget');
@@ -17186,16 +17190,18 @@ async function loadLandingCenter(force){
    api('GET','/landing-pages/tokens'),
    api('GET','/landing-pages/templates'),
    api('GET','/landing-pages/protection-templates').catch(function(){return []}),
-   api('GET','/landing-pages/asset-bindings').catch(function(){return []}),
-   api('GET','/landing-pages/pages'),
-   api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=500').catch(function(){return null;})
-  ]);
-  _cfTokens=data[0]||[];
-  _lpTemplates=data[1]||[];
-  _lpProtectionTemplates=data[2]||[];
-  _lpAssetBindings=data[3]||[];
-  _landingPages=data[4]||[];
-  _landingAdPerf=data[5]||null;
+    api('GET','/landing-pages/asset-bindings').catch(function(){return []}),
+    api('GET','/landing-pages/domains').catch(function(){return {domains:[]}}),
+    api('GET','/landing-pages/pages'),
+    api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=500').catch(function(){return null;})
+   ]);
+   _cfTokens=data[0]||[];
+   _lpTemplates=data[1]||[];
+   _lpProtectionTemplates=data[2]||[];
+   _lpAssetBindings=data[3]||[];
+   _landingDomains=((data[4]||{}).domains)||[];
+   _landingPages=data[5]||[];
+   _landingAdPerf=data[6]||null;
   renderCloudflareTokens();
   renderLandingPublishOptions();
   renderProtectionTemplateList();
@@ -17255,9 +17261,56 @@ function renderLandingPublishOptions(){
  if(tk)tk.innerHTML=_cfTokens.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('API '+t.id))+' · '+escHtml(t.cf_account_name||'未识别账号')+'</option>';}).join('');
  var tp=document.getElementById('lpTemplate');
  if(tp)tp.innerHTML=_lpTemplates.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('模板 '+t.id))+'</option>';}).join('');
+ renderLandingDomainOptions();
  renderProtectionTemplateSelects();
  renderLandingAssetBindingSelects();
  onLandingKindChanged();
+}
+function _landingDomainLabel(d){
+ d=d||{};
+ var parts=[d.domain||''];
+ if(d.suggested)parts.push('推荐');
+ if(d.root_domain&&d.root_domain!==d.domain)parts.push('根域 '+d.root_domain);
+ if(d.account_name)parts.push(d.account_name);
+ var src=(d.sources||[]).join('/');
+ if(src)parts.push(src);
+ return parts.filter(Boolean).join(' · ');
+}
+function renderLandingDomainOptions(){
+ var sel=document.getElementById('lpDomainSelect');
+ var datalist=document.getElementById('landingDomainDatalist');
+ var domains=Array.isArray(_landingDomains)?_landingDomains:[];
+ if(datalist){
+  datalist.innerHTML=domains.map(function(d){return '<option value="'+escHtml(d.domain||'')+'">'+escHtml(_landingDomainLabel(d))+'</option>';}).join('');
+ }
+ if(!sel)return;
+ var old=sel.value||'';
+ var opts='<option value="">从域名库选择</option>'+domains.map(function(d){
+  return '<option value="'+escHtml(d.domain||'')+'" title="'+escHtml(_landingDomainLabel(d))+'">'+escHtml(_landingDomainLabel(d))+'</option>';
+ }).join('');
+ sel.innerHTML=opts;
+ if(old)sel.value=old;
+}
+function applyLandingDomainFromSelect(value){
+ value=decodeURIComponent(String(value||'')).trim();
+ if(!value)return;
+ var input=document.getElementById('lpCustomDomain');
+ if(input)input.value=value;
+ toast('已填入自定义域名：'+value,'ok');
+}
+function showLandingDomainLibrary(){
+ var domains=Array.isArray(_landingDomains)?_landingDomains:[];
+ if(!domains.length){
+  showInfo('<div class="empty"><p>域名库暂无数据。请先验证发布通道 API，并确保 API 有 Zone Read 权限；也可以先在发布表单手动填写域名。</p></div>','域名库');
+  return;
+ }
+ var rows=domains.map(function(d){
+  return '<tr><td style="padding:9px;border-top:1px solid var(--bd)"><b>'+escHtml(d.domain||'')+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml((d.sources||[]).join(' / ')||'--')+'</div></td>'+
+   '<td style="padding:9px;border-top:1px solid var(--bd)">'+escHtml(d.root_domain||'--')+'</td>'+
+   '<td style="padding:9px;border-top:1px solid var(--bd)">'+escHtml(d.account_name||d.token_name||'--')+'</td>'+
+   '<td style="padding:9px;border-top:1px solid var(--bd);text-align:right"><button class="btn btn-p btn-sm" onclick="applyLandingDomainFromSelect(\''+encodeURIComponent(d.domain||'')+'\')">使用</button></td></tr>';
+ }).join('');
+ showInfo('<div class="landing-help">域名库合并了发布通道可读取域名、已发布域名和资产预设域名。选择后会填入“发布新链接”的自定义域名，保存发布时仍会做线上校验。</div><div class="table-wrap"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">域名</th><th style="text-align:left;padding:8px">根域</th><th style="text-align:left;padding:8px">来源账号</th><th style="text-align:right;padding:8px">操作</th></tr></thead><tbody>'+rows+'</tbody></table></div>','域名库');
 }
 function _landingAssetBindingById(id){
  return (_lpAssetBindings||[]).find(function(x){return String(x.id)===String(id);})||null;
@@ -17499,6 +17552,7 @@ function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  var buttons=[];
  var macroUrl=adParamUrl||_landingAdMacroUrl(publicUrl);
  if(macroUrl)buttons.push(_landingCopyBtn('复制投放链接',macroUrl,'btn-p'));
+ buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdLinkTargets('+item.id+','+(parseInt(item.page_id||0,10)||0)+',\''+encodeURIComponent(item.slug||'')+'\',\''+encodeURIComponent(JSON.stringify(_landingItemTargets(item)))+'\')">改跳转</button>');
  if(publicUrl)buttons.push(_landingCopyBtn('复制短码',publicUrl,'btn-g'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定广告')+'</button>');
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
@@ -17544,10 +17598,15 @@ function renderLandingPerformance(){
   watch:'已有访问或点击，还没有形成有效动作。',
   no_data:'暂未采集到访问、点击或消耗。'
  };
- var highCostCount=0;
+ var highCostCount=0,totalVisit=0,totalClick=0,totalRedirect=0,totalBlock=0;
  var targetCounts=_landingTargetCounts(items);
  var uniqueTargetCount=0, reusedTargetCount=0, globalTargetCount=0;
  items.forEach(function(x){
+  var sx=x.stats||{};
+  totalVisit+=Number(sx.unique_visit||sx.visit||0);
+  totalClick+=Number(sx.unique_click||sx.click||0);
+  totalRedirect+=Number(sx.unique_redirect||sx.redirect||0);
+  totalBlock+=Number(sx.block||0);
   var st=_landingCostDisplayState(((x.decision||{}).state||'no_data'),x.stats||{});
   if(st==='high_cost')highCostCount++;
   var bs=_landingTargetBindingStatus(x,targetCounts).code;
@@ -17557,11 +17616,11 @@ function renderLandingPerformance(){
  });
  var cards=[
   ['广告链接',sum.total||0,'近 '+(data.days||7)+' 天'],
-  ['专属唯一',uniqueTargetCount,'可按广告核算'],
+  ['通过 / 访问',totalRedirect+' / '+totalVisit,'通过=已跳转到目标链接'],
   ['FB消耗',money(sum.spend||0),'优先读取巡检历史'],
   ['确认进线',sum.confirmed_actions||0,'人工/CSV 最高优先级'],
   ['真实成本',cost(sum.cost_per_final_true_contact||sum.cost_per_effective_true_contact||sum.cost_per_true_contact),'FB消耗 ÷ 最终动作'],
-  ['需处理',Number(sum.waste||0)+Number(highCostCount||0),'空动作 '+(sum.waste||0)+' / 高成本 '+highCostCount]
+  ['需处理',Number(sum.waste||0)+Number(highCostCount||0),'空动作 '+(sum.waste||0)+' / 高成本 '+highCostCount+' / 点击 '+totalClick+' / 拦截 '+totalBlock+' / 重复目标 '+reusedTargetCount]
  ].map(function(c){
   return '<div class="landing-perf-card"><span>'+escHtml(c[0])+'</span><b>'+escHtml(String(c[1]))+'</b><small>'+escHtml(c[2])+'</small></div>';
  }).join('');
@@ -17609,11 +17668,11 @@ function renderLandingPerformance(){
  }).join('');
  panel.innerHTML=
  '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">'+
-   '<div><div class="card-title">广告链接效果追踪</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">推荐把“投放链接”复制到广告里，Mira 会自动按广告 ID 归因。真实进线可回填；未回填时以 FB 成效作为监控参考。</p></div>'+
+   '<div><div class="card-title">投放链接效果看板</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">统计只保留近 7 天。访问/跳转按北京时间入库，FB 消耗按广告账户本地日期读取；真实进线优先，未回填时以 FB 成效作为监控参考。</p></div>'+
    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingAdMapping()">导出映射表</button><button class="btn btn-g btn-sm" onclick="exportLandingAdResultsTemplate()">导出回填模板</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
   '</div>'+
   '<div class="landing-perf-grid">'+cards+'</div>'+
-  '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1160px;border-collapse:collapse">'+
+  '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1040px;border-collapse:collapse">'+
   '<thead><tr><th style="text-align:left;padding:8px 10px">判断</th><th style="text-align:left;padding:8px 10px">短码/页面</th><th style="text-align:left;padding:8px 10px">归因方式</th><th style="text-align:left;padding:8px 10px">广告</th><th style="text-align:left;padding:8px 10px">链接</th><th style="text-align:right;padding:8px 10px">FB消耗</th><th style="text-align:right;padding:8px 10px">有效动作</th><th style="text-align:right;padding:8px 10px">真实成本</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
   '<tbody>'+rows+'</tbody></table></div>';
 }
@@ -17828,7 +17887,8 @@ function _landingAdLinksHtml(page, links){
   var target=x.target_url||'';
   var binding=_landingTargetBindingStatus(x,targetCounts);
   var attribution=_landingAttributionMode(x);
-  return '<tr>'+
+  var rowSearch=[x.slug,x.ad_id,x.ad_name,x.act_id,x.account_name,x.campaign_name,x.adset_name,target,(x.target_urls||[]).join(' ')].join(' ').toLowerCase();
+  return '<tr data-link-status="'+escHtml(status)+'" data-search="'+escHtml(rowSearch)+'">'+
    '<td style="padding:8px 10px"><div style="display:flex;gap:8px;align-items:center"><b style="font-weight:760">'+escHtml(x.slug||'')+'</b><span class="badge '+(status==='active'?'bg-ok':status==='failed'?'bg-er':'bg-mu')+'">'+escHtml(statusMap[status]||status)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(meta)+'</div></td>'+
    '<td style="padding:8px 10px"><span class="badge '+attribution.cls+'" title="'+escHtml(attribution.hint)+'">'+escHtml(attribution.label)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+(adParamUrl?'按广告ID归因':'按短码归因')+'</div></td>'+
    '<td style="padding:8px 10px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+_landingAdLinkUrlCell(url,adParamUrl,target,binding,x)+'</td>'+
@@ -17845,9 +17905,25 @@ function _landingAdLinksHtml(page, links){
   '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">日常只需要复制“投放链接”到广告。它会带 <code>{{ad.id}}</code>，点击后自动绑定广告；“测试短码”只用于预览。</div></div>'+
   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+')">导出映射</button><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成链接</button></div>'+
  '</div>'+
+ '<div class="landing-ad-link-toolbar">'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="fc" id="landingAdLinksSearch" placeholder="搜索短码 / 广告ID / 账户 / 跳转链接" oninput="filterLandingAdLinkRows()"><select class="fc" id="landingAdLinksStatus" onchange="filterLandingAdLinkRows()"><option value="all">全部状态</option><option value="reserved">待自动绑定</option><option value="active">已绑定广告</option><option value="paused">已暂停</option><option value="archived">已归档</option></select></div>'+
+  '<div class="landing-ad-link-summary"><span id="landingAdLinksVisibleCount">'+links.length+'</span> / '+links.length+' 条</div>'+
+ '</div>'+
  '<div class="table-wrap" style="max-height:420px;overflow:auto"><table class="landing-ad-link-table">'+
  '<thead><tr><th style="text-align:left;padding:8px 10px;width:112px">短码</th><th style="text-align:left;padding:8px 10px;width:92px">归因</th><th style="text-align:left;padding:8px 10px">投放链接</th><th style="text-align:left;padding:8px 10px;width:210px">统计</th><th style="text-align:right;padding:8px 10px;width:150px">操作</th></tr></thead>'+
  '<tbody>'+rows+'</tbody></table></div>';
+}
+function filterLandingAdLinkRows(){
+ var q=String((document.getElementById('landingAdLinksSearch')||{}).value||'').trim().toLowerCase();
+ var st=String((document.getElementById('landingAdLinksStatus')||{}).value||'all');
+ var count=0;
+ document.querySelectorAll('.landing-ad-link-table tbody tr[data-search]').forEach(function(tr){
+  var ok=(!q||String(tr.getAttribute('data-search')||'').indexOf(q)>=0)&&(st==='all'||String(tr.getAttribute('data-link-status')||'')===st);
+  tr.style.display=ok?'':'none';
+  if(ok)count++;
+ });
+ var el=document.getElementById('landingAdLinksVisibleCount');
+ if(el)el.textContent=String(count);
 }
 async function showLandingAdLinks(pageId){
  var page=(_landingPages||[]).find(function(p){return String(p.id)===String(pageId);})||{id:pageId};
@@ -17856,6 +17932,26 @@ async function showLandingAdLinks(pageId){
   showInfo(_landingAdLinksHtml(page,links||[]),'广告级链接');
  }catch(e){
   toast('加载广告级链接失败：'+(e.message||e),'er');
+ }
+}
+async function editLandingAdLinkTargets(linkId,pageId,encodedSlug,encodedTargets){
+ var slug=decodeURIComponent(encodedSlug||'')||String(linkId);
+ var targets=[];
+ try{targets=JSON.parse(decodeURIComponent(encodedTargets||'%5B%5D'))||[];}catch(e){targets=[];}
+ var current=(Array.isArray(targets)?targets:[]).map(function(u){return String(u||'').trim();}).filter(Boolean).join('\n');
+ var raw=await promptTextareaAsync('修改跳转链接','短码 '+slug+' 的专属跳转池。每行一个链接；留空则使用落地页全局轮询。保存后线上配置会立即更新。',current,'https://example.com/path\nhttps://example.com/backup');
+ if(raw==null)return;
+ var urls=String(raw||'').split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+ var bad=urls.find(function(u){return !/^https?:\/\//i.test(u);});
+ if(bad){toast('跳转链接必须以 http:// 或 https:// 开头：'+bad,'wa');return;}
+ try{
+  await api('PATCH','/landing-pages/ad-links/'+linkId,{target_urls:urls});
+  toast(urls.length?'已更新该广告入口的跳转池':'已恢复为落地页全局轮询','ok');
+  await loadLandingCenter(true);
+  document.querySelectorAll('[id^="moInfo_"]').forEach(function(m){closeModal(m.id);setTimeout(function(){if(m&&m.parentNode)m.parentNode.removeChild(m);},220);});
+  if(pageId)await showLandingAdLinks(pageId);
+ }catch(e){
+  toast('更新跳转失败：'+(e.message||e),'er');
  }
 }
 async function createLandingAdLinks(pageId){
