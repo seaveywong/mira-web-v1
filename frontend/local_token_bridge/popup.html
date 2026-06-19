@@ -1,77 +1,193 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mira 本地 API 执行器</title>
-  <style>
-    body{width:390px;margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f5f5f7;color:#1d1d1f}
-    h1{font-size:17px;margin:0 0 4px;font-weight:760}
-    h2{font-size:13px;margin:18px 0 8px;font-weight:760;color:#1d1d1f}
-    p{font-size:12px;color:#6e6e73;margin:0 0 14px;line-height:1.55}
-    label{display:block;font-size:12px;font-weight:700;margin:10px 0 6px;color:#333}
-    input,textarea{width:100%;box-sizing:border-box;border:1px solid #d2d2d7;border-radius:10px;padding:10px 11px;font-size:13px;background:#fff;outline:none}
-    textarea{min-height:86px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-    input:focus,textarea:focus{border-color:#0071e3;box-shadow:0 0 0 3px rgba(0,113,227,.14)}
-    .row{display:grid;grid-template-columns:1fr 110px;gap:10px;align-items:end}
-    .btns{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
-    button{border:0;border-radius:999px;padding:9px 13px;font-weight:740;cursor:pointer;background:#e8e8ed;color:#1d1d1f}
-    button.primary{background:#0071e3;color:white}
-    button.danger{background:#ffe7e7;color:#b42318}
-    button:disabled{opacity:.55;cursor:not-allowed}
-    .status{margin-top:12px;border:1px solid #e5e5ea;border-radius:12px;background:white;padding:10px;font-size:12px;color:#515154;line-height:1.5;word-break:break-word}
-    .status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}
-    .status.bad{border-color:#fecaca;background:#fef2f2;color:#991b1b}
-    .hint{font-size:11px;color:#86868b;margin-top:5px;line-height:1.45}
-    .pill{display:inline-flex;border-radius:999px;background:#e8f2ff;color:#005bb5;padding:3px 8px;font-size:11px;font-weight:700;margin:8px 6px 0 0}
-    .section{border-top:1px solid #e5e5ea;margin-top:16px;padding-top:12px}
-    .notice{border:1px solid #c7e7ff;background:#eef8ff;border-radius:12px;padding:10px;font-size:12px;line-height:1.55;color:#17567f}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mira 本地执行器</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:400px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f5;color:#1d1d1f;font-size:12px}
+.header{background:linear-gradient(135deg,#1877f2,#0b5ec7);color:#fff;padding:7px 10px;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px}
+.header .ver{font-size:8px;opacity:.75;background:rgba(255,255,255,.18);padding:1px 5px;border-radius:8px}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.dot.on{background:#4ade80;box-shadow:0 0 5px #4ade80}
+.dot.off{background:#f87171;box-shadow:0 0 5px #f87171}
+.dot.warn{background:#facc15;box-shadow:0 0 5px #facc15}
+
+.tabs{display:flex;background:#fff;border-bottom:2px solid #e4e6eb}
+.tab{flex:1;padding:6px 2px;border:none;background:none;font-size:10px;font-weight:600;color:#65676b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s;text-align:center}
+.tab:hover{color:#1877f2}
+.tab.active{color:#1877f2;border-bottom-color:#1877f2}
+
+.panel{display:none;padding:6px 8px}
+.panel.active{display:block}
+
+.card{background:#fff;border-radius:8px;padding:7px 9px;margin-bottom:5px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.card h3{font-size:10px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:4px}
+.kv{display:flex;justify-content:space-between;padding:1px 0;font-size:10px;line-height:1.5}
+.kv .k{color:#65676b;flex-shrink:0}
+.kv .v{font-weight:600;text-align:right;word-break:break-all}
+.green{color:#166534}.red{color:#991b1b}.blue{color:#005bb5}.gray{color:#86868b}.amber{color:#b45309}
+.badge{display:inline-flex;border-radius:99px;padding:1px 5px;font-size:8px;font-weight:700}
+.badge.g{background:#dcfce7;color:#166534}
+.badge.r{background:#fee2e2;color:#991b1b}
+.badge.b{background:#e8f2ff;color:#005bb5}
+.badge.y{background:#fef9c3;color:#854d0e}
+
+.btns{display:flex;gap:4px;flex-wrap:wrap;margin-top:3px}
+button{border:0;border-radius:99px;padding:4px 9px;font-size:9px;font-weight:700;cursor:pointer;transition:.15s}
+button.primary{background:#1877f2;color:#fff}
+button.primary:hover:not(:disabled){background:#166fe5}
+button.outline{background:#fff;color:#1877f2;border:1.5px solid #1877f2}
+button.danger{background:#ffe7e7;color:#b42318}
+button.green{background:#16a34a;color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+
+.msg{padding:5px 7px;border-radius:6px;font-size:9px;margin:3px 0;line-height:1.3}
+.msg.ok{background:#f0fdf4;color:#166534;border:1px solid #86efac}
+.msg.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.msg.info{background:#eef8ff;color:#17567f;border:1px solid #c7e7ff}
+
+.acct-list{max-height:140px;overflow-y:auto}
+.acct-item{display:flex;justify-content:space-between;align-items:center;padding:2px 5px;font-size:9px;background:#f5f6f7;border-radius:4px;margin:1px 0}
+.biz-list{max-height:150px;overflow-y:auto}
+.biz-item{padding:5px 6px;font-size:9px;background:#f5f6f7;border-radius:6px;margin:2px 0}
+.biz-item .biz-title{display:flex;justify-content:space-between;gap:6px;font-weight:800;color:#1d1d1f}
+.biz-item .biz-sub{margin-top:2px;color:#65676b;word-break:break-all}
+.fold-toggle{cursor:pointer;user-select:none;color:#1877f2;font-size:9px;font-weight:600;margin-top:1px}
+
+.select-list{max-height:180px;overflow-y:auto}
+.select-item{display:flex;align-items:center;justify-content:space-between;padding:4px 6px;margin:1px 0;border-radius:4px;cursor:pointer;background:#f5f6f7;font-size:9px;transition:.1s}
+.select-item:hover{background:#e7f3ff}
+.select-item.sel{background:#1877f2;color:#fff}
+.select-item .id{font-size:8px;opacity:.7}
+
+input,select{width:100%;border:1px solid #d2d2d7;border-radius:5px;padding:4px 6px;font-size:10px;background:#fff;outline:none;font-family:inherit}
+input:focus,select:focus{border-color:#1877f2;box-shadow:0 0 0 2px rgba(24,119,242,.1)}
+label{display:block;font-size:9px;font-weight:700;margin:4px 0 1px;color:#333}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99;align-items:center;justify-content:center}
+.modal.show{display:flex}
+.modal-box{background:#fff;width:300px;border-radius:10px;padding:12px;box-shadow:0 4px 20px rgba(0,0,0,.15)}
+.modal-box label{display:block;font-size:9px;font-weight:700;margin:5px 0 2px}
+.modal-box input{width:100%;border:1px solid #d2d2d7;border-radius:5px;padding:5px 7px;font-size:10px}
+</style>
 </head>
 <body>
-  <h1>Mira 本地 API 执行器</h1>
-  <p>绑定后，这个 Chrome 会领取 Mira 下发的 API 任务，并用你明确填写的官方 Graph API Token 在本机执行。插件不读取 Cookie，不提取隐藏凭证，也不会做页面点击自动化。</p>
+<div class="header">
+  <h1><span id="sysDot" class="dot off"></span>Mira 执行器</h1>
+  <span class="ver" id="verLabel">v2.0</span>
+</div>
 
-  <label for="serverUrl">Mira 地址</label>
-  <input id="serverUrl" placeholder="https://shouhu.asia">
+<div class="tabs">
+  <button class="tab active" data-tab="status">📊 状态</button>
+  <button class="tab" data-tab="pixel">📤 像素</button>
+  <button class="tab" data-tab="invite">👥 邀请</button>
+</div>
 
-  <label for="nodeName">执行器名称</label>
-  <input id="nodeName" placeholder="例如 Chrome-运营A-电脑1">
-
-  <label for="bindCode">授权码 / 绑定码</label>
-  <input id="bindCode" placeholder="在 Mira 的本地执行器窗口生成">
-  <div class="hint">绑定码 10 分钟内有效，只能使用一次。未绑定的浏览器不会接收任务。</div>
-
-  <div class="btns">
-    <button class="primary" id="registerBtn">激活执行器</button>
-    <button id="saveBtn">保存配置</button>
-    <button id="pollTaskBtn">立即拉任务</button>
-  </div>
-
-  <div class="section">
-    <h2>本地 Graph API Token</h2>
-    <div class="notice">Token 只保存在 Chrome 本地。Mira 只接收权限、账户数量、账户 ID 摘要和任务结果，不接收明文 Token。</div>
-    <label for="accessToken">Access Token</label>
-    <textarea id="accessToken" placeholder="粘贴官方授权得到的 Graph API Token"></textarea>
-
-    <div class="row">
-      <div>
-        <label for="expiresInMinutes">预计有效分钟</label>
-        <input id="expiresInMinutes" type="number" min="1" max="1440" placeholder="例如 60">
-      </div>
-      <div>
-        <button class="primary" id="heartbeatBtn" style="width:100%">验证上报</button>
-      </div>
+<!-- ===== 状态面板 ===== -->
+<div class="panel active" id="panel-status">
+  <div class="card">
+    <h3>🔗 绑定</h3>
+    <div id="bindContent">加载中...</div>
+    <div class="btns">
+      <button class="primary" id="btnBind">绑定</button>
+      <button class="danger" id="btnUnbind" style="display:none">解绑</button>
     </div>
-    <div class="hint">执行广告创建、关闭、预算调整至少需要 ads_management；只读诊断至少需要 ads_read。</div>
   </div>
-
+  <div class="card">
+    <h3>📋 Facebook</h3>
+    <div id="fbContent">加载中...</div>
+  </div>
+  <div class="card">
+    <h3>📊 账户 <span id="acctCount" style="font-size:9px;color:#65676b;font-weight:400"></span></h3>
+    <div class="acct-list" id="acctList">加载中...</div>
+    <div class="fold-toggle" id="acctToggle" style="display:none"></div>
+  </div>
+  <div class="card">
+    <h3>🏢 BM / 资产 <span id="bizCount" style="font-size:9px;color:#65676b;font-weight:400"></span></h3>
+    <div class="biz-list" id="bizList">加载中...</div>
+  </div>
+  <div class="card">
+    <h3>⏳ 队列</h3>
+    <div id="queueContent" style="font-size:10px">执行中: 0</div>
+  </div>
+  <div id="errorMsg" style="display:none"></div>
   <div class="btns">
-    <button id="clearTokenBtn" class="danger">清除本地 Token</button>
+    <button class="primary" id="btnRefreshAcct">🔄 刷新账户</button>
+    <button class="outline" id="btnDiscoverAssets">🏢 深度发现资产</button>
+    <button class="outline" id="btnHeartbeat">📡 测试连接</button>
+    <button class="outline" id="btnDiag" style="font-size:8px">📋 诊断</button>
   </div>
+  <div class="btns" style="margin-top:2px">
+    <button class="outline" id="btnExtractToken" style="font-size:8px">🔑 手动提取Token</button>
+  </div>
+</div>
 
-  <div id="status" class="status">加载中...</div>
+<!-- ===== 像素分享面板 ===== -->
+<div class="panel" id="panel-pixel">
+  <div class="msg info">选 BM → 选像素 → 输入目标 BM → 分享。所有请求在浏览器本地完成。</div>
+  <button class="primary" id="btnLoadBMs" style="width:100%">加载 BM 列表</button>
+  <div class="select-list" id="bmList"></div>
+  <label for="manualBmId">手动 BM ID</label>
+  <div class="row">
+    <input id="manualBmId" placeholder="自动读取失败时输入 BM ID">
+    <button class="outline" id="btnUseManualBm">使用</button>
+  </div>
+  <div id="pxStep2" style="display:none">
+    <button class="primary" id="btnLoadPixels" style="width:100%;margin-top:4px">加载像素列表</button>
+    <div class="select-list" id="pixelList"></div>
+    <label for="manualPixelId">手动 Pixel ID</label>
+    <div class="row">
+      <input id="manualPixelId" placeholder="自动读取失败时输入 Pixel ID">
+      <button class="outline" id="btnUseManualPixel">使用</button>
+    </div>
+  </div>
+  <div id="pxStep3" style="display:none">
+    <label for="partnerBmId">目标合作伙伴 BM ID</label>
+    <input id="partnerBmId" placeholder="输入 BM ID">
+    <button class="primary green" id="btnSharePixel" style="width:100%;margin-top:3px">确认分享像素</button>
+  </div>
+  <div id="pixelResult"></div>
+</div>
 
-  <script src="popup.js"></script>
+<!-- ===== BM 邀请面板 ===== -->
+<div class="panel" id="panel-invite">
+  <div class="msg info">选 BM → 填邮箱+角色 → 发送邀请。所有请求在浏览器本地完成。</div>
+  <button class="primary" id="btnLoadBMsForInvite" style="width:100%">加载 BM 列表</button>
+  <div class="select-list" id="inviteBmList"></div>
+  <label for="inviteManualBmId">手动 BM ID</label>
+  <div class="row">
+    <input id="inviteManualBmId" placeholder="自动读取失败时输入 BM ID">
+    <button class="outline" id="btnUseInviteManualBm">使用</button>
+  </div>
+  <label for="inviteEmail">用户邮箱</label>
+  <input id="inviteEmail" type="email" placeholder="user@example.com">
+  <div class="row">
+    <div><label for="inviteRole">角色</label><select id="inviteRole"><option value="EMPLOYEE">EMPLOYEE</option><option value="ADMIN">ADMIN</option></select></div>
+    <div style="display:flex;align-items:end"><button class="primary green" id="btnInviteUser" style="width:100%">发送</button></div>
+  </div>
+  <div id="inviteResult"></div>
+</div>
+
+<!-- 绑定弹窗 -->
+<div class="modal" id="bindModal">
+  <div class="modal-box">
+    <h3 style="margin-bottom:6px;font-size:12px">绑定 Mira 执行器</h3>
+    <label for="bindCode">绑定码</label>
+    <input id="bindCode" placeholder="MLT-XXXX">
+    <label for="browserLabel">浏览器名称</label>
+    <input id="browserLabel" placeholder="Chrome-1">
+    <div style="display:flex;gap:5px;margin-top:8px;justify-content:flex-end">
+      <button class="outline" id="btnBindCancel">取消</button>
+      <button class="primary" id="btnBindConfirm">确认绑定</button>
+    </div>
+    <div id="bindErr" style="display:none;font-size:10px;color:#991b1b;margin-top:4px"></div>
+  </div>
+</div>
+
+<script src="popup.js"></script>
 </body>
 </html>

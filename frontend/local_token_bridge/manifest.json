@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Mira 本地 API 执行器",
-  "version": "1.3.0",
-  "description": "绑定 Mira 后，在本机 Chrome 内用你明确配置的官方 Graph API Token 执行任务，不上传 Cookie 或隐藏凭证。",
+  "version": "2.4.0",
+  "description": "Mira 本地执行器。本地执行 Graph API 写操作，Mira 下发任务接收结果。不上传 Cookie/Token。",
   "action": {
     "default_title": "Mira 本地 API 执行器",
     "default_popup": "popup.html"
@@ -12,11 +12,23 @@
   },
   "permissions": [
     "alarms",
-    "storage"
+    "storage",
+    "tabs",
+    "cookies",
+    "scripting",
+    "webRequest"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*",
-    "https://graph.facebook.com/*"
+    "https://shouhu.asia/*",
+    "https://graph.facebook.com/*",
+    "https://adsmanager-graph.facebook.com/*",
+    "*://*.facebook.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.facebook.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
   ]
 }
