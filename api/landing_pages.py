@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from core.auth import get_current_user, is_superadmin
 from core.app_meta import DEFAULT_ALLOWED_ORIGINS
 from core.database import decrypt_token, encrypt_token, get_conn, mask_token
+from core.perf_history import ensure_perf_snapshot_history_schema
 from core.tenancy import assert_row_access, is_operator_user, team_id_for_create, user_id
 from services.landing_publisher import (
     DEFAULT_TEMPLATE_DIR,
@@ -993,6 +994,7 @@ def _ad_link_stats(
     fb_clicks = 0.0
     impressions = 0.0
     last_synced_at = None
+    spend_source = ""
     link_row = None
     try:
         link_row = conn.execute(
@@ -1001,22 +1003,92 @@ def _ad_link_stats(
         ).fetchone()
         ad_id = (link_row["ad_id"] if link_row else "") or ""
         if ad_id:
-            spend_row = conn.execute(
-                """SELECT SUM(COALESCE(spend,0)) AS spend,
-                          SUM(COALESCE(conv,0)) AS conv,
-                          SUM(COALESCE(clicks,0)) AS clicks,
-                          SUM(COALESCE(impressions,0)) AS impressions,
-                          MAX(last_synced_at) AS last_synced_at
-                   FROM asset_spend_log
-                   WHERE fb_ad_id=?""",
-                (ad_id,),
-            ).fetchone()
-            if spend_row:
-                spend = float(spend_row["spend"] or 0)
-                fb_conversions = float(spend_row["conv"] or 0)
-                fb_clicks = float(spend_row["clicks"] or 0)
-                impressions = float(spend_row["impressions"] or 0)
-                last_synced_at = spend_row["last_synced_at"]
+            if result_date_from or result_date_to:
+                try:
+                    ensure_perf_snapshot_history_schema(conn)
+                    hist_where = ["ad_id=?", "COALESCE(ad_id,'')<>''"]
+                    hist_params = [ad_id]
+                    if result_date_from:
+                        hist_where.append("snapshot_date>=?")
+                        hist_params.append(result_date_from)
+                    if result_date_to:
+                        hist_where.append("snapshot_date<=?")
+                        hist_params.append(result_date_to)
+                    hist_row = conn.execute(
+                        f"""SELECT SUM(day_spend) AS spend,
+                                   SUM(day_conversions) AS conv,
+                                   SUM(day_clicks) AS clicks,
+                                   SUM(day_impressions) AS impressions,
+                                   MAX(day_synced_at) AS last_synced_at
+                            FROM (
+                                SELECT snapshot_date,
+                                       MAX(COALESCE(spend,0)) AS day_spend,
+                                       MAX(COALESCE(conversions,0)) AS day_conversions,
+                                       MAX(COALESCE(clicks,0)) AS day_clicks,
+                                       MAX(COALESCE(impressions,0)) AS day_impressions,
+                                       MAX(snapshot_at) AS day_synced_at
+                                FROM perf_snapshot_history
+                                WHERE {' AND '.join(hist_where)}
+                                GROUP BY snapshot_date
+                            )""",
+                        hist_params,
+                    ).fetchone()
+                    if hist_row and hist_row["last_synced_at"]:
+                        spend = float(hist_row["spend"] or 0)
+                        fb_conversions = float(hist_row["conv"] or 0)
+                        fb_clicks = float(hist_row["clicks"] or 0)
+                        impressions = float(hist_row["impressions"] or 0)
+                        last_synced_at = hist_row["last_synced_at"]
+                        spend_source = "perf_snapshot_history"
+                except Exception:
+                    logger.exception("landing ad link history spend lookup failed: page_id=%s slug=%s", page_id, slug)
+            if not spend_source:
+                snapshot_where = ["ad_id=?"]
+                snapshot_params = [ad_id]
+                if result_date_from:
+                    snapshot_where.append("snapshot_date>=?")
+                    snapshot_params.append(result_date_from)
+                if result_date_to:
+                    snapshot_where.append("snapshot_date<=?")
+                    snapshot_params.append(result_date_to)
+                try:
+                    snapshot_row = conn.execute(
+                        f"""SELECT SUM(COALESCE(spend,0)) AS spend,
+                                   SUM(COALESCE(conversions,0)) AS conv,
+                                   SUM(COALESCE(clicks,0)) AS clicks,
+                                   SUM(COALESCE(impressions,0)) AS impressions,
+                                   MAX(COALESCE(snapshot_at, snapshot_date)) AS last_synced_at
+                            FROM perf_snapshots
+                            WHERE {' AND '.join(snapshot_where)}""",
+                        snapshot_params,
+                    ).fetchone()
+                    if snapshot_row and snapshot_row["last_synced_at"]:
+                        spend = float(snapshot_row["spend"] or 0)
+                        fb_conversions = float(snapshot_row["conv"] or 0)
+                        fb_clicks = float(snapshot_row["clicks"] or 0)
+                        impressions = float(snapshot_row["impressions"] or 0)
+                        last_synced_at = snapshot_row["last_synced_at"]
+                        spend_source = "perf_snapshots"
+                except Exception:
+                    pass
+            if not spend_source:
+                spend_row = conn.execute(
+                    """SELECT SUM(COALESCE(spend,0)) AS spend,
+                              SUM(COALESCE(conv,0)) AS conv,
+                              SUM(COALESCE(clicks,0)) AS clicks,
+                              SUM(COALESCE(impressions,0)) AS impressions,
+                              MAX(last_synced_at) AS last_synced_at
+                       FROM asset_spend_log
+                       WHERE fb_ad_id=?""",
+                    (ad_id,),
+                ).fetchone()
+                if spend_row:
+                    spend = float(spend_row["spend"] or 0)
+                    fb_conversions = float(spend_row["conv"] or 0)
+                    fb_clicks = float(spend_row["clicks"] or 0)
+                    impressions = float(spend_row["impressions"] or 0)
+                    last_synced_at = spend_row["last_synced_at"]
+                    spend_source = "asset_spend_log"
     except Exception:
         pass
 
@@ -1152,6 +1224,7 @@ def _ad_link_stats(
         "cost_per_confirmed_sale": _cost(confirmed_sales),
         "cost_per_final_true_contact": _cost(final_true_contact),
         "last_synced_at": last_synced_at,
+        "spend_source": spend_source,
         "total": sum(out.values()),
     }
 
