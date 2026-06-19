@@ -11712,7 +11712,7 @@ async function onLaunchObjectiveChange() {
    addItem(pixelIdVal ? 'ok' : 'warn', 'Pixel', pixelIdVal ? '已配置 Pixel，有利于归因优化。' : '未配置 Pixel，后续归因和优化能力会变弱。');
   }
   if (meta.landingRequired) {
-   addItem(landingVal ? 'ok' : 'fail', '落地页', landingVal ? '已填写本次落地页，服务端仍会补查账户/系统默认链接。' : '当前目标需要落地页或账户默认链接。');
+   addItem(landingVal ? 'ok' : 'fail', '落地页', landingVal ? '已填写本次落地页；如果是 Mira 已发布主链，系统会为每条广告自动生成 /a/短码并绑定专属跳转。' : '当前目标需要落地页或账户默认链接。');
   }
   if (meta.isMessage) {
    addItem('warn', '消息开关', '提交前会自动检查主页 Messenger / WhatsApp 是否开启。');
@@ -12033,7 +12033,12 @@ async function onLaunchObjectiveChange() {
   }else{
    r=await api('POST','/assets/'+assetId+'/launch',payload);
    toast(' 广告任务已提交，正在执行...','ok');
-   _pollLaunchProgress(assetId,r.campaign_id);
+   var oneCampaign=((r.results||[])[0])||r||{};
+   if(oneCampaign.campaign_id){
+    _pollLaunchProgress(assetId,oneCampaign.campaign_id);
+   }else{
+    toast('任务已提交，但没有拿到任务ID，请刷新素材页查看状态','wa');
+   }
    setTimeout(function(){
     api('POST','/kpi/auto-scan/'+actId).catch(function(e){console.warn('KPI auto-preset failed:',e);});
    },5000);
@@ -12138,9 +12143,11 @@ function _pollLaunchProgress(assetId, campaignId){
     var done = 0;
     var errors = 0;
     var errorMsgs = [];
+    var allAdLinks = [];
     for(var i=0;i<results.length;i++){
      var r = results[i];
      if(!r || !r.status) continue;
+     if(r.ad_links && r.ad_links.length) allAdLinks = allAdLinks.concat(r.ad_links);
      if(r.status === 'done') done++;
      else if(r.status === 'error'){
       errors++;
@@ -12160,7 +12167,7 @@ function _pollLaunchProgress(assetId, campaignId){
     _setLaunchProgress(pct,
      done+"/"+_batchLen+" campaigns完成("+pct+"%)"+(hasErrors?"，"+errors+" 失败":""),
      allDone?(hasErrors?"error":"done"):"running",
-     {batch_done:done,batch_total:_batchLen,error_detail:errorMsgs.join('')});
+     {batch_done:done,batch_total:_batchLen,error_detail:errorMsgs.join(''),ad_links:allAdLinks});
     if(allDone){
      clearInterval(_launchPollTimer);
      _launchPollTimer = null;
@@ -12196,6 +12203,28 @@ function _pollLaunchProgress(assetId, campaignId){
  _poll();
  _launchPollTimer = setInterval(_poll, 2000);
 }
+function _renderLaunchAdLinks(links){
+ if(!links||!links.length)return '';
+ var rows=links.slice(0,30).map(function(x){
+  var adName=escHtml(x.ad_name||x.ad_id||'未回写广告ID');
+  var adId=escHtml(x.ad_id||'--');
+  var status=escHtml(x.status||'');
+  var publicUrl=x.public_url||'';
+  var targetUrl=x.target_url||'';
+  var targetHtml=targetUrl?escHtml(targetUrl):'<span style="color:var(--t3)">使用落地页全局轮询</span>';
+  return '<tr>'+
+   '<td style="padding:6px 8px;border-top:1px solid rgba(22,101,52,.18);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+adName+'">'+adName+'<div style="font-size:10px;color:var(--t3)">'+adId+'</div></td>'+
+   '<td style="padding:6px 8px;border-top:1px solid rgba(22,101,52,.18);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(publicUrl)+'">'+(publicUrl?'<code>'+escHtml(publicUrl)+'</code>':'--')+'</td>'+
+   '<td style="padding:6px 8px;border-top:1px solid rgba(22,101,52,.18);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(targetUrl)+'">'+targetHtml+'</td>'+
+   '<td style="padding:6px 8px;border-top:1px solid rgba(22,101,52,.18);white-space:nowrap">'+status+'</td>'+
+   '<td style="padding:6px 8px;border-top:1px solid rgba(22,101,52,.18);text-align:right;white-space:nowrap">'+(publicUrl?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制短链</button>':'')+'</td>'+
+  '</tr>';
+ }).join('');
+ var more=links.length>30?'<div style="margin-top:6px;color:var(--t3)">仅展示前 30 条；完整列表在「落地页发布 > 广告链接」。</div>':'';
+ return '<div style="margin-top:8px"><div style="font-weight:700;margin-bottom:6px">广告级短链绑定</div>'+
+  '<div style="max-height:220px;overflow:auto;border:1px solid rgba(22,101,52,.18);border-radius:8px;background:rgba(255,255,255,.38)">'+
+  '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left;padding:6px 8px">广告</th><th style="text-align:left;padding:6px 8px">短链</th><th style="text-align:left;padding:6px 8px">专属跳转</th><th style="text-align:left;padding:6px 8px">状态</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+more+'</div>';
+}
 function _setLaunchProgress(pct, msg, status, data){
  var bar = document.getElementById('launchProgressBar');
  var pctEl = document.getElementById('launchProgressPct');
@@ -12212,13 +12241,13 @@ function _setLaunchProgress(pct, msg, status, data){
   if(resultEl){
    resultEl.style.display = 'block';
    if(data&&data.batch_total){
-    resultEl.innerHTML = ' 完成 <b>'+data.batch_done+'/'+data.batch_total+'</b>个campaign';
+    resultEl.innerHTML = ' 完成 <b>'+data.batch_done+'/'+data.batch_total+'</b>个campaign'+_renderLaunchAdLinks((data&&data.ad_links)||[]);
    } else {
    resultEl.style.display = 'block';
    var adsets = (data && data.total_adsets) || 0;
    var ads = (data && data.total_ads) || 0;
    var fbId = (data && data.fb_campaign_id) || '';
-   resultEl.innerHTML = ' 成功创建 <b>'+adsets+'</b>个广告组，<b>'+ads+'</b>条广告'+(fbId?'<br>Campaign ID: <code>'+fbId+'</code>':'');
+   resultEl.innerHTML = ' 成功创建 <b>'+adsets+'</b>个广告组，<b>'+ads+'</b>条广告'+(fbId?'<br>Campaign ID: <code>'+fbId+'</code>':'')+_renderLaunchAdLinks((data&&data.ad_links)||[]);
    }
   }
  } else if(status === 'error'){

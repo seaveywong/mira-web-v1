@@ -1387,6 +1387,9 @@ class AutoPilotEngine:
                                         pixel_id=pixel_id or "",
                                         ad_language=ad_language,
                                         target_countries=target_countries,
+                                        fb_campaign_id=fb_campaign_id,
+                                        fb_campaign_name=_campaign_display_name,
+                                        adset_name=variant_adset_name,
                                     ),
                                 )
                                 token = self._candidate_token(_ad_token_candidate, token)
@@ -1477,6 +1480,9 @@ class AutoPilotEngine:
                                     pixel_id=pixel_id or "",
                                     ad_language=ad_language,
                                     target_countries=target_countries,
+                                    fb_campaign_id=fb_campaign_id,
+                                    fb_campaign_name=_campaign_display_name,
+                                    adset_name=adset_name,
                                 ),
                             )
                             token = self._candidate_token(_ad_token_candidate, token)
@@ -1571,6 +1577,9 @@ class AutoPilotEngine:
                                             pixel_id=pixel_id or "",
                                             ad_language=ad_language,
                                             target_countries=target_countries,
+                                            fb_campaign_id=fb_campaign_id,
+                                            fb_campaign_name=_campaign_display_name,
+                                            adset_name=adset_name,
                                         ),
                                     )
                                     token = self._candidate_token(_fallback_ad_token_candidate, token)
@@ -2594,6 +2603,9 @@ class AutoPilotEngine:
         pixel_id: str = "",
         ad_language: str = "",
         target_countries=None,
+        fb_campaign_id: str = "",
+        fb_campaign_name: str = "",
+        adset_name: str = "",
     ) -> str:
         """创建 Facebook Ad（含 AdCreative）"""
         import json as _json
@@ -2614,10 +2626,10 @@ class AutoPilotEngine:
                         landing_url,
                         act_id,
                         _account_name_for_link,
-                        "",
-                        "",
+                        fb_campaign_id or "",
+                        fb_campaign_name or "",
                         adset_id,
-                        "",
+                        adset_name or "",
                         name,
                         target_url=form_link or landing_url,
                     )

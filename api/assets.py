@@ -2163,7 +2163,10 @@ def launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_cu
             results.append({"act_id": act_id, "asset_id": asset_id, "campaign_id": None, "status": "error", "message": str(e)})
     conn.close()
     success = sum(1 for r in results if r["status"] == "pending")
-    return {"total": len(act_ids), "success": success, "failed": len(act_ids) - success, "results": results}
+    resp = {"total": len(act_ids), "success": success, "failed": len(act_ids) - success, "results": results}
+    if len(results) == 1:
+        resp.update(results[0])
+    return resp
 
 
 @router.post("/{asset_id:int}/batch-launch")
@@ -2186,10 +2189,33 @@ def get_launch_campaign_status(asset_id: int, campaign_id: int, user=Depends(get
            WHERE c.id=? AND c.asset_id=?""",
         (campaign_id, asset_id),
     ).fetchone()
+    link_rows = []
+    if row:
+        try:
+            fb_campaign_id = (row["fb_campaign_id"] or "").strip()
+            link_rows = conn.execute(
+                """SELECT id, slug, public_url, target_url, status,
+                          act_id, account_name, campaign_id, campaign_name,
+                          adset_id, adset_name, ad_id, ad_name, note, updated_at
+                   FROM landing_ad_links
+                   WHERE (
+                       ? <> '' AND COALESCE(campaign_id,'')=?
+                   ) OR COALESCE(ad_id,'') IN (
+                       SELECT COALESCE(fb_ad_id,'')
+                       FROM auto_campaign_ads
+                       WHERE campaign_id=? AND COALESCE(fb_ad_id,'')<>''
+                   )
+                   ORDER BY id ASC
+                   LIMIT 200""",
+                (fb_campaign_id, fb_campaign_id, campaign_id),
+            ).fetchall()
+        except Exception as exc:
+            logger.warning("failed to load launch landing links: %s", exc)
     conn.close()
     if not row:
         raise HTTPException(404, "任务不存在")
     r = dict(row)
+    r["ad_links"] = [dict(x) for x in link_rows]
     step = r.get("progress_step") or ""
     step_map = {"init": 5, "token": 10, "asset": 20, "upload": 35, "campaign": 50, "adset_1": 60, "adset_2": 70, "adset_3": 80, "adset_4": 85, "adset_5": 88, "done": 100}
     if r["status"] == "error":
