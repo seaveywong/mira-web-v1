@@ -1925,6 +1925,51 @@ select.fc option{background:#fff;color:#1d1d1f}
  .meta-oauth-grid{grid-template-columns:1fr}
  .meta-oauth-flow{grid-template-columns:1fr}
 }
+
+/* Dashboard metric cards: keep figures readable and avoid cramped one-row wrapping. */
+#page-dashboard .stats-grid{
+ grid-template-columns:repeat(6,minmax(142px,1fr))!important;
+ gap:12px!important;
+ align-items:stretch!important;
+}
+#page-dashboard .sc{
+ min-height:118px!important;
+ padding:16px!important;
+ display:flex!important;
+ flex-direction:column!important;
+ justify-content:space-between!important;
+ gap:7px!important;
+}
+#page-dashboard .sc-label{
+ min-height:18px!important;
+ line-height:1.35!important;
+ word-break:keep-all!important;
+ overflow-wrap:normal!important;
+}
+#page-dashboard .sc-val{
+ margin:0!important;
+ line-height:1.08!important;
+ letter-spacing:0!important;
+ white-space:nowrap!important;
+ overflow:hidden!important;
+ text-overflow:ellipsis!important;
+}
+#page-dashboard .sc-sub{
+ min-height:30px!important;
+ line-height:1.35!important;
+ word-break:keep-all!important;
+ overflow-wrap:normal!important;
+ color:#6e6e73!important;
+}
+@media(max-width:1280px){
+ #page-dashboard .stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+@media(max-width:760px){
+ #page-dashboard .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(max-width:460px){
+ #page-dashboard .stats-grid{grid-template-columns:1fr!important}
+}
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -2109,25 +2154,25 @@ select.fc option{background:#fff;color:#1d1d1f}
       <div class="sc blue" style="cursor:pointer" onclick="toggleAccDetail('spend')">
        <div class="sc-label" id="dash-label-spend">今日总消耗</div>
        <div class="sc-val blue" id="s-spend">--</div>
-       <div class="sc-sub">USD（点击查看各账户）</div>
+       <div class="sc-sub" id="dash-sub-spend">USD · 点击账户明细</div>
        <div class="sc-icon"></div>
       </div>
       <div class="sc green" style="cursor:pointer" onclick="toggleAccDetail('conv')">
        <div class="sc-label" id="dash-label-conv">今日总转化</div>
        <div class="sc-val green" id="s-conv">--</div>
-       <div class="sc-sub">次（点击查看各账户）</div>
+       <div class="sc-sub" id="dash-sub-conv">次 · 点击账户明细</div>
        <div class="sc-icon"></div>
       </div>
       <div class="sc orange" style="cursor:pointer" onclick="toggleAccDetail('cpa')">
        <div class="sc-label">平均 CPA</div>
        <div class="sc-val orange" id="s-cpa">--</div>
-       <div class="sc-sub">USD（点击查看各账户）</div>
+       <div class="sc-sub">USD · 点击账户明细</div>
        <div class="sc-icon"></div>
       </div>
       <div class="sc purple" style="cursor:pointer" onclick="toggleAccDetail('roas')">
        <div class="sc-label">平均 ROAS</div>
        <div class="sc-val purple" id="s-roas">--</div>
-       <div class="sc-sub">倍（点击查看各账户）</div>
+       <div class="sc-sub">倍 · 点击账户明细</div>
        <div class="sc-icon"></div>
       </div>
       <div class="sc red" style="cursor:pointer" onclick="togglePauseDetail()">
@@ -2139,7 +2184,7 @@ select.fc option{background:#fff;color:#1d1d1f}
       <div class="sc cyan" style="cursor:pointer" onclick="toggleAccDetail('balance')">
        <div class="sc-label">账户可用额度</div>
        <div class="sc-val cyan" id="s-balance">--</div>
-       <div class="sc-sub" id="s-balance-sub">仅统计已设上限账户（点击明细）</div>
+       <div class="sc-sub" id="s-balance-sub">已知额度账户 · 点击明细</div>
        <div class="sc-icon"></div>
       </div>
      </div>
@@ -6274,8 +6319,10 @@ function setDashCustom(){
  dashDateFrom=df;dashDateTo=dt;
  var days=Math.round((new Date(dt)-new Date(df))/86400000)+1;
  var rangeLabel=days===1?df:df+' ~ '+dt;
- var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent=rangeLabel+' 消耗';
- var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent=rangeLabel+' 转化';
+ var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent=days===1?'单日消耗':'区间消耗';
+ var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent=days===1?'单日转化':'区间转化';
+ var ss=document.getElementById('dash-sub-spend');if(ss)ss.textContent=rangeLabel+' · USD · 点击明细';
+ var sc=document.getElementById('dash-sub-conv');if(sc)sc.textContent=rangeLabel+' · 次 · 点击明细';
  var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='自定义 ('+rangeLabel+')';
  var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent=' '+rangeLabel+' 消耗 TOP 广告';
  loadDash();
@@ -6289,16 +6336,20 @@ function setDashRange(v){
  if(v==='today'){
   dashDateFrom=dashDateTo=fmt(today);
   if(preset)preset.value='today';
-  var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='今日 ('+dashDateFrom+') 总消耗';
-  var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='今日 ('+dashDateFrom+') 总转化';
+  var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='今日总消耗';
+  var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='今日总转化';
+  var ss=document.getElementById('dash-sub-spend');if(ss)ss.textContent=dashDateFrom+' · USD · 点击明细';
+  var sc=document.getElementById('dash-sub-conv');if(sc)sc.textContent=dashDateFrom+' · 次 · 点击明细';
   var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='今日 ('+dashDateFrom+')';
   var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent=' 今日 ('+dashDateFrom+') 消耗 TOP 广告';
  }else if(v==='yesterday'){
   var y=new Date(today);y.setDate(y.getDate()-1);
   dashDateFrom=dashDateTo=fmt(y);
   if(preset)preset.value='yesterday';
-  var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='昨日 ('+dashDateFrom+') 总消耗';
-  var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='昨日 ('+dashDateFrom+') 总转化';
+  var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='昨日总消耗';
+  var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='昨日总转化';
+  var ss=document.getElementById('dash-sub-spend');if(ss)ss.textContent=dashDateFrom+' · USD · 点击明细';
+  var sc=document.getElementById('dash-sub-conv');if(sc)sc.textContent=dashDateFrom+' · 次 · 点击明细';
   var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='昨日 ('+dashDateFrom+')';
   var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent=' 昨日 ('+dashDateFrom+') 消耗 TOP 广告';
  }else{
@@ -6308,6 +6359,8 @@ function setDashRange(v){
   if(preset)preset.value=String(n);
   var ls=document.getElementById('dash-label-spend');if(ls)ls.textContent='近'+n+'天消耗';
   var lc=document.getElementById('dash-label-conv');if(lc)lc.textContent='近'+n+'天转化';
+  var ss=document.getElementById('dash-sub-spend');if(ss)ss.textContent=dashDateFrom+' ~ '+dashDateTo+' · USD';
+  var sc=document.getElementById('dash-sub-conv');if(sc)sc.textContent=dashDateFrom+' ~ '+dashDateTo+' · 次';
   var rl=document.getElementById('dashRangeLabel');if(rl)rl.textContent='近'+n+'天 ('+dashDateFrom+' ~ '+dashDateTo+')';
   var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent=' 近'+n+'天 ('+dashDateFrom+' ~ '+dashDateTo+') 消耗 TOP 广告';
  }
