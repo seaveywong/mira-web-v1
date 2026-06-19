@@ -78,6 +78,7 @@ def test_form_link_uses_worker_redirect():
         assert_true("https://shouhu.asia/api/landing-pages/events/ingest" in worker, "Worker must use HTTPS public ingest URL")
         assert_true("43.129.230.237" not in worker, "Worker config must not expose the server IP")
         assert_true("directFormRedirect" in worker, "Worker must handle root path as direct form redirect")
+        assert_true("mira_ad_slug" in worker, "Worker must preserve ad slug on redirect requests")
     finally:
         shutil.rmtree(template_dir, ignore_errors=True)
         if work_dir:
@@ -110,7 +111,43 @@ def test_normal_landing_page_keeps_template_and_targets():
             shutil.rmtree(work_dir, ignore_errors=True)
 
 
+def test_worker_landing_preserves_ad_slug_for_button_redirect():
+    template_dir = make_template_dir()
+    work_dir = None
+    try:
+        work_dir = Path(
+            prepare_template(
+                template_dir,
+                pixel_id="pixel-1",
+                target_urls=["https://wa.me/111"],
+                rotation_mode="sequential",
+                link_kind="landing",
+                worker_enabled=True,
+                tracking_enabled=True,
+                protection_enabled=False,
+                page_id=99,
+                ingest_secret="secret",
+                ingest_url="https://shouhu.asia/api/landing-pages/events/ingest",
+                route_url="https://shouhu.asia/api/landing-pages/router/next",
+            )
+        )
+        html = (work_dir / "index.html").read_text(encoding="utf-8")
+        worker = (work_dir / "_worker.js").read_text(encoding="utf-8")
+
+        assert_true('var RH_TARGET_URL = "/__mira/redirect";' in html, "worker landing should point CTA to server redirect")
+        assert_true("function withAdSlug" in html, "client tracker must decorate redirect links with the ad slug")
+        assert_true("mira_ad_slug" in html, "client tracker must append mira_ad_slug to redirect URLs")
+        assert_true("adSlugFromRequest" in worker, "Worker must recover slug from path, query, or referer")
+        assert_true("url.searchParams.get('mira_ad_slug')" in worker, "Worker must read slug from redirect query")
+        assert_true("request.headers.get('referer')" in worker, "Worker must recover slug from referer as fallback")
+    finally:
+        shutil.rmtree(template_dir, ignore_errors=True)
+        if work_dir:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_form_link_uses_worker_redirect()
     test_normal_landing_page_keeps_template_and_targets()
+    test_worker_landing_preserves_ad_slug_for_button_redirect()
     print("landing_publisher smoke tests passed")

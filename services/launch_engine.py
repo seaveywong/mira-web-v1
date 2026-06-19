@@ -2611,10 +2611,10 @@ class AutoPilotEngine:
         import json as _json
         act_id_num = act_id.replace("act_", "")
         _landing_link_reserved = None
+        _link_cache = None
+        _link_cache_key = ""
         if landing_url:
             try:
-                _link_cache = None
-                _link_cache_key = ""
                 if isinstance(asset_info, dict):
                     _link_cache = asset_info.setdefault("_mira_landing_link_cache", {})
                     _link_cache_key = "|".join([str(act_id or ""), str(adset_id or ""), str(name or ""), str(landing_url or "")])
@@ -2967,6 +2967,8 @@ class AutoPilotEngine:
             )
             ad_id = ad_data["id"]
             self._mark_landing_ad_link(_landing_link_reserved, "active", ad_id=ad_id)
+            if _link_cache is not None and _link_cache_key:
+                _link_cache.pop(_link_cache_key, None)
             return ad_id
         except Exception as _ad_create_err:
             self._mark_landing_ad_link(_landing_link_reserved, "failed", error_msg=str(_ad_create_err))

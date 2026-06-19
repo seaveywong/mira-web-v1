@@ -307,6 +307,27 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
     var m = String(location.pathname || '').match(/^\\/a\\/([A-Za-z0-9_-]{{4,64}})\\/?$/);
     return m ? m[1] : '';
   }}
+  function withAdSlug(url){{
+    var slug = adSlug();
+    if (!slug || !url) return url || '';
+    try {{
+      var u = new URL(url, location.origin);
+      if (u.pathname !== '/__mira/redirect') return url;
+      if (!u.searchParams.get('mira_ad_slug')) u.searchParams.set('mira_ad_slug', slug);
+      return u.pathname + u.search + u.hash;
+    }} catch(e) {{
+      return url;
+    }}
+  }}
+  function preserveAdSlug(){{
+    try {{
+      if (typeof window.RH_TARGET_URL === 'string') window.RH_TARGET_URL = withAdSlug(window.RH_TARGET_URL);
+      document.querySelectorAll('a[href]').forEach(function(a){{
+        var next = withAdSlug(a.getAttribute('href') || '');
+        if (next) a.setAttribute('href', next);
+      }});
+    }} catch(e) {{}}
+  }}
   function send(type, payload){{
     try {{
       var base = {{event_type:type,page_id:PAGE_ID,path:location.pathname,referrer:document.referrer||'',metadata:{{ad_slug:adSlug()}}}};
@@ -320,6 +341,10 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
   document.addEventListener('click', function(ev){{
     var el = ev.target && ev.target.closest ? ev.target.closest('a,button,[role=\"button\"],input[type=\"submit\"]') : null;
     if (!el) return;
+    if (el.getAttribute && el.hasAttribute('href')) {{
+      var nextHref = withAdSlug(el.getAttribute('href') || '');
+      if (nextHref) el.setAttribute('href', nextHref);
+    }}
     send('click', {{
       target_url: el.href || '',
       metadata: {{
@@ -338,6 +363,9 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
       }}
     }});
   }}, true);
+  preserveAdSlug();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', preserveAdSlug);
+  else setTimeout(preserveAdSlug, 0);
 }})();
 </script>
 """
@@ -452,11 +480,28 @@ function adSlugFromPath(pathname) {
   return m ? m[1] : '';
 }
 
+function adSlugFromRequest(request) {
+  try {
+    const url = new URL(request.url);
+    const fromPath = adSlugFromPath(url.pathname);
+    if (fromPath) return fromPath;
+    const fromQuery = url.searchParams.get('mira_ad_slug') || url.searchParams.get('ad_slug') || '';
+    if (/^[A-Za-z0-9_-]{4,64}$/.test(fromQuery)) return fromQuery;
+    const ref = request.headers.get('referer') || request.headers.get('referrer') || '';
+    if (ref) {
+      const refUrl = new URL(ref);
+      const fromRef = adSlugFromPath(refUrl.pathname);
+      if (fromRef) return fromRef;
+    }
+  } catch (e) {}
+  return '';
+}
+
 async function nextTargetFromServer(request) {
   if (!MIRA_CONFIG.route_url) return '';
   try {
     const url = new URL(request.url);
-    const adSlug = adSlugFromPath(url.pathname);
+    const adSlug = adSlugFromRequest(request);
     const resp = await fetch(MIRA_CONFIG.route_url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
@@ -539,7 +584,7 @@ function blockedResponse(reason) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const adSlug = adSlugFromPath(url.pathname);
+    const adSlug = adSlugFromRequest(request);
     if (url.pathname === '/__mira/event' && request.method === 'POST') {
       let body = {};
       try { body = await request.json(); } catch (e) {}
