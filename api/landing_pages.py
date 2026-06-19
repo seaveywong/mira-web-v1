@@ -2499,6 +2499,131 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
         conn.close()
 
 
+@router.post("/pages/{page_id}/republish")
+def republish_landing_page(page_id: int, request: Request, user=Depends(get_current_user)):
+    conn = get_conn()
+    page = _assert_page_access(conn, page_id, user)
+    if str(page.get("status") or "").lower() == "archived":
+        conn.close()
+        raise HTTPException(status_code=400, detail="已归档的落地页不能重新发布")
+
+    token_row = _assert_token_access(conn, int(page.get("cf_token_id") or 0), user)
+    template = _assert_template_access(conn, int(page.get("template_id") or 1), user)
+    raw_token = decrypt_token(token_row["access_token_enc"])
+    cf_account_id, cf_account_name = _resolve_token_account(token_row)
+    if not cf_account_id:
+        conn.close()
+        raise HTTPException(status_code=400, detail="发布通道没有选择默认发布账号，请先选择账号")
+
+    title = (page.get("title") or "").strip() or f"Landing {page_id}"
+    project_name = (page.get("project_name") or "").strip() or sanitize_project_name(title)
+    custom_domain = (page.get("custom_domain") or "").strip()
+    urls = [u for u in _json_loads(page.get("target_urls"), []) if isinstance(u, str) and u.strip()]
+    if not urls:
+        conn.close()
+        raise HTTPException(status_code=400, detail="该落地页没有可用跳转链接，无法重新发布")
+    link_kind = (page.get("link_kind") or "landing").strip().lower()
+    if link_kind not in {"landing", "form"}:
+        link_kind = "landing"
+    protection_rules = _safe_rules(_json_loads(page.get("protection_rules"), {}))
+    tracking_enabled = bool(page.get("tracking_enabled"))
+    protection_enabled = bool(page.get("protection_enabled"))
+    worker_enabled = bool(tracking_enabled or protection_enabled or link_kind == "form")
+    ingest_secret = (page.get("ingest_secret") or "").strip() or secrets.token_urlsafe(32)
+    bind_target = _effective_bind_target_for_link_kind(link_kind, page.get("bind_target") or "none")
+    bound_act_ids = _clean_act_ids(_json_loads(page.get("bound_act_ids"), []))
+    work_dir = None
+    try:
+        conn.execute(
+            """UPDATE landing_pages
+               SET status='deploying', ingest_secret=?, worker_enabled=?,
+                   last_error='', updated_at=datetime('now','+8 hours')
+               WHERE id=?""",
+            (ingest_secret, 1 if worker_enabled else 0, page_id),
+        )
+        conn.commit()
+        work_dir = prepare_template(
+            template["template_path"],
+            pixel_id=page.get("pixel_id") or "",
+            target_urls=urls,
+            rotation_mode=page.get("rotation_mode") or "sequential",
+            link_kind=link_kind,
+            worker_enabled=worker_enabled,
+            tracking_enabled=tracking_enabled,
+            protection_enabled=protection_enabled,
+            protection_rules=protection_rules,
+            page_id=page_id,
+            ingest_secret=ingest_secret,
+            ingest_url=_ingest_url(request),
+            route_url=_route_url(request),
+        )
+        response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
+        deployment_id = str(response.get("id") or "")
+        pages_url = response.get("url") or response.get("aliases", [None])[0] or page.get("pages_url") or ""
+        public_url = pages_url
+        domain_error = ""
+        domain_result = None
+        if custom_domain:
+            try:
+                domain_result = get_pages_custom_domain_status(raw_token, cf_account_id, project_name, custom_domain)
+                if _domain_status_usable(domain_result, None):
+                    public_url = f"https://{custom_domain}"
+            except CloudflareError as exc:
+                domain_error = f"Custom domain status refresh failed: {exc}"
+        binding = _bind_page_to_accounts(conn, bound_act_ids, bind_target, public_url, user)
+        response_payload = dict(response)
+        response_payload["republished_at"] = _now_cst()
+        if domain_result is not None:
+            response_payload["custom_domain_result"] = domain_result
+        note = page.get("note") or ""
+        if domain_error:
+            note += ("\n" if note else "") + domain_error
+        if binding.get("skipped"):
+            note += ("\n" if note else "") + "Republish binding skipped: " + json.dumps(binding.get("skipped", []), ensure_ascii=False)
+        conn.execute(
+            """UPDATE landing_pages
+               SET deployment_id=?, pages_url=?, cf_account_id=?, cf_account_name=?,
+                   raw_response=?, last_error=?, note=?, status='published',
+                   worker_enabled=?, updated_at=datetime('now','+8 hours')
+               WHERE id=?""",
+            (
+                deployment_id,
+                pages_url,
+                cf_account_id,
+                cf_account_name,
+                json.dumps(response_payload, ensure_ascii=False),
+                domain_error,
+                note,
+                1 if worker_enabled else 0,
+                page_id,
+            ),
+        )
+        conn.commit()
+        saved = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
+        item = _public_page(saved)
+        item["binding"] = binding
+        item["domain_error"] = domain_error
+        return {"success": True, "page": item}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        conn.execute(
+            "UPDATE landing_pages SET status='failed', last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+            (str(exc), page_id),
+        )
+        conn.commit()
+        raise HTTPException(status_code=400, detail=f"Republish failed: {exc}") from exc
+    finally:
+        if work_dir:
+            try:
+                import shutil
+
+                shutil.rmtree(work_dir, ignore_errors=True)
+            except Exception:
+                pass
+        conn.close()
+
+
 @router.post("/pages/{page_id}/refresh-domain")
 def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
     conn = get_conn()

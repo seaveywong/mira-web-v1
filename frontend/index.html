@@ -16502,6 +16502,7 @@ function renderLandingPages(){
    '<td style="padding:10px 12px">'+status+healthBadge+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
     copyBtns+
+    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="republishLandingPage('+p.id+')">重新发布</button>'+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="checkLandingHealth('+p.id+')">自检</button>'+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingStats('+p.id+')">统计</button>'+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingAdLinks('+p.id+')">广告链接</button>'+
@@ -16990,6 +16991,23 @@ async function publishLandingPage(){
   markPageStale('landing_center');
   await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}
+}
+async function republishLandingPage(id){
+ var ok=await confirmDialog('确认重新发布这个落地页？系统会保留原短码、统计密钥和项目名称，只把线上 HTML/Worker 更新为当前版本。');
+ if(!ok)return;
+ try{
+  toast('正在重新发布落地页，请稍候...','wa');
+  var res=await api('POST','/landing-pages/pages/'+id+'/republish',{});
+  var binding=(res&&res.page&&res.page.binding)||{};
+  var bound=(binding.bound||[]).length;
+  var skipped=(binding.skipped||[]).length;
+  var domainError=res&&res.page&&res.page.domain_error;
+  toast('重新发布成功'+(bound?'，已回绑 '+bound+' 个账户':'')+(skipped?'，跳过 '+skipped+' 个账户':'')+(domainError?'，自定义域状态待确认':''),domainError?'wa':'ok');
+  await loadLandingCenter(true);
+ }catch(e){
+  toast('重新发布失败：'+(e.message||e),'er');
+  await loadLandingCenter(true);
+ }
 }
 async function refreshLandingDomain(id){
  try{
