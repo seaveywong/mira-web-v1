@@ -1737,6 +1737,21 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-ops-card{padding:14px 16px;border:1px solid #e5e5ea;border-radius:10px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.035)}
 .landing-ops-card b{display:block;font-size:13px;color:#1d1d1f;margin-bottom:5px}
 .landing-ops-card span{display:block;font-size:12px;color:#6e6e73;line-height:1.45}
+.landing-simple-guide{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin:0 0 14px}
+.landing-guide-card{border:1px solid #e5e5ea;border-radius:12px;background:#fff;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
+.landing-guide-title{font-size:14px;font-weight:850;color:#1d1d1f;margin-bottom:8px}
+.landing-guide-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.landing-guide-step{padding:10px;border:1px solid #ededf2;border-radius:10px;background:#fbfbfd;min-height:84px}
+.landing-guide-step b{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#0071e3;color:#fff;font-size:12px;margin-bottom:7px}
+.landing-guide-step span{display:block;font-size:12px;font-weight:760;color:#1d1d1f;line-height:1.35}
+.landing-guide-step small{display:block;font-size:11px;color:#6e6e73;line-height:1.35;margin-top:4px}
+.landing-guide-note{display:flex;gap:8px;align-items:flex-start;padding:9px 10px;border-radius:10px;background:#f5f5f7;border:1px solid #e5e5ea;color:#515154;font-size:12px;line-height:1.5;margin-top:10px}
+.landing-domain-rules{display:grid;gap:8px}
+.landing-domain-rule{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.45;color:#515154}
+.landing-domain-rule b{color:#1d1d1f;min-width:64px}
+.landing-domain-dot{width:8px;height:8px;border-radius:50%;background:#0071e3;flex:0 0 8px;margin-top:5px}
+.landing-quick-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.landing-quick-actions .btn{height:32px!important;min-height:32px!important}
 .landing-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
 .landing-section-head .landing-section-title{margin:0}
 .landing-section-desc{font-size:12px;color:#6e6e73;line-height:1.45;margin-top:3px}
@@ -1789,6 +1804,8 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .team-resource-empty.error{color:#b42318;border-color:#fecdca;background:#fff5f5}
 @media(max-width:980px){
  .landing-flow{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .landing-simple-guide{grid-template-columns:1fr}
+ .landing-guide-steps{grid-template-columns:repeat(2,minmax(0,1fr))}
  .landing-form-grid,.landing-rule-groups,.team-resource-toolbar{grid-template-columns:1fr}
  .landing-ops-strip{grid-template-columns:1fr}
  .landing-switch-row .fc,.team-resource-actions .fc{width:100%!important;flex:1 1 220px!important}
@@ -1797,6 +1814,7 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 }
 @media(max-width:640px){
  .landing-flow{grid-template-columns:1fr}
+ .landing-guide-steps{grid-template-columns:1fr}
  .landing-actions{justify-content:stretch;flex-direction:column}
  .landing-actions .btn{width:100%}
  .team-resource-actions{display:grid;grid-template-columns:1fr}
@@ -3029,6 +3047,25 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <button class="btn btn-g" onclick="exportLandingUrlsCsv()">导出 CSV</button>
    <button class="btn btn-g role-hide-viewer" onclick="document.getElementById('importLandingCsv').click()">导入 CSV</button>
    <input type="file" id="importLandingCsv" accept=".csv" style="display:none" onchange="importLandingUrlsCsv(this)">
+ </div>
+ </div>
+ <div class="landing-simple-guide">
+  <div class="landing-guide-card">
+   <div class="landing-guide-title">这页只做一件事：给账户设置默认投放链接</div>
+   <div class="landing-guide-steps">
+    <div class="landing-guide-step"><b>1</b><span>销售/流量广告</span><small>填“落地页链接”，铺广告时自动带入。</small></div>
+    <div class="landing-guide-step"><b>2</b><span>Lead 表单广告</span><small>填“表单链接”，通常是 WhatsApp 或直跳链接。</small></div>
+    <div class="landing-guide-step"><b>3</b><span>矩阵筛选</span><small>多团队/多账户时先按矩阵筛选，减少填错。</small></div>
+    <div class="landing-guide-step"><b>4</b><span>批量维护</span><small>大量账户用 CSV 导入导出，少量账户直接保存。</small></div>
+   </div>
+  </div>
+  <div class="landing-guide-card">
+   <div class="landing-guide-title">域名绑定建议</div>
+   <div class="landing-domain-rules">
+    <div class="landing-domain-rule"><span class="landing-domain-dot"></span><div><b>优先</b>每个团队或主要矩阵使用自己的域名。</div></div>
+    <div class="landing-domain-rule"><span class="landing-domain-dot"></span><div><b>谨慎</b>多个无关团队共用同一域名，后期统计和风险隔离会变差。</div></div>
+    <div class="landing-domain-rule"><span class="landing-domain-dot"></span><div><b>检查</b>绑定前先在落地页工作台确认“自检通过”。</div></div>
+   </div>
   </div>
  </div>
  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
@@ -3048,7 +3085,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    </tbody>
   </table>
  </div>
- <div class="landing-url-hint">落地页链接用于销售/流量类广告；表单链接用于潜在客户广告。铺广告时优先使用所选账户的绑定链接，未绑定时再手动填写。
+ <div class="landing-url-hint">保存后铺广告会优先读取账户绑定链接：销售、流量、互动类广告读取“落地页链接”；Lead 表单或聊单场景读取“表单链接”。如果账户没有绑定，铺广告弹窗仍可手动选择或粘贴链接。
  </div>
 </div>
 
@@ -3075,6 +3112,33 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
  </div>
  <div class="landing-path-strip">
   <b>投放链路</b><span>发布链接</span><span>绑定账户</span><span>铺广告生成短码</span><span>回填真实进线</span>
+ </div>
+ <div class="landing-simple-guide">
+  <div class="landing-guide-card">
+   <div class="landing-guide-title">日常投放照这 4 步走</div>
+   <div class="landing-guide-steps">
+    <div class="landing-guide-step"><b>1</b><span>先发布一个主链接</span><small>选择域名、模板、跳转链接和统计规则。</small></div>
+    <div class="landing-guide-step"><b>2</b><span>把链接绑定到账户</span><small>铺广告时会自动带入，不用每次手填。</small></div>
+    <div class="landing-guide-step"><b>3</b><span>给广告用投放链接</span><small>在“广告链接”里复制推荐链接，带 <code>{{ad.id}}</code> 会自动绑定广告。</small></div>
+    <div class="landing-guide-step"><b>4</b><span>看数据和回填结果</span><small>没回填时看 FB 成效；有回填时按真实进线算成本。</small></div>
+   </div>
+   <div class="landing-guide-note"><b>推荐：</b><span>多条广告可以共用同一个短码，但投放时优先使用“复制投放链接”，格式是 <code>/a/短码?ad={{ad.id}}</code>。这样 Mira 能自动知道是哪条广告带来的访问和跳转。</span></div>
+   <div class="landing-quick-actions">
+    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布主链接</button>
+    <button class="btn btn-g" onclick="showPage('landing_urls')">绑定到账户</button>
+    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">管理像素/域名预设</button>
+   </div>
+  </div>
+  <div class="landing-guide-card">
+   <div class="landing-guide-title">域名怎么分配</div>
+   <div class="landing-domain-rules">
+    <div class="landing-domain-rule"><span class="landing-domain-dot"></span><div><b>同一团队</b>可以共用一个稳定主域名，方便账户绑定和统计。</div></div>
+    <div class="landing-domain-rule"><span class="landing-domain-dot"></span><div><b>不同团队</b>建议分开域名，避免互相影响，也方便权限隔离。</div></div>
+    <div class="landing-domain-rule"><span class="landing-domain-dot"></span><div><b>不同国家</b>或大批量测试时建议分开域名，方便后续看数据和替换。</div></div>
+    <div class="landing-domain-rule"><span class="landing-domain-dot"></span><div><b>发布以后</b>优先投自定义域名；备用域只用于自检和临时验证。</div></div>
+   </div>
+   <div class="landing-guide-note"><b>绑定关系：</b><span>域名、像素、落地页和默认跳转链接可以保存成“资产预设”，下次发布直接套用，避免填错。</span></div>
+  </div>
  </div>
  <div class="landing-flow">
   <div class="landing-flow-step"><b>1</b><span>保存发布通道 API</span></div>
@@ -3168,7 +3232,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-     <div class="fg"><label class="fl">自定义域名（可空）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">填写后会尝试绑定到发布站点；域名待验证时先使用备用域，复检可用后自动回绑自定义域。</div></div>
+     <div class="fg"><label class="fl">自定义域名（建议填写）</label><input class="fc" id="lpCustomDomain" placeholder="如：go.example.com"><div class="fh">建议按团队、矩阵或国家分配域名。域名待验证时先用备用域自检，复检可用后自动回绑自定义域。</div></div>
      <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><select class="fc" id="lpTemplate"></select></div>
      <div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"></div>
@@ -17355,28 +17419,39 @@ function _landingAttributionMode(item){
  var hasParam=hasAd&&!!String((item&&item.ad_param_url)||'').trim();
  if(hasParam)return {code:'ad_param',label:'广告参数',cls:'bg-ac',hint:'使用 /a?ad=广告ID 归因。适合在同一个页面入口下按广告 ID 分账；目标链接不会被追加参数。'};
  if(hasAd)return {code:'short_bound',label:'短码绑定',cls:'bg-ok',hint:'使用 /a/短码 归因，且该短码已绑定广告 ID，可读取对应广告消耗。'};
- return {code:'short_reserved',label:'短码预留',cls:'bg-mu',hint:'只有 /a/短码入口，尚未绑定广告 ID；可统计访问点击，但不能自动拉取该广告消耗。'};
+ return {code:'short_reserved',label:'待自动绑定',cls:'bg-wa',hint:'复制“投放链接”到广告后，用户点击时 Meta 会展开 ad 参数，Mira 会自动绑定广告 ID。'};
 }
 function _landingCopyBtn(label,url,cls){
  if(!url)return '';
  return '<button class="btn '+(cls||'btn-g')+' btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">'+escHtml(label)+'</button>';
 }
+function _landingAdMacroUrl(publicUrl){
+ var url=String(publicUrl||'').trim();
+ if(!url)return '';
+ if(/[?&](ad|ad_id|mira_ad_id)=/.test(url))return url;
+ return url+(url.indexOf('?')>=0?'&':'?')+'ad={{ad.id}}';
+}
 function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  stats=stats||{};
  var buttons=[];
- if(adParamUrl)buttons.push(_landingCopyBtn('复制参数',adParamUrl,'btn-p'));
- if(publicUrl)buttons.push(_landingCopyBtn('复制短码',publicUrl,adParamUrl?'btn-g':'btn-p'));
+ var macroUrl=adParamUrl||_landingAdMacroUrl(publicUrl);
+ if(macroUrl)buttons.push(_landingCopyBtn('复制投放链接',macroUrl,'btn-p'));
+ if(publicUrl)buttons.push(_landingCopyBtn('复制短码',publicUrl,'btn-g'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定广告')+'</button>');
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
  return '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center;min-width:180px">'+buttons.join('')+'</div>';
 }
 function _landingAdLinkUrlCell(publicUrl,adParamUrl,target,binding,item){
  var html='';
+ var macroUrl=adParamUrl||_landingAdMacroUrl(publicUrl);
+ if(macroUrl){
+  html+='<div style="display:flex;gap:6px;align-items:center;min-width:0"><span class="badge bg-ac">推荐投放</span><a target="_blank" href="'+escHtml(macroUrl)+'" style="color:var(--ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(macroUrl)+'</a></div>';
+ }
  if(adParamUrl){
-  html+='<div style="display:flex;gap:6px;align-items:center;min-width:0"><span class="badge bg-ac">参数入口</span><a target="_blank" href="'+escHtml(adParamUrl)+'" style="color:var(--ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(adParamUrl)+'</a></div>';
+  html+='<div style="display:flex;gap:6px;align-items:center;min-width:0;margin-top:5px"><span class="badge bg-mu">已绑定参数</span><a target="_blank" href="'+escHtml(adParamUrl)+'" style="color:var(--ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(adParamUrl)+'</a></div>';
  }
  if(publicUrl){
-  html+='<div style="display:flex;gap:6px;align-items:center;min-width:0;margin-top:'+(adParamUrl?'5px':'0')+'"><span class="badge bg-mu">短码入口</span><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(publicUrl)+'</a></div>';
+  html+='<div style="display:flex;gap:6px;align-items:center;min-width:0;margin-top:5px"><span class="badge bg-mu">测试短码</span><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(publicUrl)+'</a></div>';
  }
  if(!html)html='<span style="color:var(--t3)">暂无入口链接</span>';
  var targets=_landingItemTargets(item||{target_url:target});
@@ -17695,9 +17770,9 @@ function _landingAdLinksHtml(page, links){
    '<td style="padding:8px 10px;text-align:right">'+_landingAdLinkActionHtml(x,stats,(x.ad_id?'改绑定':'绑定广告'),url,adParamUrl)+'</td>'+
   '</tr>';
  }).join('');
- if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口链接。生成后，每条广告可用 /a/短码 或 /a?ad={{ad.id}} 归因，Mira 不改目标跳转链接。</td></tr>';
+ if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。点“生成链接”后，复制“投放链接”放进 FB 广告；用户点击后 Mira 会自动识别广告 ID。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
-  '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">同一个域名下用 /a/短码 或 /a?ad={{ad.id}} 区分广告入口；目标链接保持原样，真实进线可按短码或广告ID回填。</div></div>'+
+  '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">日常只需要复制“投放链接”到 FB 广告。它会带 <code>{{ad.id}}</code>，点击后自动绑定广告；“测试短码”只用于打开预览或单条广告。</div></div>'+
   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+')">导出映射</button><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成链接</button></div>'+
  '</div>'+
  '<div class="table-wrap" style="max-height:420px;overflow:auto"><table style="width:100%;min-width:900px;border-collapse:collapse">'+
@@ -18071,7 +18146,7 @@ function _landingAdMappingRows(items){
  items=Array.isArray(items)?items:[];
  var rows=[[
   'page_title','account_name','act_id','campaign_name','campaign_id','adset_name','adset_id',
-  'ad_name','ad_id','slug','short_url','ad_param_url','target_url','target_urls','status','spend_usd','spend_source',
+  'ad_name','ad_id','slug','campaign_url_for_fb','short_url','ad_param_url','target_url','target_urls','status','spend_usd','spend_source',
   'fb_conversions','final_true_contact','confirmed_actions','confirmed_sales','true_cost_usd',
   'true_cost_target_usd','true_cost_status','target_binding_status','target_binding_label',
   'visits','clicks','whatsapp_redirects','result_date','note'
@@ -18095,6 +18170,7 @@ function _landingAdMappingRows(items){
    x.ad_name||'',
    x.ad_id||'',
    x.slug||'',
+   x.ad_param_url||_landingAdMacroUrl(x.public_url||''),
    x.public_url||'',
    x.ad_param_url||'',
    x.target_url||'',
