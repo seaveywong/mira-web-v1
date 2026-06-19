@@ -99,6 +99,7 @@ class LandingRouteNextReq(BaseModel):
 
 class LandingAdLinkCreate(BaseModel):
     count: int = Field(default=1, ge=1, le=200)
+    target_urls: list[str] = []
     act_id: Optional[str] = None
     account_name: Optional[str] = None
     campaign_id: Optional[str] = None
@@ -687,6 +688,7 @@ def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
     ).fetchall()
     out = {r["event_type"]: int(r["cnt"] or 0) for r in rows}
     whatsapp_click = 0
+    whatsapp_redirect = 0
     try:
         row = conn.execute(
             """SELECT COUNT(*) AS cnt
@@ -700,8 +702,21 @@ def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
             (page_id, path),
         ).fetchone()
         whatsapp_click = int(row["cnt"] or 0) if row else 0
+        row = conn.execute(
+            """SELECT COUNT(*) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND path=? AND event_type='redirect'
+                 AND (
+                   lower(COALESCE(target_url,'')) LIKE '%whatsapp%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%wa.me/%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%api.whatsapp.com%'
+                 )""",
+            (page_id, path),
+        ).fetchone()
+        whatsapp_redirect = int(row["cnt"] or 0) if row else 0
     except Exception:
         whatsapp_click = 0
+        whatsapp_redirect = 0
 
     spend = 0.0
     fb_conversions = 0.0
@@ -746,13 +761,18 @@ def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
     visits = out.get("visit", 0)
     clicks = out.get("click", 0)
     redirects = out.get("redirect", 0)
+    submits = out.get("submit", 0)
+    true_contact = max(whatsapp_redirect, submits, redirects, whatsapp_click)
     return {
         "visit": visits,
         "click": clicks,
         "redirect": redirects,
+        "submit": submits,
         "block": out.get("block", 0),
         "whatsapp_click": whatsapp_click,
-        "message_click": whatsapp_click,
+        "whatsapp_redirect": whatsapp_redirect,
+        "message_click": whatsapp_redirect or whatsapp_click,
+        "true_contact": true_contact,
         "spend": round(spend, 4),
         "fb_conversions": fb_conversions,
         "fb_clicks": fb_clicks,
@@ -760,7 +780,10 @@ def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
         "cost_per_visit": _cost(visits),
         "cost_per_click": _cost(clicks),
         "cost_per_whatsapp_click": _cost(whatsapp_click),
+        "cost_per_whatsapp_redirect": _cost(whatsapp_redirect),
         "cost_per_redirect": _cost(redirects),
+        "cost_per_submit": _cost(submits),
+        "cost_per_true_contact": _cost(true_contact),
         "last_synced_at": last_synced_at,
         "total": sum(out.values()),
     }
@@ -774,6 +797,36 @@ def _target_location_matches(location: str, targets: list[str]) -> bool:
     for target in targets or []:
         target_norm = _normalize_url_for_match(target)
         if target_norm and (loc_norm == target_norm or loc_norm.startswith(target_norm + "?")):
+            return True
+    return False
+
+
+def _ad_slug_from_path(path: str) -> str:
+    raw = (path or "").strip().split("?", 1)[0].strip("/")
+    parts = raw.split("/")
+    if len(parts) == 2 and parts[0] == "a":
+        slug = parts[1].strip()
+        if 4 <= len(slug) <= 64 and all(ch.isalnum() or ch in "_-" for ch in slug):
+            return slug
+    return ""
+
+
+def _target_is_current_landing(target_url: str, page: dict) -> bool:
+    target = _normalize_url_for_match(target_url)
+    if not target:
+        return True
+    if target.startswith("/__mira/"):
+        return True
+    candidates = []
+    for key in ("pages_url", "public_url"):
+        val = (page.get(key) or "").strip() if page else ""
+        if val:
+            candidates.append(_normalize_url_for_match(val))
+    custom_domain = (page.get("custom_domain") or "").strip() if page else ""
+    if custom_domain:
+        candidates.append(_normalize_url_for_match("https://" + custom_domain))
+    for base in [c for c in candidates if c]:
+        if target == base or target.startswith(base + "/a/") or target.startswith(base + "/__mira/"):
             return True
     return False
 
@@ -1458,12 +1511,15 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
         base_url = _page_public_url(page_public)
         if not base_url:
             raise HTTPException(status_code=400, detail="该落地页还没有可用主链接，发布成功后才能生成广告级链接")
+        target_urls = [u.strip() for u in (body.target_urls or []) if isinstance(u, str) and u.strip()]
         count = max(1, min(int(body.count or 1), 200))
+        if target_urls:
+            count = min(max(count, len(target_urls)), 200)
         act_id = (_clean_act_ids([body.act_id or ""]) or [""])[0]
         team_id = page.get("team_id")
         owner_id = page.get("owner_user_id") if page.get("owner_user_id") is not None else (user_id(user) if is_operator_user(user) else None)
         created = []
-        for _ in range(count):
+        for idx in range(count):
             slug = _short_slug()
             for _attempt in range(8):
                 exists = conn.execute("SELECT 1 FROM landing_ad_links WHERE slug=?", (slug,)).fetchone()
@@ -1491,7 +1547,7 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
                     _truncate(body.adset_name, 255),
                     _truncate(body.ad_id, 80),
                     _truncate(body.ad_name, 255),
-                    _truncate(body.target_url, 1000),
+                    _truncate((target_urls[idx % len(target_urls)] if target_urls else body.target_url), 1000),
                     "active" if body.ad_id else "reserved",
                     _truncate(body.note, 1000),
                     team_id,
@@ -1892,7 +1948,7 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
     try:
         conn.execute("BEGIN IMMEDIATE")
         page = conn.execute(
-            """SELECT id, ingest_secret, target_urls, rotation_mode, status
+            """SELECT id, ingest_secret, target_urls, rotation_mode, status, pages_url, custom_domain
                FROM landing_pages
                WHERE id=?""",
             (body.page_id,),
@@ -1905,6 +1961,26 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
         ):
             conn.rollback()
             raise HTTPException(status_code=403, detail="invalid landing route secret")
+        slug = _ad_slug_from_path(body.path or "") or str((body.metadata or {}).get("ad_slug") or "").strip()
+        if slug:
+            link = conn.execute(
+                """SELECT target_url FROM landing_ad_links
+                   WHERE page_id=? AND slug=?
+                     AND COALESCE(status,'reserved') NOT IN ('paused','archived','failed','unused')
+                   LIMIT 1""",
+                (body.page_id, slug),
+            ).fetchone()
+            target_url = (link["target_url"] if link else "") or ""
+            if target_url and not _target_is_current_landing(target_url, dict(page)):
+                conn.commit()
+                return {
+                    "success": True,
+                    "target_url": target_url,
+                    "index": 0,
+                    "total": 1,
+                    "mode": "ad_link",
+                    "slug": slug,
+                }
         urls = [u for u in _json_loads(page["target_urls"], []) if isinstance(u, str) and u.strip()]
         if not urls:
             conn.rollback()
@@ -1952,7 +2028,7 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
 
 @router.post("/events/ingest")
 async def ingest_landing_event(body: LandingEventIngest, request: Request):
-    allowed_events = {"visit", "pass", "block", "click", "redirect", "error"}
+    allowed_events = {"visit", "pass", "block", "click", "redirect", "submit", "error"}
     event_type = (body.event_type or "").strip().lower()
     if event_type not in allowed_events:
         raise HTTPException(status_code=400, detail="invalid event_type")

@@ -4135,6 +4135,35 @@ function promptAsync(title, label, defaultVal, placeholder) {
  });
 }
 
+function promptTextareaAsync(title, label, defaultVal, placeholder) {
+ placeholder = placeholder || label || '';
+ return new Promise(function(resolve) {
+  var moId = 'moPromptTextarea_' + Date.now();
+  var inputId = moId + '_input';
+  var mo = document.createElement('div');
+  mo.className = 'mo';
+  mo.id = moId;
+  mo.innerHTML = '<div class="modal" style="max-width:520px;width:92%">' +
+   '<div class="mh"><h3 style="margin:0;font-size:15px">' + title + '</h3>' +
+   '<button class="mc" id="' + moId + '_x">✕</button></div>' +
+   '<div class="mb" style="padding:20px 24px">' +
+   (label ? '<label class="fl" style="margin-bottom:8px;font-size:13px">' + label + '</label>' : '') +
+   '<textarea class="fc" id="' + inputId + '" rows="7" placeholder="' + escHtml(placeholder) + '" style="width:100%;box-sizing:border-box;resize:vertical">' + escHtml(defaultVal || '') + '</textarea>' +
+   '</div>' +
+   '<div class="mf" style="gap:10px">' +
+   '<button class="btn btn-g" id="' + moId + '_cancel">跳过</button>' +
+   '<button class="btn btn-p" id="' + moId + '_ok">确定</button>' +
+   '</div></div>';
+  document.body.appendChild(mo);
+  openModal(moId);
+  var cleanup = function(val) { closeModal(moId); setTimeout(function(){mo.remove();},300); resolve(val); };
+  document.getElementById(moId + '_ok').onclick = function() { cleanup(document.getElementById(inputId).value); };
+  document.getElementById(moId + '_cancel').onclick = function() { cleanup(''); };
+  document.getElementById(moId + '_x').onclick = function() { cleanup(null); };
+  setTimeout(function(){ var inp=document.getElementById(inputId); if(inp) inp.focus(); }, 60);
+ });
+}
+
 // ── showInfo: 替代 alert 的美观弹窗 ─────────────────────────────────────────
 function showInfo(htmlContent, titleText) {
  titleText = titleText || ' 信息';
@@ -16342,7 +16371,7 @@ function _landingAdLinksHtml(page, links){
  var rows=links.map(function(x){
   var stats=x.stats||{};
   var spend=Number(stats.spend||0);
-  var realCost=stats.cost_per_whatsapp_click||stats.cost_per_redirect||stats.cost_per_click||null;
+  var realCost=stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||stats.cost_per_whatsapp_click||stats.cost_per_click||null;
   var status=x.status||'reserved';
   var meta=[
    x.act_id?('账户 '+x.act_id):'',
@@ -16351,12 +16380,13 @@ function _landingAdLinksHtml(page, links){
    x.ad_id?('广告 '+x.ad_id):''
   ].filter(Boolean).join(' · ')||'待回填广告信息';
   var url=x.public_url||'';
+  var target=x.target_url||'';
   return '<tr>'+
    '<td style="padding:8px 10px"><div style="display:flex;gap:8px;align-items:center"><b style="font-weight:760">'+escHtml(x.slug||'')+'</b><span class="badge '+(status==='active'?'bg-ok':status==='failed'?'bg-er':'bg-mu')+'">'+escHtml(statusMap[status]||status)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(meta)+'</div></td>'+
-   '<td style="padding:8px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(url)+'" style="color:var(--ac)">'+escHtml(url)+'</a></td>'+
+   '<td style="padding:8px 10px;max-width:300px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(url)+'" style="color:var(--ac)">'+escHtml(url)+'</a>'+(target?'<div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">专属跳转：'+escHtml(target)+'</div>':'<div style="font-size:11px;color:var(--t3);margin-top:3px">使用落地页全局轮询</div>')+'</td>'+
    '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">'+
-     '<div>访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+' · WhatsApp '+(stats.whatsapp_click||0)+' · 跳转 '+(stats.redirect||0)+' · 拦截 '+(stats.block||0)+'</div>'+
-     '<div style="margin-top:3px;color:var(--t3)">FB消耗 '+money(spend)+' · FB成效 '+(stats.fb_conversions||0)+' · 真实点击成本 '+cost(realCost)+'</div>'+
+     '<div>访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+' · 有效动作 '+(stats.true_contact||0)+' · 表单 '+(stats.submit||0)+' · WA跳转 '+(stats.whatsapp_redirect||0)+' · 拦截 '+(stats.block||0)+'</div>'+
+     '<div style="margin-top:3px;color:var(--t3)">FB消耗 '+money(spend)+' · FB成效 '+(stats.fb_conversions||0)+' · 真实成本 '+cost(realCost)+'</div>'+
    '</td>'+
    '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button></td>'+
   '</tr>';
@@ -16384,8 +16414,12 @@ async function createLandingAdLinks(pageId){
  if(raw==null)return;
  var count=parseInt(String(raw).trim(),10)||0;
  if(count<1||count>200){toast('数量需要在 1-200 之间','wa');return;}
+ var targetRaw=await promptTextareaAsync('专属跳转链接（可选）','每行一个 WhatsApp / 跳转链接。填写后会按顺序绑定到每个短码；留空则使用落地页全局轮询。','','https://wa.me/...\nhttps://api.whatsapp.com/send?phone=...');
+ if(targetRaw==null)return;
+ var targetUrls=String(targetRaw||'').split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+ if(targetUrls.length) count=Math.min(200, Math.max(count, targetUrls.length));
  try{
-  var res=await api('POST','/landing-pages/pages/'+pageId+'/ad-links',{count:count});
+  var res=await api('POST','/landing-pages/pages/'+pageId+'/ad-links',{count:count,target_urls:targetUrls});
   toast('已生成 '+(((res||{}).links||[]).length||count)+' 条广告级链接','ok');
   await showLandingAdLinks(pageId);
  }catch(e){

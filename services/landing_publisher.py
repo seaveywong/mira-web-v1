@@ -328,6 +328,16 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
       }}
     }});
   }}, true);
+  document.addEventListener('submit', function(ev){{
+    var form = ev.target || null;
+    send('submit', {{
+      target_url: form && form.action ? form.action : '',
+      metadata: {{
+        form_id: form && form.id ? String(form.id).slice(0,120) : '',
+        form_name: form && form.name ? String(form.name).slice(0,120) : ''
+      }}
+    }});
+  }}, true);
 }})();
 </script>
 """
@@ -443,10 +453,10 @@ function adSlugFromPath(pathname) {
 }
 
 async function nextTargetFromServer(request) {
-  const mode = String(MIRA_CONFIG.rotation_mode || 'sequential').toLowerCase();
-  if (mode !== 'sequential' || !MIRA_CONFIG.route_url) return '';
+  if (!MIRA_CONFIG.route_url) return '';
   try {
     const url = new URL(request.url);
+    const adSlug = adSlugFromPath(url.pathname);
     const resp = await fetch(MIRA_CONFIG.route_url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
@@ -457,7 +467,8 @@ async function nextTargetFromServer(request) {
         referrer: request.headers.get('referer') || '',
         metadata: {
           host: url.hostname,
-          search: String(url.search || '').slice(0, 500)
+          search: String(url.search || '').slice(0, 500),
+          ad_slug: adSlug
         }
       })
     });
@@ -471,12 +482,12 @@ async function nextTargetFromServer(request) {
 
 async function selectTarget(request) {
   const urls = Array.isArray(MIRA_CONFIG.target_urls) ? MIRA_CONFIG.target_urls.filter(Boolean) : [];
+  const serverTarget = await nextTargetFromServer(request);
+  if (serverTarget) return serverTarget;
   if (!urls.length) return '';
   const mode = String(MIRA_CONFIG.rotation_mode || 'sequential').toLowerCase();
   if (mode === 'first') return urls[0];
   if (mode === 'random') return urls[Math.floor(Math.random() * urls.length)];
-  const serverTarget = await nextTargetFromServer(request);
-  if (serverTarget) return serverTarget;
   const cookies = parseCookie(request.headers.get('cookie') || '');
   const current = Math.max(parseInt(cookies.mira_rt_idx || '0', 10) || 0, 0);
   return urls[current % urls.length];

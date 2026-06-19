@@ -3131,7 +3131,7 @@ class AutoPilotEngine:
         conn = get_conn()
         try:
             rows = conn.execute(
-                """SELECT id, pages_url, custom_domain, team_id, owner_user_id
+                """SELECT id, pages_url, custom_domain, target_urls, team_id, owner_user_id
                    FROM landing_pages
                    WHERE status='published'
                      AND (COALESCE(pages_url,'')!='' OR COALESCE(custom_domain,'')!='')
@@ -3178,9 +3178,23 @@ class AutoPilotEngine:
         page = self._find_published_landing_page_for_url(landing_url)
         if not page:
             return None
+        stored_target_url = target_url or ""
+        if stored_target_url and self._landing_link_base(stored_target_url) == self._landing_link_base(landing_url):
+            stored_target_url = ""
         conn = get_conn()
         try:
             slug = self._new_landing_slug(conn)
+            if not stored_target_url:
+                page_targets = [
+                    u.strip() for u in self._parse_json_field(page.get("target_urls"), [])
+                    if isinstance(u, str) and u.strip()
+                ]
+                if page_targets:
+                    existing_count = conn.execute(
+                        "SELECT COUNT(*) FROM landing_ad_links WHERE page_id=?",
+                        (page["id"],),
+                    ).fetchone()[0]
+                    stored_target_url = page_targets[int(existing_count or 0) % len(page_targets)]
             public_url = f"{str(page.get('public_url') or '').rstrip('/')}/a/{slug}"
             conn.execute(
                 """INSERT INTO landing_ad_links
@@ -3199,7 +3213,7 @@ class AutoPilotEngine:
                     str(adset_id or "")[:80],
                     (adset_name or "")[:255],
                     (ad_name or "")[:255],
-                    (target_url or landing_url or "")[:1000],
+                    (stored_target_url or "")[:1000],
                     "reserved",
                     "auto_launch",
                     page.get("team_id"),
