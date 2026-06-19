@@ -2968,22 +2968,22 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      <div class="landing-rule-groups">
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">地区</div>
-       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="ptCountryAllow" oninput="renderProtectionTemplateSummary()" placeholder="US,SG,TW"></div>
-       <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="ptCountryBlock" oninput="renderProtectionTemplateSummary()" placeholder="CN,RU"></div>
+       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="ptCountryAllow" list="landingCountryOptions" oninput="renderProtectionTemplateSummary()" placeholder="US,SG,TW"></div>
+       <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="ptCountryBlock" list="landingCountryOptions" oninput="renderProtectionTemplateSummary()" placeholder="CN,RU"></div>
       </div>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">设备与环境</div>
-       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="ptDeviceBlock" oninput="renderProtectionTemplateSummary()" placeholder="desktop,tablet"></div>
-       <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="ptPlatformBlock" oninput="renderProtectionTemplateSummary()" placeholder="Windows,Android"></div>
-       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="ptUaBlock" oninput="renderProtectionTemplateSummary()" placeholder="bot,crawler,spider"></div>
+       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="ptDeviceBlock" list="landingDeviceOptions" oninput="renderProtectionTemplateSummary()" placeholder="desktop,tablet"></div>
+       <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="ptPlatformBlock" list="landingPlatformOptions" oninput="renderProtectionTemplateSummary()" placeholder="Windows,Android"></div>
+       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="ptUaBlock" list="landingUaOptions" oninput="renderProtectionTemplateSummary()" placeholder="bot,crawler,spider"></div>
       </div>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">来源与参数</div>
-       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="ptSourceAllow" oninput="renderProtectionTemplateSummary()" placeholder="FB,IG,TK"></div>
-       <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="ptSourceBlock" oninput="renderProtectionTemplateSummary()" placeholder="Unknown,TK"></div>
-       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="ptRefererBlock" oninput="renderProtectionTemplateSummary()" placeholder="example.com"></div>
-       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="ptQueryBlock" oninput="renderProtectionTemplateSummary()" placeholder="test,preview"></div>
-       <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="ptRequiredQuery" oninput="renderProtectionTemplateSummary()" placeholder="utm_source 或 fbclid"></div>
+       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="ptSourceAllow" list="landingSourceOptions" oninput="renderProtectionTemplateSummary()" placeholder="FB,IG,TK"></div>
+       <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="ptSourceBlock" list="landingSourceOptions" oninput="renderProtectionTemplateSummary()" placeholder="Unknown,TK"></div>
+       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="ptRefererBlock" list="landingRefererOptions" oninput="renderProtectionTemplateSummary()" placeholder="example.com"></div>
+       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="ptQueryBlock" list="landingQueryOptions" oninput="renderProtectionTemplateSummary()" placeholder="test,preview"></div>
+       <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="ptRequiredQuery" list="landingRequiredQueryOptions" oninput="renderProtectionTemplateSummary()" placeholder="utm_source 或 fbclid"></div>
       </div>
      </div>
      <div id="ptProtectionSummary" class="landing-rule-summary"></div>
@@ -3044,24 +3044,24 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">地区</div>
        <div class="landing-rule-card-desc">国家代码使用 ISO 两位码，例如 US、SG、TW。</div>
-       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" oninput="renderLandingProtectionSummary()" placeholder="US,SG,TW；空=不限制"></div>
-       <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" oninput="renderLandingProtectionSummary()" placeholder="CN,RU"></div>
+       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" list="landingCountryOptions" oninput="renderLandingProtectionSummary()" placeholder="US,SG,TW；空=不限制"></div>
+       <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" list="landingCountryOptions" oninput="renderLandingProtectionSummary()" placeholder="CN,RU"></div>
       </div>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">设备与环境</div>
        <div class="landing-rule-card-desc">用于排除明确不投放的设备或异常 UA，避免过度配置。</div>
-       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" oninput="renderLandingProtectionSummary()" placeholder="mobile,desktop,tablet"></div>
-       <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="lpPlatformBlock" oninput="renderLandingProtectionSummary()" placeholder="Windows,Android,iOS"></div>
-       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" oninput="renderLandingProtectionSummary()" placeholder="bot,crawler,spider"></div>
+       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" list="landingDeviceOptions" oninput="renderLandingProtectionSummary()" placeholder="mobile,desktop,tablet"></div>
+       <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="lpPlatformBlock" list="landingPlatformOptions" oninput="renderLandingProtectionSummary()" placeholder="Windows,Android,iOS"></div>
+       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" list="landingUaOptions" oninput="renderLandingProtectionSummary()" placeholder="bot,crawler,spider"></div>
       </div>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">来源与参数</div>
        <div class="landing-rule-card-desc">适合要求链接必须带指定追踪参数，或屏蔽测试参数。</div>
-       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="lpSourceAllow" oninput="renderLandingProtectionSummary()" placeholder="FB,IG,TK,Google；空=不限制"></div>
-       <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="lpSourceBlock" oninput="renderLandingProtectionSummary()" placeholder="Unknown,TK"></div>
-       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" oninput="renderLandingProtectionSummary()" placeholder="example.com"></div>
-       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" oninput="renderLandingProtectionSummary()" placeholder="test,preview"></div>
-       <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" oninput="renderLandingProtectionSummary()" placeholder="utm_source 或 fbclid"></div>
+       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="lpSourceAllow" list="landingSourceOptions" oninput="renderLandingProtectionSummary()" placeholder="FB,IG,TK,Google；空=不限制"></div>
+       <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="lpSourceBlock" list="landingSourceOptions" oninput="renderLandingProtectionSummary()" placeholder="Unknown,TK"></div>
+       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" list="landingRefererOptions" oninput="renderLandingProtectionSummary()" placeholder="example.com"></div>
+       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" list="landingQueryOptions" oninput="renderLandingProtectionSummary()" placeholder="test,preview"></div>
+       <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" list="landingRequiredQueryOptions" oninput="renderLandingProtectionSummary()" placeholder="utm_source 或 fbclid"></div>
       </div>
      </div>
      <div id="lpProtectionSummary" class="landing-rule-summary"></div>
@@ -3121,6 +3121,106 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
   </div>
  </div>
 </div>
+
+
+<datalist id="landingCountryOptions">
+ <option value="SG" label="Singapore"></option>
+ <option value="VN" label="Vietnam"></option>
+ <option value="TH" label="Thailand"></option>
+ <option value="MY" label="Malaysia"></option>
+ <option value="PH" label="Philippines"></option>
+ <option value="ID" label="Indonesia"></option>
+ <option value="TW" label="Taiwan"></option>
+ <option value="HK" label="Hong Kong"></option>
+ <option value="JP" label="Japan"></option>
+ <option value="KR" label="South Korea"></option>
+ <option value="US" label="United States"></option>
+ <option value="CA" label="Canada"></option>
+ <option value="AU" label="Australia"></option>
+ <option value="GB" label="United Kingdom"></option>
+ <option value="DE" label="Germany"></option>
+ <option value="FR" label="France"></option>
+ <option value="ES" label="Spain"></option>
+ <option value="IT" label="Italy"></option>
+ <option value="BR" label="Brazil"></option>
+ <option value="MX" label="Mexico"></option>
+ <option value="AE" label="United Arab Emirates"></option>
+ <option value="SA" label="Saudi Arabia"></option>
+ <option value="IN" label="India"></option>
+ <option value="CN" label="China"></option>
+ <option value="RU" label="Russia"></option>
+</datalist>
+<datalist id="landingSourceOptions">
+ <option value="FB" label="Facebook"></option>
+ <option value="facebook" label="Facebook"></option>
+ <option value="IG" label="Instagram"></option>
+ <option value="instagram" label="Instagram"></option>
+ <option value="TK" label="TikTok"></option>
+ <option value="tiktok" label="TikTok"></option>
+ <option value="Google" label="Google"></option>
+ <option value="Bing" label="Bing"></option>
+ <option value="WhatsApp" label="WhatsApp"></option>
+ <option value="Telegram" label="Telegram"></option>
+ <option value="Unknown" label="Unknown"></option>
+</datalist>
+<datalist id="landingDeviceOptions">
+ <option value="mobile"></option>
+ <option value="desktop"></option>
+ <option value="tablet"></option>
+</datalist>
+<datalist id="landingPlatformOptions">
+ <option value="Android"></option>
+ <option value="iOS"></option>
+ <option value="Windows"></option>
+ <option value="macOS"></option>
+ <option value="Linux"></option>
+ <option value="Chrome"></option>
+ <option value="Safari"></option>
+ <option value="Firefox"></option>
+ <option value="Edge"></option>
+</datalist>
+<datalist id="landingUaOptions">
+ <option value="bot"></option>
+ <option value="crawler"></option>
+ <option value="spider"></option>
+ <option value="HeadlessChrome"></option>
+ <option value="selenium"></option>
+ <option value="playwright"></option>
+ <option value="phantom"></option>
+ <option value="python"></option>
+ <option value="curl"></option>
+ <option value="wget"></option>
+ <option value="axios"></option>
+</datalist>
+<datalist id="landingRefererOptions">
+ <option value="localhost"></option>
+ <option value="preview"></option>
+ <option value="staging"></option>
+ <option value="test"></option>
+ <option value="debug"></option>
+ <option value="business.facebook.com"></option>
+ <option value="facebook.com"></option>
+ <option value="instagram.com"></option>
+ <option value="tiktok.com"></option>
+ <option value="google.com"></option>
+</datalist>
+<datalist id="landingQueryOptions">
+ <option value="preview"></option>
+ <option value="test"></option>
+ <option value="debug"></option>
+ <option value="admin"></option>
+ <option value="utm_preview"></option>
+ <option value="fbclid_test"></option>
+</datalist>
+<datalist id="landingRequiredQueryOptions">
+ <option value="fbclid"></option>
+ <option value="utm_source"></option>
+ <option value="utm_campaign"></option>
+ <option value="utm_content"></option>
+ <option value="utm_medium"></option>
+ <option value="ad_id"></option>
+ <option value="campaign_id"></option>
+</datalist>
 
 
     <div class="page" id="page-team_admin">
@@ -17722,18 +17822,18 @@ function _landingRuleValue(r,key){
 function _landingRuntimeRuleFields(r){
  return '<div class="landing-rule-groups">'+
   '<div class="landing-rule-card"><div class="landing-rule-card-title">地区</div><div class="landing-rule-card-desc">国家代码使用 ISO 两位码。</div>'+
-   '<div class="fg"><label class="fl">只允许国家</label><input class="fc" id="rtCountryAllow" placeholder="US,SG,TW" value="'+escHtml(_landingRuleValue(r,'country_allow'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截国家</label><input class="fc" id="rtCountryBlock" placeholder="CN,RU" value="'+escHtml(_landingRuleValue(r,'country_block'))+'"></div></div>'+
+   '<div class="fg"><label class="fl">只允许国家</label><input class="fc" id="rtCountryAllow" list="landingCountryOptions" placeholder="US,SG,TW" value="'+escHtml(_landingRuleValue(r,'country_allow'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截国家</label><input class="fc" id="rtCountryBlock" list="landingCountryOptions" placeholder="CN,RU" value="'+escHtml(_landingRuleValue(r,'country_block'))+'"></div></div>'+
   '<div class="landing-rule-card"><div class="landing-rule-card-title">设备与环境</div><div class="landing-rule-card-desc">排除明确不投放的设备、系统或 UA。</div>'+
-   '<div class="fg"><label class="fl">拦截设备</label><input class="fc" id="rtDeviceBlock" placeholder="mobile,desktop,tablet" value="'+escHtml(_landingRuleValue(r,'device_block'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截系统/浏览器</label><input class="fc" id="rtPlatformBlock" placeholder="Windows,Android,iOS" value="'+escHtml(_landingRuleValue(r,'platform_block'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="rtUaBlock" placeholder="bot,crawler,spider" value="'+escHtml(_landingRuleValue(r,'ua_block'))+'"></div></div>'+
+   '<div class="fg"><label class="fl">拦截设备</label><input class="fc" id="rtDeviceBlock" list="landingDeviceOptions" placeholder="mobile,desktop,tablet" value="'+escHtml(_landingRuleValue(r,'device_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截系统/浏览器</label><input class="fc" id="rtPlatformBlock" list="landingPlatformOptions" placeholder="Windows,Android,iOS" value="'+escHtml(_landingRuleValue(r,'platform_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="rtUaBlock" list="landingUaOptions" placeholder="bot,crawler,spider" value="'+escHtml(_landingRuleValue(r,'ua_block'))+'"></div></div>'+
   '<div class="landing-rule-card"><div class="landing-rule-card-title">来源与参数</div><div class="landing-rule-card-desc">来源平台支持 FB、IG、TK、Google、Unknown 等。</div>'+
-   '<div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="rtSourceAllow" placeholder="FB,IG,TK,Google" value="'+escHtml(_landingRuleValue(r,'source_allow'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="rtSourceBlock" placeholder="Unknown,TK" value="'+escHtml(_landingRuleValue(r,'source_block'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="rtRefererBlock" placeholder="example.com" value="'+escHtml(_landingRuleValue(r,'referer_block'))+'"></div>'+
-   '<div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="rtQueryBlock" placeholder="test,preview" value="'+escHtml(_landingRuleValue(r,'query_block'))+'"></div>'+
-   '<div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="rtRequiredQuery" placeholder="utm_source 或 fbclid" value="'+escHtml(_landingRuleValue(r,'required_query'))+'"></div></div>'+
+   '<div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="rtSourceAllow" list="landingSourceOptions" placeholder="FB,IG,TK,Google" value="'+escHtml(_landingRuleValue(r,'source_allow'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="rtSourceBlock" list="landingSourceOptions" placeholder="Unknown,TK" value="'+escHtml(_landingRuleValue(r,'source_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="rtRefererBlock" list="landingRefererOptions" placeholder="example.com" value="'+escHtml(_landingRuleValue(r,'referer_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="rtQueryBlock" list="landingQueryOptions" placeholder="test,preview" value="'+escHtml(_landingRuleValue(r,'query_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="rtRequiredQuery" list="landingRequiredQueryOptions" placeholder="utm_source 或 fbclid" value="'+escHtml(_landingRuleValue(r,'required_query'))+'"></div></div>'+
  '</div>';
 }
 function toggleLandingRuntimeProtectionRules(){
