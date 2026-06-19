@@ -6681,7 +6681,7 @@ function setDashCustom(){
  var tt=document.getElementById('topAdsTitle');if(tt)tt.textContent=' '+rangeLabel+' 消耗 TOP 广告';
  loadDash();
 }
-function setDashRange(v){
+function setDashRange(v, skipLoad){
  var today=new Date(),fmt=function(d){return new Date(d.getTime()+8*3600000).toISOString().slice(0,10)};
  // 同步下拉框选项
  var preset=document.getElementById('dashPreset');
@@ -6722,7 +6722,18 @@ function setDashRange(v){
  var dfEl=document.getElementById('dashDf'),dtEl=document.getElementById('dashDt');
  if(dfEl)dfEl.value=dashDateFrom;
  if(dtEl)dtEl.value=dashDateTo;
- loadDash();
+ if(!skipLoad)loadDash();
+}
+function syncDashSlidingPresetDate(){
+ var preset=document.getElementById('dashPreset');
+ var v=preset&&preset.value;
+ if(v==='custom')return;
+ if(v==='today'||v==='yesterday'||v==='7'||v==='30'){
+  var today=new Date(new Date().getTime()+8*3600000).toISOString().slice(0,10);
+  if(!dashDateTo||dashDateTo!==today){
+   setDashRange(v==='7'?7:v==='30'?30:v,true);
+  }
+ }
 }
 async function loadDash(){
  var seq=++_dashLoadSeq;
@@ -6736,7 +6747,9 @@ async function loadDash(){
   if(lastEl)lastEl.textContent='更新中...';
   var a=document.getElementById('dashAct')&&document.getElementById('dashAct').value||'';
   var kpiFilter=(document.getElementById('dashKpi')&&document.getElementById('dashKpi').value)||'';
-  // Build query params
+  // Build query params. Sliding presets must roll over at Beijing midnight even if
+  // the dashboard tab stayed open across 00:00.
+  syncDashSlidingPresetDate();
   var today=new Date(new Date().getTime()+8*3600000).toISOString().slice(0,10);
   var df=dashDateFrom||today,dt=dashDateTo||today;
   dashDateFrom=df;dashDateTo=dt;
