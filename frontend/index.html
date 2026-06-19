@@ -16412,7 +16412,7 @@ function renderLandingPerformance(){
  panel.innerHTML=
   '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">'+
    '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">按 /a/短码统计访问、点击、WhatsApp 跳转和表单动作；消耗按当前日期窗口优先读取巡检历史，缺失时回退缓存。</p></div>'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingAdResultsTemplate()">导出回填模板</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
   '</div>'+
   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0">'+cards+'</div>'+
   '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1040px;border-collapse:collapse">'+
@@ -16635,6 +16635,8 @@ async function importLandingAdResults(){
   line=line.trim();
   if(!line)return;
   var parts=line.split(/[\t,，]/);
+  var first=(parts[0]||'').trim().toLowerCase();
+  if(first==='date'||first==='result_date'||first==='日期')return;
   var parsedDate=_parseLandingResultDate(parts,_landingResultToday());
   var offset=parsedDate.offset;
   var key=(parts[offset]||'').trim();
@@ -16654,10 +16656,46 @@ async function importLandingAdResults(){
  try{
   var res=await api('POST','/landing-pages/ad-links/results/import',{rows:rows,source:'csv',result_date:_landingResultToday()});
   toast('已回填 '+(res.updated_count||0)+' 条'+((res.error_count||0)?'，失败 '+res.error_count+' 条':'') ,(res.error_count||0)?'wa':'ok');
-  await loadLandingCenter(true);
- }catch(e){
+ await loadLandingCenter(true);
+}catch(e){
   toast('批量回填失败：'+(e.message||e),'er');
  }
+}
+function _landingCsvCell(v){
+ var s=String(v==null?'':v);
+ return /[",\n\r]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s;
+}
+function exportLandingAdResultsTemplate(){
+ var data=_landingAdPerf||{};
+ var items=Array.isArray(data.items)?data.items:[];
+ if(!items.length){toast('暂无可导出的广告级链接','wa');return;}
+ var today=_landingResultToday();
+ var rows=[['result_date','slug_or_ad_id','confirmed_actions','confirmed_sales','confirmed_revenue','note']];
+ items.forEach(function(x){
+  var stats=x.stats||{};
+  var key=x.slug||x.ad_id||'';
+  if(!key)return;
+  var note=[
+   x.ad_id?('ad_id='+x.ad_id):'',
+   x.ad_name?('ad_name='+x.ad_name):'',
+   x.account_name?('account='+x.account_name):(x.act_id?('act_'+String(x.act_id).replace(/^act_/,'') ):''),
+   stats.spend!=null?('spend_usd='+Number(stats.spend||0).toFixed(2)):'',
+   stats.fb_conversions!=null?('fb_conv='+stats.fb_conversions):'',
+   stats.final_true_contact!=null?('current_true='+stats.final_true_contact):'',
+   x.public_url?('url='+x.public_url):''
+  ].filter(Boolean).join(' | ');
+  rows.push([today,key,'','','',note]);
+ });
+ if(rows.length<=1){toast('没有可导出的短码或广告 ID','wa');return;}
+ var csv=rows.map(function(r){return r.map(_landingCsvCell).join(',');}).join('\n');
+ var blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+ var url=URL.createObjectURL(blob);
+ var a=document.createElement('a');
+ a.href=url;
+ a.download='landing_ad_results_template_'+today+'.csv';
+ a.click();
+ URL.revokeObjectURL(url);
+ toast('已导出真实结果回填模板','ok');
 }
 async function addCloudflareToken(){
  var name=(document.getElementById('cfApiName')||{}).value||'';

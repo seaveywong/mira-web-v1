@@ -3,12 +3,14 @@
 
 import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from api.landing_pages import _ad_link_stats  # noqa: E402
+import api.landing_pages as landing_pages  # noqa: E402
+from api.landing_pages import LandingRouteNextReq, _ad_link_stats, next_landing_route_target  # noqa: E402
 from core import perf_history  # noqa: E402
 
 
@@ -38,6 +40,7 @@ def make_conn():
            page_id INTEGER,
            slug TEXT,
            ad_id TEXT,
+           target_url TEXT,
            status TEXT
         )"""
     )
@@ -122,7 +125,88 @@ def test_spend_log_fallback_when_no_history_exists():
     conn.close()
 
 
+def test_router_prefers_ad_link_target_then_rotates_fallback():
+    tmp = tempfile.NamedTemporaryFile(prefix="mira_route_test_", suffix=".db", delete=False)
+    db_path = tmp.name
+    tmp.close()
+
+    def open_conn():
+        c = sqlite3.connect(db_path)
+        c.row_factory = sqlite3.Row
+        return c
+
+    conn = open_conn()
+    try:
+        conn.execute(
+            """CREATE TABLE landing_pages (
+               id INTEGER PRIMARY KEY,
+               ingest_secret TEXT,
+               target_urls TEXT,
+               rotation_mode TEXT,
+               status TEXT,
+               pages_url TEXT,
+               custom_domain TEXT
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE landing_ad_links (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               page_id INTEGER,
+               slug TEXT,
+               target_url TEXT,
+               status TEXT
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE landing_route_state (
+               page_id INTEGER PRIMARY KEY,
+               cursor INTEGER DEFAULT 0,
+               updated_at TEXT
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO landing_pages
+               (id, ingest_secret, target_urls, rotation_mode, status, pages_url, custom_domain)
+               VALUES (7, 'secret', '["https://wa.me/a","https://wa.me/b"]', 'sequential', 'published', 'https://go.example.com', '')"""
+        )
+        conn.execute(
+            """INSERT INTO landing_ad_links (page_id, slug, target_url, status)
+               VALUES (7, 'abc123', 'https://wa.me/specific', 'active')"""
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    old_get_conn = landing_pages.get_conn
+    landing_pages.get_conn = open_conn
+    try:
+        direct = next_landing_route_target(
+            LandingRouteNextReq(page_id=7, secret="secret", path="/__mira/redirect", metadata={"ad_slug": "abc123"}),
+            None,
+        )
+        assert_equal(direct["mode"], "ad_link", "ad slug should prefer the ad-specific target")
+        assert_equal(direct["target_url"], "https://wa.me/specific", "ad-specific target should be returned")
+
+        first = next_landing_route_target(
+            LandingRouteNextReq(page_id=7, secret="secret", path="/__mira/redirect"),
+            None,
+        )
+        second = next_landing_route_target(
+            LandingRouteNextReq(page_id=7, secret="secret", path="/__mira/redirect"),
+            None,
+        )
+        assert_equal(first["target_url"], "https://wa.me/a", "fallback rotation should return first target")
+        assert_equal(second["target_url"], "https://wa.me/b", "fallback rotation should advance cursor")
+    finally:
+        landing_pages.get_conn = old_get_conn
+        try:
+            Path(db_path).unlink()
+        except OSError:
+            pass
+
+
 if __name__ == "__main__":
     test_date_range_uses_daily_history_without_double_counting()
     test_spend_log_fallback_when_no_history_exists()
+    test_router_prefers_ad_link_target_then_rotates_fallback()
     print("landing ad link stats tests passed")
