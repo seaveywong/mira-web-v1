@@ -1922,8 +1922,47 @@ select.fc option{background:#fff;color:#1d1d1f}
  .task-center-head{align-items:flex-start}
  .task-center-wrap .task-center{grid-template-columns:1fr}
  #page-tokens .token-actions{width:100%!important;justify-content:flex-start!important}
- .meta-oauth-grid{grid-template-columns:1fr}
- .meta-oauth-flow{grid-template-columns:1fr}
+  .meta-oauth-grid{grid-template-columns:1fr}
+  .meta-oauth-flow{grid-template-columns:1fr}
+}
+
+/* Landing workspace P0: list-first layout, publish drawer, compact row actions. */
+#page-landing_center{display:flex!important;flex-direction:column!important}
+#page-landing_center>.ph{order:0}
+#page-landing_center>.landing-record-card{order:1}
+#page-landing_center>#landingStatsPanel{order:2}
+#page-landing_center>.landing-center-grid{order:3}
+#page-landing_center>.landing-flow{order:4}
+#page-landing_center>.landing-help{order:5}
+#page-landing_center>.landing-ops-strip{order:6}
+#page-landing_center .landing-record-card{margin-top:0!important}
+#page-landing_center .landing-center-grid{grid-template-columns:minmax(300px,420px) minmax(0,1fr)!important;margin-top:14px}
+#page-landing_center .landing-work-card{display:none!important}
+.landing-drawer-close{display:none!important}
+body.landing-publish-open{overflow:hidden}
+body.landing-publish-open:before{
+ content:'';position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:4100;backdrop-filter:blur(2px);
+}
+body.landing-publish-open #page-landing_center .landing-work-card{
+ display:block!important;position:fixed!important;z-index:4200;right:24px;top:70px;bottom:24px;width:min(900px,calc(100vw - 48px));
+ overflow:auto!important;border-radius:16px!important;padding:20px!important;box-shadow:0 24px 80px rgba(15,23,42,.24)!important;
+}
+body.landing-publish-open .landing-drawer-close{display:inline-flex!important}
+#page-landing_center .landing-row-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;position:relative;white-space:nowrap}
+#page-landing_center .landing-row-actions>.btn,#page-landing_center .landing-row-more-wrap>.btn{height:32px!important;min-height:32px!important;padding:0 10px!important}
+#page-landing_center .landing-row-more-wrap{position:relative;display:inline-flex}
+#page-landing_center .landing-row-more{
+ display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:80;min-width:168px;padding:8px;background:#fff;border:1px solid #dedee4;
+ border-radius:10px;box-shadow:0 16px 45px rgba(15,23,42,.16);white-space:normal;text-align:left;
+}
+#page-landing_center .landing-row-more.open{display:grid;grid-template-columns:1fr;gap:6px}
+#page-landing_center .landing-row-more .btn{justify-content:flex-start!important;width:100%;height:32px!important;min-height:32px!important;border-radius:8px!important}
+#page-landing_center .landing-record-card .table-wrap{overflow:visible!important}
+@media(max-width:1100px){
+ #page-landing_center .landing-flow,#page-landing_center .landing-ops-strip{display:none!important}
+ body.landing-publish-open #page-landing_center .landing-work-card{left:12px;right:12px;top:64px;bottom:12px;width:auto}
+ #page-landing_center .landing-row-actions{display:flex;flex-wrap:wrap;justify-content:flex-start}
+ #page-landing_center .landing-record-card .table-wrap{overflow:auto!important}
 }
 
 /* Dashboard metric cards: keep figures readable and avoid cramped one-row wrapping. */
@@ -2016,8 +2055,8 @@ select.fc option{background:#fff;color:#1d1d1f}
     <div class="nav-item" onclick="showPage('assets')"><span class="nav-icon"></span>素材库</div>
     <!-- 预热素材库暂时停用 v3.0.7 -->
     <div class="nav-item" onclick="showPage('templates')"><span class="nav-icon"></span>广告模版库</div>
-    <div class="nav-item" onclick="showPage('landing_urls')"><span class="nav-icon"></span>投放链接管理</div>
-    <div class="nav-item" onclick="showPage('landing_center')"><span class="nav-icon"></span>落地页发布</div>
+    <div class="nav-item" onclick="showPage('landing_urls')"><span class="nav-icon"></span>账户投放链接</div>
+    <div class="nav-item" onclick="showPage('landing_center')"><span class="nav-icon"></span>落地页工作台</div>
     <!-- 铺放中心暂时停用 v3.0.7 -->
     <div class="nav-sec-title">规则与策略</div>
     <div class="nav-item" onclick="showPage('kpi')"><span class="nav-icon"></span>KPI 配置</div>
@@ -2768,12 +2807,14 @@ select.fc option{background:#fff;color:#1d1d1f}
 <!-- Page: 投放链接管理 -->
 <div class="page" id="page-landing_urls">
  <div class="ph">
-  <div><h2>投放链接管理</h2><p>管理各广告账户绑定的落地页链接，铺广告时可直接选用</p></div>
+  <div><h2>账户投放链接</h2><p>维护每个广告账户实际使用的落地页链接和表单跳转链接</p></div>
   <div style="display:flex;gap:8px;align-items:center">
    <input class="fc" id="landingUrlSearch" placeholder="搜索账户名称或ID..." oninput="filterLandingUrls()" style="width:220px;padding:6px 10px;font-size:13px">
    <select class="fc" id="landingUrlMatrixFilter" onchange="filterLandingUrls()" style="width:150px;padding:6px 10px;font-size:13px">
     <option value="all">全部矩阵</option>
    </select>
+   <button class="btn btn-p role-hide-viewer" onclick="showPage('landing_center');openLandingPublishDrawer()">新建落地页</button>
+   <button class="btn btn-g" onclick="showPage('landing_center')">落地页工作台</button>
    <button class="btn btn-g" onclick="exportLandingUrlsCsv()">导出 CSV</button>
    <button class="btn btn-g role-hide-viewer" onclick="document.getElementById('importLandingCsv').click()">导入 CSV</button>
    <input type="file" id="importLandingCsv" accept=".csv" style="display:none" onchange="importLandingUrlsCsv(this)">
@@ -2804,7 +2845,7 @@ select.fc option{background:#fff;color:#1d1d1f}
 <!-- Page: 落地页发布中心 -->
 <div class="page" id="page-landing_center">
  <div class="ph">
-  <div><h2>落地页发布</h2><p>通过发布通道生成投放链接，预检后可自动绑定到账户</p></div>
+  <div><h2>落地页工作台</h2><p>管理发布项目、广告级短链、运行配置和真实效果回填</p></div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
    <select class="fc" id="landingPerfDays" style="width:130px;height:36px" onchange="setLandingPerfDays(this.value)">
     <option value="1">今日真实效果</option>
@@ -2813,6 +2854,9 @@ select.fc option{background:#fff;color:#1d1d1f}
    <option value="30">近 30 天</option>
   </select>
    <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:36px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
+   <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">新建发布</button>
+   <button class="btn btn-g" onclick="showPage('landing_urls')">账户投放链接</button>
+   <button class="btn btn-g" onclick="scrollLandingApiPanel()">发布通道</button>
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
  </div>
@@ -2832,7 +2876,7 @@ select.fc option{background:#fff;color:#1d1d1f}
   <div class="landing-ops-card"><b>访问控制</b><span>按地区、设备、来源和 URL 参数做正常站点访问控制，并在发布前预检。</span></div>
  </div>
  <div class="landing-center-grid">
-  <div class="card landing-side-card">
+  <div class="card landing-side-card" id="landingApiPanel">
    <div class="landing-card-head">
     <div><div class="card-title">发布通道 API</div><p>只支持账号级 API Token。对象存储 Access Key、Secret Key 或 endpoint 不能用于站点发布。</p></div>
    </div>
@@ -2846,7 +2890,7 @@ select.fc option{background:#fff;color:#1d1d1f}
   <div class="card landing-work-card">
    <div class="landing-card-head">
     <div><div class="card-title">发布新落地页</div><p>发布配置、跳转轮询、防护规则和账户绑定在这里一次完成。</p></div>
-    <div class="landing-mode-pill">站点发布</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><div class="landing-mode-pill">站点发布</div><button class="btn btn-g btn-sm landing-drawer-close" onclick="closeLandingPublishDrawer()">关闭</button></div>
    </div>
    <div class="landing-form-section">
     <div class="landing-section-title">基础信息</div>
@@ -3010,7 +3054,12 @@ select.fc option{background:#fff;color:#1d1d1f}
    <div class="mobile-more-handle"></div>
    <div style="font-size:14px;font-weight:600;margin-bottom:12px;text-align:center;color:var(--t2)">更多功能</div>
    <button class="mobile-more-item" onclick="showPage('assets');setMobileNav('');toggleMobileMoreMenu()"><span></span>素材库</button>
-   <button class="mobile-more-item" onclick="showPage('landing_center');setMobileNav('');toggleMobileMoreMenu()"><span></span>落地页发布</button>
+   <button class="mobile-more-item" onclick="showPage('templates');setMobileNav('');toggleMobileMoreMenu()"><span></span>广告模版库</button>
+   <button class="mobile-more-item" onclick="showPage('landing_center');setMobileNav('');toggleMobileMoreMenu()"><span></span>落地页工作台</button>
+   <button class="mobile-more-item" onclick="showPage('landing_urls');setMobileNav('');toggleMobileMoreMenu()"><span></span>账户投放链接</button>
+   <button class="mobile-more-item" onclick="showPage('kpi');setMobileNav('');toggleMobileMoreMenu()"><span></span>KPI 配置</button>
+   <button class="mobile-more-item role-superadmin-only" onclick="showPage('kpi_mapping');setMobileNav('');toggleMobileMoreMenu()"><span></span>KPI 映射</button>
+   <button class="mobile-more-item" onclick="showPage('twpages');setMobileNav('');toggleMobileMoreMenu()"><span></span>主页库</button>
    <button class="mobile-more-item" onclick="showPage('logs');setMobileNav('');toggleMobileMoreMenu()"><span></span>操作日志</button>
    <button class="mobile-more-item" onclick="showPage('tokens');setMobileNav('');toggleMobileMoreMenu()"><span></span>Token 管理</button>
    <button class="mobile-more-item role-admin-only" onclick="showPage('team_admin');setMobileNav('');toggleMobileMoreMenu()"><span></span>团队管理</button>
@@ -5969,7 +6018,7 @@ function trimFutureHourlyTrend(labels,seriesList){
 
 // ── Page Navigation ──
 var APP_PAGES=['dashboard','ads','logs','tokens','accounts','assets','templates','landing_urls','landing_center','kpi','kpi_mapping','rules','twpages','team_admin','settings'];
-var pageTitles={dashboard:'数据看板',ads:'广告列表',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',kpi_mapping:'KPI 映射',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:'主页库',landing_urls:'投放链接管理',landing_center:'落地页发布'};
+var pageTitles={dashboard:'数据看板',ads:'广告列表',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',kpi_mapping:'KPI 映射',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:'主页库',landing_urls:'账户投放链接',landing_center:'落地页工作台'};
 function pageFromHash(){
  var h=decodeURIComponent((location.hash||'').replace(/^#\/?/,'')).replace(/^page-/,'').trim();
  return APP_PAGES.indexOf(h)>=0?h:'';
@@ -12346,7 +12395,7 @@ function _renderLaunchAdLinks(links){
    '<td style="padding:6px 8px;border-top:1px solid rgba(22,101,52,.18);text-align:right;white-space:nowrap">'+(publicUrl?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制短链</button>':'')+'</td>'+
   '</tr>';
  }).join('');
- var more=links.length>30?'<div style="margin-top:6px;color:var(--t3)">仅展示前 30 条；完整列表在「落地页发布 > 广告链接」。</div>':'';
+ var more=links.length>30?'<div style="margin-top:6px;color:var(--t3)">仅展示前 30 条；完整列表在「落地页工作台 > 广告链接」。</div>':'';
  return '<div style="margin-top:8px"><div style="font-weight:700;margin-bottom:6px">广告级短链绑定</div>'+
   '<div style="max-height:220px;overflow:auto;border:1px solid rgba(22,101,52,.18);border-radius:8px;background:rgba(255,255,255,.38)">'+
   '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left;padding:6px 8px">广告</th><th style="text-align:left;padding:6px 8px">短链</th><th style="text-align:left;padding:6px 8px">专属跳转</th><th style="text-align:left;padding:6px 8px">状态</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+more+'</div>';
@@ -14120,7 +14169,7 @@ function renderTwPagesSection() {
   '<div class="fg" style="flex:1;min-width:140px;margin:0"><label class="fl">主页 ID</label><input class="fc" id="twNewPageId" placeholder="如：1020399831162841" onblur="autoFetchTwPageName(this.value)"></div>' +
   '<div class="fg" style="flex:1;min-width:120px;margin:0"><label class="fl">主页名称 <span style="font-size:11px;color:var(--t3)" id="twNameHint">（失焦后尝试自动获取）</span></label><input class="fc" id="twNewPageName" placeholder="如：AI股市"></div>' +
   '<div class="fg" style="flex:1;min-width:160px;margin:0"><label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint">（扫描时自动探测，也可手动填写）</span></label><input class="fc" id="twNewVerifiedId" placeholder="可选"></div>' +
-  '<button class="btn btn-p" onclick="addTwPage()" style="white-space:nowrap;align-self:flex-end">+ 添加主页</button>' +
+  '<button class="btn btn-p" onclick="addTwCertPage()" style="white-space:nowrap;align-self:flex-end">+ 添加主页</button>' +
   '</div></div>';
 }
 
@@ -14495,7 +14544,8 @@ async function autoFetchTwPageName(pid) {
 async function addTwCertPage() {
  var pid = (document.getElementById('twNewPageId').value || '').trim();
  var pname = (document.getElementById('twNewPageName').value || '').trim();
- var pnote = (document.getElementById('twNewPageNote').value || '').trim();
+ var pnoteEl = document.getElementById('twNewPageNote');
+ var pnote = pnoteEl ? (pnoteEl.value || '').trim() : '';
  var pvidRaw = document.getElementById('twNewVerifiedId') ? document.getElementById('twNewVerifiedId').value : '';
  var pvid = null;
  if (!pid) { toast('主页 ID 不能为空', 'er'); return; }
@@ -16292,7 +16342,7 @@ async function loadLandingCenter(force){
   renderLandingPerformance();
   renderLandingPages();
  }catch(e){
-  toast('落地页发布中心加载失败：'+(e.message||e),'er');
+  toast('落地页工作台加载失败：'+(e.message||e),'er');
  }
 }
 function renderCloudflareTokens(){
@@ -16601,6 +16651,71 @@ function renderLandingPerformance(){
   '<thead><tr><th style="text-align:left;padding:8px 10px">判断</th><th style="text-align:left;padding:8px 10px">短码/页面</th><th style="text-align:left;padding:8px 10px">广告</th><th style="text-align:left;padding:8px 10px">链接</th><th style="text-align:right;padding:8px 10px">FB消耗</th><th style="text-align:right;padding:8px 10px">有效动作</th><th style="text-align:right;padding:8px 10px">真实成本</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
   '<tbody>'+rows+'</tbody></table></div>';
 }
+function openLandingPublishDrawer(){
+ document.body.classList.add('landing-publish-open');
+ setTimeout(function(){
+  var el=document.getElementById('lpTitle');
+  if(el&&el.focus)el.focus();
+ },80);
+}
+function closeLandingPublishDrawer(){
+ document.body.classList.remove('landing-publish-open');
+}
+function scrollLandingApiPanel(){
+ if(!document.getElementById('page-landing_center').classList.contains('active'))showPage('landing_center');
+ setTimeout(function(){
+  var el=document.getElementById('landingApiPanel');
+  if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'});
+ },120);
+}
+function closeLandingRowMenus(){
+ document.querySelectorAll('.landing-row-more.open').forEach(function(el){el.classList.remove('open')});
+}
+function toggleLandingMoreMenu(ev,id){
+ if(ev&&ev.stopPropagation)ev.stopPropagation();
+ var el=document.getElementById('landingMore_'+id);
+ if(!el)return;
+ var willOpen=!el.classList.contains('open');
+ closeLandingRowMenus();
+ if(willOpen)el.classList.add('open');
+}
+document.addEventListener('click',function(ev){
+ if(ev.target&&ev.target.closest&&ev.target.closest('.landing-row-actions'))return;
+ closeLandingRowMenus();
+});
+document.addEventListener('keydown',function(ev){
+ if(ev.key==='Escape')closeLandingPublishDrawer();
+});
+function _landingRuntimeBadge(p){
+ if(!p||p.status==='archived')return '';
+ if(p.worker_enabled)return '<span class="badge bg-ok" title="Worker 已支持运行时配置；跳转、防护和统计配置保存后约 30 秒内生效">动态配置已启用</span> ';
+ if(p.tracking_enabled||p.protection_enabled||(p.link_kind||'landing')==='form')return '<span class="badge bg-wa" title="旧发布包需要重新发布一次，之后运行配置才可动态生效">需要重新发布一次</span> ';
+ return '<span class="badge bg-mu" title="未启用统计、防护或直跳 Worker；普通静态页面无需动态配置">静态页面</span> ';
+}
+function _landingActionButton(label, onclick, cls, title){
+ return '<button class="btn '+(cls||'btn-g')+' btn-sm" '+(title?'title="'+escHtml(title)+'" ':'')+'onclick="'+onclick+'">'+escHtml(label)+'</button>';
+}
+function _landingRowActionsHtml(p, link, usageTotal){
+ var id=parseInt(p.id||0,10)||0;
+ var parts=[];
+ if(link)parts.push(_landingActionButton('复制链接',"copyText('"+encodeURIComponent(link)+"')",'btn-p','复制当前主链接'));
+ else parts.push('<button class="btn btn-g btn-sm" disabled>无链接</button>');
+ parts.push(_landingActionButton('配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和访问控制'));
+ parts.push(_landingActionButton('广告链接','showLandingAdLinks('+id+')','btn-g','生成或查看广告级短链'));
+ var more=[];
+ if(p.custom_domain)more.push(_landingActionButton('复制自定义域',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制自定义域链接'));
+ if(p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统备用域'));
+ if(p.custom_domain_dns_hint)more.push(_landingActionButton('复制 DNS',"copyText('"+encodeURIComponent(p.custom_domain_dns_hint)+"')",'btn-g','复制自定义域 DNS 配置'));
+ more.push(_landingActionButton('重新发布','republishLandingPage('+id+')','btn-g role-hide-viewer','更新线上 HTML/Worker，保留原链接和短码'));
+ more.push(_landingActionButton('自检','checkLandingHealth('+id+')','btn-g','检查线上访问、直跳和域名状态'));
+ more.push(_landingActionButton('统计','showLandingStats('+id+')','btn-g','查看访问、点击、跳转和拦截'));
+ if(usageTotal>0)more.push(_landingActionButton('引用','showLandingUsage('+id+')','btn-g','查看哪些账户或任务仍在引用该链接'));
+ if(p.custom_domain)more.push(_landingActionButton('复检域名','refreshLandingDomain('+id+')','btn-g role-hide-viewer','复检自定义域并在可用后回绑账户'));
+ more.push(_landingActionButton('账户投放链接',"showPage('landing_urls')",'btn-g','查看或维护账户绑定的落地页/表单链接'));
+ more.push(_landingActionButton(usageTotal>0?'归档':'删除项目','archiveLandingPage('+id+','+(usageTotal>0?'false':'true')+')','btn-g role-hide-viewer',usageTotal>0?'仍被引用，只能归档':'未被引用，可删除远程项目'));
+ parts.push('<div class="landing-row-more-wrap"><button class="btn btn-g btn-sm" onclick="toggleLandingMoreMenu(event,'+id+')">更多</button><div class="landing-row-more" id="landingMore_'+id+'">'+more.join('')+'</div></div>');
+ return '<div class="landing-row-actions">'+parts.join('')+'</div>';
+}
 function renderLandingPages(){
  var tb=document.getElementById('landingPagesList'); if(!tb)return;
  var matrixFilter=_refreshLandingPageMatrixFilter();
@@ -16623,10 +16738,10 @@ function renderLandingPages(){
  if(!_landingPages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">暂无发布记录</td></tr>';return;}
  if(!pages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">当前筛选下暂无发布记录</td></tr>';return;}
  tb.innerHTML=pages.map(function(p){
-  var urls=Array.isArray(p.target_urls)?p.target_urls:[];
-  var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
-  var status=p.status==='published'?'<span class="badge bg-ok">已发布</span>':p.status==='failed'?'<span class="badge bg-er">失败</span>':p.status==='archived'?'<span class="badge bg-mu">已归档</span>':'<span class="badge bg-wa">'+escHtml(p.status||'草稿')+'</span>';
-  var flags=(p.worker_enabled?'<span class="badge bg-ac">Worker</span> ':'')+(p.tracking_enabled?'<span class="badge bg-ok">统计</span> ':'')+(p.protection_enabled?'<span class="badge bg-wa">防护</span> ':'');
+ var urls=Array.isArray(p.target_urls)?p.target_urls:[];
+ var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
+ var status=p.status==='published'?'<span class="badge bg-ok">已发布</span>':p.status==='failed'?'<span class="badge bg-er">失败</span>':p.status==='archived'?'<span class="badge bg-mu">已归档</span>':'<span class="badge bg-wa">'+escHtml(p.status||'草稿')+'</span>';
+  var flags=_landingRuntimeBadge(p)+(p.tracking_enabled?'<span class="badge bg-ok">统计</span> ':'')+(p.protection_enabled?'<span class="badge bg-wa">防护</span> ':'');
   var usage=p.usage||{};
   var usageTotal=parseInt(usage.total||0,10)||0;
   var usageBadge=usageTotal>0?'<span class="badge bg-wa" title="账户或投放任务仍在引用该链接">引用 '+usageTotal+'</span>':'<span class="badge bg-mu">未引用</span>';
@@ -16655,18 +16770,6 @@ function renderLandingPages(){
    var dsText=ds.status||ds.verified||ds.validation_status||ds.name||'已复检';
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">域名状态：'+escHtml(String(dsText))+'</div>';
   }
-  var copyBtns='';
-  if(link)copyBtns+='<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(link)+'\')" title="复制当前会被绑定到账户的主链接">复制主链接</button>';
-  if(p.custom_domain){
-   var customUrl='https://'+p.custom_domain;
-   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(customUrl)+'\')" title="复制自定义域名链接，域名未验证时请先完成 DNS/复检">复制自定义域</button>';
-  }
-  if(p.pages_url&&(!link||link!==p.pages_url)){
-   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.pages_url)+'\')" title="复制系统备用域">复制备用域</button>';
-  }
-  if(p.custom_domain_dns_hint){
-   copyBtns+='<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="copyText(\''+encodeURIComponent(p.custom_domain_dns_hint)+'\')" title="复制自定义域 DNS 配置">复制DNS</button>';
-  }
   var err=p.last_error?'<div style="font-size:11px;color:var(--er);margin-top:4px;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(p.last_error)+'">'+escHtml(p.last_error)+'</div>':'';
   var healthBadge=_landingHealthBadge(p);
   var ownerText=resourceOwnerLabel(p,'未指定负责人');
@@ -16682,17 +16785,7 @@ function renderLandingPages(){
    '<td style="padding:10px 12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+linkHtml+'</td>'+
    '<td style="padding:10px 12px;font-size:12px;color:var(--t2)">'+urls.length+' 个 · '+modeText+(bound.length?' · 已绑定 '+bound.length:'')+'<div style="margin-top:4px;color:var(--t3)">字段：'+escHtml(bindText)+'</div><div style="margin-top:4px">'+usageBadge+'</div></td>'+
    '<td style="padding:10px 12px">'+status+healthBadge+'</td>'+
-   '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
-    copyBtns+
-    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingRuntimeConfig('+p.id+')">配置</button>'+
-    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="republishLandingPage('+p.id+')">重新发布</button>'+
-    '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="checkLandingHealth('+p.id+')">自检</button>'+
-    '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingStats('+p.id+')">统计</button>'+
-    '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingAdLinks('+p.id+')">广告链接</button>'+
-    (usageTotal>0?'<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingUsage('+p.id+')">引用</button>':'')+
-    (p.custom_domain?'<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="refreshLandingDomain('+p.id+')">域名</button>':'')+
-    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="archiveLandingPage('+p.id+','+(usageTotal>0?'false':'true')+')">'+(usageTotal>0?'归档':'删除项目')+'</button>'+
-   '</td>'+
+   '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+_landingRowActionsHtml(p,link,usageTotal)+'</td>'+
   '</tr>';
  }).join('');
 }
@@ -17398,6 +17491,7 @@ async function publishLandingPage(){
   else if(domainNotice)msg+='，自定义域待验证，账户已先写入 Pages 备用域；域名可用后点复检会自动回绑';
   toast(msg,(domainError||domainNotice)?'wa':'ok');
   if(res&&res.page&&(res.page.public_url||res.page.pages_url))copyText(encodeURIComponent(res.page.public_url||res.page.pages_url),true);
+  closeLandingPublishDrawer();
   markPageStale('landing_center');
   await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}
@@ -17604,7 +17698,7 @@ function filterLandingUrlSuggestions(q) {
  }
  if (!opts.length) {
   if (isLeadGoal && !q) {
-   dd.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--t3)">暂无账户配置表单链接<br><span style=\"font-size:11px\">请在「投放链接管理」中为账户配置表单链接</span></div>';
+   dd.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--t3)">暂无账户配置表单链接<br><span style=\"font-size:11px\">请在「账户投放链接」中配置，或先到「落地页工作台」创建链接</span></div>';
    dd.style.display = 'block';
   } else {
    dd.style.display = 'none';
