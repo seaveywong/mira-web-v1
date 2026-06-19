@@ -16294,8 +16294,8 @@ function renderLandingPerformance(){
   ['消耗无动作',sum.waste||0,'优先检查或停投'],
   ['有真实动作',sum.good||0,'按真实动作算成本'],
   ['FB消耗',money(sum.spend||0),'来自最近同步广告指标'],
-  ['有效动作',sum.true_contact||0,'WA跳转 / 表单 / 有效跳转'],
-  ['真实成本',cost(sum.cost_per_true_contact),'FB消耗 ÷ 有效动作']
+  ['有效动作',sum.effective_true_contact||sum.true_contact||0,'唯一口径优先，旧数据回退原始口径'],
+  ['真实成本',cost(sum.cost_per_effective_true_contact||sum.cost_per_true_contact),'FB消耗 ÷ 有效动作']
  ].map(function(c){
   return '<div class="ss" style="min-width:130px"><div style="font-size:12px;color:var(--t3)">'+escHtml(c[0])+'</div><div style="font-size:22px;font-weight:850;margin-top:4px">'+escHtml(String(c[1]))+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(c[2])+'</div></div>';
  }).join('');
@@ -16307,13 +16307,17 @@ function renderLandingPerformance(){
   var target=x.target_url||'';
   var adName=x.ad_name||x.ad_id||'未回填广告';
   var meta=[x.account_name||x.act_id||'',x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
-  var trueCost=stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||null;
+  var effectiveAction=stats.effective_true_contact!==undefined?stats.effective_true_contact:(stats.true_contact||0);
+  var uniqueAction=stats.unique_true_contact||0;
+  var rawAction=stats.true_contact||0;
+  var metricMode=stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
+  var trueCost=stats.cost_per_effective_true_contact||stats.cost_per_unique_true_contact||stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||null;
   var reason=state==='waste'
    ?('已消耗 '+money(stats.spend||0)+'，有效动作 0')
    :state==='good'
-    ?('有效动作 '+(stats.true_contact||0)+'，真实成本 '+cost(trueCost))
+    ?('有效动作 '+effectiveAction+'，真实成本 '+cost(trueCost))
     :state==='watch'
-     ?('访问 '+(stats.visit||0)+'，点击 '+(stats.click||0)+'，等待有效动作')
+     ?('访问 '+(stats.unique_visit||stats.visit||0)+'，点击 '+(stats.unique_click||stats.click||0)+'，等待有效动作')
      :stateHelp.no_data;
   return '<tr>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd)"><span class="badge '+(stateClass[state]||'bg-mu')+'" title="'+escHtml(stateHelp[state]||'')+'">'+escHtml(stateLabel[state]||state)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+escHtml(reason)+'</div></td>'+
@@ -16321,8 +16325,8 @@ function renderLandingPerformance(){
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:260px"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(adName)+'">'+escHtml(adName)+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(meta)+'">'+escHtml(meta||'待绑定账户/系列/组')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:280px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac)">'+escHtml(publicUrl||'--')+'</a><div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">'+(target?'专属跳转：'+escHtml(target):'使用落地页全局轮询')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+money(stats.spend||0)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">FB成效 '+(stats.fb_conversions||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(stats.true_contact||0))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">表单 '+(stats.submit||0)+' · WA '+(stats.whatsapp_redirect||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+cost(trueCost)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(effectiveAction))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+(metricMode==='unique'?'唯一':'原始')+' · 原始 '+rawAction+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">表单 '+(stats.unique_submit||stats.submit||0)+' · WA '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+cost(trueCost)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button></td>'+
   '</tr>';
  }).join('');
@@ -16436,9 +16440,11 @@ function _landingAdLinksHtml(page, links){
  var cost=function(v){return v==null||v===''?'--':money(v);};
  var statusMap={reserved:'已预留',active:'已绑定',paused:'已暂停',archived:'已归档',failed:'失败',unused:'未使用'};
  var rows=links.map(function(x){
-  var stats=x.stats||{};
-  var spend=Number(stats.spend||0);
-  var realCost=stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||stats.cost_per_whatsapp_click||stats.cost_per_click||null;
+   var stats=x.stats||{};
+   var spend=Number(stats.spend||0);
+   var effectiveAction=stats.effective_true_contact!==undefined?stats.effective_true_contact:(stats.true_contact||0);
+   var metricMode=stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
+   var realCost=stats.cost_per_effective_true_contact||stats.cost_per_unique_true_contact||stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||stats.cost_per_whatsapp_click||stats.cost_per_click||null;
   var status=x.status||'reserved';
   var meta=[
    x.act_id?('账户 '+x.act_id):'',
@@ -16452,8 +16458,8 @@ function _landingAdLinksHtml(page, links){
    '<td style="padding:8px 10px"><div style="display:flex;gap:8px;align-items:center"><b style="font-weight:760">'+escHtml(x.slug||'')+'</b><span class="badge '+(status==='active'?'bg-ok':status==='failed'?'bg-er':'bg-mu')+'">'+escHtml(statusMap[status]||status)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(meta)+'</div></td>'+
    '<td style="padding:8px 10px;max-width:300px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(url)+'" style="color:var(--ac)">'+escHtml(url)+'</a>'+(target?'<div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">专属跳转：'+escHtml(target)+'</div>':'<div style="font-size:11px;color:var(--t3);margin-top:3px">使用落地页全局轮询</div>')+'</td>'+
    '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">'+
-     '<div>访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+' · 有效动作 '+(stats.true_contact||0)+' · 表单 '+(stats.submit||0)+' · WA跳转 '+(stats.whatsapp_redirect||0)+' · 拦截 '+(stats.block||0)+'</div>'+
-     '<div style="margin-top:3px;color:var(--t3)">FB消耗 '+money(spend)+' · FB成效 '+(stats.fb_conversions||0)+' · 真实成本 '+cost(realCost)+'</div>'+
+     '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+' · 有效动作 '+effectiveAction+'（'+(metricMode==='unique'?'唯一':'原始')+'） · 原始 '+(stats.true_contact||0)+'</div>'+
+     '<div style="margin-top:3px;color:var(--t3)">表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · 拦截 '+(stats.block||0)+' · FB消耗 '+money(spend)+' · FB成效 '+(stats.fb_conversions||0)+' · 真实成本 '+cost(realCost)+'</div>'+
    '</td>'+
    '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button></td>'+
   '</tr>';

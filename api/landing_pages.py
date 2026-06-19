@@ -679,28 +679,32 @@ def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = No
 
 def _ad_link_decision(stats: dict) -> dict:
     spend = float(stats.get("spend") or 0)
-    true_contact = float(stats.get("true_contact") or 0)
-    visits = float(stats.get("visit") or 0)
-    clicks = float(stats.get("click") or 0)
+    true_contact = float(stats.get("effective_true_contact", stats.get("true_contact") or 0) or 0)
+    visits = float(stats.get("unique_visit", stats.get("visit") or 0) or 0)
+    clicks = float(stats.get("unique_click", stats.get("click") or 0) or 0)
+    metric = "unique" if stats.get("dedupe_available") else "raw"
     if true_contact > 0:
         return {
             "state": "good",
             "label": "true_action",
-            "reason": f"true_action={true_contact:g}; cost_per_true_action={stats.get('cost_per_true_contact') or '--'}",
+            "reason": f"{metric}_true_action={true_contact:g}; cost={stats.get('cost_per_effective_true_contact') or stats.get('cost_per_true_contact') or '--'}",
+            "metric": metric,
         }
     if spend > 0:
         return {
             "state": "waste",
             "label": "spend_no_action",
-            "reason": f"spend_usd={spend:.2f}; true_action=0",
+            "reason": f"spend_usd={spend:.2f}; {metric}_true_action=0",
+            "metric": metric,
         }
     if visits > 0 or clicks > 0:
         return {
             "state": "watch",
             "label": "traffic_no_action",
-            "reason": f"visits={visits:g}; clicks={clicks:g}; true_action=0",
+            "reason": f"{metric}_visits={visits:g}; {metric}_clicks={clicks:g}; true_action=0",
+            "metric": metric,
         }
-    return {"state": "no_data", "label": "no_data", "reason": "no events or spend"}
+    return {"state": "no_data", "label": "no_data", "reason": "no events or spend", "metric": metric}
 
 
 def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) -> dict:
@@ -759,6 +763,81 @@ def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) ->
         whatsapp_click = 0
         whatsapp_redirect = 0
 
+    fp_expr = "NULLIF(COALESCE(NULLIF(ip_hash,''),'') || '|' || COALESCE(NULLIF(user_agent_hash,''),''), '|')"
+    unique = {}
+    unique_whatsapp_click = 0
+    unique_whatsapp_redirect = 0
+    unique_true_contact = 0
+    dedupe_available = False
+    try:
+        unique_rows = conn.execute(
+            f"""SELECT event_type, COUNT(DISTINCT {fp_expr}) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND path=?{where_extra}
+                 AND {fp_expr} IS NOT NULL
+               GROUP BY event_type""",
+            params,
+        ).fetchall()
+        unique = {r["event_type"]: int(r["cnt"] or 0) for r in unique_rows}
+        dedupe_available = any(int(v or 0) > 0 for v in unique.values())
+        row = conn.execute(
+            f"""SELECT COUNT(DISTINCT {fp_expr}) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND path=? AND event_type='click'
+            """
+            + where_extra
+            + f"""
+                 AND {fp_expr} IS NOT NULL
+                 AND (
+                   lower(COALESCE(target_url,'')) LIKE '%whatsapp%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%wa.me/%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%api.whatsapp.com%'
+                 )""",
+            params,
+        ).fetchone()
+        unique_whatsapp_click = int(row["cnt"] or 0) if row else 0
+        row = conn.execute(
+            f"""SELECT COUNT(DISTINCT {fp_expr}) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND path=? AND event_type='redirect'
+            """
+            + where_extra
+            + f"""
+                 AND {fp_expr} IS NOT NULL
+                 AND (
+                   lower(COALESCE(target_url,'')) LIKE '%whatsapp%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%wa.me/%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%api.whatsapp.com%'
+                 )""",
+            params,
+        ).fetchone()
+        unique_whatsapp_redirect = int(row["cnt"] or 0) if row else 0
+        row = conn.execute(
+            f"""SELECT COUNT(DISTINCT {fp_expr}) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND path=?{where_extra}
+                 AND {fp_expr} IS NOT NULL
+                 AND (
+                   event_type IN ('submit','redirect')
+                   OR (
+                     event_type='click'
+                     AND (
+                       lower(COALESCE(target_url,'')) LIKE '%whatsapp%'
+                       OR lower(COALESCE(target_url,'')) LIKE '%wa.me/%'
+                       OR lower(COALESCE(target_url,'')) LIKE '%api.whatsapp.com%'
+                     )
+                   )
+                 )""",
+            params,
+        ).fetchone()
+        unique_true_contact = int(row["cnt"] or 0) if row else 0
+    except Exception:
+        unique = {}
+        unique_whatsapp_click = 0
+        unique_whatsapp_redirect = 0
+        unique_true_contact = 0
+        dedupe_available = False
+
     spend = 0.0
     fb_conversions = 0.0
     fb_clicks = 0.0
@@ -804,27 +883,45 @@ def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) ->
     redirects = out.get("redirect", 0)
     submits = out.get("submit", 0)
     true_contact = max(whatsapp_redirect, submits, redirects, whatsapp_click)
+    effective_true_contact = unique_true_contact if dedupe_available else true_contact
     return {
         "visit": visits,
         "click": clicks,
         "redirect": redirects,
         "submit": submits,
         "block": out.get("block", 0),
+        "unique_visit": unique.get("visit", 0),
+        "unique_click": unique.get("click", 0),
+        "unique_redirect": unique.get("redirect", 0),
+        "unique_submit": unique.get("submit", 0),
+        "unique_block": unique.get("block", 0),
         "whatsapp_click": whatsapp_click,
         "whatsapp_redirect": whatsapp_redirect,
+        "unique_whatsapp_click": unique_whatsapp_click,
+        "unique_whatsapp_redirect": unique_whatsapp_redirect,
         "message_click": whatsapp_redirect or whatsapp_click,
         "true_contact": true_contact,
+        "unique_true_contact": unique_true_contact,
+        "effective_true_contact": effective_true_contact,
+        "dedupe_available": dedupe_available,
+        "metric_mode": "unique" if dedupe_available else "raw",
         "spend": round(spend, 4),
         "fb_conversions": fb_conversions,
         "fb_clicks": fb_clicks,
         "impressions": impressions,
         "cost_per_visit": _cost(visits),
         "cost_per_click": _cost(clicks),
+        "cost_per_unique_visit": _cost(unique.get("visit", 0)),
+        "cost_per_unique_click": _cost(unique.get("click", 0)),
         "cost_per_whatsapp_click": _cost(whatsapp_click),
         "cost_per_whatsapp_redirect": _cost(whatsapp_redirect),
+        "cost_per_unique_whatsapp_click": _cost(unique_whatsapp_click),
+        "cost_per_unique_whatsapp_redirect": _cost(unique_whatsapp_redirect),
         "cost_per_redirect": _cost(redirects),
         "cost_per_submit": _cost(submits),
         "cost_per_true_contact": _cost(true_contact),
+        "cost_per_unique_true_contact": _cost(unique_true_contact),
+        "cost_per_effective_true_contact": _cost(effective_true_contact),
         "last_synced_at": last_synced_at,
         "total": sum(out.values()),
     }
@@ -1568,7 +1665,11 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
             "no_data": 0,
             "spend": 0.0,
             "true_contact": 0.0,
+            "unique_true_contact": 0.0,
+            "effective_true_contact": 0.0,
             "cost_per_true_contact": None,
+            "cost_per_unique_true_contact": None,
+            "cost_per_effective_true_contact": None,
         }
         for row in rows:
             item = dict(row)
@@ -1603,20 +1704,28 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
             summary[state] += 1
             summary["spend"] += float(stats.get("spend") or 0)
             summary["true_contact"] += float(stats.get("true_contact") or 0)
+            summary["unique_true_contact"] += float(stats.get("unique_true_contact") or 0)
+            summary["effective_true_contact"] += float(stats.get("effective_true_contact", stats.get("true_contact") or 0) or 0)
 
         severity = {"waste": 0, "watch": 1, "good": 2, "no_data": 3}
         items.sort(
             key=lambda x: (
                 severity.get((x.get("decision") or {}).get("state"), 9),
                 -float((x.get("stats") or {}).get("spend") or 0),
-                float((x.get("stats") or {}).get("cost_per_true_contact") or 999999),
+                float((x.get("stats") or {}).get("cost_per_effective_true_contact") or 999999),
             )
         )
         summary["total"] = len(items)
         summary["spend"] = round(summary["spend"], 4)
         summary["true_contact"] = round(summary["true_contact"], 4)
+        summary["unique_true_contact"] = round(summary["unique_true_contact"], 4)
+        summary["effective_true_contact"] = round(summary["effective_true_contact"], 4)
         if summary["spend"] > 0 and summary["true_contact"] > 0:
             summary["cost_per_true_contact"] = round(summary["spend"] / summary["true_contact"], 4)
+        if summary["spend"] > 0 and summary["unique_true_contact"] > 0:
+            summary["cost_per_unique_true_contact"] = round(summary["spend"] / summary["unique_true_contact"], 4)
+        if summary["spend"] > 0 and summary["effective_true_contact"] > 0:
+            summary["cost_per_effective_true_contact"] = round(summary["spend"] / summary["effective_true_contact"], 4)
         return {"success": True, "days": days, "limit": limit, "summary": summary, "items": items}
     finally:
         conn.close()
