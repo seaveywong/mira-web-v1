@@ -10,7 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import api.landing_pages as landing_pages  # noqa: E402
-from api.landing_pages import LandingRouteNextReq, _ad_link_stats, next_landing_route_target  # noqa: E402
+from api.landing_pages import (  # noqa: E402
+    LandingRouteNextReq,
+    _ad_link_stats,
+    _landing_ad_link_create_count,
+    next_landing_route_target,
+)
 from core import perf_history  # noqa: E402
 
 
@@ -229,9 +234,23 @@ def test_router_prefers_ad_link_target_then_rotates_fallback():
             pass
 
 
+def test_explicit_targets_define_ad_link_count():
+    assert_equal(
+        _landing_ad_link_create_count(5, ["https://wa.me/a", "https://wa.me/b"]),
+        2,
+        "explicit targets should create one ad link per target, not repeat targets up to count",
+    )
+    assert_equal(
+        _landing_ad_link_create_count(3, []),
+        3,
+        "without explicit targets the requested count should still be honored",
+    )
+
+
 if __name__ == "__main__":
     test_date_range_uses_daily_history_without_double_counting()
     test_spend_log_fallback_when_no_history_exists()
     test_redirect_events_with_ad_slug_metadata_are_attributed_to_ad_link()
     test_router_prefers_ad_link_target_then_rotates_fallback()
+    test_explicit_targets_define_ad_link_count()
     print("landing ad link stats tests passed")

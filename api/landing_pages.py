@@ -113,6 +113,20 @@ class LandingAdLinkCreate(BaseModel):
     note: Optional[str] = None
 
 
+def _landing_ad_link_create_count(requested_count: int, target_urls: list[str]) -> int:
+    """When explicit targets are provided, create one entry per target.
+
+    Repeating the same target URL because a user typed a larger count breaks
+    ad-level attribution: two ads may look separated by slug while sharing the
+    same WhatsApp destination. The fallback count is only used when no explicit
+    per-link target URLs were supplied.
+    """
+    targets = [u for u in (target_urls or []) if isinstance(u, str) and u.strip()]
+    if targets:
+        return min(len(targets), 200)
+    return max(1, min(int(requested_count or 1), 200))
+
+
 class LandingAdLinkPatch(BaseModel):
     act_id: Optional[str] = None
     account_name: Optional[str] = None
@@ -2078,10 +2092,8 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
         base_url = _page_public_url(page_public)
         if not base_url:
             raise HTTPException(status_code=400, detail="该落地页还没有可用主链接，发布成功后才能生成广告级链接")
-        target_urls = [u.strip() for u in (body.target_urls or []) if isinstance(u, str) and u.strip()]
-        count = max(1, min(int(body.count or 1), 200))
-        if target_urls:
-            count = min(max(count, len(target_urls)), 200)
+        target_urls = [u.strip() for u in (body.target_urls or []) if isinstance(u, str) and u.strip()][:200]
+        count = _landing_ad_link_create_count(body.count, target_urls)
         act_id = (_clean_act_ids([body.act_id or ""]) or [""])[0]
         team_id = page.get("team_id")
         owner_id = page.get("owner_user_id") if page.get("owner_user_id") is not None else (user_id(user) if is_operator_user(user) else None)
@@ -2114,7 +2126,7 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
                     _truncate(body.adset_name, 255),
                     _truncate(body.ad_id, 80),
                     _truncate(body.ad_name, 255),
-                    _truncate((target_urls[idx % len(target_urls)] if target_urls else body.target_url), 1000),
+                    _truncate((target_urls[idx] if target_urls else body.target_url), 1000),
                     "active" if body.ad_id else "reserved",
                     _truncate(body.note, 1000),
                     team_id,
