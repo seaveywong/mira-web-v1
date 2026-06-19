@@ -16487,9 +16487,14 @@ async function doPrescan(){
    html+='<details style="margin-top:6px"><summary style="font-size:12px;color:var(--t3);cursor:pointer;user-select:none">展开查看各账户详情 ▾</summary>';
    html+='<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">';
    html+=accts.map(function(ac){
-    return'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--bgi);border-radius:4px;font-size:12px">'
-     +'<span style="color:var(--t2)">'+displayActId(ac.act_id)+'</span>'
-     +'<span style="color:var(--t1);font-weight:600">'+ac.active_count+' 个活跃'+levelLabel+'</span>'
+    var actText=displayActId(ac.act_id);
+    var accountName=displayAccountName(ac.account_name||ac.name,ac.act_id,actText);
+    var statusHtml=ac.error?'<div style="font-size:11px;color:var(--wa);margin-top:2px;white-space:normal">'+escHtml(ac.error)+'</div>':'';
+    return'<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;background:var(--bgi);border-radius:6px;font-size:12px">'
+     +'<div style="min-width:0"><div style="font-weight:650;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(accountName)+'">'+escHtml(accountName)+'</div>'
+     +(actText&&accountName!==actText?'<div class="td-id" style="margin-top:2px">'+escHtml(actText)+'</div>':'')
+     +statusHtml+'</div>'
+     +'<span style="color:var(--t1);font-weight:650;white-space:nowrap">'+(ac.active_count||0)+' 个活跃'+levelLabel+'</span>'
      +'</div>';
    }).join('');
    html+='</div></details>';
