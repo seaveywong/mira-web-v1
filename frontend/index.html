@@ -2912,6 +2912,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
    <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
    <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">访问控制模板</button>
+   <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">资产预设</button>
    <button class="btn btn-g" onclick="scrollLandingApiPanel()">API 通道</button>
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
@@ -3001,6 +3002,13 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    </div>
    <div class="landing-form-section">
     <div class="landing-section-title">基础信息</div>
+    <div class="landing-template-tools" style="margin-top:0">
+     <select class="fc" id="lpAssetBinding" onchange="applyLandingAssetBinding(this.value)">
+      <option value="">选择像素 / 域名 / 落地页预设</option>
+     </select>
+     <button class="btn btn-g btn-sm" type="button" onclick="openLandingAssetBindingModal()">管理预设</button>
+     <button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveLandingAssetBindingFromPublish()">当前配置存为预设</button>
+    </div>
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：RH-US-0617-01"></div>
      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
@@ -16538,7 +16546,7 @@ async function importLandingUrlsCsv(input) {
 }
 
 // ── 落地页发布中心 ──
-var _cfTokens=[], _lpTemplates=[], _lpProtectionTemplates=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
+var _cfTokens=[], _lpTemplates=[], _lpProtectionTemplates=[], _lpAssetBindings=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
 var _landingTrueCostTarget=parseFloat(localStorage.getItem('landing_true_cost_target_usd')||'')||0;
 function setLandingPerfDays(v){
  _landingPerfDays=Math.max(1,Math.min(90,parseInt(v||'7',10)||7));
@@ -16565,14 +16573,16 @@ async function loadLandingCenter(force){
    api('GET','/landing-pages/tokens'),
    api('GET','/landing-pages/templates'),
    api('GET','/landing-pages/protection-templates').catch(function(){return []}),
+   api('GET','/landing-pages/asset-bindings').catch(function(){return []}),
    api('GET','/landing-pages/pages'),
    api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=500').catch(function(){return null;})
   ]);
   _cfTokens=data[0]||[];
   _lpTemplates=data[1]||[];
   _lpProtectionTemplates=data[2]||[];
-  _landingPages=data[3]||[];
-  _landingAdPerf=data[4]||null;
+  _lpAssetBindings=data[3]||[];
+  _landingPages=data[4]||[];
+  _landingAdPerf=data[5]||null;
   renderCloudflareTokens();
   renderLandingPublishOptions();
   renderProtectionTemplateList();
@@ -16633,7 +16643,49 @@ function renderLandingPublishOptions(){
  var tp=document.getElementById('lpTemplate');
  if(tp)tp.innerHTML=_lpTemplates.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('模板 '+t.id))+'</option>';}).join('');
  renderProtectionTemplateSelects();
+ renderLandingAssetBindingSelects();
  onLandingKindChanged();
+}
+function _landingAssetBindingById(id){
+ return (_lpAssetBindings||[]).find(function(x){return String(x.id)===String(id);})||null;
+}
+function _landingAssetBindingLabel(b){
+ b=b||{};
+ var parts=[b.name||('预设 '+b.id)];
+ if(b.custom_domain)parts.push(b.custom_domain);
+ if(b.pixel_id)parts.push('Pixel '+b.pixel_id);
+ if(b.landing_page&&b.landing_page.title)parts.push(b.landing_page.title);
+ return parts.filter(Boolean).join(' · ');
+}
+function renderLandingAssetBindingSelects(){
+ var sel=document.getElementById('lpAssetBinding');
+ if(!sel)return;
+ var old=sel.value||'';
+ var opts='<option value="">选择像素 / 域名 / 落地页预设</option>'+(_lpAssetBindings||[]).map(function(b){
+  return '<option value="'+b.id+'">'+escHtml(_landingAssetBindingLabel(b))+'</option>';
+ }).join('');
+ sel.innerHTML=opts;
+ if(old)sel.value=old;
+}
+function applyLandingAssetBinding(id){
+ var b=_landingAssetBindingById(id);
+ if(!b)return;
+ var domain=document.getElementById('lpCustomDomain');
+ var pixel=document.getElementById('lpPixel');
+ var targets=document.getElementById('lpTargets');
+ var kind=document.getElementById('lpKind');
+ var rotation=document.getElementById('lpRotation');
+ if(domain&&b.custom_domain)domain.value=b.custom_domain;
+ if(pixel&&b.pixel_id)pixel.value=b.pixel_id;
+ if(targets&&Array.isArray(b.target_urls)&&b.target_urls.length)targets.value=b.target_urls.join('\n');
+ if(kind&&b.link_kind){kind.value=b.link_kind;onLandingKindChanged();}
+ if(rotation&&b.rotation_mode)rotation.value=b.rotation_mode;
+ if(b.protection_template_id){
+  var sel=document.getElementById('lpProtectionTemplate');
+  if(sel)sel.value=String(b.protection_template_id);
+  applyProtectionTemplateToPrefix(b.protection_template_id,'lp');
+ }
+ toast('已套用资产预设：'+(b.name||('预设 '+b.id)),'ok');
 }
 function _landingMatrixIdsFromPage(page){
  var ids=[];
@@ -18021,8 +18073,141 @@ async function publishLandingPage(){
   if(res&&res.page&&(res.page.public_url||res.page.pages_url))copyText(encodeURIComponent(res.page.public_url||res.page.pages_url),true);
   closeLandingPublishDrawer();
   markPageStale('landing_center');
-  await loadLandingCenter(true);
+ await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}
+}
+function closeLandingAssetBindingModal(){
+ closeModal('moLandingAssetBinding');
+}
+function _landingAssetBindingRowsHtml(){
+ if(!(_lpAssetBindings||[]).length){
+  return '<div style="padding:14px;border:1px dashed var(--bd);border-radius:10px;color:var(--t3);font-size:12px">暂无资产预设。可以从当前发布配置保存，或在上方手动维护像素、域名和落地页关系。</div>';
+ }
+ return (_lpAssetBindings||[]).map(function(b){
+  var page=b.landing_page||{};
+  var detail=[
+   b.custom_domain?('域名 '+b.custom_domain):'未绑定域名',
+   b.pixel_id?('Pixel '+b.pixel_id):'未绑定 Pixel',
+   page.title?('落地页 '+page.title):'未关联落地页',
+   b.protection_template_name?('访问控制 '+b.protection_template_name):''
+  ].filter(Boolean).join(' · ');
+  return '<div class="landing-protection-item">'+
+   '<div class="landing-protection-item-main"><div class="landing-protection-item-title">'+escHtml(b.name||('预设 '+b.id))+'</div>'+
+   '<div class="landing-protection-item-rules" title="'+escHtml(detail)+'">'+escHtml(detail)+'</div>'+
+   '<div style="font-size:11px;color:var(--t3);margin-top:4px">'+escHtml(resourceOwnerLabel(b,'团队预设'))+(b.note?' · '+escHtml(b.note):'')+'</div></div>'+
+   '<div class="landing-protection-item-actions">'+
+    '<button class="btn btn-g btn-sm" onclick="applyLandingAssetBinding('+b.id+');closeLandingAssetBindingModal()">套用</button>'+
+    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAssetBindingModal('+b.id+')">编辑</button>'+
+    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="deleteLandingAssetBinding('+b.id+')">删除</button>'+
+   '</div>'+
+  '</div>';
+ }).join('');
+}
+function openLandingAssetBindingModal(editId){
+ var b=editId?_landingAssetBindingById(editId):null;
+ var pageOptions='<option value="">不关联已有落地页</option>'+(_landingPages||[]).filter(function(p){return p.status!=='archived';}).map(function(p){
+  return '<option value="'+p.id+'" '+(b&&String(b.landing_page_id||'')===String(p.id)?'selected':'')+'>'+escHtml(p.title||('落地页 '+p.id))+(p.custom_domain?' · '+escHtml(p.custom_domain):'')+'</option>';
+ }).join('');
+ var protectionOptions='<option value="">不套用访问控制模板</option>'+(_lpProtectionTemplates||[]).map(function(t){
+  return '<option value="'+t.id+'" '+(b&&String(b.protection_template_id||'')===String(t.id)?'selected':'')+'>'+escHtml(t.name||('模板 '+t.id))+'</option>';
+ }).join('');
+ var mo=document.getElementById('moLandingAssetBinding');
+ if(mo&&mo.parentNode)mo.remove();
+ mo=document.createElement('div');
+ mo.className='mo';
+ mo.id='moLandingAssetBinding';
+ mo.dataset.dynamicModal='1';
+ mo.innerHTML='<div class="modal" style="max-width:980px">'+
+  '<div class="mh"><h3>资产预设</h3><button class="mc" onclick="closeLandingAssetBindingModal()">✕</button></div>'+
+  '<div class="mb">'+
+   '<div class="landing-result-context">手动维护像素、域名和落地页的常用组合。发布新链接时选择预设，只会自动填表，不会自动发布或覆盖已有广告。</div>'+
+   '<input type="hidden" id="abEditingId" value="'+escHtml(b?String(b.id):'')+'">'+
+   '<div class="landing-form-grid">'+
+    '<div class="fg"><label class="fl">预设名称</label><input class="fc" id="abName" placeholder="如：SG 购买 - PixelA - go.example.com" value="'+escHtml((b&&b.name)||'')+'"></div>'+
+    '<div class="fg"><label class="fl">关联已有落地页</label><select class="fc" id="abLandingPage">'+pageOptions+'</select></div>'+
+    '<div class="fg"><label class="fl">自定义域名</label><input class="fc" id="abDomain" placeholder="go.example.com" value="'+escHtml((b&&b.custom_domain)||'')+'"></div>'+
+    '<div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="abPixel" placeholder="Facebook Pixel ID" value="'+escHtml((b&&b.pixel_id)||'')+'"></div>'+
+    '<div class="fg"><label class="fl">链接类型</label><select class="fc" id="abKind"><option value="landing">普通落地页</option><option value="form">表单直跳</option></select></div>'+
+    '<div class="fg"><label class="fl">轮询方式</label><select class="fc" id="abRotation"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select></div>'+
+    '<div class="fg"><label class="fl">访问控制模板</label><select class="fc" id="abProtectionTemplate">'+protectionOptions+'</select></div>'+
+    '<div class="fg"><label class="fl">备注</label><input class="fc" id="abNote" placeholder="可选，说明适用账户/国家/素材" value="'+escHtml((b&&b.note)||'')+'"></div>'+
+   '</div>'+
+   '<div class="fg"><label class="fl">默认跳转链接</label><textarea class="fc" id="abTargets" style="min-height:90px" placeholder="每行一个 WhatsApp / 跳转链接">'+escHtml(((b&&b.target_urls)||[]).join('\n'))+'</textarea></div>'+
+   '<div class="landing-template-tools"><button class="btn btn-p btn-sm role-hide-viewer" onclick="saveLandingAssetBinding()">保存并关闭</button><button class="btn btn-g btn-sm" onclick="closeLandingAssetBindingModal()">取消</button></div>'+
+   '<div class="landing-form-section"><div class="landing-section-title">已保存预设</div><div id="landingAssetBindingList">'+_landingAssetBindingRowsHtml()+'</div></div>'+
+  '</div>'+
+ '</div>';
+ document.body.appendChild(mo);
+ openModal('moLandingAssetBinding');
+ var kind=document.getElementById('abKind');if(kind)kind.value=(b&&b.link_kind)||'landing';
+ var rotation=document.getElementById('abRotation');if(rotation)rotation.value=(b&&b.rotation_mode)||'sequential';
+}
+function _landingAssetBindingEditorPayload(){
+ return {
+  name:((document.getElementById('abName')||{}).value||'').trim(),
+  custom_domain:((document.getElementById('abDomain')||{}).value||'').trim(),
+  pixel_id:((document.getElementById('abPixel')||{}).value||'').trim(),
+  landing_page_id:parseInt((document.getElementById('abLandingPage')||{}).value||'0',10)||null,
+  target_urls:((document.getElementById('abTargets')||{}).value||'').split(/\n+/).map(function(s){return s.trim();}).filter(Boolean),
+  rotation_mode:(document.getElementById('abRotation')||{}).value||'sequential',
+  link_kind:(document.getElementById('abKind')||{}).value||'landing',
+  protection_template_id:parseInt((document.getElementById('abProtectionTemplate')||{}).value||'0',10)||null,
+  note:((document.getElementById('abNote')||{}).value||'').trim()
+ };
+}
+async function saveLandingAssetBinding(){
+ var payload=_landingAssetBindingEditorPayload();
+ if(!payload.name){toast('请填写预设名称','wa');return;}
+ var id=((document.getElementById('abEditingId')||{}).value||'').trim();
+ try{
+  var res=id?await api('PATCH','/landing-pages/asset-bindings/'+id,payload):await api('POST','/landing-pages/asset-bindings',payload);
+  _lpAssetBindings=await api('GET','/landing-pages/asset-bindings');
+  renderLandingAssetBindingSelects();
+  if(res&&res.binding){
+   var sel=document.getElementById('lpAssetBinding');
+   if(sel)sel.value=String(res.binding.id);
+  }
+  closeLandingAssetBindingModal();
+  toast(id?'资产预设已更新':'资产预设已保存','ok');
+ }catch(e){toast('保存资产预设失败：'+(e.message||e),'er')}
+}
+async function saveLandingAssetBindingFromPublish(){
+ var payload=_landingPublishPayload();
+ var name=await promptAsync('保存资产预设','给当前像素、域名、跳转链接组合起一个名称。','','例如：SG 购买 - PixelA - go.example.com');
+ if(name==null)return;
+ name=String(name||'').trim();
+ if(!name){toast('请填写预设名称','wa');return;}
+ try{
+  var res=await api('POST','/landing-pages/asset-bindings',{
+   name:name,
+   custom_domain:payload.custom_domain,
+   pixel_id:payload.pixel_id,
+   target_urls:payload.target_urls,
+   rotation_mode:payload.rotation_mode,
+   link_kind:payload.link_kind,
+   protection_template_id:parseInt((document.getElementById('lpProtectionTemplate')||{}).value||'0',10)||null,
+   note:''
+  });
+  _lpAssetBindings=await api('GET','/landing-pages/asset-bindings');
+  renderLandingAssetBindingSelects();
+  if(res&&res.binding){
+   var sel=document.getElementById('lpAssetBinding');
+   if(sel)sel.value=String(res.binding.id);
+  }
+  toast('当前配置已保存为资产预设','ok');
+ }catch(e){toast('保存资产预设失败：'+(e.message||e),'er')}
+}
+async function deleteLandingAssetBinding(id){
+ var b=_landingAssetBindingById(id);
+ var ok=await confirmDialog('确认删除资产预设「'+escHtml((b&&b.name)||id)+'」？不会影响已发布落地页。');
+ if(!ok)return;
+ try{
+  await api('DELETE','/landing-pages/asset-bindings/'+id);
+  _lpAssetBindings=await api('GET','/landing-pages/asset-bindings');
+  renderLandingAssetBindingSelects();
+  openLandingAssetBindingModal();
+  toast('资产预设已删除','ok');
+ }catch(e){toast('删除资产预设失败：'+(e.message||e),'er')}
 }
 async function republishLandingPage(id){
  var ok=await confirmDialog('确认重新发布这个落地页？系统会保留原短码、统计密钥和项目名称，只把线上 HTML/Worker 更新为当前版本。');

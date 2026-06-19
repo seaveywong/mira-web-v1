@@ -62,6 +62,19 @@ class LandingProtectionTemplateReq(BaseModel):
     team_id: Optional[int] = None
 
 
+class LandingAssetBindingReq(BaseModel):
+    name: str
+    custom_domain: Optional[str] = ""
+    pixel_id: Optional[str] = ""
+    landing_page_id: Optional[int] = None
+    target_urls: list[str] = []
+    rotation_mode: str = "sequential"
+    link_kind: str = "landing"
+    protection_template_id: Optional[int] = None
+    note: Optional[str] = ""
+    team_id: Optional[int] = None
+
+
 class LandingPublishReq(BaseModel):
     token_id: int
     template_id: int = 1
@@ -239,6 +252,27 @@ def _ensure_schema():
             created_at TEXT DEFAULT (datetime('now','+8 hours')),
             updated_at TEXT DEFAULT (datetime('now','+8 hours'))
         );
+
+        CREATE TABLE IF NOT EXISTS landing_asset_bindings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            custom_domain TEXT,
+            pixel_id TEXT,
+            landing_page_id INTEGER,
+            target_urls TEXT DEFAULT '[]',
+            rotation_mode TEXT DEFAULT 'sequential',
+            link_kind TEXT DEFAULT 'landing',
+            protection_template_id INTEGER,
+            note TEXT,
+            status TEXT DEFAULT 'active',
+            team_id INTEGER,
+            owner_user_id INTEGER,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now','+8 hours')),
+            updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_landing_asset_bindings_scope ON landing_asset_bindings(team_id, owner_user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_landing_asset_bindings_page ON landing_asset_bindings(landing_page_id);
 
         CREATE TABLE IF NOT EXISTS landing_pages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -840,6 +874,113 @@ def _public_page(row) -> dict:
     item.pop("raw_response", None)
     item.pop("ingest_secret", None)
     return item
+
+
+def _public_asset_binding(row) -> dict:
+    item = dict(row)
+    item["target_urls"] = _json_loads(item.get("target_urls"), [])
+    item["landing_page_id"] = item.get("landing_page_id")
+    item["protection_template_id"] = item.get("protection_template_id")
+    if item.get("page_id") or item.get("page_title"):
+        page_public = _public_page(
+            {
+                "id": item.get("page_id") or item.get("landing_page_id"),
+                "title": item.get("page_title"),
+                "pages_url": item.get("page_pages_url"),
+                "custom_domain": item.get("page_custom_domain"),
+                "raw_response": item.get("page_raw_response"),
+                "target_urls": item.get("page_target_urls") or "[]",
+                "bound_act_ids": "[]",
+                "protection_rules": "{}",
+                "tracking_enabled": 0,
+                "protection_enabled": 0,
+                "worker_enabled": 0,
+                "last_error": item.get("page_last_error"),
+            }
+        )
+        item["landing_page"] = {
+            "id": item.get("page_id") or item.get("landing_page_id"),
+            "title": item.get("page_title"),
+            "public_url": page_public.get("public_url"),
+            "pages_url": item.get("page_pages_url"),
+            "custom_domain": item.get("page_custom_domain"),
+            "custom_domain_usable": page_public.get("custom_domain_usable"),
+        }
+    else:
+        item["landing_page"] = None
+    item["protection_template_name"] = item.get("protection_template_name")
+    item["team_name"] = item.get("team_name")
+    item["owner_user_name"] = item.get("owner_user_name")
+    for key in (
+        "page_id",
+        "page_title",
+        "page_pages_url",
+        "page_custom_domain",
+        "page_raw_response",
+        "page_target_urls",
+        "page_last_error",
+    ):
+        item.pop(key, None)
+    return item
+
+
+def _assert_asset_binding_access(conn, binding_id: int, user) -> dict:
+    row = conn.execute("SELECT * FROM landing_asset_bindings WHERE id=? AND status='active'", (binding_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="资产预设不存在")
+    item = dict(row)
+    if is_superadmin(user):
+        return item
+    tid = team_id_for_create(user)
+    if item.get("team_id") != tid:
+        raise HTTPException(status_code=403, detail="资产预设属于其他团队")
+    if is_operator_user(user) and item.get("owner_user_id") not in (None, user_id(user)):
+        raise HTTPException(status_code=403, detail="资产预设属于其他运营")
+    return item
+
+
+def _asset_binding_values(body: LandingAssetBindingReq, conn, user) -> dict:
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="请填写预设名称")
+    page = None
+    page_id = int(body.landing_page_id or 0) or None
+    if page_id:
+        page = _assert_page_access(conn, page_id, user)
+    protection_template_id = int(body.protection_template_id or 0) or None
+    if protection_template_id:
+        _assert_protection_template_access(conn, protection_template_id, user)
+    custom_domain_raw = (body.custom_domain or "").strip()
+    if not custom_domain_raw and page:
+        custom_domain_raw = page.get("custom_domain") or ""
+    try:
+        custom_domain = normalize_custom_domain(custom_domain_raw) if custom_domain_raw else ""
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pixel_id = (body.pixel_id or "").strip() or ((page or {}).get("pixel_id") or "")
+    target_urls = [u.strip() for u in body.target_urls if isinstance(u, str) and u.strip()]
+    if not target_urls and page:
+        target_urls = [u for u in _json_loads(page.get("target_urls"), []) if isinstance(u, str) and u.strip()]
+    if any(not (u.startswith("http://") or u.startswith("https://")) for u in target_urls):
+        raise HTTPException(status_code=400, detail="目标链接必须以 http:// 或 https:// 开头")
+    rotation_mode = (body.rotation_mode or ((page or {}).get("rotation_mode") or "sequential")).strip().lower()
+    if rotation_mode not in {"sequential", "random", "first"}:
+        raise HTTPException(status_code=400, detail="rotation_mode must be sequential, random, or first")
+    link_kind = (body.link_kind or ((page or {}).get("link_kind") or "landing")).strip().lower()
+    if link_kind not in {"landing", "form"}:
+        raise HTTPException(status_code=400, detail="link_kind must be landing or form")
+    return {
+        "name": name[:120],
+        "custom_domain": custom_domain,
+        "pixel_id": pixel_id[:80],
+        "landing_page_id": page_id,
+        "target_urls": target_urls,
+        "rotation_mode": rotation_mode,
+        "link_kind": link_kind,
+        "protection_template_id": protection_template_id,
+        "note": (body.note or "").strip()[:500],
+        "page": page,
+    }
 
 
 def _page_public_url(item: dict) -> str:
@@ -2283,6 +2424,148 @@ def delete_landing_protection_template(template_id: int, user=Depends(get_curren
         )
         conn.commit()
         return {"success": True, "archived": True, "id": template_id}
+    finally:
+        conn.close()
+
+
+@router.get("/asset-bindings")
+def list_landing_asset_bindings(user=Depends(get_current_user)):
+    where, params = ["b.status='active'"], []
+    scope_where, scope_params = _scope_where(user, "b")
+    where.extend(scope_where)
+    params.extend(scope_params)
+    sql = """SELECT b.*,
+                    p.id AS page_id,
+                    p.title AS page_title,
+                    p.pages_url AS page_pages_url,
+                    p.custom_domain AS page_custom_domain,
+                    p.raw_response AS page_raw_response,
+                    p.target_urls AS page_target_urls,
+                    p.last_error AS page_last_error,
+                    pt.name AS protection_template_name,
+                    tm.name AS team_name,
+                    COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+             FROM landing_asset_bindings b
+             LEFT JOIN landing_pages p ON p.id=b.landing_page_id
+             LEFT JOIN landing_protection_templates pt ON pt.id=b.protection_template_id
+             LEFT JOIN teams tm ON tm.id=b.team_id
+             LEFT JOIN users ou ON ou.id=b.owner_user_id
+             WHERE """ + " AND ".join(where) + " ORDER BY b.id DESC LIMIT 300"
+    conn = get_conn()
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [_public_asset_binding(r) for r in rows]
+
+
+@router.post("/asset-bindings")
+def create_landing_asset_binding(body: LandingAssetBindingReq, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        vals = _asset_binding_values(body, conn, user)
+        team_id, owner_id = _stamp(user, body.team_id)
+        if team_id is None and vals.get("page"):
+            team_id = vals["page"].get("team_id")
+        conn.execute(
+            """INSERT INTO landing_asset_bindings
+               (name, custom_domain, pixel_id, landing_page_id, target_urls, rotation_mode,
+                link_kind, protection_template_id, note, team_id, owner_user_id, created_by)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                vals["name"],
+                vals["custom_domain"],
+                vals["pixel_id"],
+                vals["landing_page_id"],
+                json.dumps(vals["target_urls"], ensure_ascii=False),
+                vals["rotation_mode"],
+                vals["link_kind"],
+                vals["protection_template_id"],
+                vals["note"],
+                team_id,
+                owner_id,
+                user.get("username", "unknown"),
+            ),
+        )
+        binding_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        row = conn.execute(
+            """SELECT b.*,
+                      p.id AS page_id, p.title AS page_title, p.pages_url AS page_pages_url,
+                      p.custom_domain AS page_custom_domain, p.raw_response AS page_raw_response,
+                      p.target_urls AS page_target_urls, p.last_error AS page_last_error,
+                      pt.name AS protection_template_name,
+                      tm.name AS team_name,
+                      COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+               FROM landing_asset_bindings b
+               LEFT JOIN landing_pages p ON p.id=b.landing_page_id
+               LEFT JOIN landing_protection_templates pt ON pt.id=b.protection_template_id
+               LEFT JOIN teams tm ON tm.id=b.team_id
+               LEFT JOIN users ou ON ou.id=b.owner_user_id
+               WHERE b.id=?""",
+            (binding_id,),
+        ).fetchone()
+        return {"success": True, "binding": _public_asset_binding(row)}
+    finally:
+        conn.close()
+
+
+@router.patch("/asset-bindings/{binding_id}")
+def update_landing_asset_binding(binding_id: int, body: LandingAssetBindingReq, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_asset_binding_access(conn, binding_id, user)
+        vals = _asset_binding_values(body, conn, user)
+        conn.execute(
+            """UPDATE landing_asset_bindings
+               SET name=?, custom_domain=?, pixel_id=?, landing_page_id=?, target_urls=?,
+                   rotation_mode=?, link_kind=?, protection_template_id=?, note=?,
+                   updated_at=datetime('now','+8 hours')
+               WHERE id=?""",
+            (
+                vals["name"],
+                vals["custom_domain"],
+                vals["pixel_id"],
+                vals["landing_page_id"],
+                json.dumps(vals["target_urls"], ensure_ascii=False),
+                vals["rotation_mode"],
+                vals["link_kind"],
+                vals["protection_template_id"],
+                vals["note"],
+                binding_id,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            """SELECT b.*,
+                      p.id AS page_id, p.title AS page_title, p.pages_url AS page_pages_url,
+                      p.custom_domain AS page_custom_domain, p.raw_response AS page_raw_response,
+                      p.target_urls AS page_target_urls, p.last_error AS page_last_error,
+                      pt.name AS protection_template_name,
+                      tm.name AS team_name,
+                      COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+               FROM landing_asset_bindings b
+               LEFT JOIN landing_pages p ON p.id=b.landing_page_id
+               LEFT JOIN landing_protection_templates pt ON pt.id=b.protection_template_id
+               LEFT JOIN teams tm ON tm.id=b.team_id
+               LEFT JOIN users ou ON ou.id=b.owner_user_id
+               WHERE b.id=?""",
+            (binding_id,),
+        ).fetchone()
+        return {"success": True, "binding": _public_asset_binding(row)}
+    finally:
+        conn.close()
+
+
+@router.delete("/asset-bindings/{binding_id}")
+def delete_landing_asset_binding(binding_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_asset_binding_access(conn, binding_id, user)
+        conn.execute(
+            "UPDATE landing_asset_bindings SET status='archived', updated_at=datetime('now','+8 hours') WHERE id=?",
+            (binding_id,),
+        )
+        conn.commit()
+        return {"success": True, "archived": True, "id": binding_id}
     finally:
         conn.close()
 
