@@ -12,7 +12,7 @@ const HEARTBEAT_ALARM = "mira_heartbeat";
 const POLL_ALARM = "mira_poll";
 const TOKEN_ALARM = "mira_token_refresh";
 const GRAPH_BASE = "https://graph.facebook.com/v22.0";
-const VERSION = "2.4.6";
+const VERSION = "2.4.7";
 const ASSET_DISCOVERY_FRESH_MS = 6 * 60 * 60 * 1000;
 const ASSET_DISCOVERY_MIN_INTERVAL_MS = 20 * 60 * 1000;
 const LOCAL_SESSION_PROBE_FRESH_MS = 5 * 60 * 1000;
@@ -695,6 +695,16 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function withTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label || 'local_executor_timeout')), Math.max(1000, timeoutMs || 30000));
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function ensureContentScript(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { action: 'scanAdAccounts' });
@@ -821,16 +831,16 @@ async function runBusinessOperationInTab(operation, payload = {}) {
     tab = await chrome.tabs.update(tab.id, { url: targetUrl, active: false });
   }
 
-  await waitForTabComplete(tab.id, 24000);
+  await withTimeout(waitForTabComplete(tab.id, 24000), 28000, 'business_tab_load_timeout');
   await sleep(operation === 'list_businesses' ? 1800 : 3200);
-  await ensureContentScript(tab.id);
+  await withTimeout(ensureContentScript(tab.id), 8000, 'content_script_inject_timeout');
 
   try {
-    const res = await chrome.tabs.sendMessage(tab.id, {
+    const res = await withTimeout(chrome.tabs.sendMessage(tab.id, {
       action: 'fbBusinessOperation',
       operation,
       payload,
-    });
+    }), 45000, `business_operation_timeout:${operation}`);
     if (!res || !res.ok) throw new Error(res?.error || 'business_operation_failed');
     return res.data;
   } finally {
@@ -1201,6 +1211,7 @@ async function pollTasks() {
       node_id: s.nodeId,
       node_secret: s.nodeSecret,
       capacity: 1,
+      running_task_ids: Array.from(runningTasks.keys()),
     });
     if (Array.isArray(data.tasks) && data.tasks.length) return data.tasks;
     if (data.task) return [data.task];
@@ -1314,7 +1325,9 @@ async function executeTask(task) {
   const start = Date.now();
 
   try {
-    const result = await runGraphTask(task);
+    const timeoutSec = Math.max(10, Number(task.timeout_sec || 60));
+    const timeoutMs = Math.max(10000, Math.min((timeoutSec - 3) * 1000, 240000));
+    const result = await withTimeout(runGraphTask(task), timeoutMs, `task_timeout:${task.task_type || task.operation || 'local_task'}`);
     const dur = Date.now() - start;
     await reportTaskResult(taskId, 'success', result, null, dur);
 

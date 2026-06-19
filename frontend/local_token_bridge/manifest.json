@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Mira 本地 API 执行器",
-  "version": "2.4.6",
-  "description": "Mira 本地执行器。本地执行 Graph API 写操作，Mira 下发任务接收结果。不上传 Cookie/Token。",
+  "name": "Mira Local API Executor",
+  "version": "2.4.7",
+  "description": "Mira local executor. Runs approved local browser tasks and returns task results to Mira.",
   "action": {
-    "default_title": "Mira 本地 API 执行器",
+    "default_title": "Mira Local API Executor",
     "default_popup": "popup.html"
   },
   "background": {
