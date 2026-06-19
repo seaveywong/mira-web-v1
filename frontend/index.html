@@ -16412,7 +16412,7 @@ function renderLandingPerformance(){
  panel.innerHTML=
   '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">'+
    '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">按 /a/短码统计访问、点击、WhatsApp 跳转和表单动作；消耗按当前日期窗口优先读取巡检历史，缺失时回退缓存。</p></div>'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingAdResultsTemplate()">导出回填模板</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingAdMapping()">导出映射表</button><button class="btn btn-g btn-sm" onclick="exportLandingAdResultsTemplate()">导出回填模板</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
   '</div>'+
   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0">'+cards+'</div>'+
   '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1040px;border-collapse:collapse">'+
@@ -16549,7 +16549,7 @@ function _landingAdLinksHtml(page, links){
  if(!rows)rows='<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--t3)">还没有广告级链接。生成后，每条广告使用一个链接，Mira 会按短码做广告级统计。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
   '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">同一个域名下用 /a/短码 区分每条广告。</div></div>'+
-  '<button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成链接</button>'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+')">导出映射</button><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成链接</button></div>'+
  '</div>'+
  '<div class="table-wrap" style="max-height:420px;overflow:auto"><table style="width:100%;min-width:720px;border-collapse:collapse">'+
  '<thead><tr><th style="text-align:left;padding:8px 10px">短码</th><th style="text-align:left;padding:8px 10px">广告链接</th><th style="text-align:left;padding:8px 10px">统计</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
@@ -16665,6 +16665,79 @@ async function importLandingAdResults(){
 function _landingCsvCell(v){
  var s=String(v==null?'':v);
  return /[",\n\r]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s;
+}
+function _downloadLandingCsv(rows, filename){
+ if(!rows||rows.length<=1){toast('没有可导出的广告级链接','wa');return;}
+ var csv=rows.map(function(r){return r.map(_landingCsvCell).join(',');}).join('\n');
+ var blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+ var url=URL.createObjectURL(blob);
+ var a=document.createElement('a');
+ a.href=url;
+ a.download=filename;
+ a.click();
+ URL.revokeObjectURL(url);
+}
+function _landingAdMappingRows(items){
+ items=Array.isArray(items)?items:[];
+ var rows=[[
+  'page_title','account_name','act_id','campaign_name','campaign_id','adset_name','adset_id',
+  'ad_name','ad_id','slug','short_url','target_url','status','spend_usd','spend_source',
+  'fb_conversions','final_true_contact','confirmed_actions','confirmed_sales','true_cost_usd',
+  'visits','clicks','whatsapp_redirects','result_date','note'
+ ]];
+ items.forEach(function(x){
+  var stats=x.stats||{};
+  var cost=stats.cost_per_final_true_contact||stats.cost_per_confirmed_action||stats.cost_per_effective_true_contact||stats.cost_per_true_contact||'';
+  rows.push([
+   x.page_title||'',
+   x.account_name||'',
+   x.act_id?('act_'+String(x.act_id).replace(/^act_/,'')):'',
+   x.campaign_name||'',
+   x.campaign_id||'',
+   x.adset_name||'',
+   x.adset_id||'',
+   x.ad_name||'',
+   x.ad_id||'',
+   x.slug||'',
+   x.public_url||'',
+   x.target_url||'',
+   x.status||'',
+   stats.spend||0,
+   stats.spend_source||'',
+   stats.fb_conversions||0,
+   stats.final_true_contact||0,
+   stats.confirmed_actions||0,
+   stats.confirmed_sales||0,
+   cost,
+   stats.unique_visit||stats.visit||0,
+   stats.unique_click||stats.click||0,
+   stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0,
+   stats.confirmed_result_date||'',
+   stats.confirmed_result_note||''
+  ]);
+ });
+ return rows;
+}
+function exportLandingAdMapping(){
+ var data=_landingAdPerf||{};
+ var items=Array.isArray(data.items)?data.items:[];
+ var today=_landingResultToday();
+ _downloadLandingCsv(_landingAdMappingRows(items),'landing_ad_mapping_'+today+'.csv');
+ toast('已导出广告级映射表','ok');
+}
+async function exportLandingPageAdLinks(pageId){
+ try{
+  var page=(_landingPages||[]).find(function(p){return String(p.id)===String(pageId);})||{};
+  var links=await api('GET','/landing-pages/pages/'+pageId+'/ad-links');
+  links=(Array.isArray(links)?links:[]).map(function(x){
+   if(!x.page_title)x.page_title=page.title||'';
+   return x;
+  });
+  _downloadLandingCsv(_landingAdMappingRows(links),'landing_page_'+pageId+'_ad_mapping_'+_landingResultToday()+'.csv');
+  toast('已导出当前落地页广告级映射','ok');
+ }catch(e){
+  toast('导出映射失败：'+(e.message||e),'er');
+ }
 }
 function exportLandingAdResultsTemplate(){
  var data=_landingAdPerf||{};
