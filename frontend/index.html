@@ -17250,6 +17250,39 @@ function _landingTargetBindingStatus(item, counts){
  if(n>1)return {code:'dedicated_reused',label:'目标重复',cls:'bg-wa',hint:'同一个目标链接绑定了 '+n+' 个入口；能区分入口表现，但后续对话仍可能混在同一个 WhatsApp 目标里。'};
  return {code:'dedicated_unique',label:'专属唯一',cls:'bg-ok',hint:'该广告入口绑定了一个独立目标链接，适合按广告核算真实成本。'};
 }
+function _landingAttributionMode(item){
+ var hasAd=!!String((item&&item.ad_id)||'').trim();
+ var hasParam=hasAd&&!!String((item&&item.ad_param_url)||'').trim();
+ if(hasParam)return {code:'ad_param',label:'广告参数',cls:'bg-ac',hint:'使用 /a?ad=广告ID 归因。适合在同一个页面入口下按广告 ID 分账；目标链接不会被追加参数。'};
+ if(hasAd)return {code:'short_bound',label:'短码绑定',cls:'bg-ok',hint:'使用 /a/短码 归因，且该短码已绑定广告 ID，可读取对应广告消耗。'};
+ return {code:'short_reserved',label:'短码预留',cls:'bg-mu',hint:'只有 /a/短码入口，尚未绑定广告 ID；可统计访问点击，但不能自动拉取该广告消耗。'};
+}
+function _landingCopyBtn(label,url,cls){
+ if(!url)return '';
+ return '<button class="btn '+(cls||'btn-g')+' btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">'+escHtml(label)+'</button>';
+}
+function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
+ stats=stats||{};
+ var buttons=[];
+ if(adParamUrl)buttons.push(_landingCopyBtn('复制参数',adParamUrl,'btn-p'));
+ if(publicUrl)buttons.push(_landingCopyBtn('复制短码',publicUrl,adParamUrl?'btn-g':'btn-p'));
+ buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定广告')+'</button>');
+ buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
+ return '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center;min-width:180px">'+buttons.join('')+'</div>';
+}
+function _landingAdLinkUrlCell(publicUrl,adParamUrl,target,binding){
+ var html='';
+ if(adParamUrl){
+  html+='<div style="display:flex;gap:6px;align-items:center;min-width:0"><span class="badge bg-ac">参数入口</span><a target="_blank" href="'+escHtml(adParamUrl)+'" style="color:var(--ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(adParamUrl)+'</a></div>';
+ }
+ if(publicUrl){
+  html+='<div style="display:flex;gap:6px;align-items:center;min-width:0;margin-top:'+(adParamUrl?'5px':'0')+'"><span class="badge bg-mu">短码入口</span><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(publicUrl)+'</a></div>';
+ }
+ if(!html)html='<span style="color:var(--t3)">暂无入口链接</span>';
+ html+='<div style="margin-top:5px"><span class="badge '+binding.cls+'" title="'+escHtml(binding.hint)+'">'+escHtml(binding.label)+'</span></div>';
+ html+='<div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target||'')+'">'+(target?'专属跳转：'+escHtml(target):'使用落地页全局轮询')+'</div>';
+ return html;
+}
 function renderLandingPerformance(){
  var panel=document.getElementById('landingStatsPanel'); if(!panel)return;
  var data=_landingAdPerf||{};
@@ -17299,6 +17332,7 @@ function renderLandingPerformance(){
   var copyUrl=adParamUrl||publicUrl;
   var target=x.target_url||'';
   var binding=_landingTargetBindingStatus(x,targetCounts);
+  var attribution=_landingAttributionMode(x);
   var adName=x.ad_name||x.ad_id||'未绑定广告';
   var accText=[displayAccountName(x.account_name,x.act_id,''),x.act_id?displayActId(x.act_id):''].filter(Boolean).join(' · ');
   var meta=[accText,x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
@@ -17321,22 +17355,23 @@ function renderLandingPerformance(){
   return '<tr>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd)"><span class="badge '+(stateClass[state]||'bg-mu')+'" title="'+escHtml(stateHelp[state]||'')+'">'+escHtml(stateLabel[state]||state)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+escHtml(reason)+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);min-width:180px"><div style="font-weight:760">'+escHtml(x.slug||'')+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(x.page_title||'--')+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);min-width:110px"><span class="badge '+attribution.cls+'" title="'+escHtml(attribution.hint)+'">'+escHtml(attribution.label)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+(adParamUrl?'按广告ID归因':'按短码归因')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:300px"><div style="display:flex;align-items:center;gap:6px;min-width:0"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(adName)+'">'+escHtml(adName)+'</div>'+(x.ad_id?'':'<span class="badge bg-wa">未绑定</span>')+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(meta)+'">'+escHtml(meta||'需要绑定账户 ID 和广告 ID 后才能读取 FB 消耗/成效')+'</div>'+(x.ad_id?'<div style="font-size:11px;color:var(--t3);margin-top:2px">广告ID '+escHtml(x.ad_id||'')+'</div>':'')+'</td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:320px;overflow:hidden;text-overflow:ellipsis"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(copyUrl||publicUrl)+'" style="color:var(--ac)">'+escHtml(copyUrl||publicUrl||'--')+'</a></div>'+(adParamUrl?'<div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(publicUrl)+'">短码入口：'+escHtml(publicUrl||'--')+'</div>':'')+'<div style="margin-top:4px"><span class="badge '+binding.cls+'" title="'+escHtml(binding.hint)+'">'+escHtml(binding.label)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">'+(target?'专属跳转：'+escHtml(target):'使用落地页全局轮询')+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:360px;overflow:hidden;text-overflow:ellipsis">'+_landingAdLinkUrlCell(publicUrl,adParamUrl,target,binding)+'</td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+money(stats.spend||0)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">FB成效 '+(stats.fb_conversions||0)+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(spendSource)+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(finalAction))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+' · 原始 '+rawAction+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+cost(trueCost)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(copyUrl)+'\')">复制入口</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="openLandingAdIdentityModal('+x.id+',\''+encodeURIComponent(x.slug||'')+'\')">'+bindLabel+'</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right">'+_landingAdLinkActionHtml(x,stats,bindLabel,publicUrl,adParamUrl)+'</td>'+
   '</tr>';
  }).join('');
  panel.innerHTML=
  '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">'+
-   '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">按广告入口 /a/短码 或 /a?ad={{ad.id}} 归因访问、点击、WhatsApp 跳转和表单动作；入口参数不会写入目标链接或对话内容。单个 WhatsApp 链接多广告共用时，后续真实进线需要回填确认。</p></div>'+
+   '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">区分短码入口和广告参数入口。参数入口按广告 ID 归因，短码入口按独立短码归因；两种方式都不会改写 WhatsApp 或目标链接内容。单个 WhatsApp 链接多广告共用时，后续真实进线需要回填确认。</p></div>'+
    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingAdMapping()">导出映射表</button><button class="btn btn-g btn-sm" onclick="exportLandingAdResultsTemplate()">导出回填模板</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
   '</div>'+
   '<div class="landing-perf-grid">'+cards+'</div>'+
-  '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1040px;border-collapse:collapse">'+
-  '<thead><tr><th style="text-align:left;padding:8px 10px">判断</th><th style="text-align:left;padding:8px 10px">短码/页面</th><th style="text-align:left;padding:8px 10px">广告</th><th style="text-align:left;padding:8px 10px">链接</th><th style="text-align:right;padding:8px 10px">FB消耗</th><th style="text-align:right;padding:8px 10px">有效动作</th><th style="text-align:right;padding:8px 10px">真实成本</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
+  '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1160px;border-collapse:collapse">'+
+  '<thead><tr><th style="text-align:left;padding:8px 10px">判断</th><th style="text-align:left;padding:8px 10px">短码/页面</th><th style="text-align:left;padding:8px 10px">归因方式</th><th style="text-align:left;padding:8px 10px">广告</th><th style="text-align:left;padding:8px 10px">链接</th><th style="text-align:right;padding:8px 10px">FB消耗</th><th style="text-align:right;padding:8px 10px">有效动作</th><th style="text-align:right;padding:8px 10px">真实成本</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
   '<tbody>'+rows+'</tbody></table></div>';
 }
 function openLandingPublishDrawer(){
@@ -17543,23 +17578,25 @@ function _landingAdLinksHtml(page, links){
   var copyUrl=adParamUrl||url;
   var target=x.target_url||'';
   var binding=_landingTargetBindingStatus(x,targetCounts);
+  var attribution=_landingAttributionMode(x);
   return '<tr>'+
    '<td style="padding:8px 10px"><div style="display:flex;gap:8px;align-items:center"><b style="font-weight:760">'+escHtml(x.slug||'')+'</b><span class="badge '+(status==='active'?'bg-ok':status==='failed'?'bg-er':'bg-mu')+'">'+escHtml(statusMap[status]||status)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(meta)+'</div></td>'+
-   '<td style="padding:8px 10px;max-width:340px;overflow:hidden;text-overflow:ellipsis"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(copyUrl||url)+'" style="color:var(--ac)">'+escHtml(copyUrl||url||'--')+'</a></div>'+(adParamUrl?'<div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(url)+'">短码入口：'+escHtml(url||'--')+'</div>':'')+'<div style="margin-top:4px"><span class="badge '+binding.cls+'" title="'+escHtml(binding.hint)+'">'+escHtml(binding.label)+'</span></div>'+(target?'<div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">专属跳转：'+escHtml(target)+'</div>':'<div style="font-size:11px;color:var(--t3);margin-top:3px">使用落地页全局轮询</div>')+'</td>'+
+   '<td style="padding:8px 10px"><span class="badge '+attribution.cls+'" title="'+escHtml(attribution.hint)+'">'+escHtml(attribution.label)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+(adParamUrl?'按广告ID归因':'按短码归因')+'</div></td>'+
+   '<td style="padding:8px 10px;max-width:360px;overflow:hidden;text-overflow:ellipsis">'+_landingAdLinkUrlCell(url,adParamUrl,target,binding)+'</td>'+
    '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">'+
      '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+' · 最终动作 '+finalAction+'（'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+'） · 原始 '+(stats.true_contact||0)+'</div>'+
      '<div style="margin-top:3px;color:var(--t3)">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+' · 收入 '+money(stats.confirmed_revenue||0)+' · 表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · FB消耗 '+money(spend)+' · 真实成本 '+cost(realCost)+' · '+escHtml(spendSource)+'</div>'+
    '</td>'+
-   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(copyUrl)+'\')">复制入口</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="openLandingAdIdentityModal('+x.id+',\''+encodeURIComponent(x.slug||'')+'\')">'+(x.ad_id?'改绑定':'绑定广告')+'</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
+   '<td style="padding:8px 10px;text-align:right">'+_landingAdLinkActionHtml(x,stats,(x.ad_id?'改绑定':'绑定广告'),url,adParamUrl)+'</td>'+
   '</tr>';
  }).join('');
- if(!rows)rows='<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口链接。生成后，每条广告可用 /a/短码 或 /a?ad={{ad.id}} 归因，Mira 不改目标跳转链接。</td></tr>';
+ if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口链接。生成后，每条广告可用 /a/短码 或 /a?ad={{ad.id}} 归因，Mira 不改目标跳转链接。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
   '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">同一个域名下用 /a/短码 或 /a?ad={{ad.id}} 区分广告入口；目标链接保持原样，真实进线可按短码或广告ID回填。</div></div>'+
   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+')">导出映射</button><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成链接</button></div>'+
  '</div>'+
- '<div class="table-wrap" style="max-height:420px;overflow:auto"><table style="width:100%;min-width:720px;border-collapse:collapse">'+
- '<thead><tr><th style="text-align:left;padding:8px 10px">短码</th><th style="text-align:left;padding:8px 10px">广告链接</th><th style="text-align:left;padding:8px 10px">统计</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
+ '<div class="table-wrap" style="max-height:420px;overflow:auto"><table style="width:100%;min-width:900px;border-collapse:collapse">'+
+ '<thead><tr><th style="text-align:left;padding:8px 10px">短码</th><th style="text-align:left;padding:8px 10px">归因方式</th><th style="text-align:left;padding:8px 10px">广告链接</th><th style="text-align:left;padding:8px 10px">统计</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead>'+
  '<tbody>'+rows+'</tbody></table></div>';
 }
 async function showLandingAdLinks(pageId){
