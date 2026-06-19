@@ -17462,6 +17462,54 @@ function _landingAdIdentityValue(data,key){
  var link=(data&&data.link)||{};
  return ad[key]||link[key]||'';
 }
+var _landingAdIdentityLookupTimer=null;
+function setLandingAdIdentityHint(html,type){
+ var el=document.getElementById('landingAdIdentityLookupHint');
+ if(!el)return;
+ if(!html){el.style.display='none';el.innerHTML='';return;}
+ var color=type==='ok'?'var(--ok)':(type==='er'?'var(--er)':(type==='wa'?'var(--wa)':'var(--t3)'));
+ el.style.display='block';
+ el.style.color=color;
+ el.innerHTML=html;
+}
+function scheduleLandingAdIdentityLookup(){
+ clearTimeout(_landingAdIdentityLookupTimer);
+ _landingAdIdentityLookupTimer=setTimeout(function(){resolveLandingAdIdentityFromAdId(false);},450);
+}
+async function resolveLandingAdIdentityFromAdId(force){
+ var adEl=document.getElementById('landingBindAdId');
+ if(!adEl)return false;
+ var adId=String(adEl.value||'').replace(/\D/g,'');
+ if(adId!==String(adEl.value||'').trim())adEl.value=adId;
+ if(!adId){setLandingAdIdentityHint('',null);return false;}
+ if(!force&&adId.length<10)return false;
+ setLandingAdIdentityHint('正在根据广告 ID 匹配账户...', 'wa');
+ try{
+  var data=await api('GET','/rules/guard/ad-account-lookup?ad_id='+encodeURIComponent(adId));
+  var matches=Array.isArray(data.matches)?data.matches:[];
+  if(data.selected_act_id){
+   var actEl=document.getElementById('landingBindActId');
+   var accEl=document.getElementById('landingBindAccountName');
+   var nameEl=document.getElementById('landingBindAdName');
+   var selected=matches.find(function(m){return String(m.act_id||'')===String(data.selected_act_id||'');})||matches[0]||{};
+   if(actEl)actEl.value=displayActId(data.selected_act_id);
+   if(accEl&&!String(accEl.value||'').trim())accEl.value=data.selected_account_name||selected.account_name||'';
+   if(nameEl&&!String(nameEl.value||'').trim()&&selected.ad_name)nameEl.value=selected.ad_name;
+   var source=(selected.sources||[]).join('、')||'本地缓存';
+   setLandingAdIdentityHint('已自动匹配账户：<b>'+escHtml(displayAccountName(data.selected_account_name||selected.account_name,data.selected_act_id,''))+'</b> / '+escHtml(displayActId(data.selected_act_id))+'<br>来源：'+escHtml(source), 'ok');
+   return true;
+  }
+  if(data.ambiguous&&matches.length){
+   setLandingAdIdentityHint('该广告 ID 匹配到多个账户，请手动选择账户：'+matches.slice(0,5).map(function(m){return escHtml(displayAccountName(m.account_name,m.act_id,''))+' / '+escHtml(displayActId(m.act_id));}).join('；'), 'wa');
+   return false;
+  }
+  setLandingAdIdentityHint('没有从本地缓存找到这个广告对应的账户；可先确认该广告经过巡检或手动填写账户 ID。', 'wa');
+  return false;
+ }catch(e){
+  setLandingAdIdentityHint('账户匹配失败：'+escHtml(e.message||String(e)), 'er');
+  return false;
+ }
+}
 function _renderLandingAdIdentityForm(data, linkId, slug){
  var box=document.getElementById('landingAdIdentityBody');
  if(!box)return;
@@ -17480,14 +17528,16 @@ function _renderLandingAdIdentityForm(data, linkId, slug){
   '<div class="landing-result-modal-grid">'+
    '<div class="fg"><label class="fl">账户 ID</label><input class="fc" id="landingBindActId" placeholder="例如 785770423307490" value="'+escHtml(displayActId(actId||''))+'"><div class="fh">可填纯数字或 act_ 前缀。</div></div>'+
    '<div class="fg"><label class="fl">账户名称（可选）</label><input class="fc" id="landingBindAccountName" placeholder="保存后可自动补齐" value="'+escHtml(accountName||'')+'"></div>'+
-   '<div class="fg"><label class="fl">广告 ID</label><input class="fc" id="landingBindAdId" placeholder="Facebook 广告 ID" value="'+escHtml(adId||'')+'"></div>'+
+   '<div class="fg"><label class="fl">广告 ID</label><input class="fc" id="landingBindAdId" placeholder="Facebook 广告 ID" value="'+escHtml(adId||'')+'" oninput="scheduleLandingAdIdentityLookup()" onblur="resolveLandingAdIdentityFromAdId(true)"><div class="fh">输入后会优先从巡检、KPI、操作日志和投放记录自动匹配账户。</div></div>'+
    '<div class="fg"><label class="fl">广告名称（可选）</label><input class="fc" id="landingBindAdName" placeholder="保存后可自动补齐" value="'+escHtml(adName||'')+'"></div>'+
    '<div class="fg"><label class="fl">广告组 ID（可选）</label><input class="fc" id="landingBindAdsetId" placeholder="可空，刷新后补齐" value="'+escHtml(adsetId||'')+'"></div>'+
    '<div class="fg"><label class="fl">广告组名称（可选）</label><input class="fc" id="landingBindAdsetName" placeholder="可空，刷新后补齐" value="'+escHtml(adsetName||'')+'"></div>'+
    '<div class="fg"><label class="fl">系列 ID（可选）</label><input class="fc" id="landingBindCampaignId" placeholder="可空，刷新后补齐" value="'+escHtml(campaignId||'')+'"></div>'+
    '<div class="fg"><label class="fl">系列名称（可选）</label><input class="fc" id="landingBindCampaignName" placeholder="可空，刷新后补齐" value="'+escHtml(campaignName||'')+'"></div>'+
   '</div>'+
+  '<div id="landingAdIdentityLookupHint" class="landing-help" style="margin-top:12px;display:none"></div>'+
   '<div class="landing-help" style="margin-top:12px">保存后会立即刷新一次广告消耗。如果 Token 暂时不可读，绑定仍会保存，等巡检或下次刷新时继续补齐。</div>';
+ if(adId&&!actId)setTimeout(function(){resolveLandingAdIdentityFromAdId(false);},80);
 }
 async function openLandingAdIdentityModal(linkId, encodedSlug){
  var slug=decodeURIComponent(encodedSlug||'')||String(linkId);
@@ -17516,8 +17566,12 @@ async function openLandingAdIdentityModal(linkId, encodedSlug){
 async function saveLandingAdIdentity(linkId){
  var actId=((document.getElementById('landingBindActId')||{}).value||'').trim();
  var adId=((document.getElementById('landingBindAdId')||{}).value||'').trim();
- if(!actId){toast('请填写账户 ID','wa');return;}
  if(!adId){toast('请填写广告 ID','wa');return;}
+ if(!actId){
+  await resolveLandingAdIdentityFromAdId(true);
+  actId=((document.getElementById('landingBindActId')||{}).value||'').trim();
+ }
+ if(!actId){toast('没有从缓存匹配到账户，请手动填写账户 ID','wa');return;}
  var payload={
   act_id:actId,
   account_name:((document.getElementById('landingBindAccountName')||{}).value||'').trim(),
