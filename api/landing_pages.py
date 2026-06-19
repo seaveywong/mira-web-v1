@@ -3270,6 +3270,10 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
     team_id, owner_id = _stamp(user, None)
     if team_id is None:
         team_id = token_row.get("team_id")
+    if owner_id is None and token_row.get("owner_user_id") is not None:
+        owner_id = token_row.get("owner_user_id")
+        if team_id is None:
+            team_id = token_row.get("team_id")
     project_name = sanitize_project_name(body.project_name or title)
     protection_rules = _safe_rules(body.protection_rules)
     worker_enabled = bool(body.tracking_enabled or body.protection_enabled or link_kind == "form")
