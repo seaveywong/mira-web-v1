@@ -412,30 +412,42 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
     var m = String(location.pathname || '').match(/^\\/a\\/([A-Za-z0-9_-]{{4,64}})\\/?$/);
     return m ? m[1] : '';
   }}
-  function withAdSlug(url){{
+  function adId(){{
+    try {{
+      var qs = new URLSearchParams(location.search || '');
+      var raw = qs.get('ad') || qs.get('ad_id') || qs.get('mira_ad_id') || '';
+      var m = String(raw || '').match(/\\d{{6,}}/g);
+      return m && m.length ? m.sort(function(a,b){{return b.length-a.length;}})[0] : '';
+    }} catch(e) {{
+      return '';
+    }}
+  }}
+  function withAdContext(url){{
     var slug = adSlug();
-    if (!slug || !url) return url || '';
+    var ad = adId();
+    if ((!slug && !ad) || !url) return url || '';
     try {{
       var u = new URL(url, location.origin);
       if (u.pathname !== '/__mira/redirect') return url;
-      if (!u.searchParams.get('mira_ad_slug')) u.searchParams.set('mira_ad_slug', slug);
+      if (slug && !u.searchParams.get('mira_ad_slug')) u.searchParams.set('mira_ad_slug', slug);
+      if (ad && !u.searchParams.get('mira_ad_id')) u.searchParams.set('mira_ad_id', ad);
       return u.pathname + u.search + u.hash;
     }} catch(e) {{
       return url;
     }}
   }}
-  function preserveAdSlug(){{
+  function preserveAdContext(){{
     try {{
-      if (typeof window.RH_TARGET_URL === 'string') window.RH_TARGET_URL = withAdSlug(window.RH_TARGET_URL);
+      if (typeof window.RH_TARGET_URL === 'string') window.RH_TARGET_URL = withAdContext(window.RH_TARGET_URL);
       document.querySelectorAll('a[href]').forEach(function(a){{
-        var next = withAdSlug(a.getAttribute('href') || '');
+        var next = withAdContext(a.getAttribute('href') || '');
         if (next) a.setAttribute('href', next);
       }});
     }} catch(e) {{}}
   }}
   function send(type, payload){{
     try {{
-      var base = {{event_type:type,page_id:PAGE_ID,path:location.pathname,referrer:document.referrer||'',metadata:{{ad_slug:adSlug()}}}};
+      var base = {{event_type:type,page_id:PAGE_ID,path:location.pathname,referrer:document.referrer||'',metadata:{{ad_slug:adSlug(),ad_id:adId()}}}};
       var data = Object.assign(base, payload||{{}});
       data.metadata = Object.assign(base.metadata || {{}}, (payload && payload.metadata) || {{}});
       var blob = new Blob([JSON.stringify(data)], {{type:'application/json'}});
@@ -447,7 +459,7 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
     var el = ev.target && ev.target.closest ? ev.target.closest('a,button,[role=\"button\"],input[type=\"submit\"]') : null;
     if (!el) return;
     if (el.getAttribute && el.hasAttribute('href')) {{
-      var nextHref = withAdSlug(el.getAttribute('href') || '');
+      var nextHref = withAdContext(el.getAttribute('href') || '');
       if (nextHref) el.setAttribute('href', nextHref);
     }}
     send('click', {{
@@ -468,9 +480,9 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
       }}
     }});
   }}, true);
-  preserveAdSlug();
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', preserveAdSlug);
-  else setTimeout(preserveAdSlug, 0);
+  preserveAdContext();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', preserveAdContext);
+  else setTimeout(preserveAdContext, 0);
 }})();
 </script>
 """
@@ -671,12 +683,31 @@ function adSlugFromRequest(request) {
   return '';
 }
 
+function adIdFromRequest(request) {
+  function clean(raw) {
+    const m = String(raw || '').match(/\d{6,}/g);
+    return m && m.length ? m.sort((a, b) => b.length - a.length)[0] : '';
+  }
+  try {
+    const url = new URL(request.url);
+    const direct = clean(url.searchParams.get('ad') || url.searchParams.get('ad_id') || url.searchParams.get('mira_ad_id') || url.searchParams.get('fb_ad_id') || '');
+    if (direct) return direct;
+    const ref = request.headers.get('referer') || request.headers.get('referrer') || '';
+    if (ref) {
+      const refUrl = new URL(ref);
+      return clean(refUrl.searchParams.get('ad') || refUrl.searchParams.get('ad_id') || refUrl.searchParams.get('mira_ad_id') || refUrl.searchParams.get('fb_ad_id') || '');
+    }
+  } catch (e) {}
+  return '';
+}
+
 async function nextTargetFromServer(request, cfg) {
   cfg = cfg || MIRA_CONFIG;
   if (!cfg.route_url) return '';
   try {
     const url = new URL(request.url);
     const adSlug = adSlugFromRequest(request);
+    const adId = adIdFromRequest(request);
     const resp = await fetch(cfg.route_url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
@@ -688,7 +719,8 @@ async function nextTargetFromServer(request, cfg) {
         metadata: {
           host: url.hostname,
           search: String(url.search || '').slice(0, 500),
-          ad_slug: adSlug
+          ad_slug: adSlug,
+          ad_id: adId
         }
       })
     });
@@ -731,7 +763,7 @@ async function sendEvent(request, event, cfg) {
     const ua = request.headers.get('user-agent') || '';
     const meta = uaMeta(ua);
     const ip = request.headers.get('cf-connecting-ip') || '';
-    const sourceMeta = { source_platform: sourcePlatform(request) };
+    const sourceMeta = { source_platform: sourcePlatform(request), ad_slug: adSlugFromRequest(request), ad_id: adIdFromRequest(request) };
     const payload = Object.assign({
       page_id: cfg.page_id,
       secret: cfg.secret,
@@ -767,6 +799,7 @@ export default {
     const cfg = await runtimeConfig();
     const url = new URL(request.url);
     const adSlug = adSlugFromRequest(request);
+    const adId = adIdFromRequest(request);
     if (url.pathname === '/__mira/event' && request.method === 'POST') {
       let body = {};
       try { body = await request.json(); } catch (e) {}
@@ -775,25 +808,25 @@ export default {
     }
     const directFormRedirect = String(cfg.link_kind || '').toLowerCase() === 'form'
       && request.method === 'GET'
-      && (url.pathname === '/' || url.pathname === '/index.html' || !!adSlug);
+      && (url.pathname === '/' || url.pathname === '/index.html' || !!adSlug || (url.pathname === '/a' && !!adId));
     if (url.pathname === '/__mira/redirect' || directFormRedirect) {
       const decision = evaluate(request, cfg);
       if (!decision.pass) {
-        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }, cfg));
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
         return blockedResponse(decision.reason);
       }
       const target = await selectTarget(request, cfg);
       if (!target) return new Response('No target configured', { status: 503 });
-      ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug } }, cfg));
+      ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
     }
-    if (adSlug && request.method === 'GET') {
+    if ((adSlug || (url.pathname === '/a' && adId)) && request.method === 'GET') {
       const decision = evaluate(request, cfg);
       if (!decision.pass) {
-        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }, cfg));
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
         return blockedResponse(decision.reason);
       }
-      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass', metadata: { ad_slug: adSlug } }, cfg));
+      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass', metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       const assetUrl = new URL(request.url);
       assetUrl.pathname = '/index.html';
       return env.ASSETS.fetch(new Request(assetUrl.toString(), request));

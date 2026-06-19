@@ -990,11 +990,41 @@ def _page_public_url(item: dict) -> str:
     return public_url.rstrip("/")
 
 
+def _landing_root_url(url: str) -> str:
+    base = str(url or "").strip().rstrip("/")
+    if not base:
+        return ""
+    base = re.sub(r"/a/[A-Za-z0-9_-]{4,64}$", "", base)
+    if base.endswith("/a"):
+        base = base[:-2].rstrip("/")
+    return base
+
+
 def _ad_link_url(page: dict, slug: str) -> str:
     base = _page_public_url(page)
+    base = _landing_root_url(base)
     if not base or not slug:
         return ""
     return f"{base}/a/{slug}"
+
+
+def _normalize_ad_id(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parts = re.findall(r"\d{6,}", raw)
+    if parts:
+        return max(parts, key=len)
+    return raw
+
+
+def _ad_param_url(page: dict, ad_id: str) -> str:
+    base = _page_public_url(page)
+    base = _landing_root_url(base)
+    ad = _normalize_ad_id(ad_id)
+    if not base or not ad:
+        return ""
+    return f"{base}/a?ad={ad}"
 
 
 def _refresh_page_ad_link_urls(conn, page_id: int, page_public: dict) -> None:
@@ -1016,6 +1046,8 @@ def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = No
         item["public_url"] = str(item.get("public_url") or "").strip()
     elif page:
         item["public_url"] = _ad_link_url(page, item.get("slug") or "")
+    if page:
+        item["ad_param_url"] = _ad_param_url(page, item.get("ad_id") or "")
     if stats:
         item["stats"] = stats
     return item
@@ -1261,11 +1293,13 @@ def _ad_link_stats(
     conn,
     page_id: int,
     slug: str,
+    ad_id: str = "",
     days: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> dict:
     path = f"/a/{slug}"
+    ad_id = _normalize_ad_id(ad_id)
     date_params = []
     result_date_from = None
     result_date_to = None
@@ -1305,17 +1339,34 @@ def _ad_link_stats(
             result_date_from = None
             result_date_to = None
     where_extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
-    event_scope = """page_id=? AND (
-                  path=?
-                  OR COALESCE(metadata,'') LIKE ?
-                  OR COALESCE(metadata,'') LIKE ?
-              )"""
+    scope_parts = ["path=?"]
     event_params = [
         page_id,
         path,
-        f'%"ad_slug":"{slug}"%',
-        f'%"ad_slug": "{slug}"%',
     ]
+    if slug:
+        scope_parts.extend([
+            "COALESCE(metadata,'') LIKE ?",
+            "COALESCE(metadata,'') LIKE ?",
+        ])
+        event_params.extend([
+            f'%"ad_slug":"{slug}"%',
+            f'%"ad_slug": "{slug}"%',
+        ])
+    if ad_id:
+        scope_parts.extend([
+            "COALESCE(metadata,'') LIKE ?",
+            "COALESCE(metadata,'') LIKE ?",
+            "COALESCE(metadata,'') LIKE ?",
+            "COALESCE(metadata,'') LIKE ?",
+        ])
+        event_params.extend([
+            f'%"ad_id":"{ad_id}"%',
+            f'%"ad_id": "{ad_id}"%',
+            f'%"ad":"{ad_id}"%',
+            f'%"ad": "{ad_id}"%',
+        ])
+    event_scope = "page_id=? AND (" + " OR ".join(scope_parts) + ")"
     params = event_params + date_params
     rows = conn.execute(
         f"""SELECT event_type, COUNT(*) AS cnt
@@ -1450,10 +1501,14 @@ def _ad_link_stats(
     link_row = None
     try:
         link_row = conn.execute(
-            "SELECT id, ad_id FROM landing_ad_links WHERE page_id=? AND slug=?",
-            (page_id, slug),
+            """SELECT id, ad_id FROM landing_ad_links
+               WHERE page_id=?
+                 AND (slug=? OR (?<>'' AND ad_id=?))
+               ORDER BY CASE WHEN slug=? THEN 0 ELSE 1 END, id DESC
+               LIMIT 1""",
+            (page_id, slug, ad_id, ad_id, slug),
         ).fetchone()
-        ad_id = (link_row["ad_id"] if link_row else "") or ""
+        ad_id = _normalize_ad_id((link_row["ad_id"] if link_row else "") or ad_id)
         if ad_id:
             if result_date_from or result_date_to:
                 try:
@@ -2796,7 +2851,7 @@ def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
             (page_id,),
         ).fetchall()
         return [
-            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"]))
+            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], ad_id=row["ad_id"]))
             for row in rows
         ]
     finally:
@@ -2860,7 +2915,7 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
                     "last_error": "",
                 }
             )
-            stats = _ad_link_stats(conn, int(item["page_id"]), item.get("slug") or "", days=days)
+            stats = _ad_link_stats(conn, int(item["page_id"]), item.get("slug") or "", ad_id=item.get("ad_id") or "", days=days)
             decision = _ad_link_decision(stats)
             public_link = _public_ad_link(row, page_public, stats)
             public_link["page_title"] = item.get("page_title") or ""
@@ -3009,14 +3064,14 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
                 params.append(value)
         if not updates:
             page_public = _public_page(page)
-            return {"success": True, "link": _public_ad_link(row, page_public, _ad_link_stats(conn, int(row["page_id"]), row["slug"]))}
+            return {"success": True, "link": _public_ad_link(row, page_public, _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"]))}
         updates.append("updated_at=datetime('now','+8 hours')")
         params.append(link_id)
         conn.execute(f"UPDATE landing_ad_links SET {', '.join(updates)} WHERE id=?", params)
         conn.commit()
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         page_public = _public_page(page)
-        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"]))}
+        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"]))}
     finally:
         conn.close()
 
@@ -3035,7 +3090,7 @@ def landing_ad_link_result_preview(
             raise HTTPException(status_code=404, detail="广告级链接不存在")
         page = _assert_page_access(conn, int(row["page_id"]), user)
         result_day = _normalize_result_date(result_date)
-        stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=result_day, date_to=result_day)
+        stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"], date_from=result_day, date_to=result_day)
         live_refresh = {"ok": False, "skipped": True, "reason": "local_data_available"}
         needs_refresh = bool(refresh) or (
             row["ad_id"]
@@ -3046,7 +3101,7 @@ def landing_ad_link_result_preview(
         if needs_refresh:
             live_refresh = _refresh_landing_ad_link_spend(conn, row, result_day)
             row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
-            stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=result_day, date_to=result_day)
+            stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"], date_from=result_day, date_to=result_day)
         page_public = _public_page(page)
         return {
             "success": True,
@@ -3110,7 +3165,7 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
             "link": _public_ad_link(
                 updated,
                 page_public,
-                _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], date_from=result_date, date_to=result_date),
+                _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"], date_from=result_date, date_to=result_date),
             ),
         }
     finally:
@@ -3661,7 +3716,9 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
         ):
             conn.rollback()
             raise HTTPException(status_code=403, detail="invalid landing route secret")
-        slug = _ad_slug_from_path(body.path or "") or str((body.metadata or {}).get("ad_slug") or "").strip()
+        metadata = body.metadata or {}
+        slug = _ad_slug_from_path(body.path or "") or str(metadata.get("ad_slug") or "").strip()
+        ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("mira_ad_id") or "")
         if slug:
             link = conn.execute(
                 """SELECT target_url FROM landing_ad_links
@@ -3680,6 +3737,27 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
                     "total": 1,
                     "mode": "ad_link",
                     "slug": slug,
+                }
+        if ad_id:
+            link = conn.execute(
+                """SELECT target_url, slug FROM landing_ad_links
+                   WHERE page_id=? AND ad_id=?
+                     AND COALESCE(status,'reserved') NOT IN ('paused','archived','failed','unused')
+                   ORDER BY CASE WHEN COALESCE(target_url,'')<>'' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                   LIMIT 1""",
+                (body.page_id, ad_id),
+            ).fetchone()
+            target_url = (link["target_url"] if link else "") or ""
+            if target_url and not _target_is_current_landing(target_url, dict(page)):
+                conn.commit()
+                return {
+                    "success": True,
+                    "target_url": target_url,
+                    "index": 0,
+                    "total": 1,
+                    "mode": "ad_id",
+                    "ad_id": ad_id,
+                    "slug": (link["slug"] if link else "") or "",
                 }
         urls = [u for u in _json_loads(page["target_urls"], []) if isinstance(u, str) and u.strip()]
         if not urls:
