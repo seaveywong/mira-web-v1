@@ -126,6 +126,28 @@ class LandingAdLinkPatch(BaseModel):
     note: Optional[str] = None
 
 
+class LandingAdLinkResultPatch(BaseModel):
+    confirmed_actions: int = Field(default=0, ge=0)
+    confirmed_sales: int = Field(default=0, ge=0)
+    confirmed_revenue: float = Field(default=0, ge=0)
+    note: Optional[str] = None
+    source: Optional[str] = "manual"
+
+
+class LandingAdLinkResultImportRow(BaseModel):
+    slug: Optional[str] = None
+    ad_id: Optional[str] = None
+    confirmed_actions: int = Field(default=0, ge=0)
+    confirmed_sales: int = Field(default=0, ge=0)
+    confirmed_revenue: float = Field(default=0, ge=0)
+    note: Optional[str] = None
+
+
+class LandingAdLinkResultImport(BaseModel):
+    rows: list[LandingAdLinkResultImportRow] = []
+    source: Optional[str] = "csv"
+
+
 def _ensure_schema():
     conn = get_conn()
     conn.executescript(
@@ -251,6 +273,20 @@ def _ensure_schema():
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_page ON landing_ad_links(page_id);
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_ad ON landing_ad_links(ad_id);
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_act ON landing_ad_links(act_id);
+
+        CREATE TABLE IF NOT EXISTS landing_ad_link_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            link_id INTEGER NOT NULL UNIQUE,
+            confirmed_actions INTEGER DEFAULT 0,
+            confirmed_sales INTEGER DEFAULT 0,
+            confirmed_revenue REAL DEFAULT 0,
+            source TEXT DEFAULT 'manual',
+            note TEXT,
+            updated_by TEXT,
+            updated_at TEXT DEFAULT (datetime('now','+8 hours')),
+            created_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_landing_ad_link_results_link ON landing_ad_link_results(link_id);
         """
     )
     try:
@@ -679,15 +715,22 @@ def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = No
 
 def _ad_link_decision(stats: dict) -> dict:
     spend = float(stats.get("spend") or 0)
-    true_contact = float(stats.get("effective_true_contact", stats.get("true_contact") or 0) or 0)
+    has_confirmed = bool(stats.get("has_confirmed_result"))
+    if has_confirmed:
+        true_contact = float(stats.get("confirmed_actions") or 0)
+        metric = "confirmed"
+        cost = stats.get("cost_per_confirmed_action")
+    else:
+        true_contact = float(stats.get("effective_true_contact", stats.get("true_contact") or 0) or 0)
+        metric = "unique" if stats.get("dedupe_available") else "raw"
+        cost = stats.get("cost_per_effective_true_contact") or stats.get("cost_per_true_contact")
     visits = float(stats.get("unique_visit", stats.get("visit") or 0) or 0)
     clicks = float(stats.get("unique_click", stats.get("click") or 0) or 0)
-    metric = "unique" if stats.get("dedupe_available") else "raw"
     if true_contact > 0:
         return {
             "state": "good",
             "label": "true_action",
-            "reason": f"{metric}_true_action={true_contact:g}; cost={stats.get('cost_per_effective_true_contact') or stats.get('cost_per_true_contact') or '--'}",
+            "reason": f"{metric}_true_action={true_contact:g}; cost={cost or '--'}",
             "metric": metric,
         }
     if spend > 0:
@@ -843,9 +886,10 @@ def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) ->
     fb_clicks = 0.0
     impressions = 0.0
     last_synced_at = None
+    link_row = None
     try:
         link_row = conn.execute(
-            "SELECT ad_id FROM landing_ad_links WHERE page_id=? AND slug=?",
+            "SELECT id, ad_id FROM landing_ad_links WHERE page_id=? AND slug=?",
             (page_id, slug),
         ).fetchone()
         ad_id = (link_row["ad_id"] if link_row else "") or ""
@@ -869,6 +913,40 @@ def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) ->
     except Exception:
         pass
 
+    confirmed_actions = 0
+    confirmed_sales = 0
+    confirmed_revenue = 0.0
+    confirmed_source = ""
+    confirmed_note = ""
+    confirmed_updated_at = None
+    has_confirmed_result = False
+    try:
+        link_id = int(link_row["id"]) if link_row else 0
+        if link_id:
+            result_row = conn.execute(
+                """SELECT confirmed_actions, confirmed_sales, confirmed_revenue,
+                          source, note, updated_at
+                   FROM landing_ad_link_results
+                   WHERE link_id=?""",
+                (link_id,),
+            ).fetchone()
+            if result_row:
+                has_confirmed_result = True
+                confirmed_actions = int(result_row["confirmed_actions"] or 0)
+                confirmed_sales = int(result_row["confirmed_sales"] or 0)
+                confirmed_revenue = float(result_row["confirmed_revenue"] or 0)
+                confirmed_source = result_row["source"] or ""
+                confirmed_note = result_row["note"] or ""
+                confirmed_updated_at = result_row["updated_at"]
+    except Exception:
+        confirmed_actions = 0
+        confirmed_sales = 0
+        confirmed_revenue = 0.0
+        confirmed_source = ""
+        confirmed_note = ""
+        confirmed_updated_at = None
+        has_confirmed_result = False
+
     def _cost(n: int | float) -> Optional[float]:
         try:
             n = float(n or 0)
@@ -884,6 +962,8 @@ def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) ->
     submits = out.get("submit", 0)
     true_contact = max(whatsapp_redirect, submits, redirects, whatsapp_click)
     effective_true_contact = unique_true_contact if dedupe_available else true_contact
+    final_true_contact = confirmed_actions if has_confirmed_result else effective_true_contact
+    final_metric_mode = "confirmed" if has_confirmed_result else ("unique" if dedupe_available else "raw")
     return {
         "visit": visits,
         "click": clicks,
@@ -903,8 +983,17 @@ def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) ->
         "true_contact": true_contact,
         "unique_true_contact": unique_true_contact,
         "effective_true_contact": effective_true_contact,
+        "confirmed_actions": confirmed_actions,
+        "confirmed_sales": confirmed_sales,
+        "confirmed_revenue": round(confirmed_revenue, 4),
+        "confirmed_result_source": confirmed_source,
+        "confirmed_result_note": confirmed_note,
+        "confirmed_result_updated_at": confirmed_updated_at,
+        "has_confirmed_result": has_confirmed_result,
+        "final_true_contact": final_true_contact,
         "dedupe_available": dedupe_available,
         "metric_mode": "unique" if dedupe_available else "raw",
+        "final_metric_mode": final_metric_mode,
         "spend": round(spend, 4),
         "fb_conversions": fb_conversions,
         "fb_clicks": fb_clicks,
@@ -922,6 +1011,9 @@ def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) ->
         "cost_per_true_contact": _cost(true_contact),
         "cost_per_unique_true_contact": _cost(unique_true_contact),
         "cost_per_effective_true_contact": _cost(effective_true_contact),
+        "cost_per_confirmed_action": _cost(confirmed_actions),
+        "cost_per_confirmed_sale": _cost(confirmed_sales),
+        "cost_per_final_true_contact": _cost(final_true_contact),
         "last_synced_at": last_synced_at,
         "total": sum(out.values()),
     }
@@ -1667,9 +1759,16 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
             "true_contact": 0.0,
             "unique_true_contact": 0.0,
             "effective_true_contact": 0.0,
+            "confirmed_actions": 0.0,
+            "confirmed_sales": 0.0,
+            "confirmed_revenue": 0.0,
+            "final_true_contact": 0.0,
             "cost_per_true_contact": None,
             "cost_per_unique_true_contact": None,
             "cost_per_effective_true_contact": None,
+            "cost_per_confirmed_action": None,
+            "cost_per_confirmed_sale": None,
+            "cost_per_final_true_contact": None,
         }
         for row in rows:
             item = dict(row)
@@ -1706,13 +1805,17 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
             summary["true_contact"] += float(stats.get("true_contact") or 0)
             summary["unique_true_contact"] += float(stats.get("unique_true_contact") or 0)
             summary["effective_true_contact"] += float(stats.get("effective_true_contact", stats.get("true_contact") or 0) or 0)
+            summary["confirmed_actions"] += float(stats.get("confirmed_actions") or 0)
+            summary["confirmed_sales"] += float(stats.get("confirmed_sales") or 0)
+            summary["confirmed_revenue"] += float(stats.get("confirmed_revenue") or 0)
+            summary["final_true_contact"] += float(stats.get("final_true_contact", stats.get("effective_true_contact", stats.get("true_contact") or 0)) or 0)
 
         severity = {"waste": 0, "watch": 1, "good": 2, "no_data": 3}
         items.sort(
             key=lambda x: (
                 severity.get((x.get("decision") or {}).get("state"), 9),
                 -float((x.get("stats") or {}).get("spend") or 0),
-                float((x.get("stats") or {}).get("cost_per_effective_true_contact") or 999999),
+                float((x.get("stats") or {}).get("cost_per_final_true_contact") or 999999),
             )
         )
         summary["total"] = len(items)
@@ -1720,12 +1823,22 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
         summary["true_contact"] = round(summary["true_contact"], 4)
         summary["unique_true_contact"] = round(summary["unique_true_contact"], 4)
         summary["effective_true_contact"] = round(summary["effective_true_contact"], 4)
+        summary["confirmed_actions"] = round(summary["confirmed_actions"], 4)
+        summary["confirmed_sales"] = round(summary["confirmed_sales"], 4)
+        summary["confirmed_revenue"] = round(summary["confirmed_revenue"], 4)
+        summary["final_true_contact"] = round(summary["final_true_contact"], 4)
         if summary["spend"] > 0 and summary["true_contact"] > 0:
             summary["cost_per_true_contact"] = round(summary["spend"] / summary["true_contact"], 4)
         if summary["spend"] > 0 and summary["unique_true_contact"] > 0:
             summary["cost_per_unique_true_contact"] = round(summary["spend"] / summary["unique_true_contact"], 4)
         if summary["spend"] > 0 and summary["effective_true_contact"] > 0:
             summary["cost_per_effective_true_contact"] = round(summary["spend"] / summary["effective_true_contact"], 4)
+        if summary["spend"] > 0 and summary["confirmed_actions"] > 0:
+            summary["cost_per_confirmed_action"] = round(summary["spend"] / summary["confirmed_actions"], 4)
+        if summary["spend"] > 0 and summary["confirmed_sales"] > 0:
+            summary["cost_per_confirmed_sale"] = round(summary["spend"] / summary["confirmed_sales"], 4)
+        if summary["spend"] > 0 and summary["final_true_contact"] > 0:
+            summary["cost_per_final_true_contact"] = round(summary["spend"] / summary["final_true_contact"], 4)
         return {"success": True, "days": days, "limit": limit, "summary": summary, "items": items}
     finally:
         conn.close()
@@ -1835,6 +1948,99 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         page_public = _public_page(page)
         return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"]))}
+    finally:
+        conn.close()
+
+
+@router.patch("/ad-links/{link_id}/result")
+def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="广告级链接不存在")
+        page = _assert_page_access(conn, int(row["page_id"]), user)
+        conn.execute(
+            """INSERT INTO landing_ad_link_results
+               (link_id, confirmed_actions, confirmed_sales, confirmed_revenue, source, note, updated_by, updated_at, created_at)
+               VALUES (?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))
+               ON CONFLICT(link_id) DO UPDATE SET
+                 confirmed_actions=excluded.confirmed_actions,
+                 confirmed_sales=excluded.confirmed_sales,
+                 confirmed_revenue=excluded.confirmed_revenue,
+                 source=excluded.source,
+                 note=excluded.note,
+                 updated_by=excluded.updated_by,
+                 updated_at=datetime('now','+8 hours')""",
+            (
+                link_id,
+                int(body.confirmed_actions or 0),
+                int(body.confirmed_sales or 0),
+                float(body.confirmed_revenue or 0),
+                _truncate((body.source or "manual").strip().lower(), 40),
+                _truncate(body.note, 1000),
+                user.get("username", "unknown"),
+            ),
+        )
+        conn.commit()
+        updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+        page_public = _public_page(page)
+        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"]))}
+    finally:
+        conn.close()
+
+
+@router.post("/ad-links/results/import")
+def import_landing_ad_link_results(body: LandingAdLinkResultImport, user=Depends(get_current_user)):
+    rows = body.rows or []
+    if not rows:
+        raise HTTPException(status_code=400, detail="没有可导入的真实结果行")
+    conn = get_conn()
+    updated, errors = [], []
+    try:
+        for idx, item in enumerate(rows, start=1):
+            slug = (item.slug or "").strip()
+            ad_id = (item.ad_id or "").strip()
+            if not slug and not ad_id:
+                errors.append({"row": idx, "reason": "缺少短码或广告ID"})
+                continue
+            if slug:
+                row = conn.execute("SELECT * FROM landing_ad_links WHERE slug=?", (slug,)).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM landing_ad_links WHERE ad_id=? ORDER BY id DESC LIMIT 1", (ad_id,)).fetchone()
+            if not row:
+                errors.append({"row": idx, "slug": slug, "ad_id": ad_id, "reason": "未匹配到广告级链接"})
+                continue
+            try:
+                _assert_page_access(conn, int(row["page_id"]), user)
+            except HTTPException as exc:
+                errors.append({"row": idx, "slug": slug, "ad_id": ad_id, "reason": exc.detail})
+                continue
+            conn.execute(
+                """INSERT INTO landing_ad_link_results
+                   (link_id, confirmed_actions, confirmed_sales, confirmed_revenue, source, note, updated_by, updated_at, created_at)
+                   VALUES (?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))
+                   ON CONFLICT(link_id) DO UPDATE SET
+                     confirmed_actions=excluded.confirmed_actions,
+                     confirmed_sales=excluded.confirmed_sales,
+                     confirmed_revenue=excluded.confirmed_revenue,
+                     source=excluded.source,
+                     note=excluded.note,
+                     updated_by=excluded.updated_by,
+                     updated_at=datetime('now','+8 hours')""",
+                (
+                    int(row["id"]),
+                    int(item.confirmed_actions or 0),
+                    int(item.confirmed_sales or 0),
+                    float(item.confirmed_revenue or 0),
+                    _truncate((body.source or "csv").strip().lower(), 40),
+                    _truncate(item.note, 1000),
+                    user.get("username", "unknown"),
+                ),
+            )
+            updated.append({"row": idx, "id": int(row["id"]), "slug": row["slug"], "ad_id": row["ad_id"]})
+        conn.commit()
+        return {"success": True, "updated": updated, "errors": errors, "updated_count": len(updated), "error_count": len(errors)}
     finally:
         conn.close()
 

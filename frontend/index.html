@@ -16294,8 +16294,9 @@ function renderLandingPerformance(){
   ['消耗无动作',sum.waste||0,'优先检查或停投'],
   ['有真实动作',sum.good||0,'按真实动作算成本'],
   ['FB消耗',money(sum.spend||0),'来自最近同步广告指标'],
-  ['有效动作',sum.effective_true_contact||sum.true_contact||0,'唯一口径优先，旧数据回退原始口径'],
-  ['真实成本',cost(sum.cost_per_effective_true_contact||sum.cost_per_true_contact),'FB消耗 ÷ 有效动作']
+  ['确认进线',sum.confirmed_actions||0,'人工/CSV 回填，最高优先级'],
+  ['最终动作',sum.final_true_contact||sum.effective_true_contact||sum.true_contact||0,'确认进线优先，其次唯一动作'],
+  ['真实成本',cost(sum.cost_per_final_true_contact||sum.cost_per_effective_true_contact||sum.cost_per_true_contact),'FB消耗 ÷ 最终动作']
  ].map(function(c){
   return '<div class="ss" style="min-width:130px"><div style="font-size:12px;color:var(--t3)">'+escHtml(c[0])+'</div><div style="font-size:22px;font-weight:850;margin-top:4px">'+escHtml(String(c[1]))+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(c[2])+'</div></div>';
  }).join('');
@@ -16307,15 +16308,14 @@ function renderLandingPerformance(){
   var target=x.target_url||'';
   var adName=x.ad_name||x.ad_id||'未回填广告';
   var meta=[x.account_name||x.act_id||'',x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
-  var effectiveAction=stats.effective_true_contact!==undefined?stats.effective_true_contact:(stats.true_contact||0);
-  var uniqueAction=stats.unique_true_contact||0;
+  var finalAction=stats.final_true_contact!==undefined?stats.final_true_contact:(stats.effective_true_contact!==undefined?stats.effective_true_contact:(stats.true_contact||0));
+  var finalMode=stats.final_metric_mode||stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
   var rawAction=stats.true_contact||0;
-  var metricMode=stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
-  var trueCost=stats.cost_per_effective_true_contact||stats.cost_per_unique_true_contact||stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||null;
+  var trueCost=stats.cost_per_final_true_contact||stats.cost_per_confirmed_action||stats.cost_per_effective_true_contact||stats.cost_per_unique_true_contact||stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||null;
   var reason=state==='waste'
    ?('已消耗 '+money(stats.spend||0)+'，有效动作 0')
    :state==='good'
-    ?('有效动作 '+effectiveAction+'，真实成本 '+cost(trueCost))
+    ?('最终动作 '+finalAction+'，真实成本 '+cost(trueCost))
     :state==='watch'
      ?('访问 '+(stats.unique_visit||stats.visit||0)+'，点击 '+(stats.unique_click||stats.click||0)+'，等待有效动作')
      :stateHelp.no_data;
@@ -16325,15 +16325,15 @@ function renderLandingPerformance(){
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:260px"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(adName)+'">'+escHtml(adName)+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(meta)+'">'+escHtml(meta||'待绑定账户/系列/组')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:280px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac)">'+escHtml(publicUrl||'--')+'</a><div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">'+(target?'专属跳转：'+escHtml(target):'使用落地页全局轮询')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+money(stats.spend||0)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">FB成效 '+(stats.fb_conversions||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(effectiveAction))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+(metricMode==='unique'?'唯一':'原始')+' · 原始 '+rawAction+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">表单 '+(stats.unique_submit||stats.submit||0)+' · WA '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(finalAction))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+' · 原始 '+rawAction+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+cost(trueCost)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\')">回填</button></td>'+
   '</tr>';
  }).join('');
  panel.innerHTML=
   '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px">'+
    '<div><div class="card-title">广告级真实效果榜</div><p style="margin:4px 0 0;color:var(--t3);font-size:12px">按 /a/短码统计真实访问、点击、跳转和表单动作；消耗来自最近一次广告指标同步。</p></div>'+
-   '<button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button>'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm role-hide-viewer" onclick="importLandingAdResults()">批量回填</button><button class="btn btn-g btn-sm" onclick="hideLandingStats()">收起</button></div>'+
   '</div>'+
   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0">'+cards+'</div>'+
   '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:1040px;border-collapse:collapse">'+
@@ -16442,9 +16442,9 @@ function _landingAdLinksHtml(page, links){
  var rows=links.map(function(x){
    var stats=x.stats||{};
    var spend=Number(stats.spend||0);
-   var effectiveAction=stats.effective_true_contact!==undefined?stats.effective_true_contact:(stats.true_contact||0);
-   var metricMode=stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
-   var realCost=stats.cost_per_effective_true_contact||stats.cost_per_unique_true_contact||stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||stats.cost_per_whatsapp_click||stats.cost_per_click||null;
+   var finalAction=stats.final_true_contact!==undefined?stats.final_true_contact:(stats.effective_true_contact!==undefined?stats.effective_true_contact:(stats.true_contact||0));
+   var finalMode=stats.final_metric_mode||stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
+   var realCost=stats.cost_per_final_true_contact||stats.cost_per_confirmed_action||stats.cost_per_effective_true_contact||stats.cost_per_unique_true_contact||stats.cost_per_true_contact||stats.cost_per_whatsapp_redirect||stats.cost_per_submit||stats.cost_per_redirect||stats.cost_per_whatsapp_click||stats.cost_per_click||null;
   var status=x.status||'reserved';
   var meta=[
    x.act_id?('账户 '+x.act_id):'',
@@ -16458,10 +16458,10 @@ function _landingAdLinksHtml(page, links){
    '<td style="padding:8px 10px"><div style="display:flex;gap:8px;align-items:center"><b style="font-weight:760">'+escHtml(x.slug||'')+'</b><span class="badge '+(status==='active'?'bg-ok':status==='failed'?'bg-er':'bg-mu')+'">'+escHtml(statusMap[status]||status)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(meta)+'</div></td>'+
    '<td style="padding:8px 10px;max-width:300px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(url)+'" style="color:var(--ac)">'+escHtml(url)+'</a>'+(target?'<div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">专属跳转：'+escHtml(target)+'</div>':'<div style="font-size:11px;color:var(--t3);margin-top:3px">使用落地页全局轮询</div>')+'</td>'+
    '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">'+
-     '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+' · 有效动作 '+effectiveAction+'（'+(metricMode==='unique'?'唯一':'原始')+'） · 原始 '+(stats.true_contact||0)+'</div>'+
-     '<div style="margin-top:3px;color:var(--t3)">表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · 拦截 '+(stats.block||0)+' · FB消耗 '+money(spend)+' · FB成效 '+(stats.fb_conversions||0)+' · 真实成本 '+cost(realCost)+'</div>'+
+     '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+' · 最终动作 '+finalAction+'（'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+'） · 原始 '+(stats.true_contact||0)+'</div>'+
+     '<div style="margin-top:3px;color:var(--t3)">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+' · 收入 '+money(stats.confirmed_revenue||0)+' · 表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · FB消耗 '+money(spend)+' · 真实成本 '+cost(realCost)+'</div>'+
    '</td>'+
-   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button></td>'+
+   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\')">回填</button></td>'+
   '</tr>';
  }).join('');
  if(!rows)rows='<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--t3)">还没有广告级链接。生成后，每条广告使用一个链接，Mira 会按短码做广告级统计。</td></tr>';
@@ -16497,6 +16497,67 @@ async function createLandingAdLinks(pageId){
   await showLandingAdLinks(pageId);
  }catch(e){
   toast('生成失败：'+(e.message||e),'er');
+ }
+}
+async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue, encodedNote){
+ var slug=decodeURIComponent(encodedSlug||'');
+ var note=decodeURIComponent(encodedNote||'');
+ var def=[actions||0,sales||0,revenue||0,note||''].join(',');
+ var raw=await promptTextareaAsync(
+  '回填真实结果',
+  '格式：真实进线,购买/成交,收入,备注。这里的真实进线会优先用于计算广告真实成本。',
+  def,
+  '例如：2,1,39.9,WhatsApp 确认有效'
+ );
+ if(raw==null)return;
+ var parts=String(raw||'').split(/[\t,，]/);
+ var payload={
+  confirmed_actions:Math.max(0,parseInt(parts[0]||'0',10)||0),
+  confirmed_sales:Math.max(0,parseInt(parts[1]||'0',10)||0),
+  confirmed_revenue:Math.max(0,parseFloat(parts[2]||'0')||0),
+  note:parts.slice(3).join(' ').trim(),
+  source:'manual'
+ };
+ try{
+  await api('PATCH','/landing-pages/ad-links/'+linkId+'/result',payload);
+  toast('已回填 '+(slug||('链接 '+linkId))+' 的真实结果','ok');
+  await loadLandingCenter(true);
+ }catch(e){
+  toast('回填失败：'+(e.message||e),'er');
+ }
+}
+async function importLandingAdResults(){
+ var raw=await promptTextareaAsync(
+  '批量回填真实结果',
+  '每行格式：短码或广告ID,真实进线,购买/成交,收入,备注。短码优先匹配；如果第一列是广告ID，也会自动匹配广告级链接。',
+  '',
+  'm7K2Qp,2,1,39.9,有效聊单\n120245820014290302,0,0,0,无有效进线'
+ );
+ if(raw==null)return;
+ var rows=[];
+ String(raw||'').split(/\n+/).forEach(function(line){
+  line=line.trim();
+  if(!line)return;
+  var parts=line.split(/[\t,，]/);
+  var key=(parts[0]||'').trim();
+  if(!key)return;
+  var item={
+   confirmed_actions:Math.max(0,parseInt(parts[1]||'0',10)||0),
+   confirmed_sales:Math.max(0,parseInt(parts[2]||'0',10)||0),
+   confirmed_revenue:Math.max(0,parseFloat(parts[3]||'0')||0),
+   note:parts.slice(4).join(' ').trim()
+  };
+  if(/^\d{8,}$/.test(key))item.ad_id=key;
+  else item.slug=key;
+  rows.push(item);
+ });
+ if(!rows.length){toast('没有可导入的数据','wa');return;}
+ try{
+  var res=await api('POST','/landing-pages/ad-links/results/import',{rows:rows,source:'csv'});
+  toast('已回填 '+(res.updated_count||0)+' 条'+((res.error_count||0)?'，失败 '+res.error_count+' 条':'') ,(res.error_count||0)?'wa':'ok');
+  await loadLandingCenter(true);
+ }catch(e){
+  toast('批量回填失败：'+(e.message||e),'er');
  }
 }
 async function addCloudflareToken(){
