@@ -30,6 +30,7 @@ from api.landing_pages import router as landing_pages_router
 from api.meta_oauth import router as meta_oauth_router
 from api.local_tokens import router as local_tokens_router
 from api.local_executor import router as local_executor_router
+from api.telegram import router as telegram_router
 from core.scheduler import start_scheduler
 import logging
 import sys
@@ -280,6 +281,7 @@ app.include_router(local_tokens_router, prefix="/api/local-tokens", tags=["local
 app.include_router(local_executor_router, prefix="/api/local-executor", tags=["local-executor"])
 app.include_router(local_tokens_router, prefix="/api/local-executors", tags=["local-executors"])
 app.include_router(local_executor_router, prefix="/api/local-executors", tags=["local-executors"])
+app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
 
 

@@ -559,6 +559,17 @@ def _guard_norm_act_id(value: str | None) -> str:
     return raw if raw.lower().startswith("act_") else f"act_{raw}"
 
 
+def _tg_guard_allowance_markup(act_id: str | None, ad_id: str | None) -> dict | None:
+    act_plain = _guard_plain_id(act_id)
+    ad_plain = _guard_plain_id(ad_id)
+    if not act_plain or not ad_plain:
+        return None
+    data = f"ga|d|{act_plain}|{ad_plain}"
+    if len(data.encode("utf-8")) > 64:
+        return None
+    return {"inline_keyboard": [[{"text": "今日加白", "callback_data": data}]]}
+
+
 def _account_local_date(account: dict) -> str:
     tz_name = (account.get("timezone_name") or account.get("timezone") or "").strip()
     if tz_name and ZoneInfo:
@@ -823,14 +834,22 @@ def _send_tg(
     team_id: int | None = None,
     event_type: str = "guard",
     include_owner: bool = True,
+    reply_markup: dict | None = None,
 ):
     """Route TG notifications through team/account ownership rules."""
     try:
         if act_id:
-            return notify_account(act_id, msg, event_type=event_type, parse_mode=parse_mode, include_owner=include_owner)
+            return notify_account(
+                act_id,
+                msg,
+                event_type=event_type,
+                parse_mode=parse_mode,
+                include_owner=include_owner,
+                reply_markup=reply_markup,
+            )
         if team_id is not None:
-            return notify_team(team_id, msg, event_type=event_type, parse_mode=parse_mode)
-        return notify_global(msg, parse_mode=parse_mode, dedup_key=event_type)
+            return notify_team(team_id, msg, event_type=event_type, parse_mode=parse_mode, reply_markup=reply_markup)
+        return notify_global(msg, parse_mode=parse_mode, dedup_key=event_type, reply_markup=reply_markup)
     except Exception as e:
         logger.warning(f"TG 推送失败: {e}")
         return {"sent": 0, "errors": [{"error": str(e)}]}
@@ -1182,6 +1201,7 @@ def _pause_with_escalation(
                 f"⚠️ 向上升级已关闭，请手动处理！",
                 act_id=act_id,
                 event_type="guard",
+                reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
             )
         return "ad", "failed"
 
@@ -1217,6 +1237,7 @@ def _pause_with_escalation(
                         f"原因：{_tg_escape(err_msg)}",
                         act_id=act_id,
                         event_type="guard",
+                        reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
                     )
                 return "adset", "escalated"
             err2 = f"广告组核验失败: {err2}"
@@ -1268,6 +1289,7 @@ def _pause_with_escalation(
                         f"请立即检查账户状态",
                         act_id=act_id,
                         event_type="guard",
+                        reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
                     )
                 return "campaign", "escalated"
         else:
@@ -1310,6 +1332,7 @@ def _pause_with_escalation(
             f"请立即手动处理！",
             act_id=act_id,
             event_type="guard",
+            reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
         )
     return "campaign", "all_failed"
 
@@ -2907,6 +2930,7 @@ class GuardEngine:
                 f"原因：{reason}",
                 act_id=act_id,
                 event_type="guard",
+                reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
             )
 
         elif action == "pause":
@@ -2948,6 +2972,7 @@ class GuardEngine:
                     + upgrade_note,
                     act_id=act_id,
                     event_type="guard",
+                    reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
                 )
                 # 止损后实时触发素材评分
             else:
@@ -2971,6 +2996,7 @@ class GuardEngine:
                     f"请立即手动处理。",
                     act_id=act_id,
                     event_type="guard",
+                    reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
                 )
 
         elif action in ("pause_adset", "pause_campaign"):
@@ -2988,6 +3014,7 @@ class GuardEngine:
                     f"原因：缺少{_tg_escape(target_label)}ID，无法执行直接暂停",
                     act_id=act_id,
                     event_type="guard",
+                    reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
                 )
                 return
             if self.dry_run:
@@ -3017,6 +3044,7 @@ class GuardEngine:
                 + (f"\n错误：{_tg_escape(err_msg)}" if action_status == "failed" else ""),
                 act_id=act_id,
                 event_type="guard",
+                reply_markup=_tg_guard_allowance_markup(act_id, ad_id),
             )
 
         elif action == "reduce_budget":

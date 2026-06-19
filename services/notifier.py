@@ -170,7 +170,13 @@ def resolve_recipients(
         conn.close()
 
 
-def _send_to_chat_ids(chat_ids: list[str], msg: str, parse_mode: str = "HTML", dedup_key: str | None = None) -> dict[str, Any]:
+def _send_to_chat_ids(
+    chat_ids: list[str],
+    msg: str,
+    parse_mode: str = "HTML",
+    dedup_key: str | None = None,
+    reply_markup: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     conn = get_conn()
     try:
         token = _setting(conn, "tg_bot_token", "")
@@ -191,9 +197,12 @@ def _send_to_chat_ids(chat_ids: list[str], msg: str, parse_mode: str = "HTML", d
             continue
         _SEND_CACHE[cache_key] = now
         try:
+            payload = {"chat_id": chat_id, "text": msg, "parse_mode": parse_mode}
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
             requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": msg, "parse_mode": parse_mode},
+                json=payload,
                 timeout=10,
             )
             sent += 1
@@ -211,6 +220,7 @@ def notify_account(
     include_owner: bool = True,
     fallback_global: bool = True,
     dedup_key: str | None = None,
+    reply_markup: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     route = resolve_recipients(
         act_id=act_id,
@@ -218,7 +228,13 @@ def notify_account(
         include_owner=include_owner,
         fallback_global=fallback_global,
     )
-    result = _send_to_chat_ids(route["chat_ids"], msg, parse_mode=parse_mode, dedup_key=dedup_key or f"{event_type}:{act_id}")
+    result = _send_to_chat_ids(
+        route["chat_ids"],
+        msg,
+        parse_mode=parse_mode,
+        dedup_key=dedup_key or f"{event_type}:{act_id}",
+        reply_markup=reply_markup,
+    )
     result["route"] = {"team_id": route.get("team_id"), "act_id": act_id}
     return result
 
@@ -230,6 +246,7 @@ def notify_team(
     parse_mode: str = "HTML",
     fallback_global: bool = True,
     dedup_key: str | None = None,
+    reply_markup: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     route = resolve_recipients(
         team_id=team_id,
@@ -237,16 +254,32 @@ def notify_team(
         include_owner=False,
         fallback_global=fallback_global,
     )
-    result = _send_to_chat_ids(route["chat_ids"], msg, parse_mode=parse_mode, dedup_key=dedup_key or f"{event_type}:team:{team_id}")
+    result = _send_to_chat_ids(
+        route["chat_ids"],
+        msg,
+        parse_mode=parse_mode,
+        dedup_key=dedup_key or f"{event_type}:team:{team_id}",
+        reply_markup=reply_markup,
+    )
     result["route"] = {"team_id": team_id}
     return result
 
 
-def notify_global(msg: str, parse_mode: str = "HTML", dedup_key: str | None = None) -> dict[str, Any]:
+def notify_global(
+    msg: str,
+    parse_mode: str = "HTML",
+    dedup_key: str | None = None,
+    reply_markup: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     conn = get_conn()
     try:
         chat_ids = split_chat_ids(_setting(conn, "tg_chat_ids", ""))
     finally:
         conn.close()
-    return _send_to_chat_ids(chat_ids, msg, parse_mode=parse_mode, dedup_key=dedup_key or "global")
-
+    return _send_to_chat_ids(
+        chat_ids,
+        msg,
+        parse_mode=parse_mode,
+        dedup_key=dedup_key or "global",
+        reply_markup=reply_markup,
+    )
