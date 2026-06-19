@@ -16153,7 +16153,7 @@ async function loadLandingCenter(force){
    api('GET','/landing-pages/tokens'),
    api('GET','/landing-pages/templates'),
    api('GET','/landing-pages/pages'),
-   api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=200').catch(function(){return null;})
+   api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=500').catch(function(){return null;})
   ]);
   _cfTokens=data[0]||[];
   _lpTemplates=data[1]||[];
