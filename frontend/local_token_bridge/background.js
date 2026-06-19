@@ -12,14 +12,13 @@ const HEARTBEAT_ALARM = "mira_heartbeat";
 const POLL_ALARM = "mira_poll";
 const TOKEN_ALARM = "mira_token_refresh";
 const GRAPH_BASE = "https://graph.facebook.com/v22.0";
-const VERSION = "2.4.5";
+const VERSION = "2.4.6";
 const ASSET_DISCOVERY_FRESH_MS = 6 * 60 * 60 * 1000;
 const ASSET_DISCOVERY_MIN_INTERVAL_MS = 20 * 60 * 1000;
 const LOCAL_SESSION_PROBE_FRESH_MS = 5 * 60 * 1000;
 
 const FB_COOKIE_NAMES = ['c_user', 'xs', 'fr', 'datr', 'sb'];
 
-// Graph API path 白名单 — 只允许操作广告相关端点
 const PATH_WHITELIST = [
   /^me\/adaccounts/,
   /^act_\d+/,
@@ -27,7 +26,6 @@ const PATH_WHITELIST = [
   /^me(\/.*)?$/,
 ];
 
-// 域名白名单 — 只允许请求 Mira + Meta
 const ALLOWED_DOMAINS = [
   'shouhu.asia',
   'graph.facebook.com',
@@ -43,7 +41,6 @@ function isAllowedUrl(url) {
   } catch (e) { return false; }
 }
 
-// 安全 fetch — 禁止非白名单域名
 async function safeFetch(url, init) {
   if (!isAllowedUrl(url)) {
     console.error('[mira] 拦截非法请求:', url);
@@ -52,9 +49,9 @@ async function safeFetch(url, init) {
   return fetch(url, init);
 }
 
-const runningTasks = new Map();      // task_id → promise
-const accountLocks = new Map();      // act_xxx → true (并发=1)
-const seenIdempotency = new Set();   // idempotency_key (成功过的)
+const runningTasks = new Map();      
+const accountLocks = new Map();      
+const seenIdempotency = new Set();   
 let lastProbeAt = 0;
 let lastProbeSummary = null;
 let lastTokenExtractAt = 0;
@@ -239,8 +236,6 @@ function isWritablePath(path) {
   return PATH_WHITELIST.some(r => r.test(String(path || '').replace(/^\/+/, '')));
 }
 
-// ========== install_id（永久 UUID）==========
-
 async function ensureInstallId() {
   const d = await chrome.storage.local.get(['install_id']);
   if (d.install_id) return d.install_id;
@@ -248,8 +243,6 @@ async function ensureInstallId() {
   await chrome.storage.local.set({ install_id: id });
   return id;
 }
-
-// ========== HMAC 签名 ==========
 
 async function hmacSign(secret, payload) {
   const enc = new TextEncoder();
@@ -304,7 +297,6 @@ async function getSettings() {
 let lastPermissionProbe = { token: '', time: 0 };
 
 async function verifyTokenPermissions(token) {
-  // 去重：同一个 Token 30 分钟内不重复探测
   const now = Date.now();
   if (token === lastPermissionProbe.token && (now - lastPermissionProbe.time) < 30 * 60 * 1000) {
     return null;
@@ -339,7 +331,6 @@ async function verifyTokenPermissions(token) {
     return { granted, declined };
   } catch (err) {
     const msg = err.message || String(err);
-    // Token 格式错误 — 清除，避免后续复用
     if (msg.includes('Malformed') || msg.includes('invalid')) {
       console.debug('[mira] Token 无效，清除');
       await chrome.storage.local.set({ accessToken: '', expiresInMinutes: '', tokenExpiresAt: '' });
@@ -401,13 +392,10 @@ async function extractFacebookTokenFromTabs() {
   throw new Error('未能提取到 Token，请刷新 Facebook 页面');
 }
 
-// 刷新已有 FB 标签页触发 webRequest 被动捕获 Token
-// 比开新标签页安全得多：刷新跟用户按 F5 没区别
 async function refreshExistingFbTab() {
   const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
   if (tabs.length === 0) return null;
 
-  // 优先 adsmanager > business > 任意 FB 页面
   const preferred = tabs.find(t => t.url && t.url.includes('adsmanager')) ||
                     tabs.find(t => t.url && t.url.includes('business')) ||
                     tabs[0];
@@ -415,20 +403,16 @@ async function refreshExistingFbTab() {
   console.debug('[mira] 刷新已有 FB 标签页以获取新 Token');
   await chrome.tabs.reload(preferred.id);
 
-  // 等页面加载 + FB JS 发出 Graph API 请求（webRequest 自动捕获）
   await new Promise(r => setTimeout(r, randomBetween(8000, 15000)));
 
-  // 检查 webRequest 是否已捕获到新 Token
   const s = await getSettings();
   if (s.accessToken && s.tokenExpiresAt) {
     const remaining = new Date(s.tokenExpiresAt).getTime() - Date.now();
     if (remaining > 10 * 60 * 1000) {
-      // Token 已更新（webRequest 捕获到了新的）
       return { eaa_token: s.accessToken, eaa_source: 'webRequest via tab refresh', refreshed: true };
     }
   }
 
-  // webRequest 没捕获到，用 content-script 直接提取
   try {
     const pt = await extractFromTab(preferred.id);
     if (pt && pt.eaa_token) {
@@ -445,7 +429,6 @@ async function refreshExistingFbTab() {
 }
 
 async function silentExtractAndSave() {
-  // 第一步：已有标签页直接提取
   try {
     const ex = await extractFacebookTokenFromTabs();
     if (ex && ex.eaa_token) {
@@ -458,7 +441,6 @@ async function silentExtractAndSave() {
     }
   } catch (e) { /* 继续下一步 */ }
 
-  // 第二步：Token 过期或拿不到 → 刷新已有 FB 标签页触发 webRequest
   const s = await getSettings();
   if (!s.accessToken || (s.tokenExpiresAt && new Date(s.tokenExpiresAt).getTime() - Date.now() < 15 * 60 * 1000)) {
     const refreshed = await refreshExistingFbTab();
@@ -553,13 +535,11 @@ async function buildAccountSummary(options = {}) {
     const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
     if (tabs.length === 0) return await withCachedAssets({ fb_user: null, accounts: [], businesses: [], assets: { ad_accounts: [], businesses: [], pixels: [] }, fb_status: 'need_fb_tab' }, options);
 
-    // me
     try {
       const me = await graphGetRaw(token, 'me', { fields: 'id,name' });
       fbUser = { id: me.id || '', name: me.name || '' };
     } catch (e) {}
 
-    // adaccounts
     try {
       const actIds = [];
       let path = 'me/adaccounts';
@@ -1013,8 +993,6 @@ async function scanBusinessAccountsFromOpenTabs() {
   return { businesses: [...byId.values()] };
 }
 
-// ========== Graph API（通过 content-script）==========
-
 function sortFacebookTabs(tabs) {
   return [...(tabs || [])].sort((a, b) => {
     const score = (tab) => {
@@ -1047,7 +1025,6 @@ async function graphGetRaw(token, path, params = {}) {
       }
     }
   }
-  // fallback 直达
   const cp = String(path).replace(/^\/+/, '');
   const url = new URL(`${GRAPH_BASE}/${cp}`);
   Object.entries(params || {}).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v); });
@@ -1074,7 +1051,6 @@ async function graphRequest(method, path, params = {}) {
   const token = String(s.accessToken || '').trim();
   if (!token) throw localError || new Error('session_invalid');
 
-  // 获取 webRequest 捕获到的 API 版本
   const d = await chrome.storage.local.get(['apiVersion']);
 
   const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
@@ -1145,10 +1121,8 @@ async function bindExecutor(bindCode, browserLabel) {
   });
   await ensureAlarms();
 
-  // 绑定后自动尝试捕获 Token：有 FB 标签页就刷新触发 webRequest
   const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
   if (tabs.length > 0) {
-    // 有 FB 页面 → 刷新触发被动捕获
     const preferred = tabs.find(t => t.url && t.url.includes('adsmanager')) ||
                       tabs.find(t => t.url && t.url.includes('business')) ||
                       tabs[0];
@@ -1278,9 +1252,12 @@ function categorizeError(err) {
 }
 
 async function runGraphTask(task) {
-  const { operation, method, path, params, body } = task;
+  const operation = task.operation || task.task_type || '';
+  
+  const method = String(task.method || task.payload?.method || 'POST').toUpperCase();
+  const path = task.path ?? task.payload?.path ?? '';
+  const body = task.body || task.payload?.params || task.params?.data || task.params || task.payload?.body || {};
 
-  // discover_accounts — 特殊任务，返回账户列表
   if (operation === 'discover_accounts' || task.task_type === 'discover_accounts') {
     const summary = await buildAccountSummary();
     return {
@@ -1307,15 +1284,15 @@ async function runGraphTask(task) {
 
   switch (operation) {
     case 'graph_get':
-      return await graphRequest('GET', path, params || {});
+      return await graphRequest('GET', path, body);
     case 'graph_post':
-      return await graphRequest('POST', path, body || params || {});
+      return await graphRequest('POST', path, body);
     case 'graph_delete':
-      return await graphRequest('DELETE', path, params || {});
+      return await graphRequest('DELETE', path, body);
     case 'graph_account_probe':
-      return await graphRequest('GET', path, params || { fields: 'id,name,account_status,currency,timezone_name' });
+      return await graphRequest('GET', path, body.fields ? body : { fields: 'id,name,account_status,currency,timezone_name' });
     default:
-      return await graphRequest(method || 'POST', path, body || params || {});
+      return await graphRequest(method, path, body);
   }
 }
 
@@ -1324,13 +1301,11 @@ async function executeTask(task) {
   if (!task || !taskId) return;
   if (runningTasks.has(taskId)) return;
 
-  // 幂等检查
   if (task.idempotency_key && seenIdempotency.has(task.idempotency_key)) {
     console.debug('[mira] 跳过已执行过的幂等任务:', task.idempotency_key);
     return;
   }
 
-  // 账户队列锁：每 act_xxx 同一时间只执行一个
   const actId = task.account_id || '';
   if (actId && accountLocks.get(actId)) return;
   if (actId) accountLocks.set(actId, true);
@@ -1343,15 +1318,23 @@ async function executeTask(task) {
     const dur = Date.now() - start;
     await reportTaskResult(taskId, 'success', result, null, dur);
 
-    // 标记幂等
     if (task.idempotency_key) seenIdempotency.add(task.idempotency_key);
 
   } catch (err) {
     const dur = Date.now() - start;
-    await reportTaskResult(taskId, 'failed', {}, {
-      code: err.code || 0,
-      subcode: err.error_subcode || 0,
-      message: err.message || String(err),
+    
+    let subcode = err.error_subcode || err.subcode || 0;
+    let code = err.code || 0;
+    let message = err.message || String(err);
+    
+    if (err.data) {
+      message += " || BATCH_DATA: " + JSON.stringify(err.data);
+    }
+
+    await reportTaskResult(taskId, 'failed', err.data || {}, {
+      code: code,
+      subcode: subcode,
+      message: message,
     }, dur);
   } finally {
     runningTasks.delete(taskId);
@@ -1363,11 +1346,11 @@ async function executeTask(task) {
 
 async function ensureAlarms() {
   const s = await getSettings();
-  if (!s.nodeId) return; // 未绑定不启动
+  if (!s.nodeId) return; 
   const pollSec = 10;
 
   await chrome.alarms.clear(HEARTBEAT_ALARM);
-  await chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: randomBetween(0.4, 0.9) }); // ~25-55s
+  await chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: randomBetween(0.4, 0.9) }); 
 
   await chrome.alarms.clear(POLL_ALARM);
   await chrome.alarms.create(POLL_ALARM, { periodInMinutes: pollSec / 60 });
@@ -1400,7 +1383,6 @@ async function initialSetup() {
   await migrateVersionCache().catch(() => {});
   const s = await getSettings();
   if (s.nodeId && s.accessToken) {
-    // 已有绑定和 Token，做个心跳
     heartbeat().catch(() => {});
   } else if (s.nodeId) {
     maybeAutoDiscoverAssets('startup').then(() => heartbeat().catch(() => {})).catch(() => {});
@@ -1440,7 +1422,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
-    // — 设置 —
     if (msg.type === 'getSettings') {
       sendResponse({ ok: true, data: await getSettings() });
       return;
@@ -1468,7 +1449,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 绑定 —
     if (msg.type === 'bind') {
       try {
         const data = await bindExecutor(msg.bindCode, msg.browserLabel);
@@ -1479,7 +1459,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 解绑 —
     if (msg.type === 'unbind') {
       await chrome.storage.local.remove(['nodeId', 'nodeSecret', 'teamId', 'operatorId', 'operatorName']);
       await chrome.storage.local.set({ executorStatus: { bound: false } });
@@ -1487,7 +1466,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 心跳 —
     if (msg.type === 'heartbeat') {
       try {
         sendResponse({ ok: true, data: await heartbeat() });
@@ -1497,12 +1475,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 刷新账户 —
     if (msg.type === 'refreshAccounts') {
       try {
         silentExtractAndSave().catch(() => {});
         const summary = await buildAccountSummary({ forceLocalProbe: true });
-        // 持久化到本地，popup 刷新不丢失
         await chrome.storage.local.set({
           miraStatus: {
             ok: true,
@@ -1568,7 +1544,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 手动提取 Token —
     if (msg.type === 'silentRefresh') {
       const ex = await silentExtractAndSave();
       if (ex) heartbeat().catch(() => {});
@@ -1576,14 +1551,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 清除 Token —
     if (msg.type === 'clearToken') {
       await chrome.storage.local.set({ accessToken: '', expiresInMinutes: '', tokenExpiresAt: '' });
       sendResponse({ ok: true, data: { cleared: true } });
       return;
     }
 
-    // — Content-script 自动缓存 —
     if (msg.type === 'facebookTokenCache') {
       const p = msg.payload || {};
       if (p.eaa_token && (!cachedExtractedToken || p.eaa_token !== cachedExtractedToken.eaa_token)) {
@@ -1602,7 +1575,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — FB 内部 REST API 调用（Cookie 鉴权，自动尝试多个端点）—
     if (msg.type === 'fbInternalApi') {
       try {
         const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
@@ -1620,7 +1592,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — FB 内部 GraphQL 调用（BM 列表等，Cookie 鉴权）—
     if (msg.type === 'fbGraphqlCall') {
       try {
         const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
@@ -1659,7 +1630,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 通用 Graph API 调用（像素分享/BM邀请用）—
     if (msg.type === 'graphApiCall') {
       try {
         const data = await graphRequest(msg.method || 'GET', msg.path, msg.params || {});
@@ -1672,7 +1642,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    // — 复制诊断信息 —
     if (msg.type === 'getDiagnostics') {
       const s = await getSettings();
       const cookies = await getFacebookCookies();
@@ -1698,20 +1667,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-// ========== webRequest 被动 Token 捕获 ==========
-// 零检测风险：Facebook 自己的请求经过浏览器网络层，
-// 插件只读 URL 中的 access_token 参数，不发额外请求。
-
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     try {
       const url = new URL(details.url);
       const token = url.searchParams.get('access_token');
-      // EAAB/EAAC 才是标准 Graph API Token；EAAG 等是前端内部 Token 不可用于 API
       if (token && /^EAA[BC]/.test(token) && token !== cachedExtractedToken?.eaa_token) {
         const apiVersion = (url.pathname.match(/\/v(\d+\.?\d?)\//) || [])[1] || '';
 
-        // 静默存储 — 不写日志，不给 popup 发通知
         chrome.storage.local.set({
           accessToken: token,
           apiVersion: apiVersion || 'v22.0',
@@ -1728,9 +1691,7 @@ chrome.webRequest.onBeforeRequest.addListener(
         lastProbeAt = 0;
         lastProbeSummary = null;
 
-        // 探测权限
         verifyTokenPermissions(token).catch(() => {});
-        // Token 变化后尽快心跳一次
         setTimeout(() => heartbeat().catch(() => {}), randomBetween(2000, 8000));
       }
     } catch (e) { /* 静默 */ }

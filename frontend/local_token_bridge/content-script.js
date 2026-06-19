@@ -4,12 +4,51 @@
  * 参考 FB Token Extractor 插件的提取逻辑
  */
 
+// =====================================================================
+// 🔥 核心注入层：建立与 MAIN World (Facebook原生环境) 的通信桥梁
+// =====================================================================
+const INJECT_CODE = `
+  window.addEventListener('MIRA_NATIVE_REQ', async (e) => {
+    const { id, url, init } = e.detail;
+    try {
+      const res = await window.fetch(url, init);
+      const text = await res.text();
+      window.dispatchEvent(new CustomEvent('MIRA_NATIVE_RES_' + id, { 
+        detail: { ok: res.ok, status: res.status, text } 
+      }));
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('MIRA_NATIVE_RES_' + id, { 
+        detail: { ok: false, error: err.message || String(err) } 
+      }));
+    }
+  });
+`;
+
+const script = document.createElement('script');
+script.textContent = INJECT_CODE;
+(document.head || document.documentElement).appendChild(script);
+script.remove();
+
+function nativeFbFetch(url, init) {
+  return new Promise((resolve) => {
+    const requestId = Math.random().toString(36).substring(2);
+    const listener = (e) => {
+      window.removeEventListener('MIRA_NATIVE_RES_' + requestId, listener);
+      resolve(e.detail);
+    };
+    window.addEventListener('MIRA_NATIVE_RES_' + requestId, listener);
+    
+    window.dispatchEvent(new CustomEvent('MIRA_NATIVE_REQ', {
+      detail: { id: requestId, url, init }
+    }));
+  });
+}
+
 // ========== 从 localStorage 提取 EAA Token ==========
 
 function extractFromLocalStorage() {
   const result = { eaa_token: null, eaa_key: null };
   try {
-    // 先检查已知的 key
     const knownKeys = [
       'EAA_token',
       'fb_access_token',
@@ -24,7 +63,6 @@ function extractFromLocalStorage() {
         return result;
       }
     }
-    // 遍历所有 key 查找 EAA token
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       try {
@@ -34,7 +72,7 @@ function extractFromLocalStorage() {
           result.eaa_key = key;
           break;
         }
-      } catch (e) { /* 某些 key 可能无法访问 */ }
+      } catch (e) { /* ignore */ }
     }
   } catch (e) {
     result._error = e.message;
@@ -69,7 +107,6 @@ function extractFromSessionStorage() {
 function extractFromPageJS() {
   const result = {};
 
-  // 1. EAA Token 从 window 变量
   try {
     const windowTokenKeys = [
       '___fbAccessToken',
@@ -90,9 +127,7 @@ function extractFromPageJS() {
     }
   } catch (e) { /* ignore */ }
 
-  // 2. fb_dtsg (CSRF token) — 多源提取，不同 FB 页面变量名不同
   try {
-    // 方法1: 全局 JS 变量
     for (const key of ['DTSG_INIT_VAL', 'DTSGInitialData', 'DTSG_DATA', 'dtsg_init_val', 'fb_dtsg', 'fbDtsg']) {
       try {
         const val = window[key];
@@ -104,7 +139,6 @@ function extractFromPageJS() {
       } catch (e) { /* continue */ }
     }
 
-    // 方法2: meta / input 标签
     if (!result.fb_dtsg) {
       const meta = document.querySelector('meta[name="fb_dtsg"], meta[property="fb:fb_dtsg"]');
       if (meta) result.fb_dtsg = meta.content || meta.getAttribute('value');
@@ -114,7 +148,6 @@ function extractFromPageJS() {
       if (input) result.fb_dtsg = input.value;
     }
 
-    // 方法3: 内联 script JSON 正则（兜底）
     if (!result.fb_dtsg) {
       const scripts = document.querySelectorAll('script[type="application/json"], script[data-bootloader-hash]');
       for (const s of scripts) {
@@ -125,14 +158,12 @@ function extractFromPageJS() {
             if (parsed.token) { result.fb_dtsg = parsed.token; break; }
           } catch (e) {}
         }
-        // 直接搜 token 字段
         const tm = s.textContent?.match(/"token"\s*:\s*"([^"]+)"/);
         if (tm) { result.fb_dtsg = tm[1]; break; }
       }
     }
   } catch (e) { /* ignore */ }
 
-  // 3. 从页面内嵌 script 标签搜索 EAA token
   if (!result.eaa_token) {
     try {
       const scripts = document.querySelectorAll('script');
@@ -159,7 +190,6 @@ function extractAllTokens() {
   const ssResult = extractFromSessionStorage();
   const pageResult = extractFromPageJS();
 
-  // 优先级：localStorage > sessionStorage > 页面 JS
   const eaa_token = lsResult.eaa_token || ssResult.eaa_token || pageResult.eaa_token || null;
   let eaa_source = '';
   if (lsResult.eaa_token) eaa_source = `localStorage:${lsResult.eaa_key}`;
@@ -264,9 +294,41 @@ async function adsManagerGraph(path, params = {}, options = {}) {
       init.headers['Content-Type'] = 'application/x-www-form-urlencoded';
       init.body = body.toString();
     }
-    const res = await fetch(url.toString(), init);
-    const text = await res.text();
-    const data = parseFbJsonText(text);
+
+    const res = await nativeFbFetch(url.toString(), init);
+    
+    let data;
+    try {
+      data = parseFbJsonText(res.text);
+    } catch(e) {
+      data = { error: { message: "解析JSON失败或非预期响应: " + String(res.text || '').slice(0, 100) } };
+    }
+
+    if (Array.isArray(data)) {
+      let hasError = false;
+      const errorSummaries = [];
+      
+      data.forEach((item, idx) => {
+        if (item.body && typeof item.body === 'string') {
+          try { item.body = JSON.parse(item.body); } catch (e) {}
+        }
+        
+        if (item.code >= 400) {
+          hasError = true;
+          const errMsg = item.body?.error?.message || item.body?.error?.error_user_msg || JSON.stringify(item.body);
+          errorSummaries.push(`子请求[${item.name || idx}]失败: ${errMsg}`);
+        }
+      });
+
+      if (hasError) {
+         const batchErr = new Error('Batch请求部分失败: ' + errorSummaries.join(' | '));
+         batchErr.data = data; 
+         batchErr.status = res.status;
+         throw batchErr;
+      }
+      return data;
+    }
+
     const msg = graphErrorMessage(data, '');
     if (!res.ok || msg) {
       const err = new Error(msg || `HTTP ${res.status}`);
@@ -278,9 +340,7 @@ async function adsManagerGraph(path, params = {}, options = {}) {
   };
 
   if (method !== 'GET') {
-    try { return await request('post'); } catch (e) {
-      return await request('get');
-    }
+    return await request('post');
   }
   return await request('get');
 }
@@ -461,6 +521,17 @@ function mergeGraphBusinesses(items, accounts = []) {
 
 async function runBusinessOperation(operation, payload = {}) {
   const businessId = String(payload.business_id || payload.bm_id || '').replace(/\D/g, '');
+  
+  if (operation === 'adsmanager_graph_request') {
+    const path = String(payload.path || '').replace(/^\/+/, '');
+    const params = payload.params || payload.body || {};
+    
+    if (!path && !params.batch) throw new Error('missing_path'); 
+    
+    const method = String(payload.method || 'GET').toUpperCase();
+    return await adsManagerGraph(path, params, { method });
+  }
+
   if (operation === 'list_businesses') {
     const data = await adsManagerGraph('me/businesses', {
       fields: 'partner_relationships.limit(100){id},created_by,is_disabled_for_integrity_reasons,can_use_extended_credit,name,id,verification_status,business_users,sharing_eligibility_status,created_time,permitted_roles,can_add_or_create_page,owned_pixels.limit(1){id,name,status}',
@@ -616,14 +687,6 @@ async function runBusinessOperation(operation, payload = {}) {
       }
     }
     throw new Error(errors.join('；') || 'invite_user_failed');
-  }
-
-  if (operation === 'adsmanager_graph_request') {
-    const path = String(payload.path || '').replace(/^\/+/, '');
-    if (!path) throw new Error('missing_path');
-    const method = String(payload.method || 'GET').toUpperCase();
-    const params = payload.params || payload.body || {};
-    return await adsManagerGraph(path, params, { method });
   }
 
   throw new Error('unknown_business_operation');
@@ -908,14 +971,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // — FB 内部 API 调用（Cookie 鉴权，用于 BM 操作）—
   if (message.action === 'fbInternalApi') {
     (async () => {
       try {
         const pageTokens = extractFromPageJS();
         const fbDtsg = pageTokens.fb_dtsg || '';
 
-        // 依次尝试多个可能的内部端点
         const endpoints = message.endpoints || [];
 
         for (const ep of endpoints) {
@@ -939,15 +1000,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (fbDtsg) url.searchParams.set('fb_dtsg', fbDtsg);
             }
 
-            const res = await fetch(url.toString(), opts);
-            const text = await res.text();
+            const res = await nativeFbFetch(url.toString(), opts);
             let data;
-            try { data = parseFbJsonText(text); } catch (e) {
-              // HTML 返回 — 不是 JSON 端点，试下一个
+            try { data = parseFbJsonText(res.text); } catch (e) {
               continue;
             }
 
-            // 成功返回 JSON
             if (data && !data.error) {
               sendResponse({ ok: true, status: res.status, data });
               return;
@@ -963,7 +1021,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // — FB 内部 GraphQL 调用（Cookie 鉴权，用于 BM 操作）—
   if (message.action === 'fbGraphqlCall') {
     (async () => {
       try {
@@ -979,7 +1036,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           Object.entries(message.query_params).forEach(([k, v]) => body.set(k, String(v)));
         }
 
-        const res = await fetch('https://business.facebook.com/api/graphql/', {
+        const res = await nativeFbFetch('https://business.facebook.com/api/graphql/', {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -988,9 +1045,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           },
           body: body.toString(),
         });
-        const text = await res.text();
+        
         let data;
-        try { data = parseFbJsonText(text); } catch (e) { data = text; }
+        try { data = parseFbJsonText(res.text); } catch (e) { data = res.text; }
 
         sendResponse({ ok: res.ok && !(data && data.errors), status: res.status, data });
       } catch (err) {
@@ -1000,13 +1057,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // — 公开 Graph API 调用（Token 鉴权，用于普通读/写操作）—
   if (message.action === 'graphApiCall') {
     (async () => {
       try {
         const { method, path, params, token } = message;
         const cleanPath = String(path || '').replace(/^\/+/, '');
-        // 用 webRequest 捕获到的 API 版本，而非硬编码
         const apiVer = message.apiVersion || 'v22.0';
         const url = new URL(`https://graph.facebook.com/${apiVer}/${cleanPath}`);
 
@@ -1019,7 +1074,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         url.searchParams.set('access_token', token);
 
-        // 带上 fb_dtsg 等 FB 反滥用参数（页面内提取）
         const pageTokens = extractFromPageJS();
         if (pageTokens.fb_dtsg) url.searchParams.set('fb_dtsg', pageTokens.fb_dtsg);
 
@@ -1028,10 +1082,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           credentials: 'include',
           headers: { 'Referer': location.href },
         };
-        const res = await fetch(url.toString(), init);
-        const text = await res.text();
+        const res = await nativeFbFetch(url.toString(), init);
+        
         let data;
-        try { data = JSON.parse(text); } catch (e) { data = text; }
+        try { data = JSON.parse(res.text); } catch (e) { data = res.text; }
 
         sendResponse({
           ok: res.ok && !(data && data.error),
@@ -1049,11 +1103,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ========== 页面加载后自动尝试提取并缓存（带延迟重试） ==========
 
 (function autoCacheOnLoad() {
-  // 第一次尝试
   tryCacheToken();
-
-  // SPA 页面（如 adsmanager）可能需要更长时间初始化
-  // 在 3 秒和 8 秒后重试
   setTimeout(tryCacheToken, 3000);
   setTimeout(tryCacheToken, 8000);
 
@@ -1070,7 +1120,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             url: location.href,
             timestamp: new Date().toISOString(),
           },
-        }).catch(() => { /* background 可能未就绪 */ });
+        }).catch(() => { /* ignore */ });
       }
     } catch (e) { /* ignore */ }
   }
