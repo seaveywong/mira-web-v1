@@ -2837,7 +2837,7 @@ body.landing-publish-open .landing-drawer-close{display:inline-flex!important}
    </tbody>
   </table>
  </div>
- <div style="margin-top:10px;font-size:12px;color:var(--t3)">落地页链接：用于销售/流量类广告。表单链接：用于潜在客户广告（lead_generation），留空时系统自动创建表单。导入 CSV 格式：act_id,name,matrix_id,landing_url,form_link
+ <div style="margin-top:10px;font-size:12px;color:var(--t3)">落地页链接：用于销售/流量类广告。表单链接：用于潜在客户广告（lead_generation），留空时系统自动创建表单。导入 CSV 格式：账户ID,name,matrix_id,landing_url,form_link
  </div>
 </div>
 
@@ -2909,7 +2909,7 @@ body.landing-publish-open .landing-drawer-close{display:inline-flex!important}
     <div class="fg"><label class="fl" id="lpTargetsLabel">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个 WhatsApp / 跳转链接；发布后页面按轮询策略跳转"></textarea></div>
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select><div class="fh" id="lpBindHint">普通落地页通常绑定到账户落地页；Lead Form 聊单链接建议绑定到账户表单链接。</div></div>
-     <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，可写 act_ 前缀"></textarea></div>
+     <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，支持带前缀或纯数字"></textarea></div>
     </div>
    </div>
    <div class="landing-form-section">
@@ -3131,10 +3131,10 @@ body.landing-publish-open .landing-drawer-close{display:inline-flex!important}
    </div>
    <!-- 直接输入模式 -->
    <div id="importPanelDirect" style="display:none">
-    <div class="info-box" style="margin-bottom:12px">直接输入广告账户 ID，每行一个，或用逗号/空格分隔。<br>支持带 <code>act_</code> 前缀或纯数字格式；自动导入模式会同时匹配可用 Token。
+    <div class="info-box" style="margin-bottom:12px">直接输入广告账户 ID，每行一个，或用逗号/空格分隔。<br>支持带前缀或纯数字格式；自动导入模式会同时匹配可用 Token。
     </div>
     <textarea id="directActIds" class="fc" rows="8"
-     placeholder="示例：&#10;act_1234567890&#10;9876543210&#10;act_1111111111, act_2222222222"
+     placeholder="示例：&#10;1234567890&#10;9876543210&#10;1111111111, 2222222222"
      oninput="parseDirectIds()"
      style="width:100%;font-family:monospace;font-size:12px;resize:vertical;line-height:1.6"></textarea>
     <div id="directParseInfo" style="font-size:12px;color:var(--t3);margin-top:6px">输入账户 ID 后自动解析</div>
@@ -4563,6 +4563,9 @@ function renderPermissionMatrixSection(){
 }
 
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function displayActId(v){return String(v||'').replace(/^act_/i,'');}
+function displayActText(v){return String(v||'').replace(/\bact_(\d{5,})\b/gi,'$1');}
+function displayAccountName(name, actId, fallback){return name||displayActId(actId)||fallback||'--';}
 function resourceTeamBadge(item){
  item=item||{};
  var name=item.team_name||item.group_name||'';
@@ -5153,7 +5156,7 @@ async function loadOwnerGuardLogs(){
    var ownerName=ownerMap[String(l.account_owner_user_id||'')]||'<span style="color:var(--t3)">未指定</span>';
    return '<tr style="border-bottom:1px solid var(--bd)">'+
     '<td style="padding:8px;color:var(--t3);white-space:nowrap">'+_fmtActionLogTime(l.created_at)+'</td>'+
-    '<td style="padding:8px"><div style="font-weight:650;color:var(--t1)">'+escHtml(l.account_name||l.act_id||'--')+'</div><div class="td-id">'+escHtml((l.act_id||'').replace(/^act_/,''))+'</div></td>'+
+    '<td style="padding:8px"><div style="font-weight:650;color:var(--t1)">'+escHtml(displayAccountName(l.account_name,l.act_id))+'</div><div class="td-id">'+escHtml(displayActId(l.act_id))+'</div></td>'+
     '<td style="padding:8px">'+ownerName+'</td>'+
     '<td style="padding:8px"><div class="td-name" title="'+escHtml(l.target_name||l.target_id||'')+'">'+escHtml(l.target_name||l.target_id||'--')+'</div></td>'+
     '<td style="padding:8px"><span class="badge bg-ac">'+escHtml(l.trigger_type||l.action_type||'--')+'</span></td>'+
@@ -5279,7 +5282,7 @@ function _teamResFillTeamOptions(teams){
 }
 
 function _teamResMain(item, kind){
- if(kind==='accounts') return [item.name||item.act_id||('账户 '+item.id), item.act_id||'', item.currency||'', item.account_status?'状态 '+item.account_status:''];
+ if(kind==='accounts') return [displayAccountName(item.name,item.act_id,'账户 '+item.id), displayActId(item.act_id), item.currency||'', item.account_status?'状态 '+item.account_status:''];
  if(kind==='tokens') return [item.name||('Token '+item.id), item.token_type||'', item.token_source||'', item.status||''];
  if(kind==='assets') return [item.name||item.file_name||('素材 '+item.id), item.asset_code||'', item.file_type||'', item.upload_status||''];
  if(kind==='pages') return [item.name||item.page_id||('主页 '+item.id), item.page_id||'', item.page_status||'', item.page_can_advertise===0?'不可投放':''];
@@ -5405,7 +5408,7 @@ async function openAccountOwnerModal(accountId){
   if(!mo){mo=document.createElement('div');mo.id='moOwner';mo.className='mo';document.body.appendChild(mo);}
   mo.innerHTML='<div class="modal"><div class="mh"><h3>设置账户负责人</h3><button class="mc" onclick="closeModal(\'moOwner\')">×</button></div>'+
    '<div class="mb">'+
-   '<div class="fg"><label class="fl">广告账户</label><input class="fc" value="'+escHtml(item.name||item.act_id||accountId)+'" disabled></div>'+
+   '<div class="fg"><label class="fl">广告账户</label><input class="fc" value="'+escHtml(displayAccountName(item.name,item.act_id,accountId))+'" disabled></div>'+
    '<div class="fg"><label class="fl">负责人</label><select class="fc" id="owner_user_id">'+opts+'</select></div>'+
    '<div class="fh">账户级告警会发送给团队群和该负责人个人 TG；同一个 chat_id 会自动去重。</div>'+
    '</div>'+
@@ -5722,7 +5725,7 @@ async function loadAccounts(){
   var r=await api('GET','/accounts');
   accounts=r||[];
   // 填充所有账户下拉
-  var opts='<option value="">全部账户</option>'+accounts.map(function(a){return'<option value="'+a.act_id+'">'+a.name+'</option>'}).join('');
+  var opts='<option value="">全部账户</option>'+accounts.map(function(a){return'<option value="'+a.act_id+'">'+escHtml(displayAccountName(a.name,a.act_id))+'</option>'}).join('');
   ['dashAct','adsAct','logAct','spendActSel','rulesAct','kpiAct'].forEach(function(id){
    var el=document.getElementById(id);if(el)el.innerHTML=opts;
   });
@@ -5733,7 +5736,7 @@ async function loadAccounts(){
   var savedKpi=localStorage.getItem('mira_dash_kpi');
   if(savedKpi){var dk=document.getElementById('dashKpi');if(dk)dk.value=savedKpi;}
   // 规则模态框账户选择（不含全部）
-  var optsNoAll=accounts.map(function(a){return'<option value="'+a.act_id+'">'+a.name+'</option>'}).join('');
+  var optsNoAll=accounts.map(function(a){return'<option value="'+a.act_id+'">'+escHtml(displayAccountName(a.name,a.act_id))+'</option>'}).join('');
   ['ruleAct','kpiActSel','scanAct'].forEach(function(id){
    var el=document.getElementById(id);
    if(el){
@@ -5750,8 +5753,8 @@ async function loadAccounts(){
   var tplItems=document.getElementById('tplActItems');  if(tplItems){
    tplItems.innerHTML=accounts.map(function(a){
     return'<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;color:var(--t2)">'+
-     '<input type="checkbox" class="tpl-act-cb" value="'+a.act_id+'" onchange="updateTplActCount()" style="width:14px;height:14px">'+a.name+
-     '<span style="font-size:11px;color:var(--t3);margin-left:4px">('+a.act_id+')</span></label>';
+     '<input type="checkbox" class="tpl-act-cb" value="'+a.act_id+'" onchange="updateTplActCount()" style="width:14px;height:14px">'+escHtml(displayAccountName(a.name,a.act_id))+
+     '<span style="font-size:11px;color:var(--t3);margin-left:4px">('+displayActId(a.act_id)+')</span></label>';
    }).join('');
   }
   // 初始化可搜索下拉框（延迟50ms确保 DOM 已渲染）
@@ -5920,7 +5923,7 @@ function renderBalanceCardFromAccounts(list){
 function taskAccountNames(list,max){
  max=max||3;
  var arr=(list||[]).slice(0,max).map(function(a){
-  return (a.name||a.account_name||a.act_id||'未命名账户').replace(/\s+/g,' ').trim();
+  return (a.name||a.account_name||displayActId(a.act_id)||'未命名账户').replace(/\s+/g,' ').trim();
  });
  var more=(list||[]).length-arr.length;
  return arr.join('、')+(more>0?' 等 '+more+' 个':'');
@@ -6239,7 +6242,7 @@ function toggleAccDetail(mode){
    var accountBadge=s==='1'||s==='active'||s==='ACTIVE'||s==='ok'?'<span class="badge bg-ok">可用</span>':s==='7'?'<span class="badge bg-wa">政策限制</span>':s==='8'||s==='9'?'<span class="badge bg-wa">宽限/待结算</span>':s==='100'||s==='101'?'<span class="badge bg-mu">已关闭/停用</span>':s==='debt'?'<span class="badge bg-wa">欠费</span>':s==='no_token'?'<span class="badge bg-wa">无Token</span>':s==='error'?'<span class="badge bg-er">错误</span>':'<span class="badge bg-mu">已禁用</span>';
    var statusBadge='<span class="badge bg-'+alert.tone+'">'+alert.label+'</span> '+accountBadge;
    var tz=a.timezone_name||a.timezone||'--';
-   return '<tr><td><div style="font-size:13px">'+(a.name||a.act_id)+'</div><div class="td-id">'+a.act_id+'</div></td>'
+   return '<tr><td><div style="font-size:13px">'+escHtml(displayAccountName(a.name,a.act_id))+'</div><div class="td-id">'+escHtml(displayActId(a.act_id))+'</div></td>'
     +'<td>'+cur+'</td>'
     +'<td style="font-size:11px;color:var(--t3)">'+tz+'</td>'
     +'<td style="color:'+(overCap?'var(--er)':'var(--ok)')+';font-weight:600">'+balDisplay+'</td>'
@@ -6271,7 +6274,7 @@ function toggleAccDetail(mode){
   var s=(d.status||'').toString();
   var statusBadge=s==='ok'||s==='1'||s==='active'?'<span class="badge bg-ok">正常</span>':s==='no_token'?'<span class="badge bg-wa">无Token</span>':s==='api_error'||s==='error'?'<span class="badge bg-er">错误</span>':'<span class="badge bg-mu">'+(s||'--')+'</span>';
   return '<tr>'
-   +'<td><div style="font-size:13px">'+(d.name||d.act_id)+'</div><div class="td-id">'+d.act_id+'</div></td>'
+   +'<td><div style="font-size:13px">'+escHtml(displayAccountName(d.name,d.act_id))+'</div><div class="td-id">'+escHtml(displayActId(d.act_id))+'</div></td>'
    +'<td>'+(d.currency||'--')+'</td>'
    +'<td style="font-size:11px;color:var(--t3)">'+(d.timezone||'--')+'</td>'
    +'<td style="font-weight:'+(mode==='spend'?'600':'400')+';color:'+(mode==='spend'?'var(--ac)':'inherit')+'">$'+spend.toFixed(2)+'</td>'
@@ -6312,7 +6315,7 @@ function togglePauseDetail(){
     var lv=levelMap[d.level]||d.level;
     var t=d.last_at?d.last_at.slice(0,16):'';
     // 账户名称：优先显示 account_name，如无则去掉 act_ 前缀
-    var accName=d.account_name||(d.act_id?d.act_id.replace(/^act_/,''):d.act_id);
+    var accName=displayAccountName(d.account_name,d.act_id);
     return '<tr>'
      +'<td><div style="font-size:13px">'+d.target_name+'</div><div class="td-id">'+d.target_id+'</div></td>'
      +'<td><div style="font-size:13px">'+accName+'</div></td>'
@@ -6329,7 +6332,7 @@ function togglePauseDetail(){
    rows+=emgDetails.map(function(d){
     var lv=levelMap[d.level]||d.level;
     var t=d.last_at?d.last_at.slice(0,16):'';
-    var accName=d.account_name||(d.act_id?d.act_id.replace(/^act_/,''):d.act_id);
+    var accName=displayAccountName(d.account_name,d.act_id);
     return '<tr style="opacity:0.75">'
      +'<td><div style="font-size:13px">'+d.target_name+'</div><div class="td-id">'+d.target_id+'</div></td>'
      +'<td><div style="font-size:13px">'+accName+'</div></td>'
@@ -6537,7 +6540,7 @@ function renderTopAds(ads){
   var cc=a.target_cpa?(a.cpa<=a.target_cpa?'cpa-good':a.cpa<=a.target_cpa*1.3?'cpa-warn':'cpa-bad'):'';
   var _kpiLabel=a.kpi_label||(a.kpi_field?a.kpi_field:'');
   var _srcBadge=a.source==='manual'?'<span style="font-size:10px;color:var(--t3);margin-left:4px">人工</span>':a.source==='ai'?'<span style="font-size:10px;color:#7c6fcd;margin-left:4px">AI</span>':a.source?'<span style="font-size:10px;color:var(--t3);margin-left:4px">自动</span>':'';
-  var kpiSt=a.kpi_field?(a.cpa&&a.target_cpa?(a.cpa<=a.target_cpa?'<span class="badge bg-ok">达标</span>':a.cpa<=a.target_cpa*1.3?'<span class="badge bg-wa">偏高</span>':'<span class="badge bg-er">超标</span>')+'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+_kpiLabel+'</div>':'<span class="badge bg-ac" style="font-size:11px">'+_kpiLabel+'</span>'+_srcBadge+(a.target_cpa?'':'<div style="font-size:10px;color:var(--t3)">未设CPA</div>')):'<span class="badge bg-mu">未设目标</span>';  return'<tr><td><div class="td-name" title="'+_esc(a.ad_name)+'">'+ _esc(a.ad_name)+'</div><div class="td-id">'+a.ad_id+'</div></td><td><span style="font-weight:500;font-size:13px">'+_esc(a.account_name||a.act_id)+'</span><br><span class="td-id">'+a.act_id+'</span></td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0).toFixed(0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">未设</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td></tr>';
+  var kpiSt=a.kpi_field?(a.cpa&&a.target_cpa?(a.cpa<=a.target_cpa?'<span class="badge bg-ok">达标</span>':a.cpa<=a.target_cpa*1.3?'<span class="badge bg-wa">偏高</span>':'<span class="badge bg-er">超标</span>')+'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+_kpiLabel+'</div>':'<span class="badge bg-ac" style="font-size:11px">'+_kpiLabel+'</span>'+_srcBadge+(a.target_cpa?'':'<div style="font-size:10px;color:var(--t3)">未设CPA</div>')):'<span class="badge bg-mu">未设目标</span>';  return'<tr><td><div class="td-name" title="'+_esc(a.ad_name)+'">'+ _esc(a.ad_name)+'</div><div class="td-id">'+a.ad_id+'</div></td><td><span style="font-weight:500;font-size:13px">'+_esc(displayAccountName(a.account_name,a.act_id))+'</span><br><span class="td-id">'+_esc(displayActId(a.act_id))+'</span></td><td><strong>$'+(a.spend||0).toFixed(2)+'</strong></td><td>'+(a.conversions||0).toFixed(0)+'</td><td class="'+cc+'">'+(a.cpa?'$'+a.cpa.toFixed(2):'--')+'</td><td>'+(a.target_cpa?'$'+a.target_cpa.toFixed(2):'<span style="color:var(--t3)">未设</span>')+'</td><td>'+(a.roas?a.roas.toFixed(2)+'x':'--')+'</td><td>'+kpiSt+'</td></tr>';
  }).join('');
  updateGuardPreview();
 }
@@ -6556,7 +6559,7 @@ function showPauseDetailsModal(){
   var badge=isEmg?'<span class="badge bg-er">紧急</span>':'<span class="badge bg-wa">规则</span>';
   return '<tr><td style="font-size:12px;white-space:nowrap;color:var(--t3)">'+(_fmtActionLogTime(d.created_at||d.time||'')||'--')+'</td>'+
    '<td style="font-size:12px"><div class="td-name" style="max-width:160px" title="'+(d.ad_name||d.target_name||'')+'">'+((d.ad_name||d.target_name||'--').slice(0,30))+'</div></td>'+
-   '<td style="font-size:12px">'+(d.account_name||(d.act_id||'').replace(/^act_/,''))+'<br><span class="td-id">'+(d.act_id||'').replace(/^act_/,'')+'</span></td>'+
+   '<td style="font-size:12px">'+escHtml(displayAccountName(d.account_name,d.act_id))+'<br><span class="td-id">'+escHtml(displayActId(d.act_id))+'</span></td>'+
    '<td>'+badge+'</td>'+
    '<td style="font-size:11px;color:var(--t2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(d.reason||d.trigger_reason||'')+'">'+((d.reason||d.trigger_reason||'--').slice(0,50))+'</td>'+
   '</tr>';
@@ -6631,7 +6634,7 @@ async function querySpend(){
   // 明细表格
   document.getElementById('spendQueryBody').innerHTML=r.rows.map(function(row){
    var spendStr=row.currency&&row.currency!=='USD'?'<span style="color:var(--t1)">'+(row.spend_orig||0).toFixed(2)+' '+row.currency+'</span>':'--';
-   return'<tr><td>'+row.date+'</td><td><span style="font-weight:500;font-size:13px">'+(row.account_name||row.act_id)+'</span><br><span class="td-id">'+row.act_id+'</span></td><td>'+spendStr+'</td><td><strong>$'+(row.spend_usd||row.spend_orig||0).toFixed(2)+'</strong></td><td>'+(row.conversions||0)+'</td><td>'+(row.cpa_usd?'$'+row.cpa_usd.toFixed(2):'--')+'</td><td>'+(row.roas?row.roas.toFixed(2)+'x':'--')+'</td></tr>';
+   return'<tr><td>'+row.date+'</td><td><span style="font-weight:500;font-size:13px">'+escHtml(displayAccountName(row.account_name,row.act_id))+'</span><br><span class="td-id">'+escHtml(displayActId(row.act_id))+'</span></td><td>'+spendStr+'</td><td><strong>$'+(row.spend_usd||row.spend_orig||0).toFixed(2)+'</strong></td><td>'+(row.conversions||0)+'</td><td>'+(row.cpa_usd?'$'+row.cpa_usd.toFixed(2):'--')+'</td><td>'+(row.roas?row.roas.toFixed(2)+'x':'--')+'</td></tr>';
   }).join('');
  }catch(e){
   document.getElementById('spendProgress').style.display='none';
@@ -6916,7 +6919,7 @@ async function loadAdsRecentOps(opts){
    var key=_adsOpKey(op.level,op.target_id);
    if(!next[key])next[key]=op;
    if(op.act_id&&!next[_adsOpKey('account',op.act_id)]){
-    next[_adsOpKey('account',op.act_id)]={level:'account',target_id:op.act_id,name:l.account_name||op.act_id,act_id:op.act_id,action:'最近账户操作',ok:op.ok,partial:op.partial,persisted:true,message:op.action+'：'+op.name,detail:op.detail,time:op.time};
+    next[_adsOpKey('account',op.act_id)]={level:'account',target_id:op.act_id,name:displayAccountName(l.account_name,op.act_id),act_id:op.act_id,action:'最近账户操作',ok:op.ok,partial:op.partial,persisted:true,message:op.action+'：'+displayActText(op.name),detail:op.detail,time:op.time};
    }
   });
   _adsPersistedOps=next;
@@ -6941,10 +6944,10 @@ function showAdsRecentOp(level,id){
  var op=_adsRecentOp(level,id);
  if(!op){toast('暂无最近操作记录','wa');return;}
  var html='<div><strong>'+escHtml(op.action||'最近操作')+'</strong></div>'+
-  '<div style="margin-top:8px;color:var(--t2)">对象：'+escHtml(op.name||op.target_id)+'</div>'+
-  '<div style="font-size:12px;color:var(--t3);margin-top:4px">层级：'+escHtml(_adsSelectionLabel(op.level))+' · 账户：'+escHtml(op.act_id||'--')+' · 北京时间：'+escHtml(op.time||'--')+'</div>'+
+  '<div style="margin-top:8px;color:var(--t2)">对象：'+escHtml(displayActText(op.name||op.target_id))+'</div>'+
+  '<div style="font-size:12px;color:var(--t3);margin-top:4px">层级：'+escHtml(_adsSelectionLabel(op.level))+' · 账户：'+escHtml(displayActId(op.act_id)||'--')+' · 北京时间：'+escHtml(op.time||'--')+'</div>'+
   '<div style="margin-top:10px;color:'+(op.ok?'var(--ok)':op.partial?'var(--wa)':'var(--er)')+'">'+escHtml(op.message||'--')+'</div>';
- if(op.detail)html+='<div style="margin-top:10px;font-size:12px;color:var(--t3);line-height:1.6">'+escHtml(op.detail).replace(/\n/g,'<br>')+'</div>';
+ if(op.detail)html+='<div style="margin-top:10px;font-size:12px;color:var(--t3);line-height:1.6">'+escHtml(displayActText(op.detail)).replace(/\n/g,'<br>')+'</div>';
  showInfo(html,'最近操作');
 }
 function _adsSelKey(level,id){return String(level||'ad')+':'+String(id||'');}
@@ -7167,7 +7170,7 @@ function showAdScore(adId){
  rows+=_adsDiagLine('CTR',Number(a.ctr||0).toFixed(2)+'%','');
  rows+=_adsDiagLine('点击 / 覆盖 / 曝光',String(a.clicks||0)+' / '+String(a.reach||0)+' / '+String(a.impressions||0),'');
  var reasonHtml=reasons.length?'<ul style="margin:10px 0 0 18px;color:var(--t2);line-height:1.7">'+reasons.map(function(r){return '<li>'+escHtml(r)+'</li>';}).join('')+'</ul>':'<div style="margin-top:10px;color:var(--t3)">暂无评分原因</div>';
- showInfo('<div><strong>'+escHtml(a.ad_name||a.ad_id)+'</strong></div><div style="font-size:12px;color:var(--t3);margin-top:4px">'+escHtml(a.account_name||a.act_id)+' · '+escHtml(a.ad_id||'')+'</div><div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid var(--bd);border-radius:6px">'+rows+'</div>'+reasonHtml,'广告评分明细');
+ showInfo('<div><strong>'+escHtml(a.ad_name||a.ad_id)+'</strong></div><div style="font-size:12px;color:var(--t3);margin-top:4px">'+escHtml(displayAccountName(a.account_name,a.act_id))+' · '+escHtml(a.ad_id||'')+'</div><div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid var(--bd);border-radius:6px">'+rows+'</div>'+reasonHtml,'广告评分明细');
 }
 function renderAdsTree(rows, forceOpen){
  var tb=document.getElementById('adsBody');
@@ -7175,7 +7178,7 @@ function renderAdsTree(rows, forceOpen){
  var accountsGroup=_adsGroupBy(rows,function(a){return a.act_id||'unknown';});
  accountsGroup.keys.forEach(function(actKey){
   var accRows=accountsGroup.map[actKey],accRep=accRows[0],accM=_adsSum(accRows),accOpen=forceOpen||_adsTreeIsOpen('accounts',actKey,false);
-  html.push('<tr class="ads-account-row" style="cursor:pointer" onclick="toggleAdsTree(\'accounts\',\''+_adsJs(actKey)+'\')"><td>'+_adsAccountSwitchButton(actKey)+'</td><td>'+_adsSelectBox('account',actKey,'选择账户')+'</td><td>'+_adsNameCell('accounts',actKey,accOpen,0,accRep.account_name||actKey,(actKey||'').replace(/^act_/,''))+'</td><td>'+_adsStatusBadge(_adsGroupStatus(accRows,'campaign'))+_adsAutomationHint(accRep)+'</td><td>'+_adsMoney(accM.spend,accRep.currency||'USD')+'<div style="font-size:10px;color:var(--t3)">账户消耗</div></td>'+_adsMetricCells(accM,null)+'<td><span class="badge bg-mu">'+accM.count+' 条广告</span></td><td>'+_adsGroupScoreCell(accRows)+'</td><td>'+_adsMoreActions(accRep,'account')+'</td></tr>');
+  html.push('<tr class="ads-account-row" style="cursor:pointer" onclick="toggleAdsTree(\'accounts\',\''+_adsJs(actKey)+'\')"><td>'+_adsAccountSwitchButton(actKey)+'</td><td>'+_adsSelectBox('account',actKey,'选择账户')+'</td><td>'+_adsNameCell('accounts',actKey,accOpen,0,displayAccountName(accRep.account_name,actKey),displayActId(actKey))+'</td><td>'+_adsStatusBadge(_adsGroupStatus(accRows,'campaign'))+_adsAutomationHint(accRep)+'</td><td>'+_adsMoney(accM.spend,accRep.currency||'USD')+'<div style="font-size:10px;color:var(--t3)">账户消耗</div></td>'+_adsMetricCells(accM,null)+'<td><span class="badge bg-mu">'+accM.count+' 条广告</span></td><td>'+_adsGroupScoreCell(accRows)+'</td><td>'+_adsMoreActions(accRep,'account')+'</td></tr>');
   if(!accOpen)return;
   var campGroup=_adsGroupBy(accRows,function(a){return a.campaign_id||('__camp_'+a.ad_id);});
   campGroup.keys.forEach(function(campKey){
@@ -7242,7 +7245,7 @@ async function runAdStatusOp(adId,level,desired,btn){
  var actionLabel=desired==='PAUSED'?'暂停':'开启';
  var html='<div><strong>'+actionLabel+' '+levelLabel+'</strong></div>'+
  '<div style="margin-top:8px;color:var(--t2)">对象：'+escHtml(t.name||t.id)+'</div>'+
-  '<div style="font-size:12px;color:var(--t3);margin-top:4px">账户：'+escHtml(a.account_name||a.act_id)+' · '+escHtml(a.act_id||'')+'</div>';
+  '<div style="font-size:12px;color:var(--t3);margin-top:4px">账户：'+escHtml(displayAccountName(a.account_name,a.act_id))+' · '+escHtml(displayActId(a.act_id))+'</div>';
  html+=_adsStatusDiagnosisHtml(a,level,desired);
  html+='<div style="margin-top:10px;color:var(--t3);font-size:12px">写入后会立即从 FB 读回状态校验。</div>';
  var ok=await confirmAsync(html, '确认'+actionLabel, '取消', '广告操作确认');
@@ -7647,7 +7650,7 @@ async function loadLogs(){
   tb.innerHTML=pageLogs.map(function(l){
    var detail=l.trigger_detail||l.trigger_reason||'--';
    // 账户名：优先显示 account_name，如无则去掉 act_ 前缀
-   var accName=l.account_name||(l.act_id?l.act_id.replace(/^act_/,''):l.act_id||'--');
+   var accName=displayAccountName(l.account_name,l.act_id);
    return'<tr><td style="white-space:nowrap;font-size:12px;color:var(--t3)">'+_fmtActionLogTime(l.created_at)+'</td>'
     +'<td><div style="font-size:13px">'+accName+'</div><div class="td-id">'+(l.act_id||'').replace(/^act_/,'')+'</div></td>'
     +'<td><div class="td-name" title="'+(l.target_name||l.ad_name||'')+'" style="max-width:180px">'+(l.target_name||l.ad_name||l.target_id||'--')+'</div></td>'
@@ -7960,7 +7963,7 @@ function renderMetaOAuthMatchDetails(data){
  function num(v){v=parseInt(v||0,10);return isNaN(v)?0:v;}
  function acctLine(a){
   if(!a)return '';
-  var name=escHtml(a.name||a.act_id||'未命名账户');
+  var name=escHtml(displayAccountName(a.name,a.act_id,'未命名账户'));
   var id=escHtml(a.act_num||String(a.act_id||'').replace(/^act_/,''));
   var cur=a.currency?(' · '+escHtml(a.currency)):'';
   return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:5px 0;font-size:11px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+name+'</span><span style="color:var(--t3);font-family:monospace;white-space:nowrap">'+id+cur+'</span></div>';
@@ -8215,8 +8218,10 @@ function _localTokenExpireText(n){
 function _localTokenAccountLabel(a){
  var name=(a&&a.name)||'';
  var id=(a&&a.act_id)||a||'';
- if(name&&id&&name!==id)return name+' · '+id;
- return name||id||'--';
+ var cleanId=displayActId(id);
+ if(name&&cleanId&&name!==id&&name!==cleanId)return name+' · '+cleanId;
+ if(name&&name!==id)return name;
+ return cleanId||name||'--';
 }
 function _localTokenCleanLabel(v){
  return String(v||'').replace(/\s+/g,' ').trim();
@@ -8264,14 +8269,14 @@ function renderLocalTokenPanel(){
    var accRows=accs.slice(0,80).map(function(a){
     return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 170px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
      '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((a&&a.name)||'--')+'</div>'+
-     '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml((a&&a.act_id)||'')+'</div></div>'+
+     '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(displayActId((a&&a.act_id)||''))+'</div></div>'+
      '<div style="font-size:11px;color:var(--t3);text-align:right">'+(n.executable?'本地可写候选':'等待本地摘要')+'</div>'+
     '</div>';
    }).join('');
    var bizRows=bizs.slice(0,80).map(function(b){
    var matched=parseInt(b.matched_account_count||0,10)||0;
    var total=parseInt(b.account_count||0,10)||0;
-   var ids=(b.account_ids||[]).slice(0,4).join(' ');
+   var ids=(b.account_ids||[]).slice(0,4).map(displayActId).join(' ');
    var bizName=_localTokenBusinessLabel(b);
     return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 120px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
      '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(bizName||'--')+'</div>'+
@@ -8283,7 +8288,7 @@ function renderLocalTokenPanel(){
     var actId=(a&&a.act_id)||'';
     return '<div style="display:grid;grid-template-columns:minmax(180px,1fr) 120px 92px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--bd)">'+
      '<div style="min-width:0"><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml((a&&a.name)||'--')+'</div>'+
-     '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(actId)+'</div></div>'+
+     '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(displayActId(actId))+'</div></div>'+
      '<div style="font-size:11px;color:var(--wa);text-align:right">未导入/未分配</div>'+
      '<button class="btn btn-p btn-sm role-hide-viewer" onclick="event.stopPropagation();adoptLocalExecutorAccounts(\''+escHtml(nodeId)+'\',\''+escHtml(actId)+'\')">接管</button>'+
     '</div>';
@@ -8352,7 +8357,7 @@ function renderLocalExecutorTasksHtml(){
  var rows=tasks.map(function(t){
   var p=t.params||{},r=t.result||{};
   return '<div style="display:grid;grid-template-columns:minmax(130px,1fr) 90px minmax(160px,2fr) 130px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--bd)">'+
-   '<div style="min-width:0"><div style="font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(t.account_id||p.act_id||'--')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(t.id||'')+'</div></div>'+
+   '<div style="min-width:0"><div style="font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(displayActId(t.account_id||p.act_id)||'--')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(t.id||'')+'</div></div>'+
    '<span class="badge" style="'+_localExecutorStatusStyle(t.status)+'">'+_localExecutorStatusLabel(t.status)+'</span>'+
    '<div style="font-size:12px;color:var(--t2);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(t.progress||t.error||r.reason||'--')+'</div>'+
    '<div style="font-size:11px;color:var(--t3);text-align:right">'+escHtml(_fmtActionLogTime(t.updated_at||t.created_at||''))+'</div>'+
@@ -8516,7 +8521,7 @@ function openLocalExecutorTaskModal(){
   '<div class="mh"><h3 style="margin:0;font-size:15px">本地 API 自检</h3><button class="mc" onclick="closeModal(\'moLocalExecutorTask\')">✕</button></div>'+
    '<div class="mb">'+
     '<div class="info-box" style="margin-bottom:12px">创建一个纯 API 自检任务：让已激活的 Chrome 执行器读取指定广告账户状态，用于验证本地执行器、账户权限和团队归属是否匹配。</div>'+
-   '<div class="fg"><label class="fl">广告账户 ID</label><input class="fc" id="localExecutorActId" placeholder="例如 785770423307490 或 act_785770423307490"></div>'+
+   '<div class="fg"><label class="fl">广告账户 ID</label><input class="fc" id="localExecutorActId" placeholder="例如 785770423307490"></div>'+
    '<div class="fg"><label class="fl">执行器</label><select class="fc" id="localExecutorNodeId">'+opts+'</select><div class="fh">未选择时，系统会分配给当前团队/运营名下任意在线执行器。</div></div>'+
   '</div>'+
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moLocalExecutorTask\')">取消</button><button class="btn btn-p" onclick="createLocalExecutorProbeTask()">创建自检任务</button></div>'+
@@ -8929,7 +8934,7 @@ function renderAccPicker(accs){
   return'<div class="api-item'+(disabled?' imp':'')+(selAccs.has(a.act_id)?' sel':'')+'" data-id="'+a.act_id+'" data-disabled="'+disStr+'"'+(noMgr?' title="&#35831;&#20808;&#28155;&#21152;&#35206;&#30422;&#35813;&#36134;&#25143;&#30340;&#31649;&#29702;&#21495; Token"':'')+' style="cursor:'+(disabled?'default':'pointer')+'">'+
    '<div class="api-chk">'+(disabled||selAccs.has(a.act_id)?'&#10003;':'')+'</div>'+
    '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+a.name+'</div>'+
-   '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+a.act_id+'</div>'+
+   '<div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(displayActId(a.act_id))+'</div>'+
    mgrWarn+'</div>'+
    (imp?'<span class="badge bg-mu">&#24050;&#23548;&#20837;</span>':(noMgr?'<span class="badge bg-er" style="font-size:10px">&#26080;&#31649;&#29702;&#21495;</span>':'<span class="badge bg-ac">&#21487;&#23548;&#20837;</span>'))+
    '</div>';
@@ -9003,7 +9008,7 @@ function buildAutoMatchResultHtml(autoMatch){
   var matrixHint=(a.matched_tokens||[]).some(function(t){return !!t.matrix_id;})
    ?'<div style="color:var(--ok);font-size:11px;margin-top:3px">已可推导矩阵标签</div>'
    :'<div style="color:var(--wa);font-size:11px;margin-top:3px">关联成功但没有矩阵 Token，账户仍会显示未识别矩阵</div>';
-  return '<div style="padding:8px 0;border-bottom:1px solid var(--bd)"><b>'+escHtml(a.act_id||'')+'</b><div style="color:var(--t3);margin-top:3px">'+(a.matched_count?('已关联 '+a.matched_count+' 个 Token：'+tokens):'未发现可关联 Token')+'</div>'+(a.matched_count?matrixHint:'')+'</div>';
+  return '<div style="padding:8px 0;border-bottom:1px solid var(--bd)"><b>'+escHtml(displayActId(a.act_id))+'</b><div style="color:var(--t3);margin-top:3px">'+(a.matched_count?('已关联 '+a.matched_count+' 个 Token：'+tokens):'未发现可关联 Token')+'</div>'+(a.matched_count?matrixHint:'')+'</div>';
  }).join('');
  var failedTokens=(autoMatch.failed_tokens||[]).slice(0,8).map(function(t){
   return '<li>'+escHtml(t.alias||('Token '+t.token_id))+': '+escHtml(t.error||'检查失败')+'</li>';
@@ -9317,8 +9322,8 @@ function renderAccCard(a,idx){
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showPage(\'rules\');document.getElementById(\'rulesAct\').value=\''+a.act_id+'\';loadRules()">规则引擎</button>'+
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openOpPoolModal(\''+a.act_id+'\')">操作号配置</button>'+
   '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openPagePixelModal(\''+a.act_id+'\')">主页/像素</button>'+
-  '<button class="btn btn-g btn-sm" style="'+(a.balance_type==='unlimited'?'color:var(--ac);font-weight:600':'')+'" onclick="event.stopPropagation();openSpendCapModal(\''+a.act_id+'\','+(spendCapUsd||0)+',\''+(a.name||a.act_id).replace(/'/g,'\\\x27')+'\',\''+(a.currency||'USD')+'\','+(a.balance_type==='unlimited'?'true':'false')+')">消费上限'+spendCapLabel+'</button>'+
-  '<button class="btn btn-r btn-sm role-hide-viewer" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm role-hide-viewer role-non-superadmin-only" style="font-size:11px;'+(a.sentinel_enabled?'color:#d97706;font-weight:700':'')+'" title="只让这个账户进入哨兵巡检范围" onclick="event.stopPropagation();toggleSentinelForAccount(\''+a.act_id+'\','+(a.sentinel_enabled?'0':'1')+')">'+(a.sentinel_enabled?'关哨兵':'开哨兵')+'</button>'+'<button class="btn btn-g btn-sm role-hide-viewer role-non-superadmin-only" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+(a.name||a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle role-hide-viewer" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
+  '<button class="btn btn-g btn-sm" style="'+(a.balance_type==='unlimited'?'color:var(--ac);font-weight:600':'')+'" onclick="event.stopPropagation();openSpendCapModal(\''+a.act_id+'\','+(spendCapUsd||0)+',\''+displayAccountName(a.name,a.act_id).replace(/'/g,'\\\x27')+'\',\''+(a.currency||'USD')+'\','+(a.balance_type==='unlimited'?'true':'false')+')">消费上限'+spendCapLabel+'</button>'+
+  '<button class="btn btn-r btn-sm role-hide-viewer" onclick="event.stopPropagation();removeAcc('+a.id+',\''+a.name+'\')" style="margin-left:auto">移除</button>'+'<button class="btn btn-g btn-sm role-hide-viewer" onclick="event.stopPropagation();syncAccStatus('+a.id+',this)">同步状态</button>'+'<button class="btn btn-g btn-sm" onclick="event.stopPropagation();showAccountPermissionDiagnostic(\''+a.act_id+'\')">权限诊断</button>'+'<button class="btn btn-g btn-sm role-hide-viewer role-non-superadmin-only" style="font-size:11px;'+(a.sentinel_enabled?'color:#d97706;font-weight:700':'')+'" title="只让这个账户进入哨兵巡检范围" onclick="event.stopPropagation();toggleSentinelForAccount(\''+a.act_id+'\','+(a.sentinel_enabled?'0':'1')+')">'+(a.sentinel_enabled?'关哨兵':'开哨兵')+'</button>'+'<button class="btn btn-g btn-sm role-hide-viewer role-non-superadmin-only" style="font-size:11px;'+(a.mirror_enabled?'color:#059669':'')+'" onclick="event.stopPropagation();toggleMirrorForAccount(\''+a.act_id+'\','+(a.mirror_enabled?'0':'1')+')">'+(a.mirror_enabled?'关镜像':'开镜像')+'</button>'+((a.mirror_enabled || _globalMirrorEnabled) ? '<button class="btn btn-g btn-sm" style="font-size:11px;color:var(--ac)" onclick="event.stopPropagation();openMirrorSnapshot(\''+a.act_id+'\',\''+displayAccountName(a.name,a.act_id).replace(/'/g,'\\\'')+'\')">查看快照</button>' : '')+'<label class="toggle role-hide-viewer" title="启用/停止巡检" onclick="event.stopPropagation()"><input type="checkbox" '+(a.enabled?'checked':'')+' onchange="toggleAcc2(\''+a.act_id+'\',this.checked)"><span class="ts"></span></label>'+
   '</div>'+
   '</div>'+
   '</div>';
@@ -9433,7 +9438,7 @@ function _renderAccountPermissionDiagnostic(data){
  var s=data.summary||{};
  var h='';
  h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">';
- h+='<div><div style="font-size:15px;font-weight:700">'+escHtml(data.account_name||data.act_id)+'</div><div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(data.act_id||'')+'</div></div>';
+ h+='<div><div style="font-size:15px;font-weight:700">'+escHtml(displayAccountName(data.account_name,data.act_id))+'</div><div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(displayActId(data.act_id))+'</div></div>';
  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">';
  h+=_diagBoolBadge(s.read_ok,'账户可读','账户不可读');
  h+=_diagBoolBadge(s.pause_likely,'可关停','关停不稳');
@@ -9514,7 +9519,7 @@ async function showAccountPermissionDiagnostic(actId){
 async function repairAccountPermissionDiagnostic(actId){
  if(!actId)return;
  var ok=await confirmAsync(
-  '确定重新匹配账户 <b>'+escHtml(actId)+'</b> 的 Token 吗？<br><span style="color:var(--t3)">系统只会补齐同团队可见的管理号、可写操作号和读取 Token，不会创建广告或修改预算。</span>',
+  '确定重新匹配账户 <b>'+escHtml(displayActId(actId))+'</b> 的 Token 吗？<br><span style="color:var(--t3)">系统只会补齐同团队可见的管理号、可写操作号和读取 Token，不会创建广告或修改预算。</span>',
   '重新匹配',
   '取消',
   '权限修复'
@@ -9783,7 +9788,7 @@ async function savePagePixel(){
 
 async function openOpPoolModal(actId){
  _currentOpActId=actId;
- document.getElementById('opPoolActId').textContent=actId;
+ document.getElementById('opPoolActId').textContent=displayActId(actId);
  await loadOpPoolList();
  openModal('moOpPool');
 }
@@ -10116,7 +10121,7 @@ function _renderAssetCard(a){
    '<div style="flex:1;min-width:0">'+
     '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+a.file_name+'">'+displayName+'</div>'+
     (a.asset_code?'<div style="font-size:10px;color:var(--t3);font-family:monospace;margin-top:1px">'+a.asset_code+'</div>':'')+
-    '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+(a.file_size?(a.file_size/1024/1024).toFixed(1)+'MB':'')+(a.act_id?' · '+a.act_id:'')+adCountHtml+campCountHtml+'</div>'+
+    '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+(a.file_size?(a.file_size/1024/1024).toFixed(1)+'MB':'')+(a.act_id?' · '+displayActId(a.act_id):'')+adCountHtml+campCountHtml+'</div>'+
     countriesHtml+
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+folderBadge+batchBadge+assetMatrixBadges+teamBadge+warmupBadge+archivedBadge+tagBadges+'</div>'+
    '</div>'+
@@ -10206,7 +10211,7 @@ async function loadAssets(resetPage){
    var accs=await api('GET','/accounts')||[];
    accs.forEach(function(a){
     var o=document.createElement('option');
-    o.value=a.act_id;o.textContent=a.name||a.act_id;
+    o.value=a.act_id;o.textContent=displayAccountName(a.name,a.act_id);
     actSel.appendChild(o);
    });
   }catch(e){}
@@ -10962,12 +10967,12 @@ async function openAssetDetail(assetId){
    '</div>';
    if(accounts.length){
     html+='<div style="font-size:12px;color:var(--t2);display:grid;gap:4px;margin-bottom:8px">'+accounts.slice(0,5).map(function(r){
-     return '<div style="display:flex;justify-content:space-between;gap:8px"><span>'+escHtml(r.act_name||r.act_id||'')+'</span><span style="color:var(--t3)">广告 '+(r.ad_count||0)+' · $'+Number(r.spend||0).toFixed(2)+' · 转化 '+(r.conv||0)+'</span></div>';
+     return '<div style="display:flex;justify-content:space-between;gap:8px"><span>'+escHtml(displayAccountName(r.act_name,r.act_id,''))+'</span><span style="color:var(--t3)">广告 '+(r.ad_count||0)+' · $'+Number(r.spend||0).toFixed(2)+' · 转化 '+(r.conv||0)+'</span></div>';
     }).join('')+'</div>';
    }
    if(campaigns.length){
     html+='<details><summary style="cursor:pointer;font-size:12px;color:var(--t3)">最近铺放任务 '+campaigns.length+' 条</summary><div style="display:grid;gap:5px;margin-top:8px">'+campaigns.slice(0,8).map(function(c){
-     return '<div style="font-size:12px;color:var(--t2);display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--bd);padding-top:5px"><span>'+escHtml(c.name||c.id)+'</span><span style="color:var(--t3)">'+escHtml(c.act_name||c.act_id||'')+' · '+escHtml(c.status||'')+' · 广告 '+(c.total_ads||0)+'</span></div>';
+     return '<div style="font-size:12px;color:var(--t2);display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--bd);padding-top:5px"><span>'+escHtml(c.name||c.id)+'</span><span style="color:var(--t3)">'+escHtml(displayAccountName(c.act_name,c.act_id,''))+' · '+escHtml(c.status||'')+' · 广告 '+(c.total_ads||0)+'</span></div>';
     }).join('')+'</div></details>';
    }
    html+='</div></div>';
@@ -11948,7 +11953,7 @@ async function onLaunchObjectiveChange() {
    var failItems = (report.items || []).filter(function(i){ return i.status === 'fail'; });
    var warnItems = (report.items || []).filter(function(i){ return i.status === 'warn'; });
    if (!failItems.length && !warnItems.length) return '';
-   var title = _launchEsc(report.account_name || report.act_id || '当前账户');
+   var title = _launchEsc(displayAccountName(report.account_name,report.act_id,'当前账户'));
    var titleColor = failItems.length ? 'var(--er)' : 'var(--wa)';
    var failHtml = failItems.map(function(i){
     return '<div style="display:flex;gap:8px;padding:8px 10px;background:var(--erg);border-radius:6px;margin-top:6px">' +
@@ -12332,7 +12337,7 @@ function _pollLaunchProgress(assetId, campaignId){
       if(errText.length >200) errText = errText.substring(0,200) + '...';
       // HTML 转义防止注入
       errText = errText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      errorMsgs.push('<div style="margin-bottom:4px"> <b>'+(info.act_id||'未知账户')+'</b>: '+errText+'</div>');
+      errorMsgs.push('<div style="margin-bottom:4px"> <b>'+displayActId(info.act_id||'未知账户')+'</b>: '+errText+'</div>');
      }
     }
     var pct = Math.round((done+errors)/_batchLen*100)||1;
@@ -12503,7 +12508,7 @@ async function loadKpi(){
   // 建立账户ID->名称映射表
   var accts=results[2]||[];
   window._kpiActMap={};
-  accts.forEach(function(a){window._kpiActMap[a.act_id]=a.name||a.act_id;});
+  accts.forEach(function(a){window._kpiActMap[a.act_id]=displayAccountName(a.name,a.act_id);});
   // 填充KPI字段下拉
   var kpiFieldSel=document.getElementById('kpiFieldSel');
   if(kpiFieldSel)kpiFieldSel.innerHTML=kpiFields.map(function(f){return'<option value="'+(f.key||f.value||'')+'">'+(f.label||f.key||f.value||'')+'</option>'}).join('');
@@ -12522,7 +12527,7 @@ function renderKpiList(){
  var srcMap={manual:'<span class="badge bg-ok">人工</span>',auto:'<span class="badge bg-wa">自动推断</span>',rule:'<span class="badge bg-wa">自动推断</span>',history:'<span class="badge bg-wa">历史推断</span>',default:'<span class="badge bg-mu">默认</span>',ai:'<span class="badge bg-pu">AI分析</span>'};
  el.innerHTML=data.map(function(k){
   var lv=lvMap[k.level]||{label:k.level,cls:'bg-mu'};
-  var actName=(window._kpiActMap&&window._kpiActMap[k.act_id])||k.act_id||'';
+  var actName=(window._kpiActMap&&window._kpiActMap[k.act_id])||displayActId(k.act_id)||'';
   var field=String(k.kpi_field||'');
   var fieldLabel=k.kpi_label||({
    purchase:'购买',
@@ -12549,7 +12554,7 @@ function renderKpiList(){
    '</div>'+
    '<div class="kc-act" style="min-width:120px;max-width:160px;text-align:right;padding-right:8px">'+
    '<div style="font-size:12px;color:var(--t1);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+actName+'">'+actName+'</div>'+
-   '<div style="font-size:10px;color:var(--t3);margin-top:2px">'+(k.act_id||'').replace(/^act_/,'')+'</div>'+
+   '<div style="font-size:10px;color:var(--t3);margin-top:2px">'+displayActId(k.act_id)+'</div>'+
    '</div>'+
    '<div class="kc-cpa">'+(k.target_cpa?'$'+parseFloat(k.target_cpa).toFixed(2):'<span style="color:var(--t3);font-size:12px">未设CPA</span>')+'</div>'+
    '<div class="td-acts">'+
@@ -12602,7 +12607,7 @@ function editKpi(id){
 }
 function kpiLevelHint(){
  var lv=document.getElementById('kpiLevel').value;
- var hints={account:'填写账户 ID（如：act_123456）',campaign:'填写 Campaign ID',adset:'填写广告组 ID',ad:'填写广告 ID（最精细，优先级最高）'};
+ var hints={account:'填写账户 ID（如：123456）',campaign:'填写 Campaign ID',adset:'填写广告组 ID',ad:'填写广告 ID（最精细，优先级最高）'};
  document.getElementById('kpiLvHint').textContent=hints[lv]||'';
 }
 async function submitKpi(){
@@ -12657,7 +12662,7 @@ async function startScan(){
    '<div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--ok)">扫描已触发（后台执行，稍后刷新查看结果）</div>'+
    r.results.map(function(item){
     return'<div style="margin-bottom:8px;padding:10px;background:var(--bg3);border-radius:6px">'+
-     '<div style="font-size:12px;font-weight:600;color:'+(item.error?'var(--er)':'var(--t1)')+'">'+item.act_id+'</div>'+
+     '<div style="font-size:12px;font-weight:600;color:'+(item.error?'var(--er)':'var(--t1)')+'">'+displayActId(item.act_id)+'</div>'+
      '<div style="font-size:12px;color:var(--t2);margin-top:4px">'+(item.msg||'已触发')+'</div>'+
      '</div>';
    }).join('')+
@@ -12722,7 +12727,7 @@ function openBatchCpa(selectedIds){
  actSel.innerHTML='<option value="">全部账户</option>';
  if(window.accounts)accounts.forEach(function(a){
   var opt=document.createElement('option');
-  opt.value=a.act_id;opt.textContent=(a.name||a.act_id);
+  opt.value=a.act_id;opt.textContent=displayAccountName(a.name,a.act_id);
   actSel.appendChild(opt);
  });
  // 填充KPI字段下拉
@@ -12896,7 +12901,7 @@ function renderGuardOpsReplay(rows){
   return '<div class="guard-replay-row">'+
    '<div class="guard-replay-main">'+
     '<div class="guard-replay-title" title="'+escHtml(r.target_name||r.target_id||'')+'">'+escHtml(r.target_name||r.target_id||'关闭对象')+'</div>'+
-    '<div class="guard-replay-meta">'+escHtml(r.account_name||r.act_id||'--')+' · '+escHtml(r.act_id||'')+' · '+escHtml(guardOpsTime(r.created_at))+'</div>'+
+    '<div class="guard-replay-meta">'+escHtml(displayAccountName(r.account_name,r.act_id))+' · '+escHtml(displayActId(r.act_id))+' · '+escHtml(guardOpsTime(r.created_at))+'</div>'+
     '<div class="guard-replay-meta">原因：'+escHtml(r.trigger_detail||'--')+'</div>'+
     '<div class="guard-step-line" title="'+escHtml(steps)+'">链路：'+escHtml(steps||'--')+'</div>'+
    '</div>'+
@@ -12944,7 +12949,7 @@ function openRuleDryRunModal(){
   '<div class="mh"><h3>规则预演测试</h3><button class="mc" onclick="closeModal(&quot;moRuleDryRun&quot;)">✕</button></div>'+
   '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
   '<div style="display:grid;grid-template-columns:1.2fr .8fr 1.2fr .7fr;gap:10px;align-items:end">'+
-  '<div class="fg"><label class="fl">账户 ID（可选）</label><input class="fc" id="dryActId" value="'+escHtml(selected)+'" placeholder="act_123 或 123"></div>'+
+  '<div class="fg"><label class="fl">账户 ID（可选）</label><input class="fc" id="dryActId" value="'+escHtml(displayActId(selected))+'" placeholder="123456"></div>'+
   '<div class="fg"><label class="fl">目标层级</label><select class="fc" id="dryTargetLevel"><option value="auto">自动识别</option><option value="account">账户</option><option value="campaign">系列</option><option value="adset">广告组</option><option value="ad">广告</option></select></div>'+
   '<div class="fg"><label class="fl">目标 ID</label><input class="fc" id="dryTargetId" placeholder="系列/组/广告/账户 ID"></div>'+
   '<div class="fg"><label class="fl">最多检查</label><input class="fc" id="dryMaxAds" type="number" value="80" min="1" max="300"></div>'+
@@ -12984,7 +12989,7 @@ function renderDryRunResult(data){
   '<div style="font-weight:700;color:var(--t1)">'+escHtml(data.message||'预演完成')+'</div>'+
   '<div style="font-size:12px;color:var(--t3)">扫描账户 '+(data.scanned_accounts||0)+' · 匹配广告 '+(data.candidate_count||0)+' · 正式会处理 '+(data.execute_count||0)+'</div></div>';
  if(data.errors&&data.errors.length){
-  html+='<div style="margin-bottom:10px;color:var(--wa);font-size:12px">部分账户读取失败：'+data.errors.map(function(e){return escHtml((e.account_name||e.act_id)+': '+(e.error||''));}).join('；')+'</div>';
+  html+='<div style="margin-bottom:10px;color:var(--wa);font-size:12px">部分账户读取失败：'+data.errors.map(function(e){return escHtml(displayAccountName(e.account_name,e.act_id)+': '+(e.error||''));}).join('；')+'</div>';
  }
  if(!items.length){box.innerHTML=html+'<div style="padding:18px;text-align:center;color:var(--t3)">没有匹配到广告。</div>';return;}
  html+='<div style="display:flex;flex-direction:column;gap:8px;max-height:58vh;overflow:auto">';
@@ -13010,7 +13015,7 @@ function renderDryRunResult(data){
   html+='<div style="border:1px solid '+bd+';background:'+bg+';border-radius:8px;padding:10px">'+
    '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'+
    '<div><div style="font-weight:700;color:var(--t1)">'+escHtml(it.ad_name||it.ad_id||'广告')+'</div>'+
-   '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(it.account_name||it.act_id||'')+' · '+escHtml(it.act_id||'')+' · 广告 '+escHtml(it.ad_id||'')+'</div></div>'+
+   '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(displayAccountName(it.account_name,it.act_id))+' · '+escHtml(displayActId(it.act_id))+' · 广告 '+escHtml(it.ad_id||'')+'</div></div>'+
    '<span class="badge" style="background:'+bg+';border:1px solid '+bd+';color:var(--t1)">'+status+'</span></div>'+
    '<div style="display:grid;grid-template-columns:repeat(5,minmax(90px,1fr));gap:8px;margin-top:10px;font-size:12px;color:var(--t2)">'+
    '<div>状态<br><b style="color:var(--t1)">'+escHtml(it.effective_status||'--')+'</b></div>'+
@@ -13036,9 +13041,13 @@ async function runRuleDryRun(){
  var body={
   act_id:(document.getElementById('dryActId')||{}).value||null,
   target_level:(document.getElementById('dryTargetLevel')||{}).value||'auto',
-  target_id:(document.getElementById('dryTargetId')||{}).value||null,
+ target_id:(document.getElementById('dryTargetId')||{}).value||null,
   max_ads:parseInt((document.getElementById('dryMaxAds')||{}).value||'80',10)||80
  };
+ if(body.act_id){
+  body.act_id=String(body.act_id).trim();
+  if(/^\d+$/.test(body.act_id))body.act_id='act_'+body.act_id;
+ }
  if(!body.act_id&&!body.target_id){toast('请至少填写账户ID或目标ID','wa');return;}
  if(btn){btn.disabled=true;btn.textContent='预演中...';}
  if(box)box.innerHTML='<div style="padding:24px;text-align:center;color:var(--t3)">正在读取 Meta 数据并预演规则...</div>';
@@ -13132,7 +13141,7 @@ function renderGuard(rules){
   var silStr=r.silent_start?' · 静默 '+r.silent_start+'-'+r.silent_end:'';
   var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+escHtml(ruleKpiFilterLabel(r.kpi_filter))+'</span>':'';
   var scopeLabel=r.scope_label||(r.scope==='owner'?'名下全部账户':'指定账户');
-  var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(r.act_id||'指定账户');
+  var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(displayActId(r.act_id)||'指定账户');
   var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
   var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>'+kfiBadge;
   var cardStyle='';
@@ -13159,7 +13168,7 @@ function renderScale(rules){
   if(r.max_budget)parts.push('上限 '+moneyUsd(r.max_budget)+' USD');
   if(r.roas_threshold)parts.push('ROAS ≥ '+r.roas_threshold);
   var scopeLabel=r.scope_label||(r.scope==='owner'?'名下全部账户':'指定账户');
-  var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(r.act_id||'指定账户');
+  var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(displayActId(r.act_id)||'指定账户');
   var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>';
   var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
   var cardStyle='';
@@ -15358,7 +15367,7 @@ async function openMatrixDiagnostic(){
   }).join('');
   var unassigned=(r.unassigned_accounts||[]).slice(0,20).map(function(a){
    return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--bd);padding:8px 0;font-size:12px">'+
-    '<div style="min-width:0"><b>'+escHtml(a.name||a.act_id||'未命名账户')+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(a.act_id||'')+' · '+escHtml(resourceOwnerLabel(a,'未指定负责人'))+'</div></div>'+
+    '<div style="min-width:0"><b>'+escHtml(displayAccountName(a.name,a.act_id,'未命名账户'))+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(displayActId(a.act_id))+' · '+escHtml(resourceOwnerLabel(a,'未指定负责人'))+'</div></div>'+
     '<div style="color:var(--wa);white-space:nowrap">'+escHtml(a.reason||'未识别矩阵')+'</div>'+
    '</div>';
   }).join('');
@@ -15855,7 +15864,7 @@ async function doPrescan(){
    html+='<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">';
    html+=accts.map(function(ac){
     return'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--bgi);border-radius:4px;font-size:12px">'
-     +'<span style="color:var(--t2)">'+ac.act_id+'</span>'
+     +'<span style="color:var(--t2)">'+displayActId(ac.act_id)+'</span>'
      +'<span style="color:var(--t1);font-weight:600">'+ac.active_count+' 个活跃'+levelLabel+'</span>'
      +'</div>';
    }).join('');
@@ -15892,7 +15901,7 @@ async function doEmg(){
    html+='<div style="margin-top:10px;padding:10px;background:var(--erg);border-radius:6px;border:1px solid var(--er)">';
    html+='<div style="font-size:13px;font-weight:600;color:var(--er);margin-bottom:8px">以下 '+manualList.length+' 项需要人工处理（广告 API 操作失败）</div>';
    html+=manualList.slice(0,8).map(function(item){
-    return'<div style="font-size:12px;padding:6px 0;border-bottom:1px solid rgba(255,80,80,0.2);color:var(--t2)">'+'<strong style="color:var(--er)">['+item.level_label+']</strong>'+(item.target_id||item.act_id)+' — '+(item.reason||'操作失败')+'</div>';
+    return'<div style="font-size:12px;padding:6px 0;border-bottom:1px solid rgba(255,80,80,0.2);color:var(--t2)">'+'<strong style="color:var(--er)">['+item.level_label+']</strong>'+displayActText(item.target_id||item.act_id)+' — '+(item.reason||'操作失败')+'</div>';
    }).join('');
    if(manualList.length>8)html+='<div style="font-size:12px;color:var(--t3);margin-top:6px">...及其他 '+(manualList.length-8)+' 项，请查看操作日志</div>';
    html+='</div>';
@@ -16127,7 +16136,7 @@ function getAccountMatrixBadgeHtml(a){
  }).join('');
 }
 function _buildLaunchLinkOptionLabel(a, url){
- return '[' + getAccountMatrixLabel(a) + '] ' + (a.name || a.act_id) + ' → ' + url;
+ return '[' + getAccountMatrixLabel(a) + '] ' + displayAccountName(a.name,a.act_id) + ' → ' + url;
 }
 function _prefillLaunchLandingUrl(actId, mode, nextUrl){
  var input = document.getElementById('launchLandingUrl');
@@ -16614,7 +16623,7 @@ function renderLandingPerformance(){
   var target=x.target_url||'';
   var binding=_landingTargetBindingStatus(x,targetCounts);
   var adName=x.ad_name||x.ad_id||'未回填广告';
-  var meta=[x.account_name||x.act_id||'',x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
+  var meta=[displayAccountName(x.account_name,x.act_id,''),x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
   var finalAction=_landingFinalAction(stats);
   var finalMode=stats.final_metric_mode||stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
   var rawAction=stats.true_contact||0;
@@ -16806,7 +16815,7 @@ function _landingAdLinksHtml(page, links){
   var spendSource=sourceMap[stats.spend_source]||'未标记来源';
   var status=x.status||'reserved';
   var meta=[
-   x.act_id?('账户 '+x.act_id):'',
+   x.act_id?('账户 '+displayActId(x.act_id)):'',
    x.campaign_id?('系列 '+x.campaign_id):'',
    x.adset_id?('组 '+x.adset_id):'',
    x.ad_id?('广告 '+x.ad_id):''
@@ -17005,7 +17014,7 @@ function _landingAdMappingRows(items){
   rows.push([
    x.page_title||'',
    x.account_name||'',
-   x.act_id?('act_'+String(x.act_id).replace(/^act_/,'')):'',
+   x.act_id?displayActId(x.act_id):'',
    x.campaign_name||'',
    x.campaign_id||'',
    x.adset_name||'',
@@ -17070,7 +17079,7 @@ function exportLandingAdResultsTemplate(){
   var note=[
    x.ad_id?('ad_id='+x.ad_id):'',
    x.ad_name?('ad_name='+x.ad_name):'',
-   x.account_name?('account='+x.account_name):(x.act_id?('act_'+String(x.act_id).replace(/^act_/,'') ):''),
+   x.account_name?('account='+x.account_name):(x.act_id?('account='+displayActId(x.act_id)):''),
    stats.spend!=null?('spend_usd='+Number(stats.spend||0).toFixed(2)):'',
    stats.fb_conversions!=null?('fb_conv='+stats.fb_conversions):'',
    stats.final_true_contact!=null?('current_true='+stats.final_true_contact):'',
@@ -17228,11 +17237,11 @@ function showLandingUsage(id){
  var body='';
  if(accounts.length){
   body+='<div style="font-size:13px;font-weight:800;margin:0 0 8px">账户引用</div>'+
-   accounts.map(function(a){return row(a.name||a.act_id, a.act_id, a.fields||[], a.linked_matrix_ids||[]);}).join('');
+   accounts.map(function(a){return row(displayAccountName(a.name,a.act_id), displayActId(a.act_id), a.fields||[], a.linked_matrix_ids||[]);}).join('');
  }
  if(campaigns.length){
   body+='<div style="font-size:13px;font-weight:800;margin:14px 0 8px">投放任务引用</div>'+
-   campaigns.map(function(c){return row(c.name||('任务 '+c.id), (c.act_id||'')+(c.status?(' · '+c.status):''), c.fields||[], c.linked_matrix_ids||[]);}).join('');
+   campaigns.map(function(c){return row(c.name||('任务 '+c.id), (displayActId(c.act_id)||'')+(c.status?(' · '+c.status):''), c.fields||[], c.linked_matrix_ids||[]);}).join('');
  }
  if(!body)body='<div class="empty"><p>没有找到引用详情</p></div>';
  var mo=document.createElement('div');
