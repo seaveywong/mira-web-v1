@@ -31,6 +31,7 @@ def make_conn():
            target_url TEXT,
            ip_hash TEXT,
            user_agent_hash TEXT,
+           metadata TEXT,
            created_at TEXT
         )"""
     )
@@ -125,6 +126,29 @@ def test_spend_log_fallback_when_no_history_exists():
     conn.close()
 
 
+def test_redirect_events_with_ad_slug_metadata_are_attributed_to_ad_link():
+    conn = make_conn()
+    conn.execute(
+        "INSERT INTO landing_ad_links (page_id, slug, ad_id, status) VALUES (1,'abc123','1203','active')"
+    )
+    conn.execute(
+        """INSERT INTO landing_events
+           (page_id, event_type, path, target_url, ip_hash, user_agent_hash, metadata, created_at)
+           VALUES
+           (1, 'visit', '/a/abc123', '', 'ip1', 'ua1', '{"ad_slug": "abc123"}', '2026-06-19 10:00:00'),
+           (1, 'redirect', '/__mira/redirect', 'https://wa.me/111', 'ip1', 'ua1', '{"ad_slug": "abc123"}', '2026-06-19 10:01:00'),
+           (1, 'redirect', '/__mira/redirect', 'https://wa.me/222', 'ip2', 'ua2', '{"ad_slug": "other"}', '2026-06-19 10:02:00')"""
+    )
+    stats = _ad_link_stats(conn, 1, "abc123", date_from="2026-06-19", date_to="2026-06-19")
+    assert_equal(stats["visit"], 1, "visit on /a/slug should be counted")
+    assert_equal(stats["redirect"], 1, "redirect with matching metadata ad_slug should be counted")
+    assert_equal(stats["whatsapp_redirect"], 1, "matching redirect should count as WhatsApp redirect")
+    assert_equal(stats["true_contact"], 1, "metadata-attributed redirect should count as a true action")
+    assert_equal(stats["unique_true_contact"], 1, "unique true action should use the same visitor fingerprint")
+    assert_equal(stats["effective_true_contact"], 1, "effective true action should include metadata-attributed redirect")
+    conn.close()
+
+
 def test_router_prefers_ad_link_target_then_rotates_fallback():
     tmp = tempfile.NamedTemporaryFile(prefix="mira_route_test_", suffix=".db", delete=False)
     db_path = tmp.name
@@ -208,5 +232,6 @@ def test_router_prefers_ad_link_target_then_rotates_fallback():
 if __name__ == "__main__":
     test_date_range_uses_daily_history_without_double_counting()
     test_spend_log_fallback_when_no_history_exists()
+    test_redirect_events_with_ad_slug_metadata_are_attributed_to_ad_link()
     test_router_prefers_ad_link_target_then_rotates_fallback()
     print("landing ad link stats tests passed")

@@ -868,11 +868,22 @@ def _ad_link_stats(
             result_date_from = None
             result_date_to = None
     where_extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
-    params = [page_id, path] + date_params
+    event_scope = """page_id=? AND (
+                  path=?
+                  OR COALESCE(metadata,'') LIKE ?
+                  OR COALESCE(metadata,'') LIKE ?
+              )"""
+    event_params = [
+        page_id,
+        path,
+        f'%"ad_slug":"{slug}"%',
+        f'%"ad_slug": "{slug}"%',
+    ]
+    params = event_params + date_params
     rows = conn.execute(
         f"""SELECT event_type, COUNT(*) AS cnt
            FROM landing_events
-           WHERE page_id=? AND path=?{where_extra}
+           WHERE {event_scope}{where_extra}
            GROUP BY event_type""",
         params,
     ).fetchall()
@@ -883,7 +894,9 @@ def _ad_link_stats(
         row = conn.execute(
             """SELECT COUNT(*) AS cnt
                FROM landing_events
-               WHERE page_id=? AND path=? AND event_type='click'
+               WHERE """
+            + event_scope
+            + """ AND event_type='click'
             """
             + where_extra
             + """
@@ -898,7 +911,9 @@ def _ad_link_stats(
         row = conn.execute(
             """SELECT COUNT(*) AS cnt
                FROM landing_events
-               WHERE page_id=? AND path=? AND event_type='redirect'
+               WHERE """
+            + event_scope
+            + """ AND event_type='redirect'
             """
             + where_extra
             + """
@@ -924,7 +939,7 @@ def _ad_link_stats(
         unique_rows = conn.execute(
             f"""SELECT event_type, COUNT(DISTINCT {fp_expr}) AS cnt
                FROM landing_events
-               WHERE page_id=? AND path=?{where_extra}
+               WHERE {event_scope}{where_extra}
                  AND {fp_expr} IS NOT NULL
                GROUP BY event_type""",
             params,
@@ -934,7 +949,7 @@ def _ad_link_stats(
         row = conn.execute(
             f"""SELECT COUNT(DISTINCT {fp_expr}) AS cnt
                FROM landing_events
-               WHERE page_id=? AND path=? AND event_type='click'
+               WHERE {event_scope} AND event_type='click'
             """
             + where_extra
             + f"""
@@ -950,7 +965,7 @@ def _ad_link_stats(
         row = conn.execute(
             f"""SELECT COUNT(DISTINCT {fp_expr}) AS cnt
                FROM landing_events
-               WHERE page_id=? AND path=? AND event_type='redirect'
+               WHERE {event_scope} AND event_type='redirect'
             """
             + where_extra
             + f"""
@@ -966,7 +981,7 @@ def _ad_link_stats(
         row = conn.execute(
             f"""SELECT COUNT(DISTINCT {fp_expr}) AS cnt
                FROM landing_events
-               WHERE page_id=? AND path=?{where_extra}
+               WHERE {event_scope}{where_extra}
                  AND {fp_expr} IS NOT NULL
                  AND (
                    event_type IN ('submit','redirect')
