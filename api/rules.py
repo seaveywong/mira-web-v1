@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover - Python <3.9 fallback
 
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
-from core.tenancy import apply_team_scope, assert_row_access, team_id_for_create
+from core.tenancy import apply_team_scope, apply_account_owner_scope, assert_row_access, team_id_for_create
 
 router = APIRouter()
 logger = logging.getLogger("mira.api.rules")
@@ -203,6 +203,48 @@ def _active_guard_allowance(conn, account, ad_id: str, allowance_date: str | Non
         (day, _normalize_ad_id(ad_id), act_id, plain_act),
     ).fetchone()
     return row
+
+
+def _visible_allowance_accounts(conn, user, act_id: str | None = None) -> list:
+    where: list[str] = []
+    params: list = []
+    target = _allowance_norm_act_id(act_id)
+    if target:
+        where.append("(act_id=? OR act_id=?)")
+        params.extend([target, _allowance_plain_id(target)])
+    apply_team_scope(where, params, user, "team_id")
+    apply_account_owner_scope(where, params, user, "owner_user_id")
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+    select_cols = ["act_id", "name", "team_id", "owner_user_id"]
+    for col in ("currency", "timezone", "timezone_name", "timezone_offset_hours_utc"):
+        if col in cols:
+            select_cols.append(col)
+    sql = f"SELECT {', '.join(select_cols)} FROM accounts"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY COALESCE(name, act_id), act_id"
+    return conn.execute(sql, params).fetchall()
+
+
+def _recent_ad_name(conn, act_id: str, ad_id: str) -> str:
+    if not ad_id:
+        return ""
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(perf_snapshots)").fetchall()}
+        if "ad_name" not in cols:
+            return ""
+        act = _allowance_norm_act_id(act_id)
+        row = conn.execute(
+            """SELECT ad_name FROM perf_snapshots
+               WHERE ad_id=? AND (act_id=? OR act_id=?)
+                 AND COALESCE(ad_name,'')<>''
+               ORDER BY snapshot_date DESC, id DESC
+               LIMIT 1""",
+            (ad_id, act, _allowance_plain_id(act)),
+        ).fetchone()
+        return (row["ad_name"] if row else "") or ""
+    except Exception:
+        return ""
 
 
 def _table_exists(conn, table: str) -> bool:
@@ -699,6 +741,55 @@ def list_guard_ad_allowances(
         for item in items:
             item["account_name"] = account["name"] if "name" in account.keys() else target
         return {"success": True, "act_id": target, "allowance_date": day, "items": items}
+    finally:
+        conn.close()
+
+
+@router.get("/guard/allowances/today")
+def list_today_guard_ad_allowances(
+    act_id: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    conn = get_conn()
+    try:
+        _ensure_guard_allowance_schema(conn)
+        accounts = _visible_allowance_accounts(conn, user, act_id)
+        if not accounts:
+            return {"success": True, "count": 0, "items": [], "accounts": 0}
+        items_by_key: dict[tuple[str, str, str], dict] = {}
+        for account in accounts:
+            account_act = _allowance_norm_act_id(account["act_id"])
+            account_day = _account_local_date(account)
+            rows = conn.execute(
+                """SELECT * FROM guard_ad_allowances
+                   WHERE status='active' AND allowance_date=?
+                     AND (act_id=? OR act_id=?)
+                   ORDER BY updated_at DESC, id DESC""",
+                (account_day, account_act, _allowance_plain_id(account_act)),
+            ).fetchall()
+            for row in rows:
+                item = dict(row)
+                item["act_id"] = account_act
+                item["account_name"] = account["name"] if "name" in account.keys() else account_act
+                item["account_local_date"] = account_day
+                item["timezone"] = (
+                    account["timezone_name"] if "timezone_name" in account.keys() and account["timezone_name"]
+                    else account["timezone"] if "timezone" in account.keys() and account["timezone"]
+                    else ""
+                )
+                item["ad_name"] = _recent_ad_name(conn, account_act, item.get("ad_id") or "")
+                key = (account_act, item.get("ad_id") or "", item.get("allowance_date") or "")
+                current = items_by_key.get(key)
+                if not current or str(item.get("updated_at") or "") >= str(current.get("updated_at") or ""):
+                    items_by_key[key] = item
+        items = sorted(items_by_key.values(), key=lambda x: (x.get("updated_at") or "", x.get("id") or 0), reverse=True)
+        return {
+            "success": True,
+            "count": len(items),
+            "accounts": len(accounts),
+            "act_id": _allowance_norm_act_id(act_id),
+            "items": items,
+        }
     finally:
         conn.close()
 

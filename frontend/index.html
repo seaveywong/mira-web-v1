@@ -2084,7 +2084,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 
 /* Dashboard metric cards: keep figures readable and avoid cramped one-row wrapping. */
 #page-dashboard .stats-grid{
- grid-template-columns:repeat(6,minmax(142px,1fr))!important;
+ grid-template-columns:repeat(7,minmax(130px,1fr))!important;
  gap:12px!important;
  align-items:stretch!important;
 }
@@ -2335,6 +2335,12 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
        <div class="sc-label" id="dash-label-paused">自动止损</div>
        <div class="sc-val red" id="s-paused">--</div>
        <div class="sc-sub" id="s-paused-sub">条规则止损（点击明细）</div>
+       <div class="sc-icon"></div>
+      </div>
+      <div class="sc orange" style="cursor:pointer" onclick="openDashboardAllowances()">
+       <div class="sc-label">今日放行</div>
+       <div class="sc-val orange" id="s-allowance">--</div>
+       <div class="sc-sub" id="s-allowance-sub">账户本地日 · 点击管理</div>
        <div class="sc-icon"></div>
       </div>
       <div class="sc cyan" style="cursor:pointer" onclick="toggleAccDetail('balance')">
@@ -6242,6 +6248,88 @@ function taskCard(kind,title,count,desc,actionLabel,actionCode){
  '</div>';
 }
 
+window._guardAllowancesToday=[];
+window._guardAllowancesTodayMeta={count:0};
+
+function dashboardAllowanceQuery(){
+ var a=document.getElementById('dashAct')&&document.getElementById('dashAct').value||'';
+ return a?'?act_id='+encodeURIComponent(a):'';
+}
+
+function updateDashboardAllowanceCard(data){
+ data=data||{};
+ var items=data.items||[];
+ window._guardAllowancesToday=items;
+ window._guardAllowancesTodayMeta=data;
+ var val=document.getElementById('s-allowance');
+ var sub=document.getElementById('s-allowance-sub');
+ if(val)val.textContent=String(data.count!==undefined?data.count:items.length);
+ if(sub){
+  var accounts={};
+  items.forEach(function(it){if(it&&it.act_id)accounts[it.act_id]=1;});
+  var accountCount=Object.keys(accounts).length;
+  sub.textContent=items.length?(accountCount+' 个账户 · 账户本地日'):'账户本地日 · 点击管理';
+ }
+}
+
+async function loadDashboardGuardAllowances(force){
+ var data=await api('GET','/rules/guard/allowances/today'+dashboardAllowanceQuery());
+ updateDashboardAllowanceCard(data||{});
+ if(force)renderDashboardAllowanceList();
+ return data;
+}
+
+function renderDashboardAllowanceList(){
+ var box=document.getElementById('dashboardAllowanceList');
+ if(!box)return;
+ var items=window._guardAllowancesToday||[];
+ var meta=window._guardAllowancesTodayMeta||{};
+ var title=document.getElementById('dashboardAllowanceMeta');
+ if(title)title.textContent=(meta.count||items.length||0)+' 条有效放行 · 按账户本地日期生效';
+ if(!items.length){
+  box.innerHTML='<div style="padding:24px;text-align:center;color:var(--t3)">当前筛选范围内没有今日放行广告。</div>';
+  return;
+ }
+ box.innerHTML='<div class="table-wrap"><table><thead><tr><th>广告</th><th>账户</th><th>有效日期</th><th>备注</th><th>创建</th><th>操作</th></tr></thead><tbody>'+
+  items.map(function(it){
+   var adTitle=it.ad_name?escHtml(it.ad_name):'广告 '+escHtml(it.ad_id||'');
+   var adSub=it.ad_name?'<div class="td-id">'+escHtml(it.ad_id||'')+'</div>':'';
+   var acc=displayAccountName(it.account_name,it.act_id);
+   var date=it.allowance_date||it.account_local_date||'';
+   var tz=it.timezone?'<div class="td-id">'+escHtml(it.timezone)+'</div>':'';
+   return '<tr>'+
+    '<td><div class="td-name">'+adTitle+'</div>'+adSub+'</td>'+
+    '<td><div>'+escHtml(acc)+'</div><div class="td-id">'+escHtml(displayActId(it.act_id))+'</div></td>'+
+    '<td><div>'+escHtml(date)+'</div>'+tz+'</td>'+
+    '<td>'+escHtml(it.reason||'--')+'</td>'+
+    '<td><div>'+escHtml(it.created_by||'--')+'</div><div class="td-id">'+escHtml(it.updated_at||it.created_at||'')+'</div></td>'+
+    '<td><button class="btn btn-sm btn-r" onclick="deleteGuardAllowance('+Number(it.id)+')">撤销</button></td>'+
+   '</tr>';
+  }).join('')+
+  '</tbody></table></div>';
+}
+
+function openDashboardAllowances(){
+ var mo=document.getElementById('moDashboardAllowance');
+ if(!mo){mo=document.createElement('div');mo.id='moDashboardAllowance';mo.className='mo';document.body.appendChild(mo);}
+ mo.innerHTML='<div class="modal modal-lg" style="max-width:980px">'+
+  '<div class="mh"><div><h3>今日放行广告</h3><div class="fh" id="dashboardAllowanceMeta">加载中...</div></div><button class="mc" onclick="closeModal(&quot;moDashboardAllowance&quot;)">✕</button></div>'+
+  '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
+   '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">'+
+    '<div class="fh">这些广告在账户本地日期当天会跳过规则止损。撤销后，下一次巡检恢复正常监管。</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-g btn-sm" onclick="loadDashboardGuardAllowances(true)">刷新</button><button class="btn btn-p btn-sm" onclick="openGuardAllowanceModal()">新增放行</button></div>'+
+   '</div>'+
+   '<div id="dashboardAllowanceList" style="min-height:120px"><div style="padding:24px;text-align:center;color:var(--t3)">加载中...</div></div>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moDashboardAllowance&quot;)">关闭</button></div>'+
+  '</div>';
+ openModal('moDashboardAllowance');
+ loadDashboardGuardAllowances(true).catch(function(e){
+  var box=document.getElementById('dashboardAllowanceList');
+  if(box)box.innerHTML='<div style="padding:18px;color:var(--er)">加载失败：'+escHtml(e.message||e)+'</div>';
+ });
+}
+
 function classifyDashboardAccounts(accounts){
  var groups={critical:[],recharge:[],low:[],readIssues:[],writeIssues:[],statusIssues:[]};
  (accounts||[]).forEach(function(a){
@@ -6295,6 +6383,12 @@ function renderTaskCenter(sum,accounts){
  if(sum&&(sum.error_accounts||0)>0){
   cards.push(taskCard('warn','数据拉取异常',sum.error_accounts+' 个账户','本次看板有账户没有成功返回数据，建议检查 Token 或账户状态。','查看账户','showPage(\'accounts\')'));
   metaParts.push(sum.error_accounts+' 个拉取异常');
+ }
+ var allowanceItems=window._guardAllowancesToday||[];
+ if(allowanceItems.length){
+  var adNames=allowanceItems.slice(0,3).map(function(it){return it.ad_name||it.ad_id||'';}).filter(Boolean).join('、');
+  cards.push(taskCard('info','今日放行',allowanceItems.length+' 条广告','这些广告在账户本地日会跳过规则止损：'+(adNames||'点击查看详情'),'查看/撤销','openDashboardAllowances()'));
+  metaParts.push(allowanceItems.length+' 条今日放行');
  }
  if(!cards.length){
   cards.push(taskCard('ok','今日任务清爽','暂无紧急事项','当前筛选范围没有充值、权限、账户状态或数据拉取风险。','刷新','loadDash()'));
@@ -6760,14 +6854,23 @@ async function loadDash(){
   if(topBody)topBody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:24px">正在读取本地巡检快照...</td></tr>';
   var results=await Promise.allSettled([
    api('GET','/dashboard/summary'+q),
-   api('GET','/dashboard/trend'+trendQ)
+   api('GET','/dashboard/trend'+trendQ),
+   api('GET','/rules/guard/allowances/today'+dashboardAllowanceQuery())
   ]);
   if(seq!==_dashLoadSeq)return;
   var sum=results[0].status==='fulfilled'?results[0].value:null;
   var trend=results[1].status==='fulfilled'?results[1].value:null;
+  var allowances=results[2].status==='fulfilled'?results[2].value:null;
   var coreErrors=[];
   if(results[0].status!=='fulfilled')coreErrors.push('汇总');
   if(results[1].status!=='fulfilled')coreErrors.push('趋势');
+  if(allowances)updateDashboardAllowanceCard(allowances);
+  else{
+   window._guardAllowancesToday=[];
+   window._guardAllowancesTodayMeta={count:0};
+   var av=document.getElementById('s-allowance');if(av)av.textContent='--';
+   var allowSub=document.getElementById('s-allowance-sub');if(allowSub)allowSub.textContent='加白读取失败';
+  }
   if(sum){
    document.getElementById('s-spend').textContent='$'+(sum.total_spend||0).toFixed(2);
    document.getElementById('s-conv').textContent=(sum.total_conversions||0).toFixed(0);
@@ -13451,6 +13554,8 @@ function deleteGuardAllowance(id){
    await api('DELETE','/rules/guard/allowances/'+id);
    toast('已撤销','ok');
    loadGuardAllowances();
+   if(document.getElementById('dashboardAllowanceList'))loadDashboardGuardAllowances(true);
+   if(typeof loadDash==='function')loadDash();
   }catch(e){
    toast('撤销失败：'+(e.message||e),'er');
   }
