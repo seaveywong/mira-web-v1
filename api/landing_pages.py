@@ -127,6 +127,7 @@ class LandingAdLinkPatch(BaseModel):
 
 
 class LandingAdLinkResultPatch(BaseModel):
+    result_date: Optional[str] = None
     confirmed_actions: int = Field(default=0, ge=0)
     confirmed_sales: int = Field(default=0, ge=0)
     confirmed_revenue: float = Field(default=0, ge=0)
@@ -135,6 +136,7 @@ class LandingAdLinkResultPatch(BaseModel):
 
 
 class LandingAdLinkResultImportRow(BaseModel):
+    result_date: Optional[str] = None
     slug: Optional[str] = None
     ad_id: Optional[str] = None
     confirmed_actions: int = Field(default=0, ge=0)
@@ -145,6 +147,7 @@ class LandingAdLinkResultImportRow(BaseModel):
 
 class LandingAdLinkResultImport(BaseModel):
     rows: list[LandingAdLinkResultImportRow] = []
+    result_date: Optional[str] = None
     source: Optional[str] = "csv"
 
 
@@ -276,7 +279,8 @@ def _ensure_schema():
 
         CREATE TABLE IF NOT EXISTS landing_ad_link_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            link_id INTEGER NOT NULL UNIQUE,
+            link_id INTEGER NOT NULL,
+            result_date TEXT NOT NULL DEFAULT (date('now','+8 hours')),
             confirmed_actions INTEGER DEFAULT 0,
             confirmed_sales INTEGER DEFAULT 0,
             confirmed_revenue REAL DEFAULT 0,
@@ -284,11 +288,66 @@ def _ensure_schema():
             note TEXT,
             updated_by TEXT,
             updated_at TEXT DEFAULT (datetime('now','+8 hours')),
-            created_at TEXT DEFAULT (datetime('now','+8 hours'))
+            created_at TEXT DEFAULT (datetime('now','+8 hours')),
+            UNIQUE(link_id, result_date)
         );
         CREATE INDEX IF NOT EXISTS idx_landing_ad_link_results_link ON landing_ad_link_results(link_id);
         """
     )
+    try:
+        result_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_ad_link_results)").fetchall()}
+        has_link_only_unique = False
+        for idx in conn.execute("PRAGMA index_list(landing_ad_link_results)").fetchall():
+            if not int(idx["unique"] or 0):
+                continue
+            cols = [r["name"] for r in conn.execute(f"PRAGMA index_info({idx['name']})").fetchall()]
+            if cols == ["link_id"]:
+                has_link_only_unique = True
+                break
+        if "result_date" not in result_cols or has_link_only_unique:
+            old_cols = result_cols
+            date_expr = (
+                "COALESCE(NULLIF(result_date,''), substr(COALESCE(updated_at,created_at,datetime('now','+8 hours')),1,10))"
+                if "result_date" in old_cols
+                else "substr(COALESCE(updated_at,created_at,datetime('now','+8 hours')),1,10)"
+            )
+            conn.execute("DROP TABLE IF EXISTS landing_ad_link_results_new")
+            conn.execute(
+                """
+                CREATE TABLE landing_ad_link_results_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    link_id INTEGER NOT NULL,
+                    result_date TEXT NOT NULL DEFAULT (date('now','+8 hours')),
+                    confirmed_actions INTEGER DEFAULT 0,
+                    confirmed_sales INTEGER DEFAULT 0,
+                    confirmed_revenue REAL DEFAULT 0,
+                    source TEXT DEFAULT 'manual',
+                    note TEXT,
+                    updated_by TEXT,
+                    updated_at TEXT DEFAULT (datetime('now','+8 hours')),
+                    created_at TEXT DEFAULT (datetime('now','+8 hours')),
+                    UNIQUE(link_id, result_date)
+                )
+                """
+            )
+            conn.execute(
+                f"""INSERT OR REPLACE INTO landing_ad_link_results_new
+                    (id, link_id, result_date, confirmed_actions, confirmed_sales,
+                     confirmed_revenue, source, note, updated_by, updated_at, created_at)
+                    SELECT id, link_id, {date_expr},
+                           confirmed_actions, confirmed_sales, confirmed_revenue,
+                           source, note, updated_by, updated_at, created_at
+                    FROM landing_ad_link_results
+                    WHERE link_id IS NOT NULL
+                    ORDER BY id"""
+            )
+            conn.execute("DROP TABLE landing_ad_link_results")
+            conn.execute("ALTER TABLE landing_ad_link_results_new RENAME TO landing_ad_link_results")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_landing_ad_link_results_link ON landing_ad_link_results(link_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_landing_ad_link_results_date ON landing_ad_link_results(result_date)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_landing_ad_link_results_link_date ON landing_ad_link_results(link_id,result_date)")
+    except Exception:
+        logger.exception("landing_ad_link_results schema patch failed")
     try:
         page_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_pages)").fetchall()}
         page_alters = {
@@ -340,6 +399,16 @@ _ensure_schema()
 
 def _now_cst() -> str:
     return datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _normalize_result_date(value: Optional[str] = None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return datetime.now(CST).strftime("%Y-%m-%d")
+    try:
+        return datetime.fromisoformat(raw[:10]).strftime("%Y-%m-%d")
+    except Exception:
+        raise HTTPException(status_code=400, detail="真实结果日期格式应为 YYYY-MM-DD")
 
 
 def _truncate(value: Optional[str], limit: int = 255) -> str:
@@ -760,20 +829,28 @@ def _ad_link_stats(
 ) -> dict:
     path = f"/a/{slug}"
     date_params = []
+    result_date_from = None
+    result_date_to = None
     if date_from or date_to:
         where_parts = []
         try:
             if date_from:
-                start = datetime.fromisoformat(str(date_from)[:10]).strftime("%Y-%m-%d 00:00:00")
+                start_day = datetime.fromisoformat(str(date_from)[:10]).strftime("%Y-%m-%d")
+                start = f"{start_day} 00:00:00"
                 where_parts.append("created_at>=?")
                 date_params.append(start)
+                result_date_from = start_day
             if date_to:
-                end_dt = datetime.fromisoformat(str(date_to)[:10]) + timedelta(days=1)
+                end_day = datetime.fromisoformat(str(date_to)[:10]).strftime("%Y-%m-%d")
+                end_dt = datetime.fromisoformat(end_day) + timedelta(days=1)
                 where_parts.append("created_at<?")
                 date_params.append(end_dt.strftime("%Y-%m-%d 00:00:00"))
+                result_date_to = end_day
         except Exception:
             where_parts = []
             date_params = []
+            result_date_from = None
+            result_date_to = None
     else:
         where_parts = []
     if not where_parts and days:
@@ -782,9 +859,13 @@ def _ad_link_stats(
             since = (datetime.now(CST) - timedelta(days=d - 1)).strftime("%Y-%m-%d 00:00:00")
             where_parts = ["created_at>=?"]
             date_params = [since]
+            result_date_from = since[:10]
+            result_date_to = datetime.now(CST).strftime("%Y-%m-%d")
         except Exception:
             where_parts = []
             date_params = []
+            result_date_from = None
+            result_date_to = None
     where_extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
     params = [page_id, path] + date_params
     rows = conn.execute(
@@ -945,25 +1026,51 @@ def _ad_link_stats(
     confirmed_source = ""
     confirmed_note = ""
     confirmed_updated_at = None
+    confirmed_result_date = ""
+    confirmed_result_count = 0
     has_confirmed_result = False
     try:
         link_id = int(link_row["id"]) if link_row else 0
         if link_id:
+            result_where = ["link_id=?"]
+            result_params = [link_id]
+            if result_date_from:
+                result_where.append("result_date>=?")
+                result_params.append(result_date_from)
+            if result_date_to:
+                result_where.append("result_date<=?")
+                result_params.append(result_date_to)
+            where_sql = " AND ".join(result_where)
             result_row = conn.execute(
-                """SELECT confirmed_actions, confirmed_sales, confirmed_revenue,
-                          source, note, updated_at
-                   FROM landing_ad_link_results
-                   WHERE link_id=?""",
-                (link_id,),
+                f"""SELECT COUNT(*) AS row_count,
+                           SUM(COALESCE(confirmed_actions,0)) AS confirmed_actions,
+                           SUM(COALESCE(confirmed_sales,0)) AS confirmed_sales,
+                           SUM(COALESCE(confirmed_revenue,0)) AS confirmed_revenue,
+                           MAX(updated_at) AS updated_at
+                    FROM landing_ad_link_results
+                    WHERE {where_sql}""",
+                result_params,
             ).fetchone()
             if result_row:
-                has_confirmed_result = True
+                confirmed_result_count = int(result_row["row_count"] or 0)
+                has_confirmed_result = confirmed_result_count > 0
                 confirmed_actions = int(result_row["confirmed_actions"] or 0)
                 confirmed_sales = int(result_row["confirmed_sales"] or 0)
                 confirmed_revenue = float(result_row["confirmed_revenue"] or 0)
-                confirmed_source = result_row["source"] or ""
-                confirmed_note = result_row["note"] or ""
                 confirmed_updated_at = result_row["updated_at"]
+            latest_row = conn.execute(
+                f"""SELECT source, note, updated_at, result_date
+                    FROM landing_ad_link_results
+                    WHERE {where_sql}
+                    ORDER BY updated_at DESC, id DESC
+                    LIMIT 1""",
+                result_params,
+            ).fetchone()
+            if latest_row:
+                confirmed_source = latest_row["source"] or ""
+                confirmed_note = latest_row["note"] or ""
+                confirmed_updated_at = latest_row["updated_at"] or confirmed_updated_at
+                confirmed_result_date = latest_row["result_date"] or ""
     except Exception:
         confirmed_actions = 0
         confirmed_sales = 0
@@ -971,6 +1078,8 @@ def _ad_link_stats(
         confirmed_source = ""
         confirmed_note = ""
         confirmed_updated_at = None
+        confirmed_result_date = ""
+        confirmed_result_count = 0
         has_confirmed_result = False
 
     def _cost(n: int | float) -> Optional[float]:
@@ -1015,6 +1124,8 @@ def _ad_link_stats(
         "confirmed_result_source": confirmed_source,
         "confirmed_result_note": confirmed_note,
         "confirmed_result_updated_at": confirmed_updated_at,
+        "confirmed_result_date": confirmed_result_date,
+        "confirmed_result_count": confirmed_result_count,
         "has_confirmed_result": has_confirmed_result,
         "final_true_contact": final_true_contact,
         "dedupe_available": dedupe_available,
@@ -1986,11 +2097,12 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
         if not row:
             raise HTTPException(status_code=404, detail="广告级链接不存在")
         page = _assert_page_access(conn, int(row["page_id"]), user)
+        result_date = _normalize_result_date(body.result_date)
         conn.execute(
             """INSERT INTO landing_ad_link_results
-               (link_id, confirmed_actions, confirmed_sales, confirmed_revenue, source, note, updated_by, updated_at, created_at)
-               VALUES (?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))
-               ON CONFLICT(link_id) DO UPDATE SET
+               (link_id, result_date, confirmed_actions, confirmed_sales, confirmed_revenue, source, note, updated_by, updated_at, created_at)
+               VALUES (?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))
+               ON CONFLICT(link_id,result_date) DO UPDATE SET
                  confirmed_actions=excluded.confirmed_actions,
                  confirmed_sales=excluded.confirmed_sales,
                  confirmed_revenue=excluded.confirmed_revenue,
@@ -2000,6 +2112,7 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
                  updated_at=datetime('now','+8 hours')""",
             (
                 link_id,
+                result_date,
                 int(body.confirmed_actions or 0),
                 int(body.confirmed_sales or 0),
                 float(body.confirmed_revenue or 0),
@@ -2011,7 +2124,15 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
         conn.commit()
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         page_public = _public_page(page)
-        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"]))}
+        return {
+            "success": True,
+            "result_date": result_date,
+            "link": _public_ad_link(
+                updated,
+                page_public,
+                _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], date_from=result_date, date_to=result_date),
+            ),
+        }
     finally:
         conn.close()
 
@@ -2021,6 +2142,7 @@ def import_landing_ad_link_results(body: LandingAdLinkResultImport, user=Depends
     rows = body.rows or []
     if not rows:
         raise HTTPException(status_code=400, detail="没有可导入的真实结果行")
+    default_result_date = _normalize_result_date(body.result_date)
     conn = get_conn()
     updated, errors = [], []
     try:
@@ -2042,11 +2164,16 @@ def import_landing_ad_link_results(body: LandingAdLinkResultImport, user=Depends
             except HTTPException as exc:
                 errors.append({"row": idx, "slug": slug, "ad_id": ad_id, "reason": exc.detail})
                 continue
+            try:
+                result_date = _normalize_result_date(item.result_date or default_result_date)
+            except HTTPException as exc:
+                errors.append({"row": idx, "slug": slug, "ad_id": ad_id, "reason": exc.detail})
+                continue
             conn.execute(
                 """INSERT INTO landing_ad_link_results
-                   (link_id, confirmed_actions, confirmed_sales, confirmed_revenue, source, note, updated_by, updated_at, created_at)
-                   VALUES (?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))
-                   ON CONFLICT(link_id) DO UPDATE SET
+                   (link_id, result_date, confirmed_actions, confirmed_sales, confirmed_revenue, source, note, updated_by, updated_at, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))
+                   ON CONFLICT(link_id,result_date) DO UPDATE SET
                      confirmed_actions=excluded.confirmed_actions,
                      confirmed_sales=excluded.confirmed_sales,
                      confirmed_revenue=excluded.confirmed_revenue,
@@ -2056,6 +2183,7 @@ def import_landing_ad_link_results(body: LandingAdLinkResultImport, user=Depends
                      updated_at=datetime('now','+8 hours')""",
                 (
                     int(row["id"]),
+                    result_date,
                     int(item.confirmed_actions or 0),
                     int(item.confirmed_sales or 0),
                     float(item.confirmed_revenue or 0),
@@ -2064,7 +2192,7 @@ def import_landing_ad_link_results(body: LandingAdLinkResultImport, user=Depends
                     user.get("username", "unknown"),
                 ),
             )
-            updated.append({"row": idx, "id": int(row["id"]), "slug": row["slug"], "ad_id": row["ad_id"]})
+            updated.append({"row": idx, "id": int(row["id"]), "slug": row["slug"], "ad_id": row["ad_id"], "result_date": result_date})
         conn.commit()
         return {"success": True, "updated": updated, "errors": errors, "updated_count": len(updated), "error_count": len(errors)}
     finally:

@@ -124,6 +124,7 @@ def _landing_ad_metrics_for_ads(
             "true_contact": stats.get("true_contact", 0),
             "has_confirmed_result": bool(stats.get("has_confirmed_result")),
             "result_note": stats.get("confirmed_result_note", ""),
+            "result_date": stats.get("confirmed_result_date", ""),
             "result_updated_at": stats.get("confirmed_result_updated_at"),
         }
     return out

@@ -6949,7 +6949,7 @@ function _adsTrueCell(a){
  var mode=l.final_metric_mode||'raw';
  var label=mode==='confirmed'?'确认':(mode==='unique'?'唯一':'原始');
  var cls=mode==='confirmed'?'bg-ok':(mode==='unique'?'bg-ac':'bg-mu');
- var title='短码 '+(l.slug||'')+' · '+label+'口径'+(l.result_note?' · '+l.result_note:'');
+ var title='短码 '+(l.slug||'')+' · '+label+'口径'+(l.result_date?' · 确认日期 '+l.result_date:'')+(l.result_note?' · '+l.result_note:'');
  return '<button class="btn btn-g btn-sm" style="min-width:86px;text-align:left;padding:5px 7px" title="'+escHtml(title)+'" onclick="event.stopPropagation();showPage(\'landing_center\')">'+
   '<div><strong>'+action+'</strong> <span class="badge '+cls+'" style="font-size:10px">'+label+'</span></div>'+
   '<div style="font-size:10px;color:var(--t3);margin-top:2px">'+(cost!==null&&!isNaN(cost)?'$'+cost.toFixed(2):'--')+' · '+escHtml(l.slug||'')+'</div>'+
@@ -16355,9 +16355,9 @@ function renderLandingPerformance(){
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:260px"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(adName)+'">'+escHtml(adName)+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(meta)+'">'+escHtml(meta||'待绑定账户/系列/组')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:280px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac)">'+escHtml(publicUrl||'--')+'</a><div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">'+(target?'专属跳转：'+escHtml(target):'使用落地页全局轮询')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+money(stats.spend||0)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">FB成效 '+(stats.fb_conversions||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(finalAction))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+' · 原始 '+rawAction+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(finalAction))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+' · 原始 '+rawAction+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+cost(trueCost)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\')">回填</button></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
   '</tr>';
  }).join('');
  panel.innerHTML=
@@ -16489,9 +16489,9 @@ function _landingAdLinksHtml(page, links){
    '<td style="padding:8px 10px;max-width:300px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(url)+'" style="color:var(--ac)">'+escHtml(url)+'</a>'+(target?'<div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">专属跳转：'+escHtml(target)+'</div>':'<div style="font-size:11px;color:var(--t3);margin-top:3px">使用落地页全局轮询</div>')+'</td>'+
    '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">'+
      '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+' · 最终动作 '+finalAction+'（'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+'） · 原始 '+(stats.true_contact||0)+'</div>'+
-     '<div style="margin-top:3px;color:var(--t3)">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+' · 收入 '+money(stats.confirmed_revenue||0)+' · 表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · FB消耗 '+money(spend)+' · 真实成本 '+cost(realCost)+'</div>'+
+     '<div style="margin-top:3px;color:var(--t3)">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+' · 收入 '+money(stats.confirmed_revenue||0)+' · 表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · FB消耗 '+money(spend)+' · 真实成本 '+cost(realCost)+'</div>'+
    '</td>'+
-   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\')">回填</button></td>'+
+   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
   '</tr>';
  }).join('');
  if(!rows)rows='<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--t3)">还没有广告级链接。生成后，每条广告使用一个链接，Mira 会按短码做广告级统计。</td></tr>';
@@ -16529,23 +16529,38 @@ async function createLandingAdLinks(pageId){
   toast('生成失败：'+(e.message||e),'er');
  }
 }
-async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue, encodedNote){
+function _landingResultToday(){
+ var d=new Date();
+ var m=String(d.getMonth()+1).padStart(2,'0');
+ var day=String(d.getDate()).padStart(2,'0');
+ return d.getFullYear()+'-'+m+'-'+day;
+}
+function _parseLandingResultDate(parts, fallback){
+ var first=String((parts&&parts[0])||'').trim();
+ if(/^\d{4}-\d{2}-\d{2}$/.test(first))return {date:first,offset:1};
+ return {date:fallback||_landingResultToday(),offset:0};
+}
+async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue, encodedNote, encodedDate){
  var slug=decodeURIComponent(encodedSlug||'');
  var note=decodeURIComponent(encodedNote||'');
- var def=[actions||0,sales||0,revenue||0,note||''].join(',');
+ var resultDate=decodeURIComponent(encodedDate||'')||_landingResultToday();
+ var def=[resultDate,actions||0,sales||0,revenue||0,note||''].join(',');
  var raw=await promptTextareaAsync(
   '回填真实结果',
-  '格式：真实进线,购买/成交,收入,备注。这里的真实进线会优先用于计算广告真实成本。',
+  '格式：日期,真实进线,购买/成交,收入,备注。真实进线会优先用于对应日期的广告真实成本。',
   def,
-  '例如：2,1,39.9,WhatsApp 确认有效'
+  '例如：2026-06-19,2,1,39.9,WhatsApp 确认有效'
  );
  if(raw==null)return;
  var parts=String(raw||'').split(/[\t,，]/);
+ var parsedDate=_parseLandingResultDate(parts,resultDate);
+ var offset=parsedDate.offset;
  var payload={
-  confirmed_actions:Math.max(0,parseInt(parts[0]||'0',10)||0),
-  confirmed_sales:Math.max(0,parseInt(parts[1]||'0',10)||0),
-  confirmed_revenue:Math.max(0,parseFloat(parts[2]||'0')||0),
-  note:parts.slice(3).join(' ').trim(),
+  result_date:parsedDate.date,
+  confirmed_actions:Math.max(0,parseInt(parts[offset]||'0',10)||0),
+  confirmed_sales:Math.max(0,parseInt(parts[offset+1]||'0',10)||0),
+  confirmed_revenue:Math.max(0,parseFloat(parts[offset+2]||'0')||0),
+  note:parts.slice(offset+3).join(' ').trim(),
   source:'manual'
  };
  try{
@@ -16559,9 +16574,9 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
 async function importLandingAdResults(){
  var raw=await promptTextareaAsync(
   '批量回填真实结果',
-  '每行格式：短码或广告ID,真实进线,购买/成交,收入,备注。短码优先匹配；如果第一列是广告ID，也会自动匹配广告级链接。',
+  '每行格式：日期,短码或广告ID,真实进线,购买/成交,收入,备注。也兼容旧格式：短码或广告ID,真实进线,购买/成交,收入,备注，日期默认今天。',
   '',
-  'm7K2Qp,2,1,39.9,有效聊单\n120245820014290302,0,0,0,无有效进线'
+  '2026-06-19,m7K2Qp,2,1,39.9,有效聊单\n120245820014290302,0,0,0,无有效进线'
  );
  if(raw==null)return;
  var rows=[];
@@ -16569,13 +16584,16 @@ async function importLandingAdResults(){
   line=line.trim();
   if(!line)return;
   var parts=line.split(/[\t,，]/);
-  var key=(parts[0]||'').trim();
+  var parsedDate=_parseLandingResultDate(parts,_landingResultToday());
+  var offset=parsedDate.offset;
+  var key=(parts[offset]||'').trim();
   if(!key)return;
   var item={
-   confirmed_actions:Math.max(0,parseInt(parts[1]||'0',10)||0),
-   confirmed_sales:Math.max(0,parseInt(parts[2]||'0',10)||0),
-   confirmed_revenue:Math.max(0,parseFloat(parts[3]||'0')||0),
-   note:parts.slice(4).join(' ').trim()
+   result_date:parsedDate.date,
+   confirmed_actions:Math.max(0,parseInt(parts[offset+1]||'0',10)||0),
+   confirmed_sales:Math.max(0,parseInt(parts[offset+2]||'0',10)||0),
+   confirmed_revenue:Math.max(0,parseFloat(parts[offset+3]||'0')||0),
+   note:parts.slice(offset+4).join(' ').trim()
   };
   if(/^\d{8,}$/.test(key))item.ad_id=key;
   else item.slug=key;
@@ -16583,7 +16601,7 @@ async function importLandingAdResults(){
  });
  if(!rows.length){toast('没有可导入的数据','wa');return;}
  try{
-  var res=await api('POST','/landing-pages/ad-links/results/import',{rows:rows,source:'csv'});
+  var res=await api('POST','/landing-pages/ad-links/results/import',{rows:rows,source:'csv',result_date:_landingResultToday()});
   toast('已回填 '+(res.updated_count||0)+' 条'+((res.error_count||0)?'，失败 '+res.error_count+' 条':'') ,(res.error_count||0)?'wa':'ok');
   await loadLandingCenter(true);
  }catch(e){
