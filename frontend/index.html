@@ -2726,6 +2726,12 @@ select.fc option{background:#fff;color:#1d1d1f}
  <div class="ph">
   <div><h2>落地页发布</h2><p>通过发布通道生成投放链接，预检后可自动绑定到账户</p></div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+   <select class="fc" id="landingPerfDays" style="width:130px;height:36px" onchange="setLandingPerfDays(this.value)">
+    <option value="1">今日真实效果</option>
+    <option value="3">近 3 天</option>
+    <option value="7" selected>近 7 天</option>
+    <option value="30">近 30 天</option>
+   </select>
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
  </div>
@@ -16130,14 +16136,24 @@ async function importLandingUrlsCsv(input) {
 }
 
 // ── 落地页发布中心 ──
-var _cfTokens=[], _lpTemplates=[], _landingPages=[], _landingAdPerf=null;
+var _cfTokens=[], _lpTemplates=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
+function setLandingPerfDays(v){
+ _landingPerfDays=Math.max(1,Math.min(90,parseInt(v||'7',10)||7));
+ loadLandingCenter(true);
+}
 async function loadLandingCenter(force){
  try{
+  var daysSel=document.getElementById('landingPerfDays');
+  if(daysSel){
+   var parsedDays=parseInt(daysSel.value||_landingPerfDays||7,10)||7;
+   _landingPerfDays=Math.max(1,Math.min(90,parsedDays));
+   daysSel.value=String(_landingPerfDays);
+  }
   var data=await Promise.all([
    api('GET','/landing-pages/tokens'),
    api('GET','/landing-pages/templates'),
    api('GET','/landing-pages/pages'),
-   api('GET','/landing-pages/ad-links/performance?days=7&limit=200').catch(function(){return null;})
+   api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=200').catch(function(){return null;})
   ]);
   _cfTokens=data[0]||[];
   _lpTemplates=data[1]||[];
