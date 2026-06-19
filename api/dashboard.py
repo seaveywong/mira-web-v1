@@ -114,6 +114,7 @@ def _landing_ad_metrics_for_ads(
             "target_url": row["target_url"] or "",
             "status": row["status"] or "",
             "spend": row_spend if row_spend is not None else stats.get("spend", 0),
+            "spend_source": "ads_live" if row_spend is not None else stats.get("spend_source", ""),
             "final_true_contact": final_true_contact,
             "final_metric_mode": stats.get("final_metric_mode", stats.get("metric_mode", "raw")),
             "cost_per_final_true_contact": cost_per_final,
