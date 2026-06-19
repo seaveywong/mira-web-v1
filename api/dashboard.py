@@ -1724,121 +1724,105 @@ def get_ads(
     df, dt = _default_dates(date_from, date_to)
     conn = get_conn()
     accs = [dict(a) for a in _fetch_visible_accounts(conn, user, act_id)]
-    conn.close()
     kpi_filter = _normalize_dash_kpi_filter(kpi)
     result = []
-
-    for acc in accs:
-        token = _get_token_for_account(acc)
-        if not token:
-            continue
-        currency = (acc.get("currency") or "USD").upper()
-        conn2 = get_conn()
-        try:
-            rate = _get_rate(currency, conn2)
-            kpi_rows = conn2.execute(
-                """SELECT target_id, kpi_field, kpi_label, target_cpa, source
-                   FROM kpi_configs
-                   WHERE act_id=? AND level='ad' AND enabled=1""",
-                (acc["act_id"],),
-            ).fetchall()
-            kpi_map = {r["target_id"]: dict(r) for r in kpi_rows}
-        finally:
-            conn2.close()
-
-        try:
-            items = []
-            next_url = f'https://graph.facebook.com/v25.0/{acc["act_id"]}/insights'
-            params = {
-                "access_token": token,
-                "fields": "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,actions,action_values",
-                "time_range": f'{{"since":"{df}","until":"{dt}"}}',
-                "level": "ad",
-                "limit": 500,
-            }
-            fetched = 0
-            while next_url and fetched < 5000:
-                resp = req.get(next_url, params=params, timeout=30)
-                data = resp.json()
-                if data.get("error"):
-                    raise Exception(data["error"].get("message", str(data["error"])))
-                page_items = data.get("data", []) or []
-                items.extend(page_items)
-                fetched += len(page_items)
-                next_url = (data.get("paging") or {}).get("next")
-                params = {}
-
-            for item in items:
-                ad_id_item = item.get("ad_id", "")
-                if not ad_id_item:
-                    continue
-                kpi_cfg = kpi_map.get(ad_id_item, {})
-                kpi_field = kpi_cfg.get("kpi_field")
-                if not _kpi_field_matches_filter(kpi_field, kpi_filter):
-                    continue
-
-                spend_orig = float(item.get("spend", 0) or 0)
-                spend_usd = round(spend_orig / rate, 2) if rate else spend_orig
-                actions = item.get("actions", []) or []
-                action_values = item.get("action_values", []) or []
-                conversions = _count_conversions(actions, kpi_field)
-                cpa = round(spend_usd / conversions, 2) if conversions > 0 else None
-                revenue_orig = _count_revenue(action_values, kpi_field) if kpi_field and "purchase" in str(kpi_field) else 0.0
-                roas = round(revenue_orig / spend_orig, 2) if spend_orig > 0 and revenue_orig > 0 else None
-                impressions = int(item.get("impressions", 0) or 0)
-                clicks = int(item.get("clicks", 0) or 0)
-                score_info = _score_ad_performance(
-                    spend_usd, conversions, clicks, impressions, 0, cpa or 0,
-                    kpi_cfg.get("target_cpa"), roas or 0, kpi_field
-                )
-                result.append({
-                    "ad_id": ad_id_item,
-                    "ad_name": item.get("ad_name") or ad_id_item,
-                    "act_id": acc["act_id"],
-                    "account_name": acc.get("name", ""),
-                    "currency": currency,
-                    "timezone": acc.get("timezone", "UTC"),
-                    "date_from": df,
-                    "date_to": dt,
-                    "spend": spend_usd,
-                    "impressions": impressions,
-                    "clicks": clicks,
-                    "conversions": conversions,
-                    "cpa": cpa,
-                    "roas": roas,
-                    "adset_id": item.get("adset_id", ""),
-                    "adset_name": item.get("adset_name", ""),
-                    "campaign_id": item.get("campaign_id", ""),
-                    "campaign_name": item.get("campaign_name", ""),
-                    "target_cpa": kpi_cfg.get("target_cpa"),
-                    "kpi_field": kpi_field,
-                    "kpi_label": kpi_cfg.get("kpi_label", ""),
-                    "kpi_source": kpi_cfg.get("source", ""),
-                    "source": kpi_cfg.get("source", ""),
-                    "data_source": "fb_insights_api",
-                    "score": score_info.get("score"),
-                    "score_label": score_info.get("label"),
-                    "score_level": score_info.get("level"),
-                    "score_reasons": score_info.get("reasons", []),
-                })
-        except Exception:
-            continue
-
-    if result:
-        conn3 = get_conn()
-        try:
+    try:
+        if not accs:
+            return []
+        act_ids = [a["act_id"] for a in accs if a.get("act_id")]
+        if not act_ids:
+            return []
+        placeholders = ",".join("?" for _ in act_ids)
+        kpi_rows = conn.execute(
+            f"""SELECT act_id, target_id, kpi_field, kpi_label, target_cpa, source
+                FROM kpi_configs
+                WHERE level='ad' AND enabled=1 AND act_id IN ({placeholders})""",
+            act_ids,
+        ).fetchall()
+        kpi_map = {(r["act_id"], r["target_id"]): dict(r) for r in kpi_rows}
+        rows = conn.execute(
+            f"""SELECT p.act_id,
+                       COALESCE(a.name, p.act_id) AS account_name,
+                       COALESCE(a.currency, p.currency, 'USD') AS currency,
+                       COALESCE(a.timezone, 'UTC') AS timezone,
+                       p.ad_id,
+                       COALESCE(MAX(NULLIF(p.ad_name, '')), p.ad_id) AS ad_name,
+                       COALESCE(MAX(NULLIF(p.adset_id, '')), '') AS adset_id,
+                       COALESCE(MAX(NULLIF(p.campaign_id, '')), '') AS campaign_id,
+                       p.kpi_field,
+                       SUM(COALESCE(p.spend, 0)) AS spend,
+                       SUM(COALESCE(p.impressions, 0)) AS impressions,
+                       SUM(COALESCE(p.clicks, 0)) AS clicks,
+                       SUM(COALESCE(p.conversions, 0)) AS conversions,
+                       AVG(CASE WHEN p.roas IS NOT NULL AND p.roas > 0 THEN p.roas END) AS roas
+                FROM perf_snapshots p
+                LEFT JOIN accounts a ON a.act_id=p.act_id
+                WHERE p.snapshot_date BETWEEN ? AND ?
+                  AND p.act_id IN ({placeholders})
+                  AND COALESCE(p.ad_id, '') <> ''
+                GROUP BY p.act_id, a.name, a.currency, p.currency, a.timezone, p.ad_id, p.kpi_field""",
+            [df, dt] + act_ids,
+        ).fetchall()
+        for row in rows:
+            kpi_field = row["kpi_field"]
+            if not _kpi_field_matches_filter(kpi_field, kpi_filter):
+                continue
+            ad_id_item = row["ad_id"]
+            kpi_cfg = kpi_map.get((row["act_id"], ad_id_item), {})
+            spend_usd = round(float(row["spend"] or 0), 2)
+            conversions = float(row["conversions"] or 0)
+            impressions = int(row["impressions"] or 0)
+            clicks = int(row["clicks"] or 0)
+            cpa = round(spend_usd / conversions, 2) if conversions > 0 else None
+            roas = round(float(row["roas"] or 0), 2) if row["roas"] else None
+            target_cpa = kpi_cfg.get("target_cpa")
+            score_info = _score_ad_performance(
+                spend_usd, int(conversions), clicks, impressions, 0, cpa or 0,
+                target_cpa, roas or 0, kpi_field
+            )
+            result.append({
+                "ad_id": ad_id_item,
+                "ad_name": row["ad_name"] or ad_id_item,
+                "act_id": row["act_id"],
+                "account_name": row["account_name"] or row["act_id"],
+                "currency": (row["currency"] or "USD").upper(),
+                "timezone": row["timezone"] or "UTC",
+                "date_from": df,
+                "date_to": dt,
+                "spend": spend_usd,
+                "impressions": impressions,
+                "clicks": clicks,
+                "conversions": conversions,
+                "cpa": cpa,
+                "roas": roas,
+                "adset_id": row["adset_id"] or "",
+                "adset_name": "",
+                "campaign_id": row["campaign_id"] or "",
+                "campaign_name": "",
+                "target_cpa": target_cpa,
+                "kpi_field": kpi_field,
+                "kpi_label": kpi_cfg.get("kpi_label", ""),
+                "kpi_source": kpi_cfg.get("source", ""),
+                "source": kpi_cfg.get("source", ""),
+                "data_source": "local_perf_snapshots",
+                "score": score_info.get("score"),
+                "score_label": score_info.get("label"),
+                "score_level": score_info.get("level"),
+                "score_reasons": score_info.get("reasons", []),
+            })
+        if result:
             spend_by_ad = {r.get("ad_id"): float(r.get("spend") or 0) for r in result if r.get("ad_id")}
             landing_map = _landing_ad_metrics_for_ads(
-                conn3,
+                conn,
                 [r.get("ad_id") for r in result],
                 date_from=df,
                 date_to=dt,
                 spend_by_ad=spend_by_ad,
             )
-        finally:
-            conn3.close()
-        for row in result:
-            row["landing"] = landing_map.get(row.get("ad_id"), {})
+            for row in result:
+                row["landing"] = landing_map.get(row.get("ad_id"), {})
+    finally:
+        conn.close()
 
     result.sort(key=lambda x: x.get("spend") or 0, reverse=True)
     return result

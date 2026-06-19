@@ -6743,13 +6743,18 @@ async function loadDash(){
   var q='?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):'');
   var trendDays=(dashDateFrom&&dashDateFrom!==dashDateTo)?Math.min(90,Math.max(1,Math.round((new Date(dashDateTo)-new Date(dashDateFrom))/86400000)+1)):1;
   var trendQ='?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):'');
-  var results=await Promise.all([
+  var topBody=document.getElementById('topAds');
+  if(topBody)topBody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--t3);padding:24px">正在读取本地巡检快照...</td></tr>';
+  var results=await Promise.allSettled([
    api('GET','/dashboard/summary'+q),
-   api('GET','/dashboard/trend'+trendQ),
-   api('GET','/dashboard/ads?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):''))
+   api('GET','/dashboard/trend'+trendQ)
   ]);
   if(seq!==_dashLoadSeq)return;
-  var sum=results[0],trend=results[1],top=results[2];
+  var sum=results[0].status==='fulfilled'?results[0].value:null;
+  var trend=results[1].status==='fulfilled'?results[1].value:null;
+  var coreErrors=[];
+  if(results[0].status!=='fulfilled')coreErrors.push('汇总');
+  if(results[1].status!=='fulfilled')coreErrors.push('趋势');
   if(sum){
    document.getElementById('s-spend').textContent='$'+(sum.total_spend||0).toFixed(2);
    document.getElementById('s-conv').textContent=(sum.total_conversions||0).toFixed(0);
@@ -6799,8 +6804,15 @@ async function loadDash(){
    }
   }
   if(trend)renderCharts(trend);
-  if(top)renderTopAds(top.slice(0,kpiFilter?20:10));
-  document.getElementById('lastTime').textContent='已更新 '+_cst(new Date().toISOString().replace('T',' ').slice(0,16));
+  document.getElementById('lastTime').textContent=(coreErrors.length?'部分加载失败：'+coreErrors.join('、'):'已更新 '+_cst(new Date().toISOString().replace('T',' ').slice(0,16)));
+  api('GET','/dashboard/ads?date_from='+df+'&date_to='+dt+(a?'&act_id='+a:'')+(kpiFilter?'&kpi='+encodeURIComponent(kpiFilter):'')).then(function(top){
+   if(seq!==_dashLoadSeq)return;
+   renderTopAds((top||[]).slice(0,kpiFilter?20:10));
+  }).catch(function(e){
+   if(seq!==_dashLoadSeq)return;
+   var tb=document.getElementById('topAds');
+   if(tb)tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--er);padding:24px">TOP 广告读取失败：'+escHtml(e&&e.message?e.message:'未知错误')+'</td></tr>';
+  });
  }catch(e){
   if(seq!==_dashLoadSeq)return;
   console.error('loadDash error',e);
