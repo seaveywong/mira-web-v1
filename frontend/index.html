@@ -1899,6 +1899,18 @@ select.fc option{background:#fff;color:#1d1d1f}
 .token-zone-subtitle{font-weight:800;color:var(--t1)}
 .token-zone-subtext{font-size:12px;color:var(--t3);line-height:1.5;margin-top:3px}
 .token-split-note{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(0,113,227,.14);background:rgba(0,113,227,.045);border-radius:12px;color:var(--t2);font-size:12px;line-height:1.55;margin:0 0 14px}
+.local-admin-strip{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid var(--bd);border-radius:12px;background:var(--bg2);padding:10px 12px;margin-top:10px}
+.local-admin-main{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.local-admin-title{font-size:12px;font-weight:820;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.local-admin-meta{font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.local-admin-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.local-task-summary{margin-top:10px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.72);overflow:hidden}
+.local-task-summary>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px}
+.local-task-summary>summary::-webkit-details-marker{display:none}
+.local-task-summary-title{font-size:12px;font-weight:820;color:var(--t1)}
+.local-task-summary-meta{font-size:11px;color:var(--t3);margin-top:2px}
+.local-task-badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.local-task-rows{border-top:1px solid var(--bd);padding:0 12px 8px}
 .meta-oauth-shell{display:flex;flex-direction:column;gap:14px}
 .meta-oauth-card{background:#fff;border:1px solid #dedee4;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
 .meta-oauth-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}
@@ -2514,11 +2526,11 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      <!-- Tokens -->
      <div class="page" id="page-tokens">
       <div class="ph">
-        <div><h2>Token 与本地执行器</h2><p>本地执行器优先接管写操作；Token 凭证库用于官方授权、手动 Token 与账户关联</p></div>
+        <div><h2>Token 管理</h2><p>本地执行器、官方授权 Token、手动 Token 集中管理</p></div>
        </div>
       <div class="token-split-note">
        <span style="font-weight:820;color:var(--t1)">说明</span>
-       <span>本地执行器绑定到当前团队/运营，只上报账户与权限摘要；实际写操作由 Chrome 本地领取任务执行，传统 Token 继续作为凭证库和兜底来源。</span>
+       <span>写操作优先使用在线本地执行器；传统 Token 用于账户读取、官方授权和兜底。</span>
       </div>
       <div id="localTokenBridgePanel"></div>
       <div class="token-zone token-vault-zone">
@@ -8559,7 +8571,7 @@ function renderLocalTokenPanel(){
    el.innerHTML='<div class="token-zone local-executor-zone">'+
    '<div class="token-zone-head">'+
      '<div><div class="token-zone-title">本地执行器</div>'+
-      '<div class="token-zone-sub">Chrome 首次用一次性激活码绑定，之后凭节点密钥长期心跳。Mira 只下发任务和接收结果，不保存本地凭证；在线且摘要匹配的执行器会优先参与预算和关停。</div></div>'+
+      '<div class="token-zone-sub">Chrome 绑定后长期心跳；Mira 只下发任务和接收结果，不保存本地凭证。</div></div>'+
     '<div class="token-zone-actions">'+
      '<button class="btn btn-p btn-sm role-hide-viewer" onclick="createLocalTokenRegistration()">绑定新 Chrome</button>'+
      '<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLocalExecutorTaskModal()">API自检账户</button>'+
@@ -8590,7 +8602,21 @@ function _localExecutorStatusStyle(status){
 }
 function renderLocalExecutorTasksHtml(){
  var tasks=(localExecutorTasks||[]).slice(0,8);
- if(!tasks.length)return '<div class="token-zone-empty" style="margin-top:14px">暂无本地执行任务。可以点击「API自检账户」验证纯 API 链路。</div>';
+ if(!tasks.length){
+  return '<div class="local-admin-strip">'+
+   '<div class="local-admin-main"><div><div class="local-admin-title">最近任务</div><div class="local-admin-meta">暂无本地执行任务</div></div></div>'+
+   '<div class="local-admin-actions"><button class="btn btn-g btn-sm" onclick="loadLocalExecutorTasks()">刷新任务</button></div>'+
+  '</div>';
+ }
+ var counts={queued:0,running:0,success:0,failed:0,need_user:0,cancelled:0};
+ tasks.forEach(function(t){var k=t.status||'queued';counts[k]=(counts[k]||0)+1;});
+ var badgeHtml=[
+  counts.running?'<span class="badge" style="'+_localExecutorStatusStyle('running')+'">执行中 '+counts.running+'</span>':'',
+  counts.queued?'<span class="badge" style="'+_localExecutorStatusStyle('queued')+'">等待 '+counts.queued+'</span>':'',
+  counts.success?'<span class="badge" style="'+_localExecutorStatusStyle('success')+'">成功 '+counts.success+'</span>':'',
+  counts.failed?'<span class="badge" style="'+_localExecutorStatusStyle('failed')+'">失败 '+counts.failed+'</span>':'',
+  counts.need_user?'<span class="badge" style="'+_localExecutorStatusStyle('need_user')+'">人工 '+counts.need_user+'</span>':''
+ ].filter(Boolean).join('');
  var rows=tasks.map(function(t){
   var p=t.params||{},r=t.result||{};
   return '<div style="display:grid;grid-template-columns:minmax(130px,1fr) 90px minmax(160px,2fr) 130px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--bd)">'+
@@ -8600,10 +8626,14 @@ function renderLocalExecutorTasksHtml(){
    '<div style="font-size:11px;color:var(--t3);text-align:right">'+escHtml(_fmtActionLogTime(t.updated_at||t.created_at||''))+'</div>'+
   '</div>';
  }).join('');
-  return '<div class="token-zone-subcard">'+
-   '<div class="token-zone-subhead"><div><div class="token-zone-subtitle">最近本地执行任务</div><div class="token-zone-subtext">用于确认本地执行器是否能稳定接收 Mira 下发的 API 任务。</div></div><button class="btn btn-g btn-sm" onclick="loadLocalExecutorTasks()">刷新任务</button></div>'+
-   rows+
-  '</div>';
+ var shouldOpen=(counts.failed||counts.need_user)?' open':'';
+ return '<details class="local-task-summary"'+shouldOpen+'>'+
+  '<summary>'+
+   '<div><div class="local-task-summary-title">最近任务</div><div class="local-task-summary-meta">共 '+tasks.length+' 条，展开查看任务 ID、账户和执行结果</div></div>'+
+   '<div class="local-task-badges">'+badgeHtml+'<button class="btn btn-g btn-sm" onclick="event.preventDefault();event.stopPropagation();loadLocalExecutorTasks()">刷新</button></div>'+
+  '</summary>'+
+  '<div class="local-task-rows">'+rows+'</div>'+
+ '</details>';
 }
 
 function _localPkgSizeText(bytes){
@@ -8619,24 +8649,22 @@ function renderLocalExtensionPackageHtml(){
  var legacy=(localExtensionPackage&&localExtensionPackage.legacy)||{};
  var exists=!!pkg.exists;
  var sha=pkg.sha256?String(pkg.sha256).slice(0,12):'--';
- return '<div class="role-superadmin-only token-zone-subcard">'+
-  '<div class="token-zone-subhead">'+
-   '<div style="min-width:0"><div class="token-zone-subtitle">插件包管理</div>'+
-    '<div class="token-zone-subtext">仅超级管理员可见。上传后会立即替换「下载 Chrome 插件」入口；删除后用户将无法下载插件。</div></div>'+
-   '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-    '<input type="file" id="localExtensionPackageInput" accept=".zip,application/zip" style="display:none" onchange="uploadLocalExtensionPackage(this.files)">'+
-    '<button class="btn btn-p btn-sm" onclick="document.getElementById(\'localExtensionPackageInput\').click()">上传新版</button>'+
-    '<button class="btn btn-g btn-sm" onclick="loadLocalExtensionPackage(true)">刷新包状态</button>'+
-    (exists?'<button class="btn btn-r btn-sm" onclick="deleteLocalExtensionPackage()">删除当前包</button>':'')+
+ var updated=pkg.updated_at_ts?_fmtActionLogTime(new Date(pkg.updated_at_ts*1000).toISOString()):'--';
+ var meta=exists?(_localPkgSizeText(pkg.size_bytes)+' · 更新 '+updated+' · SHA '+sha):'未上传插件包';
+ return '<div class="role-superadmin-only local-admin-strip">'+
+  '<div class="local-admin-main">'+
+   '<div style="min-width:0">'+
+    '<div class="local-admin-title">插件包</div>'+
+    '<div class="local-admin-meta" title="'+escHtml(meta)+'">'+escHtml(exists?(pkg.filename||'mira-local-api-executor.zip'):'未上传')+' · '+escHtml(meta)+'</div>'+
+    (legacy&&legacy.exists?'<div class="local-admin-meta" style="color:var(--wa)">检测到旧兼容包：'+escHtml(legacy.filename||'')+'</div>':'')+
    '</div>'+
   '</div>'+
-  '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px">'+
-   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">当前包</div><div style="font-size:12px;font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(exists?(pkg.filename||'mira-local-api-executor.zip'):'未上传')+'</div></div>'+
-   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">大小</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+escHtml(_localPkgSizeText(pkg.size_bytes))+'</div></div>'+
-   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">更新时间</div><div style="font-size:12px;font-weight:760;color:var(--t1)">'+escHtml(pkg.updated_at_ts?_fmtActionLogTime(new Date(pkg.updated_at_ts*1000).toISOString()):'--')+'</div></div>'+
-   '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:9px"><div style="font-size:11px;color:var(--t3)">SHA</div><div style="font-size:12px;font-weight:760;color:var(--t1);font-family:monospace">'+escHtml(sha)+'</div></div>'+
+  '<div class="local-admin-actions">'+
+    '<input type="file" id="localExtensionPackageInput" accept=".zip,application/zip" style="display:none" onchange="uploadLocalExtensionPackage(this.files)">'+
+    '<button class="btn btn-p btn-sm" onclick="document.getElementById(\'localExtensionPackageInput\').click()">上传新版</button>'+
+    '<button class="btn btn-g btn-sm" onclick="loadLocalExtensionPackage(true)">刷新</button>'+
+    (exists?'<button class="btn btn-r btn-sm" onclick="deleteLocalExtensionPackage()">删除当前包</button>':'')+
   '</div>'+
-  (legacy&&legacy.exists?'<div style="font-size:11px;color:var(--wa);margin-top:8px">检测到旧兼容包 '+escHtml(legacy.filename||'')+'，上传新版或删除当前包时会一并清理。</div>':'')+
  '</div>';
 }
 
