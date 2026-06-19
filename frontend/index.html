@@ -2724,6 +2724,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
       <div><h2>规则引擎</h2><p>止损规则与拉量策略（广告级执行，失败自动向上升级）</p></div>
       <div style="display:flex;gap:8px;align-items:center">
        <select class="fc" id="rulesAct" style="width:180px" onchange="loadRules()"><option value="">全部账户</option></select>
+       <button class="btn btn-g role-hide-viewer" onclick="openGuardAllowanceModal()" title="录入当天允许继续跑的广告 ID，规则巡检会跳过这些广告">当日放行</button>
        <button class="btn btn-p" onclick="openRuleDryRunModal()" title="指定账户/系列/组/广告 ID，预演当前规则是否会触发">规则预演</button>
        <div style="position:relative" id="tplMenuWrap">
        <button class="btn btn-ok role-hide-viewer" onclick="toggleTplMenu()">模板管理 ▾</button>
@@ -2755,7 +2756,10 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      </div>
      <div id="guardPanel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px">
-       <button class="btn btn-g" onclick="openRuleDryRunModal()">规则预演测试</button>
+       <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-g" onclick="openRuleDryRunModal()">规则预演测试</button>
+        <button class="btn btn-g role-hide-viewer" onclick="openGuardAllowanceModal()">当日放行</button>
+       </div>
        <button class="btn btn-p role-hide-viewer" onclick="showAddRule('guard')">+ 添加止损规则</button>
       </div>
       <div id="guardList"></div>
@@ -13171,6 +13175,101 @@ function resetRuleCooldown(){
    showInfo((d&&d.message)||'已重置');
   }catch(e){
    toast('重置失败：'+e.message,'er');
+  }
+ });
+}
+function guardAllowanceAccountOptions(selected){
+ var list=window.accounts||[];
+ var opts=list.map(function(a){
+  var val=a.act_id||'';
+  var label=displayAccountName(a.name,a.act_id)+' ('+displayActId(a.act_id)+')';
+  return '<option value="'+escHtml(val)+'" '+(val===selected?'selected':'')+'>'+escHtml(label)+'</option>';
+ }).join('');
+ return '<option value="">请选择账户</option>'+opts;
+}
+function openGuardAllowanceModal(){
+ var selected=(document.getElementById('rulesAct')||{}).value||'';
+ var mo=document.getElementById('moGuardAllowance');
+ if(!mo){mo=document.createElement('div');mo.id='moGuardAllowance';mo.className='mo';document.body.appendChild(mo);}
+ mo.innerHTML='<div class="modal modal-lg" style="max-width:780px">'+
+  '<div class="mh"><h3>当日广告放行</h3><button class="mc" onclick="closeModal(&quot;moGuardAllowance&quot;)">✕</button></div>'+
+  '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
+   '<div style="display:grid;grid-template-columns:1.3fr .7fr;gap:10px">'+
+    '<div class="fg"><label class="fl">账户</label><select class="fc" id="allowAct" onchange="loadGuardAllowances()">'+guardAllowanceAccountOptions(selected)+'</select></div>'+
+    '<div class="fg"><label class="fl">放行日期</label><input class="fc" id="allowDate" type="date" onchange="loadGuardAllowances()"><div class="fh">留空则按账户当前日期</div></div>'+
+   '</div>'+
+   '<div class="fg"><label class="fl">广告 ID</label><textarea class="fc" id="allowAdIds" rows="4" placeholder="每行一个广告 ID，也支持逗号或空格分隔"></textarea></div>'+
+   '<div class="fg"><label class="fl">备注</label><input class="fc" id="allowReason" placeholder="例如：好广告，今日放开阈值继续观察"></div>'+
+   '<div class="fh">保存后只在该账户日期当天生效。规则预演会显示该广告已放行；正式巡检命中规则时会记录跳过，不会关闭广告/广告组/系列。</div>'+
+   '<div id="allowList" style="border:1px solid var(--bd);border-radius:8px;min-height:82px;padding:10px;background:var(--bg2);color:var(--t3)">请选择账户查看。</div>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moGuardAllowance&quot;)">关闭</button><button class="btn btn-p" id="btnSaveAllowance" onclick="saveGuardAllowances()">保存放行</button></div>'+
+  '</div>';
+ openModal('moGuardAllowance');
+ if(selected){setTimeout(loadGuardAllowances,50);}
+}
+function guardAllowanceIdsFromInput(){
+ var raw=(document.getElementById('allowAdIds')||{}).value||'';
+ var parts=raw.split(/[\s,，;；]+/).map(function(x){return x.trim();}).filter(Boolean);
+ var seen={};
+ return parts.map(function(x){
+  var m=String(x).match(/\d{6,}/g);
+  return m&&m.length?m.sort(function(a,b){return b.length-a.length;})[0]:x;
+ }).filter(function(x){
+  if(!x||seen[x])return false;
+  seen[x]=1;return true;
+ });
+}
+async function loadGuardAllowances(){
+ var box=document.getElementById('allowList');if(!box)return;
+ var act=(document.getElementById('allowAct')||{}).value||'';
+ var day=(document.getElementById('allowDate')||{}).value||'';
+ if(!act){box.innerHTML='<div style="padding:18px;text-align:center;color:var(--t3)">请选择账户。</div>';return;}
+ box.innerHTML='<div style="padding:18px;text-align:center;color:var(--t3)">加载中...</div>';
+ try{
+  var q='?act_id='+encodeURIComponent(act);
+  if(day)q+='&allowance_date='+encodeURIComponent(day);
+  var data=await api('GET','/rules/guard/allowances'+q);
+  if(data.allowance_date&&!day){var d=document.getElementById('allowDate');if(d)d.value=data.allowance_date;}
+  var items=data.items||[];
+  if(!items.length){box.innerHTML='<div style="padding:18px;text-align:center;color:var(--t3)">当前日期没有放行广告。</div>';return;}
+  box.innerHTML=items.map(function(it){
+   return '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:9px 4px;border-bottom:1px solid var(--bd)">'+
+    '<div style="min-width:0"><div style="font-weight:700;color:var(--t1)">广告 '+escHtml(it.ad_id||'')+'</div>'+
+    '<div style="font-size:12px;color:var(--t3);margin-top:3px">'+escHtml(displayAccountName(it.account_name,it.act_id))+' · '+escHtml(it.allowance_date||'')+(it.reason?' · '+escHtml(it.reason):'')+'</div></div>'+
+    '<button class="btn btn-sm btn-r" onclick="deleteGuardAllowance('+Number(it.id)+')">撤销</button>'+
+   '</div>';
+  }).join('');
+ }catch(e){
+  box.innerHTML='<div style="color:var(--er);padding:14px">加载失败：'+escHtml(e.message||e)+'</div>';
+ }
+}
+async function saveGuardAllowances(){
+ var act=(document.getElementById('allowAct')||{}).value||'';
+ var ids=guardAllowanceIdsFromInput();
+ if(!act){toast('请选择账户','wa');return;}
+ if(!ids.length){toast('请填写广告 ID','wa');return;}
+ var btn=document.getElementById('btnSaveAllowance');
+ if(btn){btn.disabled=true;btn.textContent='保存中...';}
+ try{
+  var body={act_id:act,ad_ids:ids,allowance_date:(document.getElementById('allowDate')||{}).value||null,reason:(document.getElementById('allowReason')||{}).value||''};
+  var r=await api('POST','/rules/guard/allowances',body);
+  toast((r&&r.message)||'已保存','ok');
+  var ta=document.getElementById('allowAdIds');if(ta)ta.value='';
+  await loadGuardAllowances();
+ }catch(e){
+  toast('保存失败：'+(e.message||e),'er');
+ }
+ if(btn){btn.disabled=false;btn.textContent='保存放行';}
+}
+function deleteGuardAllowance(id){
+ showConfirm('确认撤销这条当日放行？撤销后如果规则再次命中，该广告会恢复正常受控。', async function(){
+  try{
+   await api('DELETE','/rules/guard/allowances/'+id);
+   toast('已撤销','ok');
+   loadGuardAllowances();
+  }catch(e){
+   toast('撤销失败：'+(e.message||e),'er');
   }
  });
 }

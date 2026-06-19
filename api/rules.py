@@ -4,9 +4,15 @@
 """
 import json
 import logging
+import re
+from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover - Python <3.9 fallback
+    ZoneInfo = None
 
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
@@ -100,10 +106,103 @@ def _actor_can_manage_team(user) -> bool:
 
 
 def _account_row(conn, act_id: str):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+    select_cols = ["act_id", "name", "team_id", "owner_user_id"]
+    for col in ("currency", "timezone", "timezone_name", "timezone_offset_hours_utc"):
+        if col in cols:
+            select_cols.append(col)
     return conn.execute(
-        "SELECT act_id, name, team_id, owner_user_id FROM accounts WHERE act_id=?",
+        f"SELECT {', '.join(select_cols)} FROM accounts WHERE act_id=?",
         (act_id,),
     ).fetchone()
+
+
+def _allowance_norm_act_id(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    return raw if raw.lower().startswith("act_") else f"act_{raw}"
+
+
+def _allowance_plain_id(value: str | None) -> str:
+    raw = str(value or "").strip()
+    return raw[4:] if raw.lower().startswith("act_") else raw
+
+
+def _normalize_ad_id(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parts = re.findall(r"\d{6,}", raw)
+    if parts:
+        return max(parts, key=len)
+    return raw
+
+
+def _account_local_date(account) -> str:
+    if not account:
+        return date.today().isoformat()
+    keys = account.keys() if hasattr(account, "keys") else account
+    tz_name = ""
+    if "timezone_name" in keys:
+        tz_name = account["timezone_name"] or ""
+    if not tz_name and "timezone" in keys:
+        tz_name = account["timezone"] or ""
+    if tz_name and ZoneInfo:
+        try:
+            return datetime.now(ZoneInfo(str(tz_name))).date().isoformat()
+        except Exception:
+            pass
+    try:
+        if "timezone_offset_hours_utc" in keys and account["timezone_offset_hours_utc"] not in (None, ""):
+            return (datetime.utcnow() + timedelta(hours=float(account["timezone_offset_hours_utc"]))).date().isoformat()
+    except Exception:
+        pass
+    return date.today().isoformat()
+
+
+def _ensure_guard_allowance_schema(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS guard_ad_allowances (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           act_id TEXT NOT NULL,
+           ad_id TEXT NOT NULL,
+           allowance_date TEXT NOT NULL,
+           reason TEXT,
+           status TEXT DEFAULT 'active',
+           team_id INTEGER,
+           owner_user_id INTEGER,
+           created_by TEXT,
+           created_at TEXT DEFAULT (datetime('now','+8 hours')),
+           updated_at TEXT DEFAULT (datetime('now','+8 hours')),
+           UNIQUE(act_id, ad_id, allowance_date)
+        )"""
+    )
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS idx_guard_ad_allowances_lookup
+           ON guard_ad_allowances(act_id, ad_id, allowance_date, status)"""
+    )
+    conn.commit()
+
+
+def _active_guard_allowance(conn, account, ad_id: str, allowance_date: str | None = None):
+    _ensure_guard_allowance_schema(conn)
+    if not account or not ad_id:
+        return None
+    act_id = _allowance_norm_act_id(account["act_id"])
+    plain_act = _allowance_plain_id(act_id)
+    day = allowance_date or _account_local_date(account)
+    row = conn.execute(
+        """SELECT * FROM guard_ad_allowances
+           WHERE status='active'
+             AND allowance_date=?
+             AND ad_id=?
+             AND (act_id=? OR act_id=?)
+           ORDER BY updated_at DESC, id DESC
+           LIMIT 1""",
+        (day, _normalize_ad_id(ad_id), act_id, plain_act),
+    ).fetchone()
+    return row
 
 
 def _rule_scope_for_body(conn, act_id: str | None, user) -> tuple[str, str, int | None, int | None]:
@@ -243,6 +342,13 @@ class GuardRuleIn(BaseModel):
     kpi_filter: Optional[str] = None   # KPI类型筛选
 
 
+class GuardAdAllowanceIn(BaseModel):
+    act_id: str
+    ad_id: Optional[str] = None
+    ad_ids: Optional[List[str]] = None
+    allowance_date: Optional[str] = None
+    reason: Optional[str] = None
+
 class ScaleRuleIn(BaseModel):
     act_id: Optional[str] = None
     rule_name: Optional[str] = None
@@ -348,6 +454,129 @@ def add_guard_rule(body: GuardRuleIn, user=Depends(get_current_user)):
     conn.commit()
     conn.close()
     return {"success": True, "id": new_id, "message": "规则添加成功"}
+
+
+@router.get("/guard/allowances")
+def list_guard_ad_allowances(
+    act_id: Optional[str] = None,
+    allowance_date: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    conn = get_conn()
+    try:
+        _ensure_guard_allowance_schema(conn)
+        target = _allowance_norm_act_id(act_id)
+        if not target:
+            return {"success": True, "items": [], "message": "请选择账户后查看当日放行。"}
+        _assert_rule_target_access(conn, target, user)
+        account = _account_row(conn, target)
+        if not account:
+            raise HTTPException(404, "账户不存在")
+        day = (allowance_date or "").strip() or _account_local_date(account)
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+            raise HTTPException(400, "日期格式必须为 YYYY-MM-DD")
+        rows = conn.execute(
+            """SELECT * FROM guard_ad_allowances
+               WHERE status='active' AND allowance_date=?
+                 AND (act_id=? OR act_id=?)
+               ORDER BY updated_at DESC, id DESC""",
+            (day, target, _allowance_plain_id(target)),
+        ).fetchall()
+        items = [dict(r) for r in rows]
+        for item in items:
+            item["account_name"] = account["name"] if "name" in account.keys() else target
+        return {"success": True, "act_id": target, "allowance_date": day, "items": items}
+    finally:
+        conn.close()
+
+
+@router.post("/guard/allowances")
+def save_guard_ad_allowances(body: GuardAdAllowanceIn, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _ensure_guard_allowance_schema(conn)
+        act_id = _allowance_norm_act_id(body.act_id)
+        if not act_id:
+            raise HTTPException(400, "请选择账户")
+        _assert_rule_target_access(conn, act_id, user)
+        account = _account_row(conn, act_id)
+        if not account:
+            raise HTTPException(404, "账户不存在")
+        day = (body.allowance_date or "").strip() or _account_local_date(account)
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+            raise HTTPException(400, "日期格式必须为 YYYY-MM-DD")
+        raw_ids = []
+        if body.ad_id:
+            raw_ids.append(body.ad_id)
+        if body.ad_ids:
+            raw_ids.extend(body.ad_ids)
+        ad_ids = []
+        seen = set()
+        for raw in raw_ids:
+            ad_id = _normalize_ad_id(raw)
+            if ad_id and ad_id not in seen:
+                seen.add(ad_id)
+                ad_ids.append(ad_id)
+        if not ad_ids:
+            raise HTTPException(400, "请填写广告 ID")
+        team_id = account["team_id"] if "team_id" in account.keys() else None
+        owner_user_id = account["owner_user_id"] if "owner_user_id" in account.keys() else None
+        created_by = (user or {}).get("username") or ""
+        reason = (body.reason or "").strip()
+        saved = []
+        for ad_id in ad_ids:
+            old = conn.execute(
+                "SELECT id FROM guard_ad_allowances WHERE act_id=? AND ad_id=? AND allowance_date=?",
+                (act_id, ad_id, day),
+            ).fetchone()
+            if old:
+                conn.execute(
+                    """UPDATE guard_ad_allowances
+                       SET status='active', reason=?, team_id=?, owner_user_id=?,
+                           created_by=?, updated_at=datetime('now','+8 hours')
+                       WHERE id=?""",
+                    (reason, team_id, owner_user_id, created_by, old["id"]),
+                )
+                saved.append(old["id"])
+            else:
+                cur = conn.execute(
+                    """INSERT INTO guard_ad_allowances
+                       (act_id, ad_id, allowance_date, reason, status, team_id, owner_user_id, created_by)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (act_id, ad_id, day, reason, "active", team_id, owner_user_id, created_by),
+                )
+                saved.append(cur.lastrowid)
+        conn.commit()
+        return {
+            "success": True,
+            "act_id": act_id,
+            "allowance_date": day,
+            "count": len(saved),
+            "ids": saved,
+            "message": f"已放行 {len(saved)} 条广告，周期为账户日期 {day}",
+        }
+    finally:
+        conn.close()
+
+
+@router.delete("/guard/allowances/{allowance_id}")
+def revoke_guard_ad_allowance(allowance_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _ensure_guard_allowance_schema(conn)
+        row = conn.execute("SELECT * FROM guard_ad_allowances WHERE id=?", (allowance_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "放行记录不存在")
+        act_id = _allowance_norm_act_id(row["act_id"])
+        _assert_rule_target_access(conn, act_id, user)
+        conn.execute(
+            "UPDATE guard_ad_allowances SET status='revoked', updated_at=datetime('now','+8 hours') WHERE id=?",
+            (allowance_id,),
+        )
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
 
 
 @router.put("/guard/{rule_id}")
@@ -725,14 +954,19 @@ def _visible_dry_run_accounts(conn, user, act_id: str | None) -> list[dict]:
     target = _normalize_account_id(act_id)
     if target:
         assert_row_access(conn, "accounts", target, user, id_column="act_id")
-        row = conn.execute("SELECT act_id, name, currency FROM accounts WHERE act_id=?", (target,)).fetchone()
+        row = _account_row(conn, target)
         return [dict(row)] if row else []
     ids = _team_account_act_ids(conn, user)
     if not ids:
         return []
     placeholders = ",".join("?" for _ in ids)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+    select_cols = ["act_id", "name", "currency"]
+    for col in ("timezone", "timezone_name", "timezone_offset_hours_utc"):
+        if col in cols:
+            select_cols.append(col)
     rows = conn.execute(
-        f"SELECT act_id, name, currency FROM accounts WHERE act_id IN ({placeholders}) ORDER BY id",
+        f"SELECT {', '.join(select_cols)} FROM accounts WHERE act_id IN ({placeholders}) ORDER BY id",
         ids,
     ).fetchall()
     return [dict(r) for r in rows]
@@ -881,6 +1115,17 @@ def dry_run_rules(body: RuleDryRunRequest, user=Depends(get_current_user)):
             block_reasons.append("广告当前已停止投放，正式巡检会跳过")
         if any(r.get("in_cooldown") for r in triggered):
             block_reasons.append("命中规则仍在冷却中")
+        allowance = None
+        lookup_conn = get_conn()
+        try:
+            allowance = _active_guard_allowance(lookup_conn, account, diag.get("ad_id") or ad.get("ad_id"))
+        finally:
+            lookup_conn.close()
+        if allowance:
+            note = f"该广告已做当日放行，账户日期 {allowance['allowance_date']} 内正式巡检会跳过"
+            if allowance["reason"]:
+                note += f"：{allowance['reason']}"
+            block_reasons.append(note)
         would_execute = bool(triggered) and not block_reasons
         items.append({
             "act_id": account["act_id"],
@@ -901,6 +1146,7 @@ def dry_run_rules(body: RuleDryRunRequest, user=Depends(get_current_user)):
             "triggered_rules": triggered,
             "would_execute": would_execute,
             "block_reasons": block_reasons,
+            "allowance": dict(allowance) if allowance else None,
             "planned_actions": [_rule_action_label(r) for r in triggered],
         })
 

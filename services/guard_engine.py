@@ -13,6 +13,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date, timedelta
 from typing import Optional, Tuple
 import requests
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover - Python <3.9 fallback
+    ZoneInfo = None
 
 from core.database import get_conn, decrypt_token
 from core.account_access import note_account_read_failure, note_account_read_success
@@ -539,6 +543,119 @@ def _ensure_rule_scope_schema():
         conn.close()
 
 
+_guard_allowance_schema_ready = False
+_guard_allowance_schema_lock = threading.RLock()
+
+
+def _guard_plain_id(value: str | None) -> str:
+    raw = str(value or "").strip()
+    return raw[4:] if raw.lower().startswith("act_") else raw
+
+
+def _guard_norm_act_id(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return raw if raw.lower().startswith("act_") else f"act_{raw}"
+
+
+def _account_local_date(account: dict) -> str:
+    tz_name = (account.get("timezone_name") or account.get("timezone") or "").strip()
+    if tz_name and ZoneInfo:
+        try:
+            return datetime.now(ZoneInfo(tz_name)).date().isoformat()
+        except Exception:
+            pass
+    try:
+        offset = account.get("timezone_offset_hours_utc")
+        if offset not in (None, ""):
+            return (datetime.utcnow() + timedelta(hours=float(offset))).date().isoformat()
+    except Exception:
+        pass
+    return date.today().isoformat()
+
+
+def _ensure_guard_allowance_schema(conn=None) -> None:
+    global _guard_allowance_schema_ready
+    if _guard_allowance_schema_ready:
+        return
+    close_conn = False
+    with _guard_allowance_schema_lock:
+        if _guard_allowance_schema_ready:
+            return
+        if conn is None:
+            conn = get_conn()
+            close_conn = True
+        try:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS guard_ad_allowances (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   act_id TEXT NOT NULL,
+                   ad_id TEXT NOT NULL,
+                   allowance_date TEXT NOT NULL,
+                   reason TEXT,
+                   status TEXT DEFAULT 'active',
+                   team_id INTEGER,
+                   owner_user_id INTEGER,
+                   created_by TEXT,
+                   created_at TEXT DEFAULT (datetime('now','+8 hours')),
+                   updated_at TEXT DEFAULT (datetime('now','+8 hours')),
+                   UNIQUE(act_id, ad_id, allowance_date)
+                )"""
+            )
+            conn.execute(
+                """CREATE INDEX IF NOT EXISTS idx_guard_ad_allowances_lookup
+                   ON guard_ad_allowances(act_id, ad_id, allowance_date, status)"""
+            )
+            conn.commit()
+            _guard_allowance_schema_ready = True
+        finally:
+            if close_conn:
+                conn.close()
+
+
+def _active_guard_ad_allowance(account: dict, ad_id: str) -> Optional[dict]:
+    if not account or not ad_id:
+        return None
+    act_id = _guard_norm_act_id(account.get("act_id"))
+    plain_act = _guard_plain_id(act_id)
+    ad_plain = _guard_plain_id(ad_id)
+    allowance_date = _account_local_date(account)
+    conn = get_conn()
+    try:
+        _ensure_guard_allowance_schema(conn)
+        row = conn.execute(
+            """SELECT * FROM guard_ad_allowances
+               WHERE status='active'
+                 AND allowance_date=?
+                 AND ad_id=?
+                 AND (act_id=? OR act_id=?)
+               ORDER BY updated_at DESC, id DESC
+               LIMIT 1""",
+            (allowance_date, ad_plain, act_id, plain_act),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _log_guard_allowance_skip(account: dict, ad_id: str, ad_name: str,
+                              trigger_type: str, trigger_detail: str,
+                              allowance: dict) -> None:
+    act_id = account.get("act_id")
+    day = allowance.get("allowance_date") or _account_local_date(account)
+    reason = allowance.get("reason") or ""
+    detail = f"daily_ad_allowance active for {day}"
+    if reason:
+        detail += f"; note={reason}"
+    if trigger_detail:
+        detail += f"; original_trigger={trigger_detail}"
+    _log_action(
+        act_id, "ad", ad_id, ad_name, "skip",
+        trigger_type, detail, status="skipped", operator="system"
+    )
+
+
 def _load_rules_for_account(conn, table: str, account: dict) -> list[dict]:
     act_id = account.get("act_id")
     owner_user_id = account.get("owner_user_id")
@@ -1008,6 +1125,13 @@ def _pause_with_escalation(
             "final_level": "",
             "final_status": "",
         })
+
+    allowance = _active_guard_ad_allowance(account, ad_id)
+    if allowance:
+        _log_guard_allowance_skip(account, ad_id, ad_name, trigger_type, trigger_detail, allowance)
+        if details_out is not None:
+            details_out.update({"final_level": "ad", "final_status": "allowance_skipped"})
+        return "ad", "allowance_skipped"
 
     if dry_run:
         logger.info(f"[DRY RUN] 暂停广告 {ad_id}")
@@ -2243,6 +2367,8 @@ class GuardEngine:
             )
             if status in ("success", "escalated", "dry_run"):
                 successes.append(f"{ad_name}({level})")
+            elif status == "allowance_skipped":
+                continue
             else:
                 failures.append(f"{ad_name}: {status}")
         if failures and not successes:
@@ -2763,6 +2889,11 @@ class GuardEngine:
         if not triggered:
             return
 
+        allowance = _active_guard_ad_allowance(account, ad_id)
+        if allowance:
+            _log_guard_allowance_skip(account, ad_id, ad_name, rule_type, reason, allowance)
+            return
+
         _set_cooldown(ad_id, rule_type)
         logger.info(f"触发规则 [{rule_type}] 广告 {ad_name}: {reason}")
 
@@ -2787,6 +2918,8 @@ class GuardEngine:
                 details_out=escalation_info,
             )
             level_label = {"ad": "广告", "adset": "广告组", "campaign": "广告系列"}.get(level, level)
+            if status == "allowance_skipped":
+                return
             if status in ("success", "escalated", "dry_run"):
                 spend_display = (f"{account_currency} {spend_raw:.2f} (~${spend:.2f} USD)"
                                  if account_currency != "USD" and spend_raw is not None
