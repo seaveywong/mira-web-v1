@@ -18,6 +18,7 @@ from core.app_meta import DEFAULT_ALLOWED_ORIGINS
 from core.database import decrypt_token, encrypt_token, get_conn, mask_token
 from core.perf_history import ensure_perf_snapshot_history_schema
 from core.tenancy import assert_row_access, is_operator_user, team_id_for_create, user_id
+from services.token_manager import ACTION_READ, get_exec_token
 from services.landing_publisher import (
     DEFAULT_TEMPLATE_DIR,
     CloudflareError,
@@ -830,6 +831,196 @@ def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = No
     if stats:
         item["stats"] = stats
     return item
+
+
+def _fb_act_id(raw: str) -> str:
+    val = str(raw or "").strip()
+    if not val:
+        return ""
+    return val if val.startswith("act_") else f"act_{val}"
+
+
+def _landing_action_value(actions: list, action_types: list[str]) -> float:
+    if not actions or not action_types:
+        return 0.0
+    wanted = [str(x or "").strip() for x in action_types if str(x or "").strip()]
+    for key in wanted:
+        for item in actions:
+            if str((item or {}).get("action_type") or "") == key:
+                try:
+                    return float((item or {}).get("value") or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+    return 0.0
+
+
+def _landing_count_fb_conversions(conn, ad_id: str, act_id: str, actions: list) -> tuple[float, str]:
+    kpi_field = ""
+    try:
+        row = conn.execute(
+            """SELECT kpi_field FROM kpi_configs
+               WHERE target_id=? AND enabled=1
+               ORDER BY CASE WHEN act_id=? THEN 0 ELSE 1 END, id DESC
+               LIMIT 1""",
+            (ad_id, act_id),
+        ).fetchone()
+        kpi_field = (row["kpi_field"] if row else "") or ""
+    except Exception:
+        kpi_field = ""
+    try:
+        from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases
+
+        if kpi_field:
+            aliases = list(_get_kpi_aliases(kpi_field) or [])
+            value = _landing_action_value(actions, aliases)
+            if value:
+                return value, kpi_field
+            value = _landing_action_value(actions, list(_get_kpi_fallback_aliases(kpi_field) or []))
+            if value:
+                return value, kpi_field
+            return 0.0, kpi_field
+    except Exception:
+        pass
+    for field in ("purchase", "offsite_conversion.fb_pixel_purchase", "lead", "onsite_conversion.lead_grouped"):
+        value = _landing_action_value(actions, [field])
+        if value:
+            return value, field
+    return 0.0, kpi_field
+
+
+def _landing_usd_from_currency(amount: float, currency: str) -> float:
+    try:
+        from services.guard_engine import _local_per_usd_rate
+
+        rate = float(_local_per_usd_rate(currency or "USD") or 1.0)
+        return float(amount or 0) / rate if rate > 0 else float(amount or 0)
+    except Exception:
+        return float(amount or 0)
+
+
+def _refresh_landing_ad_link_spend(conn, row, result_date: str) -> dict:
+    ad_id = str(row["ad_id"] or "").strip()
+    act_id = _fb_act_id(row["act_id"] or "")
+    if not ad_id:
+        return {"ok": False, "reason": "missing_ad_id", "message": "该短码还没有绑定广告 ID，无法拉取 FB 消耗"}
+    if not act_id:
+        return {"ok": False, "reason": "missing_act_id", "message": "该短码缺少账户 ID，无法选择读取 Token"}
+    acc = conn.execute(
+        "SELECT act_id, name, currency FROM accounts WHERE act_id IN (?, ?) ORDER BY id DESC LIMIT 1",
+        (act_id, act_id.replace("act_", "")),
+    ).fetchone()
+    currency = (acc["currency"] if acc else "") or "USD"
+    token = get_exec_token(act_id, ACTION_READ, notify_exhausted=False)
+    if not token:
+        return {"ok": False, "reason": "missing_token", "message": "没有可用读取 Token，无法实时拉取广告消耗"}
+    try:
+        resp = requests.get(
+            f"https://graph.facebook.com/v25.0/{ad_id}/insights",
+            params={
+                "access_token": token,
+                "fields": "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,actions,action_values",
+                "time_range": json.dumps({"since": result_date, "until": result_date}),
+                "limit": 25,
+            },
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("error"):
+            err = data["error"]
+            return {
+                "ok": False,
+                "reason": "fb_api_error",
+                "message": err.get("message") or str(err),
+                "code": err.get("code"),
+                "subcode": err.get("error_subcode"),
+            }
+        items = data.get("data") or []
+        if not items:
+            return {"ok": True, "source": "fb_insights_api", "empty": True, "message": "FB 该日期暂无广告消耗数据"}
+        item = items[0]
+        spend_orig = float(item.get("spend") or 0)
+        spend_usd = round(_landing_usd_from_currency(spend_orig, currency), 4)
+        actions = item.get("actions") or []
+        conversions, kpi_field = _landing_count_fb_conversions(conn, ad_id, act_id, actions)
+        impressions = int(float(item.get("impressions") or 0))
+        clicks = int(float(item.get("clicks") or 0))
+        cpa = round(spend_usd / conversions, 4) if spend_usd > 0 and conversions > 0 else None
+        conn.execute(
+            "DELETE FROM perf_snapshots WHERE act_id=? AND ad_id=? AND snapshot_date=?",
+            (act_id, ad_id, result_date),
+        )
+        conn.execute(
+            """INSERT OR REPLACE INTO perf_snapshots
+               (act_id, ad_id, adset_id, campaign_id, ad_name,
+                snapshot_date, spend, impressions, clicks,
+                conversions, cpa, roas, kpi_field, raw_actions)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                act_id,
+                ad_id,
+                item.get("adset_id") or row["adset_id"] or "",
+                item.get("campaign_id") or row["campaign_id"] or "",
+                item.get("ad_name") or row["ad_name"] or ad_id,
+                result_date,
+                spend_usd,
+                impressions,
+                clicks,
+                conversions,
+                cpa,
+                None,
+                kpi_field,
+                json.dumps(actions, ensure_ascii=False),
+            ),
+        )
+        from core.perf_history import append_perf_snapshot_history
+
+        append_perf_snapshot_history(
+            conn,
+            act_id=act_id,
+            ad_id=ad_id,
+            adset_id=item.get("adset_id") or row["adset_id"] or "",
+            campaign_id=item.get("campaign_id") or row["campaign_id"] or "",
+            ad_name=item.get("ad_name") or row["ad_name"] or ad_id,
+            snapshot_date=result_date,
+            spend=spend_usd,
+            impressions=impressions,
+            clicks=clicks,
+            conversions=conversions,
+            cpa=cpa,
+            roas=None,
+            kpi_field=kpi_field,
+            raw_actions=json.dumps(actions, ensure_ascii=False),
+            currency="USD",
+        )
+        updates, params = [], []
+        for db_key, api_key in (
+            ("ad_name", "ad_name"),
+            ("adset_id", "adset_id"),
+            ("adset_name", "adset_name"),
+            ("campaign_id", "campaign_id"),
+            ("campaign_name", "campaign_name"),
+        ):
+            val = (item.get(api_key) or "").strip() if isinstance(item.get(api_key), str) else item.get(api_key)
+            if val and not row[db_key]:
+                updates.append(f"{db_key}=?")
+                params.append(str(val)[:255])
+        if updates:
+            updates.append("updated_at=datetime('now','+8 hours')")
+            params.append(int(row["id"]))
+            conn.execute(f"UPDATE landing_ad_links SET {', '.join(updates)} WHERE id=?", params)
+        conn.commit()
+        return {
+            "ok": True,
+            "source": "fb_insights_api",
+            "spend": spend_usd,
+            "spend_original": spend_orig,
+            "currency": currency,
+            "conversions": conversions,
+            "kpi_field": kpi_field,
+        }
+    except Exception as exc:
+        logger.exception("landing ad link live spend refresh failed: link_id=%s ad_id=%s", row["id"], ad_id)
+        return {"ok": False, "reason": "exception", "message": str(exc)[:300]}
 
 
 def _ad_link_decision(stats: dict) -> dict:
@@ -2350,6 +2541,54 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         page_public = _public_page(page)
         return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"]))}
+    finally:
+        conn.close()
+
+
+@router.get("/ad-links/{link_id}/result-preview")
+def landing_ad_link_result_preview(
+    link_id: int,
+    result_date: Optional[str] = None,
+    refresh: int = 0,
+    user=Depends(get_current_user),
+):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="广告级链接不存在")
+        page = _assert_page_access(conn, int(row["page_id"]), user)
+        result_day = _normalize_result_date(result_date)
+        stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=result_day, date_to=result_day)
+        live_refresh = {"ok": False, "skipped": True, "reason": "local_data_available"}
+        needs_refresh = bool(refresh) or (
+            row["ad_id"]
+            and row["act_id"]
+            and not stats.get("spend_source")
+            and float(stats.get("spend") or 0) <= 0
+        )
+        if needs_refresh:
+            live_refresh = _refresh_landing_ad_link_spend(conn, row, result_day)
+            row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+            stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=result_day, date_to=result_day)
+        page_public = _public_page(page)
+        return {
+            "success": True,
+            "result_date": result_day,
+            "refresh": live_refresh,
+            "link": _public_ad_link(row, page_public, stats),
+            "stats": stats,
+            "ad": {
+                "act_id": row["act_id"] or "",
+                "account_name": row["account_name"] or "",
+                "campaign_id": row["campaign_id"] or "",
+                "campaign_name": row["campaign_name"] or "",
+                "adset_id": row["adset_id"] or "",
+                "adset_name": row["adset_name"] or "",
+                "ad_id": row["ad_id"] or "",
+                "ad_name": row["ad_name"] or "",
+            },
+        }
     finally:
         conn.close()
 

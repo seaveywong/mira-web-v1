@@ -1755,6 +1755,12 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-result-modal-grid .fg{margin:0!important}
 .landing-result-modal-grid .wide{grid-column:1/-1}
 .landing-result-context{padding:10px 12px;border:1px solid #e5e5ea;border-radius:8px;background:#f5f5f7;color:#6e6e73;font-size:12px;line-height:1.5;margin-bottom:12px}
+.landing-result-preview{padding:12px;border:1px solid #d2d2d7;border-radius:10px;background:#fff;margin-bottom:12px}
+.landing-result-preview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+.landing-result-preview-card{border:1px solid #e5e5ea;border-radius:8px;background:#f5f5f7;padding:9px 10px;min-height:58px}
+.landing-result-preview-card span{display:block;font-size:11px;color:#6e6e73;margin-bottom:4px}
+.landing-result-preview-card b{font-size:18px;color:#1d1d1f}
+@media(max-width:720px){.landing-result-preview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .landing-result-bulk-area{min-height:220px!important;font-family:ui-monospace,SFMono-Regular,Consolas,monospace!important;font-size:12px!important;line-height:1.5!important}
 .landing-table-actionbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .team-resource-section{padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important}
@@ -16879,6 +16885,72 @@ function _parseLandingResultDate(parts, fallback){
  if(/^\d{4}-\d{2}-\d{2}$/.test(first))return {date:first,offset:1};
  return {date:fallback||_landingResultToday(),offset:0};
 }
+var _landingResultPreviewState={};
+function _landingResultMoney(v){
+ var n=Number(v||0);
+ return '$'+(isFinite(n)?n:0).toFixed(2);
+}
+function _landingResultSourceLabel(src){
+ return ({perf_snapshot_history:'巡检历史',perf_snapshots:'日快照',asset_spend_log:'素材缓存',fb_insights_api:'FB实时拉取',ads_live:'当前广告列表'}[src]||src||'暂无来源');
+}
+function _landingResultManualCost(){
+ var stats=(_landingResultPreviewState&&_landingResultPreviewState.stats)||{};
+ var spend=Number(stats.spend||0);
+ var actions=Math.max(0,parseInt(((document.getElementById('landingResultActions')||{}).value)||'0',10)||0);
+ return spend>0&&actions>0? _landingResultMoney(spend/actions):'--';
+}
+function updateLandingResultPreviewCost(){
+ var el=document.getElementById('landingResultManualCost');
+ if(el)el.textContent=_landingResultManualCost();
+ var hint=document.getElementById('landingResultCostHint');
+ if(hint){
+  var actions=Math.max(0,parseInt(((document.getElementById('landingResultActions')||{}).value)||'0',10)||0);
+  hint.textContent=actions>0?'当前输入真实进线优先用于计算':'真实进线为 0 时不会计算真实成本';
+ }
+}
+function renderLandingResultPreview(data, linkId){
+ _landingResultPreviewState=data||{};
+ var box=document.getElementById('landingResultPreview');
+ if(!box)return;
+ var stats=(data&&data.stats)||{};
+ var ad=(data&&data.ad)||{};
+ var refresh=(data&&data.refresh)||{};
+ var spend=Number(stats.spend||0);
+ var fbConv=Number(stats.fb_conversions||0);
+ var adName=ad.ad_id?escHtml(ad.ad_name||ad.ad_id):'<span style="color:var(--wa)">未绑定广告 ID</span>';
+ var adSub=ad.ad_id?('ID '+escHtml(ad.ad_id)):'需要先通过 Mira 铺广告或手动对齐短码';
+ var acc=[displayAccountName(ad.account_name,ad.act_id,''),ad.act_id?displayActId(ad.act_id):''].filter(Boolean).join(' · ')||'未绑定账户';
+ var source=_landingResultSourceLabel(stats.spend_source||((refresh&&refresh.source)||''));
+ var refreshMsg='';
+ if(refresh&&refresh.ok&&refresh.source==='fb_insights_api')refreshMsg='<span class="badge bg-ok">已刷新 FB 消耗</span>';
+ else if(refresh&&refresh.ok&&refresh.empty)refreshMsg='<span class="badge bg-mu">FB 当日暂无数据</span>';
+ else if(refresh&&refresh.message)refreshMsg='<span class="badge bg-wa" title="'+escHtml(refresh.message)+'">刷新提醒</span>';
+ else if(!ad.ad_id)refreshMsg='<span class="badge bg-wa">需要先对齐广告</span>';
+ box.innerHTML=
+  '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'+
+   '<div><div style="font-weight:820;color:var(--t1)">广告消耗自动计算</div><div style="font-size:12px;color:var(--t3);margin-top:3px">'+escHtml(acc)+'</div></div>'+
+   '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+refreshMsg+'<button class="btn btn-g btn-sm" type="button" onclick="loadLandingResultPreview('+linkId+',true)">刷新广告消耗</button></div>'+
+  '</div>'+
+  '<div class="landing-result-preview-grid">'+
+   '<div class="landing-result-preview-card"><span>对应广告</span><b style="font-size:13px">'+adName+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">'+adSub+'</div></div>'+
+   '<div class="landing-result-preview-card"><span>FB 消耗</span><b>'+_landingResultMoney(spend)+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">'+escHtml(source)+'</div></div>'+
+   '<div class="landing-result-preview-card"><span>FB 成效</span><b>'+escHtml(String(fbConv||0))+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">仅参考，不替代真实进线</div></div>'+
+   '<div class="landing-result-preview-card"><span>按当前输入真实成本</span><b id="landingResultManualCost">'+_landingResultManualCost()+'</b><div id="landingResultCostHint" style="font-size:11px;color:var(--t3);margin-top:4px"></div></div>'+
+  '</div>'+
+  '<div style="font-size:11px;color:var(--t3);margin-top:8px">计算口径：对应广告消耗 ÷ 当前填写的真实进线。保存后，真实效果榜会优先使用人工回填。</div>';
+ updateLandingResultPreviewCost();
+}
+async function loadLandingResultPreview(linkId, forceRefresh){
+ var box=document.getElementById('landingResultPreview');
+ if(box)box.innerHTML='<div style="color:var(--t3);font-size:13px">正在读取对应广告和消耗...</div>';
+ var date=((document.getElementById('landingResultDate')||{}).value||_landingResultToday()).trim();
+ try{
+  var data=await api('GET','/landing-pages/ad-links/'+linkId+'/result-preview?result_date='+encodeURIComponent(date)+'&refresh='+(forceRefresh?1:0));
+  renderLandingResultPreview(data,linkId);
+ }catch(e){
+  if(box)box.innerHTML='<div style="color:var(--er);font-size:13px">读取广告消耗失败：'+escHtml(e.message||String(e))+'</div>';
+ }
+}
 async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue, encodedNote, encodedDate){
  var slug=decodeURIComponent(encodedSlug||'');
  var note=decodeURIComponent(encodedNote||'');
@@ -16890,6 +16962,7 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
   '<div class="mh"><h3>回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingResult&quot;)">✕</button></div>'+
   '<div class="mb">'+
    '<div class="landing-result-context">短码：<b>'+escHtml(slug||String(linkId))+'</b><br>真实进线会优先用于该日期的广告真实成本；无有效进线时填 0，并在备注里写清原因。</div>'+
+   '<div class="landing-result-preview" id="landingResultPreview"><div style="color:var(--t3);font-size:13px">正在读取对应广告和消耗...</div></div>'+
    '<div class="landing-result-modal-grid">'+
     '<div class="fg"><label class="fl">结果日期</label><input class="fc" id="landingResultDate" type="date" value="'+escHtml(resultDate)+'"></div>'+
     '<div class="fg"><label class="fl">真实进线</label><input class="fc" id="landingResultActions" type="number" min="0" step="1" value="'+escHtml(String(actions||0))+'"></div>'+
@@ -16903,7 +16976,12 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
  document.body.appendChild(mo);
  var saveBtn=document.getElementById('landingResultSaveBtn');
  if(saveBtn)saveBtn.onclick=function(){saveLandingAdResult(linkId,encodeURIComponent(slug||''));};
+ var dateEl=document.getElementById('landingResultDate');
+ if(dateEl)dateEl.onchange=function(){loadLandingResultPreview(linkId,false);};
+ var actionsEl=document.getElementById('landingResultActions');
+ if(actionsEl)actionsEl.oninput=updateLandingResultPreviewCost;
  mo.style.display='flex';
+ loadLandingResultPreview(linkId,false);
 }
 async function saveLandingAdResult(linkId, encodedSlug){
  var slug=decodeURIComponent(encodedSlug||'');
