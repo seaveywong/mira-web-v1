@@ -12,9 +12,10 @@ const HEARTBEAT_ALARM = "mira_heartbeat";
 const POLL_ALARM = "mira_poll";
 const TOKEN_ALARM = "mira_token_refresh";
 const GRAPH_BASE = "https://graph.facebook.com/v22.0";
-const VERSION = "2.4.1";
+const VERSION = "2.4.2";
 const ASSET_DISCOVERY_FRESH_MS = 6 * 60 * 60 * 1000;
 const ASSET_DISCOVERY_MIN_INTERVAL_MS = 20 * 60 * 1000;
+const LOCAL_SESSION_PROBE_FRESH_MS = 5 * 60 * 1000;
 
 const FB_COOKIE_NAMES = ['c_user', 'xs', 'fr', 'datr', 'sb'];
 
@@ -491,6 +492,19 @@ async function buildAccountSummary(options = {}) {
     let tabAccounts = await discoverAccountsFromOpenTabs();
     const tabBusinesses = await scanBusinessAccountsFromOpenTabs().catch(() => ({ businesses: [] }));
     (tabBusinesses.businesses || []).forEach(b => pushUniqueBusiness(businessesById, b, b.source || 'page_scan'));
+    let businesses = businessListFromMap(businessesById);
+    const baseSummary = {
+      fb_user: null,
+      accounts: tabAccounts,
+      businesses,
+      assets: { ad_accounts: tabAccounts, businesses, pixels: [] },
+      fb_status: tabAccounts.length ? 'ok' : 'no_token'
+    };
+    const cachedSummary = await withCachedAssets(baseSummary, options);
+    const cachedAt = parseTimeMs(cachedSummary.cached_assets_at);
+    if (!options.forceLocalProbe && cachedSummary.accounts && cachedSummary.accounts.length && cachedAt && Date.now() - cachedAt < LOCAL_SESSION_PROBE_FRESH_MS) {
+      return cachedSummary;
+    }
     try {
       const local = await runBusinessOperationInTab('list_ad_accounts', {});
       tabAccounts = mergeAccountsById([...(tabAccounts || []), ...(local.accounts || []), ...(local.assets?.ad_accounts || [])]);
@@ -504,7 +518,7 @@ async function buildAccountSummary(options = {}) {
     } catch (e) {
       // 页面扫描和缓存仍可兜底；错误会在深度发现里单独展示。
     }
-    const businesses = businessListFromMap(businessesById);
+    businesses = businessListFromMap(businessesById);
     return await withCachedAssets({
       fb_user: null,
       accounts: tabAccounts,
@@ -788,11 +802,12 @@ function businessOperationUrl(operation, payload = {}) {
 async function findBusinessTab(bmId) {
   const tabs = sortFacebookTabs(await chrome.tabs.query({ url: '*://*.facebook.com/*' }));
   if (!tabs.length) return null;
+  const businessTabs = tabs.filter(t => String(t.url || '').includes('business.facebook.com'));
   if (bmId) {
-    const exact = tabs.find(t => String(t.url || '').includes(`business_id=${bmId}`));
+    const exact = businessTabs.find(t => String(t.url || '').includes(`business_id=${bmId}`));
     if (exact) return exact;
   }
-  return tabs.find(t => String(t.url || '').includes('business.facebook.com')) || tabs[0];
+  return businessTabs[0] || null;
 }
 
 async function runBusinessOperationInTab(operation, payload = {}) {
@@ -1441,7 +1456,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'refreshAccounts') {
       try {
         silentExtractAndSave().catch(() => {});
-        const summary = await buildAccountSummary();
+        const summary = await buildAccountSummary({ forceLocalProbe: true });
         // 持久化到本地，popup 刷新不丢失
         await chrome.storage.local.set({
           miraStatus: {
