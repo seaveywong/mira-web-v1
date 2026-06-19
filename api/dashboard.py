@@ -18,6 +18,7 @@ from api.accounts import _calc_available_balance
 from core.perf_history import ensure_perf_snapshot_history_schema
 from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token, is_operate_token_eligible
 from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _get_setting, _local_per_usd_rate
+from api.landing_pages import _ad_link_stats
 
 router = APIRouter()
 _SUMMARY_CACHE = {}
@@ -52,6 +53,80 @@ def _act_id_filter_sql(act_ids: list[str], column: str):
         return " AND 1=0", []
     placeholders = ",".join("?" for _ in act_ids)
     return f" AND {column} IN ({placeholders})", list(act_ids)
+
+
+def _landing_ad_metrics_for_ads(
+    conn,
+    ad_ids: list[str],
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    spend_by_ad: Optional[dict[str, float]] = None,
+) -> dict[str, dict]:
+    clean = []
+    seen = set()
+    for ad_id in ad_ids or []:
+        raw = str(ad_id or "").strip()
+        if raw and raw not in seen:
+            seen.add(raw)
+            clean.append(raw)
+    if not clean:
+        return {}
+    placeholders = ",".join("?" for _ in clean)
+    try:
+        rows = conn.execute(
+            f"""SELECT *
+                FROM landing_ad_links
+                WHERE ad_id IN ({placeholders})
+                  AND COALESCE(status,'') NOT IN ('archived','failed','unused')
+                ORDER BY id DESC""",
+            clean,
+        ).fetchall()
+    except Exception:
+        return {}
+    out = {}
+    for row in rows:
+        ad_id = row["ad_id"]
+        if not ad_id or ad_id in out:
+            continue
+        try:
+            stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=date_from, date_to=date_to)
+        except Exception:
+            stats = {}
+        final_true_contact = stats.get("final_true_contact", stats.get("effective_true_contact", stats.get("true_contact", 0))) or 0
+        row_spend = None
+        if spend_by_ad and ad_id in spend_by_ad:
+            try:
+                row_spend = float(spend_by_ad.get(ad_id) or 0)
+            except Exception:
+                row_spend = None
+        cost_per_final = stats.get("cost_per_final_true_contact") or stats.get("cost_per_effective_true_contact") or stats.get("cost_per_true_contact")
+        if row_spend is not None:
+            try:
+                n = float(final_true_contact or 0)
+                cost_per_final = round(row_spend / n, 4) if row_spend > 0 and n > 0 else None
+            except Exception:
+                cost_per_final = None
+        out[ad_id] = {
+            "link_id": int(row["id"]),
+            "page_id": int(row["page_id"]),
+            "slug": row["slug"],
+            "public_url": row["public_url"] or "",
+            "target_url": row["target_url"] or "",
+            "status": row["status"] or "",
+            "spend": row_spend if row_spend is not None else stats.get("spend", 0),
+            "final_true_contact": final_true_contact,
+            "final_metric_mode": stats.get("final_metric_mode", stats.get("metric_mode", "raw")),
+            "cost_per_final_true_contact": cost_per_final,
+            "confirmed_actions": stats.get("confirmed_actions", 0),
+            "confirmed_sales": stats.get("confirmed_sales", 0),
+            "confirmed_revenue": stats.get("confirmed_revenue", 0),
+            "unique_true_contact": stats.get("unique_true_contact", 0),
+            "true_contact": stats.get("true_contact", 0),
+            "has_confirmed_result": bool(stats.get("has_confirmed_result")),
+            "result_note": stats.get("confirmed_result_note", ""),
+            "result_updated_at": stats.get("confirmed_result_updated_at"),
+        }
+    return out
 
 # ─── KPI字段 -> actions字段映射（v1.3.0修复：每个字段只映射到自身，禁止多字段叠加）────────────
 _KPI_FIELD_TO_ACTION = {
@@ -1736,6 +1811,22 @@ def get_ads(
                 })
         except Exception:
             continue
+
+    if result:
+        conn3 = get_conn()
+        try:
+            spend_by_ad = {r.get("ad_id"): float(r.get("spend") or 0) for r in result if r.get("ad_id")}
+            landing_map = _landing_ad_metrics_for_ads(
+                conn3,
+                [r.get("ad_id") for r in result],
+                date_from=df,
+                date_to=dt,
+                spend_by_ad=spend_by_ad,
+            )
+        finally:
+            conn3.close()
+        for row in result:
+            row["landing"] = landing_map.get(row.get("ad_id"), {})
 
     result.sort(key=lambda x: x.get("spend") or 0, reverse=True)
     return result

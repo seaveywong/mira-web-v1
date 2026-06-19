@@ -750,17 +750,43 @@ def _ad_link_decision(stats: dict) -> dict:
     return {"state": "no_data", "label": "no_data", "reason": "no events or spend", "metric": metric}
 
 
-def _ad_link_stats(conn, page_id: int, slug: str, days: Optional[int] = None) -> dict:
+def _ad_link_stats(
+    conn,
+    page_id: int,
+    slug: str,
+    days: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> dict:
     path = f"/a/{slug}"
-    since = None
-    if days:
+    date_params = []
+    if date_from or date_to:
+        where_parts = []
+        try:
+            if date_from:
+                start = datetime.fromisoformat(str(date_from)[:10]).strftime("%Y-%m-%d 00:00:00")
+                where_parts.append("created_at>=?")
+                date_params.append(start)
+            if date_to:
+                end_dt = datetime.fromisoformat(str(date_to)[:10]) + timedelta(days=1)
+                where_parts.append("created_at<?")
+                date_params.append(end_dt.strftime("%Y-%m-%d 00:00:00"))
+        except Exception:
+            where_parts = []
+            date_params = []
+    else:
+        where_parts = []
+    if not where_parts and days:
         try:
             d = max(1, min(int(days), 90))
             since = (datetime.now(CST) - timedelta(days=d - 1)).strftime("%Y-%m-%d 00:00:00")
+            where_parts = ["created_at>=?"]
+            date_params = [since]
         except Exception:
-            since = None
-    where_extra = " AND created_at>=?" if since else ""
-    params = [page_id, path] + ([since] if since else [])
+            where_parts = []
+            date_params = []
+    where_extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
+    params = [page_id, path] + date_params
     rows = conn.execute(
         f"""SELECT event_type, COUNT(*) AS cnt
            FROM landing_events
