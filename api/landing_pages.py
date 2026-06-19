@@ -686,11 +686,82 @@ def _ad_link_stats(conn, page_id: int, slug: str) -> dict:
         (page_id, path),
     ).fetchall()
     out = {r["event_type"]: int(r["cnt"] or 0) for r in rows}
+    whatsapp_click = 0
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND path=? AND event_type='click'
+                 AND (
+                   lower(COALESCE(target_url,'')) LIKE '%whatsapp%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%wa.me/%'
+                   OR lower(COALESCE(target_url,'')) LIKE '%api.whatsapp.com%'
+                 )""",
+            (page_id, path),
+        ).fetchone()
+        whatsapp_click = int(row["cnt"] or 0) if row else 0
+    except Exception:
+        whatsapp_click = 0
+
+    spend = 0.0
+    fb_conversions = 0.0
+    fb_clicks = 0.0
+    impressions = 0.0
+    last_synced_at = None
+    try:
+        link_row = conn.execute(
+            "SELECT ad_id FROM landing_ad_links WHERE page_id=? AND slug=?",
+            (page_id, slug),
+        ).fetchone()
+        ad_id = (link_row["ad_id"] if link_row else "") or ""
+        if ad_id:
+            spend_row = conn.execute(
+                """SELECT SUM(COALESCE(spend,0)) AS spend,
+                          SUM(COALESCE(conv,0)) AS conv,
+                          SUM(COALESCE(clicks,0)) AS clicks,
+                          SUM(COALESCE(impressions,0)) AS impressions,
+                          MAX(last_synced_at) AS last_synced_at
+                   FROM asset_spend_log
+                   WHERE fb_ad_id=?""",
+                (ad_id,),
+            ).fetchone()
+            if spend_row:
+                spend = float(spend_row["spend"] or 0)
+                fb_conversions = float(spend_row["conv"] or 0)
+                fb_clicks = float(spend_row["clicks"] or 0)
+                impressions = float(spend_row["impressions"] or 0)
+                last_synced_at = spend_row["last_synced_at"]
+    except Exception:
+        pass
+
+    def _cost(n: int | float) -> Optional[float]:
+        try:
+            n = float(n or 0)
+        except Exception:
+            n = 0.0
+        if spend <= 0 or n <= 0:
+            return None
+        return round(spend / n, 4)
+
+    visits = out.get("visit", 0)
+    clicks = out.get("click", 0)
+    redirects = out.get("redirect", 0)
     return {
-        "visit": out.get("visit", 0),
-        "click": out.get("click", 0),
-        "redirect": out.get("redirect", 0),
+        "visit": visits,
+        "click": clicks,
+        "redirect": redirects,
         "block": out.get("block", 0),
+        "whatsapp_click": whatsapp_click,
+        "message_click": whatsapp_click,
+        "spend": round(spend, 4),
+        "fb_conversions": fb_conversions,
+        "fb_clicks": fb_clicks,
+        "impressions": impressions,
+        "cost_per_visit": _cost(visits),
+        "cost_per_click": _cost(clicks),
+        "cost_per_whatsapp_click": _cost(whatsapp_click),
+        "cost_per_redirect": _cost(redirects),
+        "last_synced_at": last_synced_at,
         "total": sum(out.values()),
     }
 
@@ -1439,7 +1510,7 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
 
 @router.patch("/ad-links/{link_id}")
 def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(get_current_user)):
-    allowed_status = {"reserved", "active", "paused", "archived"}
+    allowed_status = {"reserved", "active", "paused", "archived", "failed", "unused"}
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()

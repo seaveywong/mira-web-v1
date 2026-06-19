@@ -22,10 +22,12 @@ import json
 import logging
 import mimetypes
 import re
+import secrets
 import time
 import requests
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from urllib.parse import urlparse
 
 from core.database import get_conn
 from services.execution_safety import note_write_failure, wait_for_write_slot
@@ -2596,6 +2598,38 @@ class AutoPilotEngine:
         """创建 Facebook Ad（含 AdCreative）"""
         import json as _json
         act_id_num = act_id.replace("act_", "")
+        _landing_link_reserved = None
+        if landing_url:
+            try:
+                _link_cache = None
+                _link_cache_key = ""
+                if isinstance(asset_info, dict):
+                    _link_cache = asset_info.setdefault("_mira_landing_link_cache", {})
+                    _link_cache_key = "|".join([str(act_id or ""), str(adset_id or ""), str(name or ""), str(landing_url or "")])
+                    _landing_link_reserved = _link_cache.get(_link_cache_key)
+                _acc_for_link = self._load_account(act_id) or {}
+                _account_name_for_link = (_acc_for_link.get("name") or act_id or "").strip()
+                if not _landing_link_reserved:
+                    _landing_link_reserved = self._reserve_landing_ad_link(
+                        landing_url,
+                        act_id,
+                        _account_name_for_link,
+                        "",
+                        "",
+                        adset_id,
+                        "",
+                        name,
+                        target_url=form_link or landing_url,
+                    )
+                    if _link_cache is not None and _landing_link_reserved:
+                        _link_cache[_link_cache_key] = _landing_link_reserved
+                if _landing_link_reserved and _landing_link_reserved.get("public_url"):
+                    _tracked_landing_url = str(_landing_link_reserved["public_url"]).strip()
+                    if not form_link or self._landing_link_base(form_link) == self._landing_link_base(landing_url):
+                        form_link = _tracked_landing_url
+                    landing_url = _tracked_landing_url
+            except Exception as _link_err:
+                logger.warning("[AutoPilot] landing ad link auto-bind skipped: %s", _link_err)
 
         # ── 消息模板：保留原始值，统一在后面消息广告构建阶段处理 ──
         # 不在此处提前解析，避免双重解析导致 int() 失败
@@ -2897,27 +2931,34 @@ class AutoPilotEngine:
         # Lead form campaigns must resolve a real form before creative/ad creation.
         if is_lead_ad and not lead_form_id:
             detail = f" 原始原因：{_lead_form_error}" if _lead_form_error else ""
+            self._mark_landing_ad_link(_landing_link_reserved, "failed", error_msg="Lead Form unavailable" + detail)
             raise Exception(
                 "当前主页无法提供有效的 Lead Form。请先选择已有表单，或换用有 pages_manage_ads 权限的主页/Token 后重试。"
                 + detail
             )
 
-        creative_data = self._fb_post(
-            f"act_{act_id_num}/adcreatives", token, creative_payload
-        )
-        creative_id = creative_data["id"]
+        try:
+            creative_data = self._fb_post(
+                f"act_{act_id_num}/adcreatives", token, creative_payload
+            )
+            creative_id = creative_data["id"]
 
-        # 创建 Ad
-        _ad_payload = {
-            "name": name,
-            "adset_id": adset_id,
-            "creative": {"creative_id": creative_id},
-            "status": "ACTIVE",
-        }
-        ad_data = self._fb_post(
-            f"act_{act_id_num}/ads", token, _ad_payload
-        )
-        return ad_data["id"]
+            # 创建 Ad
+            _ad_payload = {
+                "name": name,
+                "adset_id": adset_id,
+                "creative": {"creative_id": creative_id},
+                "status": "ACTIVE",
+            }
+            ad_data = self._fb_post(
+                f"act_{act_id_num}/ads", token, _ad_payload
+            )
+            ad_id = ad_data["id"]
+            self._mark_landing_ad_link(_landing_link_reserved, "active", ad_id=ad_id)
+            return ad_id
+        except Exception as _ad_create_err:
+            self._mark_landing_ad_link(_landing_link_reserved, "failed", error_msg=str(_ad_create_err))
+            raise
 
     # ── 兴趣词解析 ───────────────────────────────────────────────────────────
     def _resolve_interests(self, interest_names: list, token: str) -> list:
@@ -3064,6 +3105,144 @@ class AutoPilotEngine:
         conn.commit()
         conn.close()
 
+    def _landing_link_base(self, value: Optional[str]) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+        if "://" not in raw:
+            raw = "https://" + raw
+        try:
+            parsed = urlparse(raw)
+            if not parsed.netloc:
+                return raw.rstrip("/").lower()
+            path = (parsed.path or "").rstrip("/")
+            if path.startswith("/a/"):
+                return ""
+            if path not in ("", "/"):
+                return raw.rstrip("/").lower()
+            return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+        except Exception:
+            return raw.rstrip("/").lower()
+
+    def _find_published_landing_page_for_url(self, landing_url: Optional[str]) -> Optional[dict]:
+        target = self._landing_link_base(landing_url)
+        if not target:
+            return None
+        conn = get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT id, pages_url, custom_domain, team_id, owner_user_id
+                   FROM landing_pages
+                   WHERE status='published'
+                     AND (COALESCE(pages_url,'')!='' OR COALESCE(custom_domain,'')!='')
+                   ORDER BY id DESC LIMIT 500"""
+            ).fetchall()
+            for row in rows:
+                item = dict(row)
+                candidates = []
+                if item.get("pages_url"):
+                    candidates.append(str(item.get("pages_url") or "").strip().rstrip("/"))
+                if item.get("custom_domain"):
+                    candidates.append("https://" + str(item.get("custom_domain") or "").strip().rstrip("/"))
+                for candidate in candidates:
+                    if candidate and self._landing_link_base(candidate) == target:
+                        item["public_url"] = candidate.rstrip("/")
+                        return item
+        except Exception as exc:
+            logger.warning("[AutoPilot] landing link page lookup failed: %s", exc)
+        finally:
+            conn.close()
+        return None
+
+    def _new_landing_slug(self, conn) -> str:
+        alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        for _ in range(12):
+            slug = "".join(secrets.choice(alphabet) for _ in range(6))
+            exists = conn.execute("SELECT 1 FROM landing_ad_links WHERE slug=?", (slug,)).fetchone()
+            if not exists:
+                return slug
+        return "".join(secrets.choice(alphabet) for _ in range(10))
+
+    def _reserve_landing_ad_link(
+        self,
+        landing_url: Optional[str],
+        act_id: str,
+        account_name: str,
+        campaign_id: str,
+        campaign_name: str,
+        adset_id: str,
+        adset_name: str,
+        ad_name: str,
+        target_url: Optional[str] = None,
+    ) -> Optional[dict]:
+        page = self._find_published_landing_page_for_url(landing_url)
+        if not page:
+            return None
+        conn = get_conn()
+        try:
+            slug = self._new_landing_slug(conn)
+            public_url = f"{str(page.get('public_url') or '').rstrip('/')}/a/{slug}"
+            conn.execute(
+                """INSERT INTO landing_ad_links
+                   (page_id, slug, public_url, act_id, account_name, campaign_id, campaign_name,
+                    adset_id, adset_name, ad_name, target_url, status, note,
+                    team_id, owner_user_id, created_by)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    page["id"],
+                    slug,
+                    public_url,
+                    str(act_id or "").replace("act_", ""),
+                    (account_name or "")[:255],
+                    str(campaign_id or "")[:80],
+                    (campaign_name or "")[:255],
+                    str(adset_id or "")[:80],
+                    (adset_name or "")[:255],
+                    (ad_name or "")[:255],
+                    (target_url or landing_url or "")[:1000],
+                    "reserved",
+                    "auto_launch",
+                    page.get("team_id"),
+                    page.get("owner_user_id"),
+                    "launch_engine",
+                ),
+            )
+            link_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.commit()
+            return {"id": link_id, "page_id": page["id"], "slug": slug, "public_url": public_url}
+        except Exception as exc:
+            logger.warning("[AutoPilot] reserve landing ad link failed: %s", exc)
+            return None
+        finally:
+            conn.close()
+
+    def _mark_landing_ad_link(
+        self,
+        link: Optional[dict],
+        status: str,
+        ad_id: Optional[str] = None,
+        error_msg: Optional[str] = None,
+    ) -> None:
+        if not link or not link.get("id"):
+            return
+        conn = get_conn()
+        try:
+            note = "auto_launch"
+            if error_msg:
+                note = ("auto_launch_error: " + str(error_msg))[:1000]
+            conn.execute(
+                """UPDATE landing_ad_links
+                   SET status=?, ad_id=COALESCE(NULLIF(?,''), ad_id), note=?,
+                       updated_at=datetime('now','+8 hours')
+                   WHERE id=?""",
+                (status, str(ad_id or "")[:80], note, int(link["id"])),
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.warning("[AutoPilot] update landing ad link failed: %s", exc)
+        finally:
+            conn.close()
+
     def _insert_campaign_ad(
         self, campaign_id: int, act_id: str, asset_id: int,
         headline: Optional[str], body: Optional[str],
@@ -3082,6 +3261,32 @@ class AutoPilotEngine:
             (campaign_id, act_id, asset_id, headline, body, targeting_json,
              fb_adset_id, fb_ad_id, status, error_msg, now_str, adset_name, ad_name, now_str)
         )
+        if fb_ad_id:
+            try:
+                campaign = conn.execute(
+                    "SELECT fb_campaign_id, name FROM auto_campaigns WHERE id=?",
+                    (campaign_id,),
+                ).fetchone()
+                conn.execute(
+                    """UPDATE landing_ad_links
+                       SET campaign_id=COALESCE(NULLIF(campaign_id,''), ?),
+                           campaign_name=COALESCE(NULLIF(campaign_name,''), ?),
+                           adset_id=COALESCE(NULLIF(adset_id,''), ?),
+                           adset_name=COALESCE(NULLIF(adset_name,''), ?),
+                           ad_name=COALESCE(NULLIF(ad_name,''), ?),
+                           updated_at=datetime('now','+8 hours')
+                       WHERE ad_id=?""",
+                    (
+                        (campaign["fb_campaign_id"] if campaign else "") or "",
+                        (campaign["name"] if campaign else "") or "",
+                        fb_adset_id or "",
+                        adset_name or "",
+                        ad_name or "",
+                        fb_ad_id,
+                    ),
+                )
+            except Exception as exc:
+                logger.warning("[AutoPilot] enrich landing ad link failed: %s", exc)
         conn.commit()
         conn.close()
 

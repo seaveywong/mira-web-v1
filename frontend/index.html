@@ -16336,8 +16336,14 @@ function renderLandingPages(){
 function _landingAdLinksHtml(page, links){
  links=Array.isArray(links)?links:[];
  var pageTitle=escHtml((page&&page.title)||'落地页');
+ var money=function(v){var n=Number(v||0);return '$'+(isFinite(n)?n:0).toFixed(2);};
+ var cost=function(v){return v==null||v===''?'--':money(v);};
+ var statusMap={reserved:'已预留',active:'已绑定',paused:'已暂停',archived:'已归档',failed:'失败',unused:'未使用'};
  var rows=links.map(function(x){
   var stats=x.stats||{};
+  var spend=Number(stats.spend||0);
+  var realCost=stats.cost_per_whatsapp_click||stats.cost_per_redirect||stats.cost_per_click||null;
+  var status=x.status||'reserved';
   var meta=[
    x.act_id?('账户 '+x.act_id):'',
    x.campaign_id?('系列 '+x.campaign_id):'',
@@ -16346,9 +16352,12 @@ function _landingAdLinksHtml(page, links){
   ].filter(Boolean).join(' · ')||'待回填广告信息';
   var url=x.public_url||'';
   return '<tr>'+
-   '<td style="padding:8px 10px"><div style="font-weight:760">'+escHtml(x.slug||'')+'</div><div style="font-size:11px;color:var(--t3)">'+escHtml(meta)+'</div></td>'+
+   '<td style="padding:8px 10px"><div style="display:flex;gap:8px;align-items:center"><b style="font-weight:760">'+escHtml(x.slug||'')+'</b><span class="badge '+(status==='active'?'bg-ok':status==='failed'?'bg-er':'bg-mu')+'">'+escHtml(statusMap[status]||status)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(meta)+'</div></td>'+
    '<td style="padding:8px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(url)+'" style="color:var(--ac)">'+escHtml(url)+'</a></td>'+
-   '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+' · 跳转 '+(stats.redirect||0)+' · 拦截 '+(stats.block||0)+'</td>'+
+   '<td style="padding:8px 10px;font-size:12px;color:var(--t2)">'+
+     '<div>访问 '+(stats.visit||0)+' · 点击 '+(stats.click||0)+' · WhatsApp '+(stats.whatsapp_click||0)+' · 跳转 '+(stats.redirect||0)+' · 拦截 '+(stats.block||0)+'</div>'+
+     '<div style="margin-top:3px;color:var(--t3)">FB消耗 '+money(spend)+' · FB成效 '+(stats.fb_conversions||0)+' · 真实点击成本 '+cost(realCost)+'</div>'+
+   '</td>'+
    '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button></td>'+
   '</tr>';
  }).join('');
