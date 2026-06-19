@@ -364,27 +364,29 @@ function collectAdAccountsFromGraph(data, fallbackBusinessId = '', fallbackBusin
 
 function collectPixelsFromGraph(data, fallbackBusinessId = '') {
   const byId = new Map();
-  const push = (item) => {
+  const push = (item, ownerBusinessId = fallbackBusinessId) => {
     if (!item || typeof item !== 'object') return;
     const id = String(item.id || item.pixel_id || item.dataset_id || '').replace(/\D/g, '');
     if (!/^\d{6,}$/.test(id)) return;
-    const current = byId.get(id) || { id, pixel_id: id, name: `Pixel ${id}`, status: '', business_id: fallbackBusinessId || '', source: 'adsmanager_graph' };
+    const current = byId.get(id) || { id, pixel_id: id, name: `Pixel ${id}`, status: '', business_id: ownerBusinessId || '', source: 'adsmanager_graph' };
     current.name = betterLabel(current.name, item.name || item.pixel_name || item.label, `Pixel ${id}`);
     current.status = item.status || item.event_source_status || current.status || '';
     current.code = item.code || current.code || '';
+    if (ownerBusinessId && !current.business_id) current.business_id = ownerBusinessId;
     byId.set(id, current);
   };
   walkObject(data, (item) => {
     if (!item || typeof item !== 'object') return;
+    const itemBusinessId = String(item.business_id || item.businessID || item.id || fallbackBusinessId || '').replace(/\D/g, '');
     const owned = item.owned_pixels && (Array.isArray(item.owned_pixels.data) ? item.owned_pixels.data : item.owned_pixels);
     const client = item.client_pixels && (Array.isArray(item.client_pixels.data) ? item.client_pixels.data : item.client_pixels);
-    if (Array.isArray(owned)) owned.forEach(push);
-    if (Array.isArray(client)) client.forEach(push);
+    if (Array.isArray(owned)) owned.forEach(px => push(px, itemBusinessId));
+    if (Array.isArray(client)) client.forEach(px => push(px, itemBusinessId));
     if (item.pixel_id || item.dataset_id || item.event_source_id) {
-      push(item);
+      push(item, itemBusinessId);
     }
   });
-  return [...byId.values()];
+  return [...byId.values()].filter(px => !fallbackBusinessId || !px.business_id || String(px.business_id) === String(fallbackBusinessId));
 }
 
 async function runBusinessOperation(operation, payload = {}) {
@@ -402,19 +404,43 @@ async function runBusinessOperation(operation, payload = {}) {
     const businesses = [];
     const accounts = [];
     if (businessId) {
-      const data = await adsManagerGraph(businessId, {
-        fields: 'id,name,owned_ad_accounts.limit(5000){id,account_id,name,account_status,currency,timezone_name,business{id,name},owner_business{id,name}},client_ad_accounts.limit(5000){id,account_id,name,account_status,currency,timezone_name,business{id,name},owner_business{id,name}}',
-      });
-      businesses.push(...collectBusinessesFromGraph(data));
-      accounts.push(...collectAdAccountsFromGraph(data, businessId, businesses[0]?.name || ''));
+      const businessCalls = [
+        () => adsManagerGraph(businessId, {
+          fields: 'owned_ad_accounts.limit(5000),client_ad_accounts.limit(5000)',
+        }),
+        () => adsManagerGraph(businessId, {
+          fields: 'id,name,owned_ad_accounts.limit(5000){id,account_id,name,account_status,currency,timezone_name,business{id,name},owner_business{id,name}},client_ad_accounts.limit(5000){id,account_id,name,account_status,currency,timezone_name,business{id,name},owner_business{id,name}}',
+        }),
+      ];
+      for (const call of businessCalls) {
+        try {
+          const data = await call();
+          businesses.push(...collectBusinessesFromGraph(data));
+          accounts.push(...collectAdAccountsFromGraph(data, businessId, businesses[0] && businesses[0].name || ''));
+          if (accounts.length) break;
+        } catch (e) {}
+      }
     }
-    const all = await adsManagerGraph('me/adaccounts', {
-      fields: 'id,account_id,name,account_status,currency,timezone_name,business{id,name},owner_business{id,name},agencies,users{role,id}',
-      limit: 5000,
-      summary: 1,
-    });
-    businesses.push(...collectBusinessesFromGraph(all));
-    accounts.push(...collectAdAccountsFromGraph(all, '', ''));
+    const allCalls = [
+      () => adsManagerGraph('me/adaccounts', {
+        fields: 'id,account_id,name,account_status,business,owner_business,agencies,users{role,id}',
+        limit: 5000,
+        summary: 1,
+      }),
+      () => adsManagerGraph('me/adaccounts', {
+        fields: 'business,name,account_id,account_status,owner_business,agencies,userpermissions.limit(500),users.limit(500),owner,created_time,business_country_code',
+        limit: 5000,
+        summary: 1,
+      }),
+    ];
+    for (const call of allCalls) {
+      try {
+        const all = await call();
+        businesses.push(...collectBusinessesFromGraph(all));
+        accounts.push(...collectAdAccountsFromGraph(all, '', ''));
+        if (accounts.length) break;
+      } catch (e) {}
+    }
     const filtered = businessId
       ? accounts.filter(a => String(a.business_id || '') === businessId)
       : accounts;
@@ -425,8 +451,14 @@ async function runBusinessOperation(operation, payload = {}) {
     if (!businessId) throw new Error('missing_business_id');
     const pixels = [];
     const calls = [
-      () => adsManagerGraph(businessId, { fields: 'id,name,owned_pixels.limit(500){id,name,status,code},client_pixels.limit(500){id,name,status,code}' }),
-      () => adsManagerGraph('me/businesses', { fields: 'id,name,owned_pixels.limit(500){id,name,status,code}', limit: 700, summary: 1 }),
+      () => adsManagerGraph('me/businesses', {
+        fields: 'owner,id,name,owned_pixels.limit(500){id,name,status,code}',
+        limit: 700,
+        summary: 1,
+      }),
+      () => adsManagerGraph(businessId, {
+        fields: 'id,name,owned_pixels.limit(500){id,name,status,code},client_pixels.limit(500){id,name,status,code}',
+      }),
     ];
     const errors = [];
     for (const call of calls) {
