@@ -30,8 +30,8 @@ logger = logging.getLogger("mira.guard")
 FB_API_BASE = "https://graph.facebook.com/v25.0"
 FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
-    "campaign{objective},"
-    "adset{optimization_goal,destination_type},"
+    "campaign{id,name,objective,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
+    "adset{id,name,optimization_goal,destination_type,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
     "insights.date_preset(today){date_start,date_stop,spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}"
 )
 MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
@@ -189,6 +189,48 @@ def _to_usd_guard(amount: float, currency: str) -> float:
     if amount is None:
         return 0.0
     return float(amount) * _currency_to_usd_multiplier(currency)
+
+
+_ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
+_BUDGET_PROGRESS_TIERS = (98, 90, 75, 50)
+
+
+def _budget_api_to_major(raw_value, currency: str) -> float:
+    try:
+        amount = float(raw_value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if amount <= 0:
+        return 0.0
+    cur = (currency or "USD").upper().strip()
+    return amount if cur in _ZERO_DECIMAL_CURRENCIES else amount / 100.0
+
+
+def _format_local_money(amount: float, currency: str) -> str:
+    cur = (currency or "USD").upper().strip()
+    try:
+        value = float(amount or 0)
+    except (TypeError, ValueError):
+        value = 0.0
+    if cur in _ZERO_DECIMAL_CURRENCIES:
+        return f"{cur} {value:,.0f}"
+    return f"{cur} {value:,.2f}"
+
+
+def _format_budget_money(amount: float, currency: str) -> str:
+    cur = (currency or "USD").upper().strip()
+    local = _format_local_money(amount, cur)
+    if cur == "USD":
+        return local
+    usd = _to_usd_guard(float(amount or 0), cur)
+    return f"{local} (~${usd:,.2f} USD)"
+
+
+def _budget_progress_tier(progress_pct: float) -> int | None:
+    for tier in _BUDGET_PROGRESS_TIERS:
+        if progress_pct >= tier:
+            return tier
+    return None
 
 
 def _is_dry_run() -> bool:
@@ -835,6 +877,7 @@ def _send_tg(
     event_type: str = "guard",
     include_owner: bool = True,
     reply_markup: dict | None = None,
+    dedup_key: str | None = None,
 ):
     """Route TG notifications through team/account ownership rules."""
     try:
@@ -846,10 +889,18 @@ def _send_tg(
                 parse_mode=parse_mode,
                 include_owner=include_owner,
                 reply_markup=reply_markup,
+                dedup_key=dedup_key,
             )
         if team_id is not None:
-            return notify_team(team_id, msg, event_type=event_type, parse_mode=parse_mode, reply_markup=reply_markup)
-        return notify_global(msg, parse_mode=parse_mode, dedup_key=event_type, reply_markup=reply_markup)
+            return notify_team(
+                team_id,
+                msg,
+                event_type=event_type,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+                dedup_key=dedup_key,
+            )
+        return notify_global(msg, parse_mode=parse_mode, dedup_key=dedup_key or event_type, reply_markup=reply_markup)
     except Exception as e:
         logger.warning(f"TG 推送失败: {e}")
         return {"sent": 0, "errors": [{"error": str(e)}]}
@@ -2108,6 +2159,11 @@ class GuardEngine:
             except Exception as e:
                 logger.error(f"广告 {ad.get('id')} 巡检异常: {e}")
 
+        try:
+            self._check_budget_progress_alerts(account, ad_metrics)
+        except Exception as e:
+            logger.warning(f"budget progress alert failed {act_id}: {e}")
+
         self._inspect_account_rules(account, token, account_rules, ad_metrics)
 
     def _default_account_bleed_rule(self, act_id: str) -> dict:
@@ -2571,6 +2627,12 @@ class GuardEngine:
                 "ad_name": ad_name,
                 "adset_id": adset_id,
                 "campaign_id": campaign_id,
+                "adset_name": adset_data.get("name", "") if isinstance(adset_data, dict) else "",
+                "campaign_name": camp_data.get("name", "") if isinstance(camp_data, dict) else "",
+                "adset_daily_budget_raw": adset_data.get("daily_budget", "") if isinstance(adset_data, dict) else "",
+                "campaign_daily_budget_raw": camp_data.get("daily_budget", "") if isinstance(camp_data, dict) else "",
+                "adset_budget_remaining_raw": adset_data.get("budget_remaining", "") if isinstance(adset_data, dict) else "",
+                "campaign_budget_remaining_raw": camp_data.get("budget_remaining", "") if isinstance(camp_data, dict) else "",
                 "spend": float(spend or 0),
                 "spend_raw": float(spend_raw or 0),
                 "impressions": int(impressions or 0),
@@ -3251,6 +3313,175 @@ class GuardEngine:
             return bool(row)
         finally:
             conn.close()
+
+    def _budget_target_from_metric(self, metric: dict) -> dict | None:
+        currency = (metric.get("account_currency") or "USD").upper().strip()
+        adset_budget = _budget_api_to_major(metric.get("adset_daily_budget_raw"), currency)
+        if adset_budget > 0 and metric.get("adset_id"):
+            return {
+                "level": "adset",
+                "id": str(metric.get("adset_id") or ""),
+                "name": metric.get("adset_name") or metric.get("adset_id") or "",
+                "daily_budget": adset_budget,
+            }
+        campaign_budget = _budget_api_to_major(metric.get("campaign_daily_budget_raw"), currency)
+        if campaign_budget > 0 and metric.get("campaign_id"):
+            return {
+                "level": "campaign",
+                "id": str(metric.get("campaign_id") or ""),
+                "name": metric.get("campaign_name") or metric.get("campaign_id") or "",
+                "daily_budget": campaign_budget,
+            }
+        return None
+
+    def _has_budget_progress_alert(self, act_id: str, target_id: str, account_day: str, tier: int) -> bool:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                """SELECT 1 FROM action_logs
+                   WHERE act_id=? AND target_id=?
+                     AND action_type='budget_progress_alert'
+                     AND trigger_type=?
+                     AND trigger_detail LIKE ?
+                     AND status='success'
+                   LIMIT 1""",
+                (act_id, target_id, f"budget_progress_{tier}", f"%account_day={account_day}%"),
+            ).fetchone()
+            return bool(row)
+        finally:
+            conn.close()
+
+    def _record_budget_progress_alert(self, account: dict, group: dict, account_day: str, tier: int) -> None:
+        act_id = account.get("act_id", "")
+        detail = (
+            f"account_day={account_day}; progress={group['progress_pct']:.1f}%; "
+            f"tier={tier}; budget={group['daily_budget']:.4f}; spend={group['spend_raw']:.4f}"
+        )
+        _log_action(
+            act_id,
+            group["level"],
+            group["target_id"],
+            group["target_name"],
+            "budget_progress_alert",
+            f"budget_progress_{tier}",
+            detail,
+            new_value={
+                "account_day": account_day,
+                "tier": tier,
+                "progress_pct": round(group["progress_pct"], 2),
+                "daily_budget": group["daily_budget"],
+                "spend_raw": group["spend_raw"],
+                "spend_usd": group["spend_usd"],
+                "currency": group["currency"],
+                "ads": group["ad_ids"][:10],
+            },
+            status="success",
+            operator="system",
+        )
+
+    def _check_budget_progress_alerts(self, account: dict, ad_metrics: list[dict]) -> None:
+        if not ad_metrics:
+            return
+        act_id = account.get("act_id", "")
+        currency = (account.get("currency") or "USD").upper().strip()
+        account_day = _account_local_date(account)
+        groups: dict[str, dict] = {}
+
+        for metric in ad_metrics:
+            target = self._budget_target_from_metric(metric)
+            if not target:
+                continue
+            key = f"{target['level']}:{target['id']}"
+            group = groups.setdefault(
+                key,
+                {
+                    "level": target["level"],
+                    "target_id": target["id"],
+                    "target_name": target["name"] or target["id"],
+                    "daily_budget": target["daily_budget"],
+                    "currency": currency,
+                    "spend_raw": 0.0,
+                    "spend_usd": 0.0,
+                    "conversions": 0.0,
+                    "clicks": 0,
+                    "impressions": 0,
+                    "ad_ids": [],
+                    "ad_names": [],
+                    "kpi_labels": set(),
+                },
+            )
+            group["spend_raw"] += float(metric.get("spend_raw") or 0)
+            group["spend_usd"] += float(metric.get("spend") or 0)
+            group["conversions"] += float(metric.get("conversions") or 0)
+            group["clicks"] += int(metric.get("clicks") or 0)
+            group["impressions"] += int(metric.get("impressions") or 0)
+            ad_id = str(metric.get("ad_id") or "")
+            if ad_id and ad_id not in group["ad_ids"]:
+                group["ad_ids"].append(ad_id)
+                group["ad_names"].append(str(metric.get("ad_name") or ad_id))
+            kpi_label = str(metric.get("kpi_label") or metric.get("kpi_field") or "").strip()
+            if kpi_label:
+                group["kpi_labels"].add(kpi_label)
+
+        for group in groups.values():
+            daily_budget = float(group.get("daily_budget") or 0)
+            if daily_budget <= 0:
+                continue
+            progress_pct = (float(group["spend_raw"] or 0) / daily_budget) * 100
+            if progress_pct <= 50:
+                continue
+            tier = _budget_progress_tier(progress_pct)
+            if not tier:
+                continue
+            target_id = group["target_id"]
+            if self._has_budget_progress_alert(act_id, target_id, account_day, tier):
+                continue
+            if self._has_recent_action(act_id, target_id, "pause", hours=1):
+                continue
+
+            group["progress_pct"] = progress_pct
+            remaining = max(daily_budget - float(group["spend_raw"] or 0), 0)
+            conversions = float(group.get("conversions") or 0)
+            cpa_text = "--"
+            if conversions > 0:
+                cpa_text = f"${(float(group['spend_usd'] or 0) / conversions):,.2f}"
+            ctr = 0.0
+            if int(group.get("impressions") or 0) > 0:
+                ctr = int(group.get("clicks") or 0) / int(group.get("impressions") or 0) * 100
+            level_label = "广告组日预算" if group["level"] == "adset" else "系列日预算"
+            object_label = "广告组" if group["level"] == "adset" else "广告系列"
+            ad_preview = "、".join(
+                f"{name}({ad_id})"
+                for name, ad_id in zip(group["ad_names"][:3], group["ad_ids"][:3])
+            )
+            if len(group["ad_ids"]) > 3:
+                ad_preview += f" 等 {len(group['ad_ids'])} 条广告"
+            if not ad_preview:
+                ad_preview = "--"
+            kpi_text = "、".join(sorted(group["kpi_labels"])[:3]) or "主要成效"
+            msg = (
+                "📊 <b>Mira 日预算进度提醒</b>\n"
+                f"账户：{_tg_escape(account.get('name') or act_id)} ({_tg_code(act_id)})\n"
+                f"预算层级：{_tg_escape(level_label)}\n"
+                f"{object_label}：{_tg_escape(group['target_name'])}\n"
+                f"{object_label}ID：{_tg_code(target_id)}\n"
+                f"账户日期：{_tg_escape(account_day)}\n"
+                f"日预算：{_tg_escape(_format_budget_money(daily_budget, currency))}\n"
+                f"今日消耗：{_tg_escape(_format_budget_money(group['spend_raw'], currency))}\n"
+                f"消耗进度：{progress_pct:.1f}%（触发档位 {tier}%）\n"
+                f"预计剩余额度：{_tg_escape(_format_budget_money(remaining, currency))}\n"
+                f"表现摘要：{_tg_escape(kpi_text)} {conversions:.0f} | CPA {cpa_text} | "
+                f"点击 {int(group.get('clicks') or 0)} | CTR {ctr:.2f}%\n"
+                f"关联广告：{_tg_escape(ad_preview)}\n"
+                "处理建议：请评估是否需要手动调整日预算；Mira 仅发送提醒，不执行预算修改。"
+            )
+            _send_tg(
+                msg,
+                act_id=act_id,
+                event_type="budget_progress",
+                dedup_key=f"budget_progress:{act_id}:{target_id}:{account_day}:{tier}",
+            )
+            self._record_budget_progress_alert(account, group, account_day, tier)
 
     def _save_snapshot(self, act_id, ad_id, adset_id, campaign_id, ad_name,
                        spend, impressions, clicks, conversions, cpa, roas,
