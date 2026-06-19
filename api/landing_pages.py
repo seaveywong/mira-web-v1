@@ -1098,6 +1098,15 @@ def _refresh_landing_ad_link_spend(conn, row, result_date: str) -> dict:
         (act_id, act_id.replace("act_", "")),
     ).fetchone()
     currency = (acc["currency"] if acc else "") or "USD"
+    if acc and acc["name"] and not (row["account_name"] or "").strip():
+        try:
+            conn.execute(
+                "UPDATE landing_ad_links SET account_name=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+                (str(acc["name"])[:255], int(row["id"])),
+            )
+            conn.commit()
+        except Exception:
+            logger.exception("landing ad link account name fill failed: link_id=%s", row["id"])
     token = get_exec_token(act_id, ACTION_READ, notify_exhausted=False)
     if not token:
         return {"ok": False, "reason": "missing_token", "message": "没有可用读取 Token，无法实时拉取广告消耗"}

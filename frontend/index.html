@@ -17081,8 +17081,10 @@ function renderLandingPerformance(){
   var publicUrl=x.public_url||'';
   var target=x.target_url||'';
   var binding=_landingTargetBindingStatus(x,targetCounts);
-  var adName=x.ad_name||x.ad_id||'未回填广告';
-  var meta=[displayAccountName(x.account_name,x.act_id,''),x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
+  var adName=x.ad_name||x.ad_id||'未绑定广告';
+  var accText=[displayAccountName(x.account_name,x.act_id,''),x.act_id?displayActId(x.act_id):''].filter(Boolean).join(' · ');
+  var meta=[accText,x.campaign_name||x.campaign_id||'',x.adset_name||x.adset_id||''].filter(Boolean).join(' · ');
+  var bindLabel=x.ad_id?'改绑定':'绑定广告';
   var finalAction=_landingFinalAction(stats);
   var finalMode=stats.final_metric_mode||stats.metric_mode||((stats.dedupe_available)?'unique':'raw');
   var rawAction=stats.true_contact||0;
@@ -17101,12 +17103,12 @@ function renderLandingPerformance(){
   return '<tr>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd)"><span class="badge '+(stateClass[state]||'bg-mu')+'" title="'+escHtml(stateHelp[state]||'')+'">'+escHtml(stateLabel[state]||state)+'</span><div style="font-size:11px;color:var(--t3);margin-top:5px">'+escHtml(reason)+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);min-width:180px"><div style="font-weight:760">'+escHtml(x.slug||'')+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px">'+escHtml(x.page_title||'--')+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:260px"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(adName)+'">'+escHtml(adName)+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(meta)+'">'+escHtml(meta||'待绑定账户/系列/组')+'</div></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:300px"><div style="display:flex;align-items:center;gap:6px;min-width:0"><div style="font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(adName)+'">'+escHtml(adName)+'</div>'+(x.ad_id?'':'<span class="badge bg-wa">未绑定</span>')+'</div><div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(meta)+'">'+escHtml(meta||'需要绑定账户 ID 和广告 ID 后才能读取 FB 消耗/成效')+'</div>'+(x.ad_id?'<div style="font-size:11px;color:var(--t3);margin-top:2px">广告ID '+escHtml(x.ad_id||'')+'</div>':'')+'</td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);max-width:280px;overflow:hidden;text-overflow:ellipsis"><a target="_blank" href="'+escHtml(publicUrl)+'" style="color:var(--ac)">'+escHtml(publicUrl||'--')+'</a><div style="margin-top:4px"><span class="badge '+binding.cls+'" title="'+escHtml(binding.hint)+'">'+escHtml(binding.label)+'</span></div><div style="font-size:11px;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(target)+'">'+(target?'专属跳转：'+escHtml(target):'使用落地页全局轮询')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+money(stats.spend||0)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">FB成效 '+(stats.fb_conversions||0)+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(spendSource)+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+escHtml(String(finalAction))+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+' · 原始 '+rawAction+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+'</div></td>'+
    '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><b>'+cost(trueCost)+'</b><div style="font-size:11px;color:var(--t3);margin-top:3px">访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+'</div></td>'+
-   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
+   '<td style="padding:9px 10px;border-top:1px solid var(--bd);text-align:right;white-space:nowrap"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(publicUrl)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="openLandingAdIdentityModal('+x.id+',\''+encodeURIComponent(x.slug||'')+'\')">'+bindLabel+'</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
   '</tr>';
  }).join('');
  panel.innerHTML=
@@ -17328,7 +17330,7 @@ function _landingAdLinksHtml(page, links){
      '<div>访问 '+(stats.unique_visit||stats.visit||0)+'/'+(stats.visit||0)+' · 点击 '+(stats.unique_click||stats.click||0)+'/'+(stats.click||0)+' · 最终动作 '+finalAction+'（'+(finalMode==='confirmed'?'已确认':finalMode==='unique'?'唯一':'原始')+'） · 原始 '+(stats.true_contact||0)+'</div>'+
      '<div style="margin-top:3px;color:var(--t3)">确认 '+(stats.confirmed_actions||0)+' · 成交 '+(stats.confirmed_sales||0)+(stats.confirmed_result_date?' · '+escHtml(stats.confirmed_result_date):'')+' · 收入 '+money(stats.confirmed_revenue||0)+' · 表单 '+(stats.unique_submit||stats.submit||0)+' · WA跳转 '+(stats.unique_whatsapp_redirect||stats.whatsapp_redirect||0)+' · FB消耗 '+money(spend)+' · 真实成本 '+cost(realCost)+' · '+escHtml(spendSource)+'</div>'+
    '</td>'+
-   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
+   '<td style="padding:8px 10px;text-align:right"><button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(url)+'\')">复制</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="openLandingAdIdentityModal('+x.id+',\''+encodeURIComponent(x.slug||'')+'\')">'+(x.ad_id?'改绑定':'绑定广告')+'</button><button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingAdResult('+x.id+',\''+encodeURIComponent(x.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button></td>'+
   '</tr>';
  }).join('');
  if(!rows)rows='<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口链接。生成后，每条广告使用一个入口链接，Mira 只按入口短码做统计，不改目标跳转链接。</td></tr>';
@@ -17364,6 +17366,92 @@ async function createLandingAdLinks(pageId){
   await showLandingAdLinks(pageId);
  }catch(e){
   toast('生成失败：'+(e.message||e),'er');
+ }
+}
+function _landingAdIdentityValue(data,key){
+ var ad=(data&&data.ad)||{};
+ var link=(data&&data.link)||{};
+ return ad[key]||link[key]||'';
+}
+function _renderLandingAdIdentityForm(data, linkId, slug){
+ var box=document.getElementById('landingAdIdentityBody');
+ if(!box)return;
+ var link=(data&&data.link)||{};
+ slug=slug||link.slug||String(linkId);
+ var actId=_landingAdIdentityValue(data,'act_id');
+ var accountName=_landingAdIdentityValue(data,'account_name');
+ var campaignId=_landingAdIdentityValue(data,'campaign_id');
+ var campaignName=_landingAdIdentityValue(data,'campaign_name');
+ var adsetId=_landingAdIdentityValue(data,'adset_id');
+ var adsetName=_landingAdIdentityValue(data,'adset_name');
+ var adId=_landingAdIdentityValue(data,'ad_id');
+ var adName=_landingAdIdentityValue(data,'ad_name');
+ box.innerHTML=
+  '<div class="landing-result-context">短码：<b>'+escHtml(slug)+'</b><br>绑定账户 ID 和广告 ID 后，Mira 会用该广告读取 FB 消耗、成效、广告名称、广告组和系列信息。已有自动铺广告创建的短码通常会自动绑定；手动生成短码需要在这里对齐一次。</div>'+
+  '<div class="landing-result-modal-grid">'+
+   '<div class="fg"><label class="fl">账户 ID</label><input class="fc" id="landingBindActId" placeholder="例如 785770423307490" value="'+escHtml(displayActId(actId||''))+'"><div class="fh">可填纯数字或 act_ 前缀。</div></div>'+
+   '<div class="fg"><label class="fl">账户名称（可选）</label><input class="fc" id="landingBindAccountName" placeholder="保存后可自动补齐" value="'+escHtml(accountName||'')+'"></div>'+
+   '<div class="fg"><label class="fl">广告 ID</label><input class="fc" id="landingBindAdId" placeholder="Facebook 广告 ID" value="'+escHtml(adId||'')+'"></div>'+
+   '<div class="fg"><label class="fl">广告名称（可选）</label><input class="fc" id="landingBindAdName" placeholder="保存后可自动补齐" value="'+escHtml(adName||'')+'"></div>'+
+   '<div class="fg"><label class="fl">广告组 ID（可选）</label><input class="fc" id="landingBindAdsetId" placeholder="可空，刷新后补齐" value="'+escHtml(adsetId||'')+'"></div>'+
+   '<div class="fg"><label class="fl">广告组名称（可选）</label><input class="fc" id="landingBindAdsetName" placeholder="可空，刷新后补齐" value="'+escHtml(adsetName||'')+'"></div>'+
+   '<div class="fg"><label class="fl">系列 ID（可选）</label><input class="fc" id="landingBindCampaignId" placeholder="可空，刷新后补齐" value="'+escHtml(campaignId||'')+'"></div>'+
+   '<div class="fg"><label class="fl">系列名称（可选）</label><input class="fc" id="landingBindCampaignName" placeholder="可空，刷新后补齐" value="'+escHtml(campaignName||'')+'"></div>'+
+  '</div>'+
+  '<div class="landing-help" style="margin-top:12px">保存后会立即刷新一次广告消耗。如果 Token 暂时不可读，绑定仍会保存，等巡检或下次刷新时继续补齐。</div>';
+}
+async function openLandingAdIdentityModal(linkId, encodedSlug){
+ var slug=decodeURIComponent(encodedSlug||'')||String(linkId);
+ var old=document.getElementById('moLandingAdIdentity');
+ if(old)old.remove();
+ var mo=document.createElement('div');
+ mo.className='mo';
+ mo.id='moLandingAdIdentity';
+ mo.innerHTML='<div class="modal" style="max-width:760px">'+
+  '<div class="mh"><h3>绑定广告信息</h3><button class="mc" onclick="closeModal(&quot;moLandingAdIdentity&quot;)">✕</button></div>'+
+  '<div class="mb" id="landingAdIdentityBody"><div style="color:var(--t3);font-size:13px">正在读取短码绑定信息...</div></div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingAdIdentity&quot;)">取消</button><button class="btn btn-p" id="landingAdIdentitySaveBtn" type="button">保存并刷新</button></div>'+
+ '</div>';
+ document.body.appendChild(mo);
+ mo.style.display='flex';
+ var btn=document.getElementById('landingAdIdentitySaveBtn');
+ if(btn)btn.onclick=function(){saveLandingAdIdentity(linkId);};
+ try{
+  var data=await api('GET','/landing-pages/ad-links/'+linkId+'/result-preview?result_date='+encodeURIComponent(_landingResultToday())+'&refresh=0');
+  _renderLandingAdIdentityForm(data,linkId,slug);
+ }catch(e){
+  _renderLandingAdIdentityForm({link:{slug:slug}},linkId,slug);
+  toast('读取绑定信息失败，可手动填写后保存：'+(e.message||e),'wa');
+ }
+}
+async function saveLandingAdIdentity(linkId){
+ var actId=((document.getElementById('landingBindActId')||{}).value||'').trim();
+ var adId=((document.getElementById('landingBindAdId')||{}).value||'').trim();
+ if(!actId){toast('请填写账户 ID','wa');return;}
+ if(!adId){toast('请填写广告 ID','wa');return;}
+ var payload={
+  act_id:actId,
+  account_name:((document.getElementById('landingBindAccountName')||{}).value||'').trim(),
+  campaign_id:((document.getElementById('landingBindCampaignId')||{}).value||'').trim(),
+  campaign_name:((document.getElementById('landingBindCampaignName')||{}).value||'').trim(),
+  adset_id:((document.getElementById('landingBindAdsetId')||{}).value||'').trim(),
+  adset_name:((document.getElementById('landingBindAdsetName')||{}).value||'').trim(),
+  ad_id:adId,
+  ad_name:((document.getElementById('landingBindAdName')||{}).value||'').trim(),
+  status:'active'
+ };
+ try{
+  await api('PATCH','/landing-pages/ad-links/'+linkId,payload);
+  try{
+   await api('GET','/landing-pages/ad-links/'+linkId+'/result-preview?result_date='+encodeURIComponent(_landingResultToday())+'&refresh=1');
+  }catch(refreshErr){
+   toast('绑定已保存，但实时刷新提醒：'+(refreshErr.message||refreshErr),'wa');
+  }
+  closeModal('moLandingAdIdentity');
+  toast('已绑定广告信息','ok');
+  await loadLandingCenter(true);
+ }catch(e){
+  toast('绑定失败：'+(e.message||e),'er');
  }
 }
 function _landingResultToday(){
@@ -17421,7 +17509,7 @@ function renderLandingResultPreview(data, linkId){
  box.innerHTML=
   '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'+
    '<div><div style="font-weight:820;color:var(--t1)">广告消耗自动计算</div><div style="font-size:12px;color:var(--t3);margin-top:3px">'+escHtml(acc)+'</div></div>'+
-   '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+refreshMsg+'<button class="btn btn-g btn-sm" type="button" onclick="loadLandingResultPreview('+linkId+',true)">刷新广告消耗</button></div>'+
+   '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+refreshMsg+(ad.ad_id?'':'<button class="btn btn-g btn-sm" type="button" onclick="openLandingAdIdentityModal('+linkId+',\''+encodeURIComponent(((data&&data.link)||{}).slug||'')+'\')">绑定广告</button>')+'<button class="btn btn-g btn-sm" type="button" onclick="loadLandingResultPreview('+linkId+',true)">刷新广告消耗</button></div>'+
   '</div>'+
   '<div class="landing-result-preview-grid">'+
    '<div class="landing-result-preview-card"><span>对应广告</span><b style="font-size:13px">'+adName+'</b><div style="font-size:11px;color:var(--t3);margin-top:4px">'+adSub+'</div></div>'+
