@@ -303,6 +303,7 @@ def prepare_template(
     ingest_secret: str = "",
     ingest_url: str = "",
     route_url: str = "",
+    config_url: str = "",
 ) -> str:
     src = Path(template_dir)
     if not src.exists() or not src.is_dir():
@@ -348,6 +349,7 @@ def prepare_template(
                 "secret": ingest_secret,
                 "ingest_url": ingest_url,
                 "route_url": route_url,
+                "config_url": config_url,
                 "target_urls": urls,
                 "rotation_mode": rotation_mode,
                 "tracking_enabled": bool(tracking_enabled),
@@ -511,8 +513,55 @@ def _write_worker(path: Path, config: dict[str, Any]) -> None:
 
 
 WORKER_SOURCE = r"""
+let MIRA_RUNTIME_CONFIG = null;
+let MIRA_RUNTIME_CONFIG_EXPIRES = 0;
+
 function lowerList(v) {
   return Array.isArray(v) ? v.map(x => String(x || '').toLowerCase()).filter(Boolean) : [];
+}
+
+function mergeConfig(base, live) {
+  const out = Object.assign({}, base || {});
+  if (!live || typeof live !== 'object') return out;
+  [
+    'link_kind',
+    'target_urls',
+    'rotation_mode',
+    'tracking_enabled',
+    'protection_enabled',
+    'protection_rules'
+  ].forEach(k => {
+    if (Object.prototype.hasOwnProperty.call(live, k)) out[k] = live[k];
+  });
+  return out;
+}
+
+async function runtimeConfig() {
+  const now = Date.now();
+  if (MIRA_RUNTIME_CONFIG && now < MIRA_RUNTIME_CONFIG_EXPIRES) return MIRA_RUNTIME_CONFIG;
+  if (!MIRA_CONFIG.config_url) {
+    MIRA_RUNTIME_CONFIG = MIRA_CONFIG;
+    MIRA_RUNTIME_CONFIG_EXPIRES = now + 60000;
+    return MIRA_RUNTIME_CONFIG;
+  }
+  try {
+    const resp = await fetch(MIRA_CONFIG.config_url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
+      body: JSON.stringify({ page_id: MIRA_CONFIG.page_id, secret: MIRA_CONFIG.secret })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const live = data && data.config ? data.config : data;
+      MIRA_RUNTIME_CONFIG = mergeConfig(MIRA_CONFIG, live);
+      const ttl = Math.max(5, Math.min(parseInt((data && data.cache_seconds) || '30', 10) || 30, 300));
+      MIRA_RUNTIME_CONFIG_EXPIRES = now + ttl * 1000;
+      return MIRA_RUNTIME_CONFIG;
+    }
+  } catch (e) {}
+  MIRA_RUNTIME_CONFIG = MIRA_CONFIG;
+  MIRA_RUNTIME_CONFIG_EXPIRES = now + 15000;
+  return MIRA_RUNTIME_CONFIG;
 }
 
 function parseCookie(header) {
@@ -533,6 +582,23 @@ function uaMeta(ua) {
   return { device_type: device, os, browser, platform: os + '/' + browser };
 }
 
+function sourcePlatform(request) {
+  const url = new URL(request.url);
+  const ua = String(request.headers.get('user-agent') || '').toLowerCase();
+  const ref = String(request.headers.get('referer') || '').toLowerCase();
+  const qs = url.searchParams;
+  const utm = String(qs.get('utm_source') || qs.get('source') || qs.get('src') || '').toLowerCase();
+  const source = [utm, ref, ua].join(' ');
+  if (qs.has('fbclid') || /\bfacebook\b|fb\.com|m\.facebook\.com|l\.facebook\.com|lm\.facebook\.com|fb_iab|fban|fbav/.test(source)) return 'facebook';
+  if (qs.has('igshid') || /\binstagram\b|instagram\.com|ig_iab/.test(source)) return 'instagram';
+  if (qs.has('ttclid') || /\btiktok\b|tiktok\.com|musical_ly/.test(source)) return 'tiktok';
+  if (qs.has('gclid') || /\bgoogle\b|google\./.test(source)) return 'google';
+  if (qs.has('msclkid') || /\bbing\b|bing\./.test(source)) return 'bing';
+  if (/\bwhatsapp\b|wa\.me|api\.whatsapp\.com/.test(source)) return 'whatsapp';
+  if (/\btelegram\b|t\.me/.test(source)) return 'telegram';
+  return 'unknown';
+}
+
 async function sha256(input) {
   try {
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(input || '')));
@@ -547,19 +613,24 @@ function listHit(list, value) {
   return lowerList(list).some(x => source.includes(x));
 }
 
-function evaluate(request) {
-  if (!MIRA_CONFIG.protection_enabled) return { pass: true, reason: '' };
-  const rules = MIRA_CONFIG.protection_rules || {};
+function evaluate(request, cfg) {
+  cfg = cfg || MIRA_CONFIG;
+  if (!cfg.protection_enabled) return { pass: true, reason: '' };
+  const rules = cfg.protection_rules || {};
   const url = new URL(request.url);
   const cf = request.cf || {};
   const ua = request.headers.get('user-agent') || '';
   const ref = request.headers.get('referer') || '';
   const country = String(cf.country || '').toUpperCase();
   const meta = uaMeta(ua);
+  const source = sourcePlatform(request);
   const allow = lowerList(rules.country_allow).map(x => x.toUpperCase());
   const block = lowerList(rules.country_block).map(x => x.toUpperCase());
+  const sourceAllow = lowerList(rules.source_allow);
   if (allow.length && !allow.includes(country)) return { pass: false, reason: 'country_not_allowed:' + country };
   if (block.length && block.includes(country)) return { pass: false, reason: 'country_blocked:' + country };
+  if (sourceAllow.length && !sourceAllow.includes(source)) return { pass: false, reason: 'source_not_allowed:' + source };
+  if (lowerList(rules.source_block).includes(source)) return { pass: false, reason: 'source_blocked:' + source };
   if (listHit(rules.platform_block, meta.platform) || listHit(rules.platform_block, meta.os) || listHit(rules.platform_block, meta.browser)) return { pass: false, reason: 'platform_blocked' };
   if (listHit(rules.device_block, meta.device_type)) return { pass: false, reason: 'device_blocked:' + meta.device_type };
   if (listHit(rules.ua_block, ua)) return { pass: false, reason: 'ua_blocked' };
@@ -600,17 +671,18 @@ function adSlugFromRequest(request) {
   return '';
 }
 
-async function nextTargetFromServer(request) {
-  if (!MIRA_CONFIG.route_url) return '';
+async function nextTargetFromServer(request, cfg) {
+  cfg = cfg || MIRA_CONFIG;
+  if (!cfg.route_url) return '';
   try {
     const url = new URL(request.url);
     const adSlug = adSlugFromRequest(request);
-    const resp = await fetch(MIRA_CONFIG.route_url, {
+    const resp = await fetch(cfg.route_url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
       body: JSON.stringify({
-        page_id: MIRA_CONFIG.page_id,
-        secret: MIRA_CONFIG.secret,
+        page_id: cfg.page_id,
+        secret: cfg.secret,
         path: url.pathname,
         referrer: request.headers.get('referer') || '',
         metadata: {
@@ -628,12 +700,13 @@ async function nextTargetFromServer(request) {
   }
 }
 
-async function selectTarget(request) {
-  const urls = Array.isArray(MIRA_CONFIG.target_urls) ? MIRA_CONFIG.target_urls.filter(Boolean) : [];
-  const serverTarget = await nextTargetFromServer(request);
+async function selectTarget(request, cfg) {
+  cfg = cfg || MIRA_CONFIG;
+  const urls = Array.isArray(cfg.target_urls) ? cfg.target_urls.filter(Boolean) : [];
+  const serverTarget = await nextTargetFromServer(request, cfg);
   if (serverTarget) return serverTarget;
   if (!urls.length) return '';
-  const mode = String(MIRA_CONFIG.rotation_mode || 'sequential').toLowerCase();
+  const mode = String(cfg.rotation_mode || 'sequential').toLowerCase();
   if (mode === 'first') return urls[0];
   if (mode === 'random') return urls[Math.floor(Math.random() * urls.length)];
   const cookies = parseCookie(request.headers.get('cookie') || '');
@@ -641,24 +714,27 @@ async function selectTarget(request) {
   return urls[current % urls.length];
 }
 
-function nextCookie(request) {
-  const urls = Array.isArray(MIRA_CONFIG.target_urls) ? MIRA_CONFIG.target_urls.filter(Boolean) : [];
+function nextCookie(request, cfg) {
+  cfg = cfg || MIRA_CONFIG;
+  const urls = Array.isArray(cfg.target_urls) ? cfg.target_urls.filter(Boolean) : [];
   if (!urls.length) return 'mira_rt_idx=0; Path=/; Max-Age=86400; SameSite=Lax';
   const cookies = parseCookie(request.headers.get('cookie') || '');
   const current = Math.max(parseInt(cookies.mira_rt_idx || '0', 10) || 0, 0);
   return 'mira_rt_idx=' + ((current + 1) % urls.length) + '; Path=/; Max-Age=86400; SameSite=Lax';
 }
 
-async function sendEvent(request, event) {
-  if (!MIRA_CONFIG.tracking_enabled && event.event_type !== 'block') return;
+async function sendEvent(request, event, cfg) {
+  cfg = cfg || MIRA_CONFIG;
+  if (!cfg.tracking_enabled && event.event_type !== 'block') return;
   try {
     const cf = request.cf || {};
     const ua = request.headers.get('user-agent') || '';
     const meta = uaMeta(ua);
     const ip = request.headers.get('cf-connecting-ip') || '';
+    const sourceMeta = { source_platform: sourcePlatform(request) };
     const payload = Object.assign({
-      page_id: MIRA_CONFIG.page_id,
-      secret: MIRA_CONFIG.secret,
+      page_id: cfg.page_id,
+      secret: cfg.secret,
       path: new URL(request.url).pathname,
       referrer: request.headers.get('referer') || '',
       country: cf.country || '',
@@ -667,9 +743,11 @@ async function sendEvent(request, event) {
       colo: cf.colo || '',
       asn: cf.asn ? String(cf.asn) : '',
       user_agent: ua,
-      ip_hash: await sha256(ip + ':' + MIRA_CONFIG.secret)
+      ip_hash: await sha256(ip + ':' + cfg.secret)
     }, meta, event || {});
-    await fetch(MIRA_CONFIG.ingest_url, {
+    payload.secret = cfg.secret;
+    payload.metadata = Object.assign(sourceMeta, (event && event.metadata) || {}, payload.metadata || {});
+    await fetch(cfg.ingest_url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
       body: JSON.stringify(payload)
@@ -686,46 +764,47 @@ function blockedResponse(reason) {
 
 export default {
   async fetch(request, env, ctx) {
+    const cfg = await runtimeConfig();
     const url = new URL(request.url);
     const adSlug = adSlugFromRequest(request);
     if (url.pathname === '/__mira/event' && request.method === 'POST') {
       let body = {};
       try { body = await request.json(); } catch (e) {}
-      ctx.waitUntil(sendEvent(request, Object.assign({}, body, { secret: undefined })));
+      ctx.waitUntil(sendEvent(request, Object.assign({}, body, { secret: undefined }), cfg));
       return new Response('', { status: 204, headers: { 'cache-control': 'no-store' } });
     }
-    const directFormRedirect = String(MIRA_CONFIG.link_kind || '').toLowerCase() === 'form'
+    const directFormRedirect = String(cfg.link_kind || '').toLowerCase() === 'form'
       && request.method === 'GET'
       && (url.pathname === '/' || url.pathname === '/index.html' || !!adSlug);
     if (url.pathname === '/__mira/redirect' || directFormRedirect) {
-      const decision = evaluate(request);
+      const decision = evaluate(request, cfg);
       if (!decision.pass) {
-        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }));
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }, cfg));
         return blockedResponse(decision.reason);
       }
-      const target = await selectTarget(request);
+      const target = await selectTarget(request, cfg);
       if (!target) return new Response('No target configured', { status: 503 });
-      ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug } }));
-      return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request), 'cache-control': 'no-store' } });
+      ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug } }, cfg));
+      return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
     }
     if (adSlug && request.method === 'GET') {
-      const decision = evaluate(request);
+      const decision = evaluate(request, cfg);
       if (!decision.pass) {
-        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }));
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug } }, cfg));
         return blockedResponse(decision.reason);
       }
-      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass', metadata: { ad_slug: adSlug } }));
+      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass', metadata: { ad_slug: adSlug } }, cfg));
       const assetUrl = new URL(request.url);
       assetUrl.pathname = '/index.html';
       return env.ASSETS.fetch(new Request(assetUrl.toString(), request));
     }
     if (isHtmlRequest(request)) {
-      const decision = evaluate(request);
+      const decision = evaluate(request, cfg);
       if (!decision.pass) {
-        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason }));
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason }, cfg));
         return blockedResponse(decision.reason);
       }
-      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass' }));
+      ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass' }, cfg));
     }
     return env.ASSETS.fetch(request);
   }

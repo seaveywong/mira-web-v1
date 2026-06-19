@@ -1733,6 +1733,30 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-rules-box,.landing-preflight-box{margin:12px 0 0;padding:12px;border:1px solid #e5e5ea;border-radius:8px;background:#f5f5f7}
 .landing-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:14px;border-top:1px solid #ececf1}
 .landing-stats-card,.landing-record-card{margin-top:14px}
+.landing-ops-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.landing-ops-card{padding:14px 16px;border:1px solid #e5e5ea;border-radius:10px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.035)}
+.landing-ops-card b{display:block;font-size:13px;color:#1d1d1f;margin-bottom:5px}
+.landing-ops-card span{display:block;font-size:12px;color:#6e6e73;line-height:1.45}
+.landing-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.landing-section-head .landing-section-title{margin:0}
+.landing-section-desc{font-size:12px;color:#6e6e73;line-height:1.45;margin-top:3px}
+.landing-rule-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.landing-rule-card{background:#fff;border:1px solid #e5e5ea;border-radius:10px;padding:12px;min-width:0}
+.landing-rule-card-title{font-size:13px;font-weight:820;color:#1d1d1f;margin-bottom:4px}
+.landing-rule-card-desc{font-size:11px;color:#7c7c82;line-height:1.45;margin-bottom:10px}
+.landing-rule-card .fg{margin-bottom:10px!important}
+.landing-rule-card .fg:last-child{margin-bottom:0!important}
+.landing-rule-summary{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:10px 0 0;padding:10px;border:1px dashed #d2d2d7;border-radius:8px;background:#fbfbfd;min-height:42px}
+.landing-rule-chip{display:inline-flex;align-items:center;max-width:260px;min-height:28px;padding:0 10px;border-radius:999px;background:#eef6ff;border:1px solid #cfe7ff;color:#005bb5;font-size:12px;font-weight:720;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-rule-chip.warn{background:#fff8e6;border-color:#fde68a;color:#9a6700}
+.landing-rule-chip.block{background:#fff1f2;border-color:#fecdd3;color:#be123c}
+.landing-rule-chip.muted{background:#f5f5f7;border-color:#e5e5ea;color:#6e6e73}
+.landing-result-modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.landing-result-modal-grid .fg{margin:0!important}
+.landing-result-modal-grid .wide{grid-column:1/-1}
+.landing-result-context{padding:10px 12px;border:1px solid #e5e5ea;border-radius:8px;background:#f5f5f7;color:#6e6e73;font-size:12px;line-height:1.5;margin-bottom:12px}
+.landing-result-bulk-area{min-height:220px!important;font-family:ui-monospace,SFMono-Regular,Consolas,monospace!important;font-size:12px!important;line-height:1.5!important}
+.landing-table-actionbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .team-resource-section{padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important}
 .team-resource-panel{background:#fff;border:1px solid #dedee4;border-radius:8px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
 .team-resource-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:12px}
@@ -1759,7 +1783,8 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .team-resource-empty.error{color:#b42318;border-color:#fecdca;background:#fff5f5}
 @media(max-width:980px){
  .landing-flow{grid-template-columns:repeat(2,minmax(0,1fr))}
- .landing-form-grid,.team-resource-toolbar{grid-template-columns:1fr}
+ .landing-form-grid,.landing-rule-groups,.team-resource-toolbar{grid-template-columns:1fr}
+ .landing-ops-strip{grid-template-columns:1fr}
  .landing-switch-row .fc,.team-resource-actions .fc{width:100%!important;flex:1 1 220px!important}
  .team-resource-head{display:block}
  .team-resource-summary{margin-top:10px}
@@ -2756,6 +2781,11 @@ select.fc option{background:#fff;color:#1d1d1f}
   <b style="color:var(--t1)">广告级真实成本测试口径：</b>
   每条广告使用一个入口链接 <code>/a/短码</code>，入口链接再绑定一个专属 WhatsApp / 目标链接。真实效果榜里只有显示“专属唯一”的广告，才适合按广告核算真实进线和真实成本；“目标重复”表示多个入口共用同一个 WhatsApp，“全局轮询”表示只能看入口访问和跳转。有效进线以人工或 CSV 回填为准，真实成本按 FB 消耗除以确认进线优先计算。
  </div>
+ <div class="landing-ops-strip">
+  <div class="landing-ops-card"><b>正式域名发布</b><span>投放链接应使用自定义域名；系统备用域只用于内部部署和健康检查。</span></div>
+  <div class="landing-ops-card"><b>广告级真实结果</b><span>短码负责归因，真实进线/成交通过单条或批量回填进入成本榜。</span></div>
+  <div class="landing-ops-card"><b>访问控制</b><span>按地区、设备、来源和 URL 参数做正常站点访问控制，并在发布前预检。</span></div>
+ </div>
  <div class="landing-center-grid">
   <div class="card landing-side-card">
    <div class="landing-card-head">
@@ -2794,26 +2824,46 @@ select.fc option{background:#fff;color:#1d1d1f}
     </div>
    </div>
    <div class="landing-form-section">
-    <div class="landing-section-title">统计与防护</div>
+    <div class="landing-section-head">
+     <div><div class="landing-section-title">统计与访问控制</div><div class="landing-section-desc">边缘统计用于访问、按钮点击、表单和跳转事件；访问控制只做站点质量过滤，规则越少越稳定。</div></div>
+    </div>
     <div class="landing-switch-row">
      <label><input type="checkbox" id="lpFormEnabled"> 表单链接标记</label>
      <label><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
-     <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用防护</label>
+     <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用访问控制</label>
      <select class="fc" id="lpRotation" onchange="updateLandingRotationHint()"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
     </div>
     <div id="lpRotationHint" class="landing-help" style="margin-top:10px">顺序轮询由 Mira 服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。</div>
     <div id="lpRulesBox" class="landing-rules-box" style="display:none">
-     <div class="landing-section-title">防护规则</div>
-     <div class="landing-form-grid">
-      <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" placeholder="如：US,SG,TW；空=不限制"></div>
-      <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" placeholder="如：CN,RU"></div>
-      <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="lpPlatformBlock" placeholder="如：Windows/Chrome"></div>
-      <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" placeholder="mobile,desktop,tablet"></div>
-      <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" placeholder="bot,crawler,spider"></div>
-      <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" placeholder="example.com"></div>
-      <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" placeholder="test,preview"></div>
-      <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" placeholder="fbclid 或 utm_source"></div>
+     <div class="landing-section-head">
+      <div><div class="landing-section-title">访问控制规则</div><div class="landing-section-desc">推荐先只配置国家和必要参数；设备、UA、来源规则只在明确需要时使用。</div></div>
+      <button class="btn btn-g btn-sm" onclick="clearLandingProtectionRules()" type="button">清空规则</button>
      </div>
+     <div class="landing-rule-groups">
+      <div class="landing-rule-card">
+       <div class="landing-rule-card-title">地区</div>
+       <div class="landing-rule-card-desc">国家代码使用 ISO 两位码，例如 US、SG、TW。</div>
+       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" oninput="renderLandingProtectionSummary()" placeholder="US,SG,TW；空=不限制"></div>
+       <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" oninput="renderLandingProtectionSummary()" placeholder="CN,RU"></div>
+      </div>
+      <div class="landing-rule-card">
+       <div class="landing-rule-card-title">设备与环境</div>
+       <div class="landing-rule-card-desc">用于排除明确不投放的设备或异常 UA，避免过度配置。</div>
+       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" oninput="renderLandingProtectionSummary()" placeholder="mobile,desktop,tablet"></div>
+       <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="lpPlatformBlock" oninput="renderLandingProtectionSummary()" placeholder="Windows,Android,iOS"></div>
+       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" oninput="renderLandingProtectionSummary()" placeholder="bot,crawler,spider"></div>
+      </div>
+      <div class="landing-rule-card">
+       <div class="landing-rule-card-title">来源与参数</div>
+       <div class="landing-rule-card-desc">适合要求链接必须带指定追踪参数，或屏蔽测试参数。</div>
+       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="lpSourceAllow" oninput="renderLandingProtectionSummary()" placeholder="FB,IG,TK,Google；空=不限制"></div>
+       <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="lpSourceBlock" oninput="renderLandingProtectionSummary()" placeholder="Unknown,TK"></div>
+       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="lpRefererBlock" oninput="renderLandingProtectionSummary()" placeholder="example.com"></div>
+       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" oninput="renderLandingProtectionSummary()" placeholder="test,preview"></div>
+       <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" oninput="renderLandingProtectionSummary()" placeholder="utm_source 或 fbclid"></div>
+      </div>
+     </div>
+     <div id="lpProtectionSummary" class="landing-rule-summary"></div>
     </div>
     <div id="lpPreflightBox" class="landing-preflight-box" style="display:none"></div>
    </div>
@@ -16581,6 +16631,7 @@ function renderLandingPages(){
    '<td style="padding:10px 12px">'+status+healthBadge+'</td>'+
    '<td style="padding:10px 12px;text-align:right;white-space:nowrap">'+
     copyBtns+
+    '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="editLandingRuntimeConfig('+p.id+')">配置</button>'+
     '<button class="btn btn-g btn-sm role-hide-viewer" style="margin-left:6px" onclick="republishLandingPage('+p.id+')">重新发布</button>'+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="checkLandingHealth('+p.id+')">自检</button>'+
     '<button class="btn btn-g btn-sm" style="margin-left:6px" onclick="showLandingStats('+p.id+')">统计</button>'+
@@ -16677,27 +16728,42 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
  var slug=decodeURIComponent(encodedSlug||'');
  var note=decodeURIComponent(encodedNote||'');
  var resultDate=decodeURIComponent(encodedDate||'')||_landingResultToday();
- var def=[resultDate,actions||0,sales||0,revenue||0,note||''].join(',');
- var raw=await promptTextareaAsync(
-  '回填真实结果',
-  '格式：日期,真实进线,购买/成交,收入,备注。真实进线会优先用于对应日期的广告真实成本。',
-  def,
-  '例如：2026-06-19,2,1,39.9,WhatsApp 确认有效'
- );
- if(raw==null)return;
- var parts=String(raw||'').split(/[\t,，]/);
- var parsedDate=_parseLandingResultDate(parts,resultDate);
- var offset=parsedDate.offset;
+ var mo=document.createElement('div');
+ mo.className='mo';
+ mo.id='moLandingResult';
+ mo.innerHTML='<div class="modal" style="max-width:680px">'+
+  '<div class="mh"><h3>回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingResult&quot;)">✕</button></div>'+
+  '<div class="mb">'+
+   '<div class="landing-result-context">短码：<b>'+escHtml(slug||String(linkId))+'</b><br>真实进线会优先用于该日期的广告真实成本；无有效进线时填 0，并在备注里写清原因。</div>'+
+   '<div class="landing-result-modal-grid">'+
+    '<div class="fg"><label class="fl">结果日期</label><input class="fc" id="landingResultDate" type="date" value="'+escHtml(resultDate)+'"></div>'+
+    '<div class="fg"><label class="fl">真实进线</label><input class="fc" id="landingResultActions" type="number" min="0" step="1" value="'+escHtml(String(actions||0))+'"></div>'+
+    '<div class="fg"><label class="fl">购买 / 成交</label><input class="fc" id="landingResultSales" type="number" min="0" step="1" value="'+escHtml(String(sales||0))+'"></div>'+
+    '<div class="fg"><label class="fl">收入</label><input class="fc" id="landingResultRevenue" type="number" min="0" step="0.01" value="'+escHtml(String(revenue||0))+'"></div>'+
+    '<div class="fg wide"><label class="fl">备注</label><textarea class="fc" id="landingResultNote" placeholder="例如：WhatsApp 确认可聊 / 重复线索 / 无效咨询">'+escHtml(note||'')+'</textarea></div>'+
+   '</div>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingResult&quot;)">取消</button><button class="btn btn-p" id="landingResultSaveBtn" type="button">保存回填</button></div>'+
+ '</div>';
+ document.body.appendChild(mo);
+ var saveBtn=document.getElementById('landingResultSaveBtn');
+ if(saveBtn)saveBtn.onclick=function(){saveLandingAdResult(linkId,encodeURIComponent(slug||''));};
+ mo.style.display='flex';
+}
+async function saveLandingAdResult(linkId, encodedSlug){
+ var slug=decodeURIComponent(encodedSlug||'');
  var payload={
-  result_date:parsedDate.date,
-  confirmed_actions:Math.max(0,parseInt(parts[offset]||'0',10)||0),
-  confirmed_sales:Math.max(0,parseInt(parts[offset+1]||'0',10)||0),
-  confirmed_revenue:Math.max(0,parseFloat(parts[offset+2]||'0')||0),
-  note:parts.slice(offset+3).join(' ').trim(),
+  result_date:((document.getElementById('landingResultDate')||{}).value||_landingResultToday()).trim(),
+  confirmed_actions:Math.max(0,parseInt(((document.getElementById('landingResultActions')||{}).value)||'0',10)||0),
+  confirmed_sales:Math.max(0,parseInt(((document.getElementById('landingResultSales')||{}).value)||'0',10)||0),
+  confirmed_revenue:Math.max(0,parseFloat(((document.getElementById('landingResultRevenue')||{}).value)||'0')||0),
+  note:((document.getElementById('landingResultNote')||{}).value||'').trim(),
   source:'manual'
  };
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.result_date)){toast('结果日期格式不正确','wa');return;}
  try{
   await api('PATCH','/landing-pages/ad-links/'+linkId+'/result',payload);
+  closeModal('moLandingResult');
   toast('已回填 '+(slug||('链接 '+linkId))+' 的真实结果','ok');
   await loadLandingCenter(true);
  }catch(e){
@@ -16705,13 +16771,27 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
  }
 }
 async function importLandingAdResults(){
- var raw=await promptTextareaAsync(
-  '批量回填真实结果',
-  '每行格式：日期,短码或广告ID,真实进线,购买/成交,收入,备注。也兼容旧格式：短码或广告ID,真实进线,购买/成交,收入,备注，日期默认今天。',
-  '',
-  '2026-06-19,m7K2Qp,2,1,39.9,有效聊单\n120245820014290302,0,0,0,无有效进线'
- );
- if(raw==null)return;
+ var sample='2026-06-19,m7K2Qp,2,1,39.9,有效聊单\n120245820014290302,0,0,0,无有效进线';
+ var mo=document.createElement('div');
+ mo.className='mo';
+ mo.id='moLandingBulkResult';
+ mo.innerHTML='<div class="modal" style="max-width:820px">'+
+  '<div class="mh"><h3>批量回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingBulkResult&quot;)">✕</button></div>'+
+  '<div class="mb">'+
+   '<div class="landing-result-context">每行一条：日期,短码或广告ID,真实进线,购买/成交,收入,备注。日期可省略，省略时默认今天；短码和广告ID都可以匹配。</div>'+
+   '<textarea class="fc landing-result-bulk-area" id="landingBulkResultText" placeholder="2026-06-19,m7K2Qp,2,1,39.9,有效聊单&#10;120245820014290302,0,0,0,无有效进线"></textarea>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" id="landingBulkSampleBtn" type="button">填入示例</button><button class="btn btn-g" onclick="closeModal(&quot;moLandingBulkResult&quot;)">取消</button><button class="btn btn-p" id="landingBulkImportBtn" type="button">导入回填</button></div>'+
+ '</div>';
+ document.body.appendChild(mo);
+ mo.style.display='flex';
+ var sampleBtn=document.getElementById('landingBulkSampleBtn');
+ var importBtn=document.getElementById('landingBulkImportBtn');
+ if(sampleBtn)sampleBtn.onclick=function(){var el=document.getElementById('landingBulkResultText');if(el)el.value=sample;};
+ if(importBtn)importBtn.onclick=saveLandingBulkResults;
+}
+async function saveLandingBulkResults(){
+ var raw=((document.getElementById('landingBulkResultText')||{}).value||'');
  var rows=[];
  String(raw||'').split(/\n+/).forEach(function(line){
   line=line.trim();
@@ -16737,6 +16817,7 @@ async function importLandingAdResults(){
  if(!rows.length){toast('没有可导入的数据','wa');return;}
  try{
   var res=await api('POST','/landing-pages/ad-links/results/import',{rows:rows,source:'csv',result_date:_landingResultToday()});
+  closeModal('moLandingBulkResult');
   toast('已回填 '+(res.updated_count||0)+' 条'+((res.error_count||0)?'，失败 '+res.error_count+' 条':'') ,(res.error_count||0)?'wa':'ok');
  await loadLandingCenter(true);
 }catch(e){
@@ -17025,25 +17106,137 @@ function _landingTargetLines(){
 function _landingBindActIds(){
  return ((document.getElementById('lpBindActIds')||{}).value||'').split(/[\n,，\s]+/).map(function(s){return s.trim();}).filter(Boolean);
 }
+function _lpCsvValue(value){
+ return String(value||'').split(/[\n,，;]+/).map(function(s){return s.trim();}).filter(Boolean);
+}
 function _lpCsv(id){
- return ((document.getElementById(id)||{}).value||'').split(/[\n,，]+/).map(function(s){return s.trim();}).filter(Boolean);
+ return _lpCsvValue(((document.getElementById(id)||{}).value||''));
+}
+function _landingRulesByPrefix(prefix){
+ return {
+  country_allow:_lpCsv(prefix+'CountryAllow'),
+  country_block:_lpCsv(prefix+'CountryBlock'),
+  source_allow:_lpCsv(prefix+'SourceAllow'),
+  source_block:_lpCsv(prefix+'SourceBlock'),
+  platform_block:_lpCsv(prefix+'PlatformBlock'),
+  device_block:_lpCsv(prefix+'DeviceBlock'),
+  ua_block:_lpCsv(prefix+'UaBlock'),
+  referer_block:_lpCsv(prefix+'RefererBlock'),
+  query_block:_lpCsv(prefix+'QueryBlock'),
+  required_query:_lpCsv(prefix+'RequiredQuery')
+ };
 }
 function _landingProtectionRules(){
- return {
-  country_allow:_lpCsv('lpCountryAllow'),
-  country_block:_lpCsv('lpCountryBlock'),
-  platform_block:_lpCsv('lpPlatformBlock'),
-  device_block:_lpCsv('lpDeviceBlock'),
-  ua_block:_lpCsv('lpUaBlock'),
-  referer_block:_lpCsv('lpRefererBlock'),
-  query_block:_lpCsv('lpQueryBlock'),
-  required_query:_lpCsv('lpRequiredQuery')
- };
+ return _landingRulesByPrefix('lp');
+}
+function _landingRuleChip(label, values, cls){
+ values=Array.isArray(values)?values:[];
+ if(!values.length)return '';
+ var text=label+'：'+values.join('、');
+ return '<span class="landing-rule-chip '+(cls||'')+'" title="'+escHtml(text)+'">'+escHtml(text)+'</span>';
+}
+function renderLandingProtectionSummary(){
+ var box=document.getElementById('lpProtectionSummary');
+ if(!box)return;
+ var r=_landingProtectionRules();
+ var html='';
+ html+=_landingRuleChip('只允许国家',r.country_allow,'warn');
+ html+=_landingRuleChip('拦截国家',r.country_block,'block');
+ html+=_landingRuleChip('只允许来源',r.source_allow,'warn');
+ html+=_landingRuleChip('拦截来源平台',r.source_block,'block');
+ html+=_landingRuleChip('拦截设备',r.device_block,'block');
+ html+=_landingRuleChip('拦截平台',r.platform_block,'block');
+ html+=_landingRuleChip('拦截 UA',r.ua_block,'block');
+ html+=_landingRuleChip('拦截来源',r.referer_block,'block');
+ html+=_landingRuleChip('拦截参数',r.query_block,'block');
+ html+=_landingRuleChip('必须参数',r.required_query,'warn');
+ if(!html)html='<span class="landing-rule-chip muted">未配置访问控制规则，所有正常访问均可进入</span>';
+ box.innerHTML=html;
+}
+function clearLandingProtectionRules(){
+ ['lpCountryAllow','lpCountryBlock','lpSourceAllow','lpSourceBlock','lpPlatformBlock','lpDeviceBlock','lpUaBlock','lpRefererBlock','lpQueryBlock','lpRequiredQuery'].forEach(function(id){
+  var el=document.getElementById(id);
+  if(el)el.value='';
+ });
+ renderLandingProtectionSummary();
 }
 function toggleLandingProtectionRules(){
  var box=document.getElementById('lpRulesBox');
  var on=!!((document.getElementById('lpProtectionEnabled')||{}).checked);
  if(box)box.style.display=on?'block':'none';
+ renderLandingProtectionSummary();
+}
+function _landingRuleValue(r,key){
+ var v=(r||{})[key];
+ return Array.isArray(v)?v.join(','):(v||'');
+}
+function _landingRuntimeRuleFields(r){
+ return '<div class="landing-rule-groups">'+
+  '<div class="landing-rule-card"><div class="landing-rule-card-title">地区</div><div class="landing-rule-card-desc">国家代码使用 ISO 两位码。</div>'+
+   '<div class="fg"><label class="fl">只允许国家</label><input class="fc" id="rtCountryAllow" placeholder="US,SG,TW" value="'+escHtml(_landingRuleValue(r,'country_allow'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截国家</label><input class="fc" id="rtCountryBlock" placeholder="CN,RU" value="'+escHtml(_landingRuleValue(r,'country_block'))+'"></div></div>'+
+  '<div class="landing-rule-card"><div class="landing-rule-card-title">设备与环境</div><div class="landing-rule-card-desc">排除明确不投放的设备、系统或 UA。</div>'+
+   '<div class="fg"><label class="fl">拦截设备</label><input class="fc" id="rtDeviceBlock" placeholder="mobile,desktop,tablet" value="'+escHtml(_landingRuleValue(r,'device_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截系统/浏览器</label><input class="fc" id="rtPlatformBlock" placeholder="Windows,Android,iOS" value="'+escHtml(_landingRuleValue(r,'platform_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="rtUaBlock" placeholder="bot,crawler,spider" value="'+escHtml(_landingRuleValue(r,'ua_block'))+'"></div></div>'+
+  '<div class="landing-rule-card"><div class="landing-rule-card-title">来源与参数</div><div class="landing-rule-card-desc">来源平台支持 FB、IG、TK、Google、Unknown 等。</div>'+
+   '<div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="rtSourceAllow" placeholder="FB,IG,TK,Google" value="'+escHtml(_landingRuleValue(r,'source_allow'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="rtSourceBlock" placeholder="Unknown,TK" value="'+escHtml(_landingRuleValue(r,'source_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="rtRefererBlock" placeholder="example.com" value="'+escHtml(_landingRuleValue(r,'referer_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="rtQueryBlock" placeholder="test,preview" value="'+escHtml(_landingRuleValue(r,'query_block'))+'"></div>'+
+   '<div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="rtRequiredQuery" placeholder="utm_source 或 fbclid" value="'+escHtml(_landingRuleValue(r,'required_query'))+'"></div></div>'+
+ '</div>';
+}
+function toggleLandingRuntimeProtectionRules(){
+ var box=document.getElementById('rtRulesBox');
+ var on=!!((document.getElementById('rtProtectionEnabled')||{}).checked);
+ if(box)box.style.display=on?'block':'none';
+}
+function editLandingRuntimeConfig(pageId){
+ var p=(_landingPages||[]).find(function(x){return String(x.id)===String(pageId);});
+ if(!p){toast('没有找到落地页记录','er');return;}
+ var urls=Array.isArray(p.target_urls)?p.target_urls:[];
+ var r=p.protection_rules||{};
+ var mo=document.createElement('div');
+ mo.className='mo';
+ mo.id='moLandingRuntime';
+ mo.innerHTML='<div class="modal" style="max-width:980px">'+
+  '<div class="mh"><h3>落地页运行配置</h3><button class="mc" onclick="closeModal(&quot;moLandingRuntime&quot;)">✕</button></div>'+
+  '<div class="mb">'+
+   '<div class="landing-result-context"><b>'+escHtml(p.title||'未命名落地页')+'</b><br>保存后会更新 Mira 运行配置；已升级 Worker 的页面约 30 秒内生效。若是旧发布包，先点一次“重新发布”升级 Worker，之后再改规则无需重发。</div>'+
+   '<div class="landing-form-grid">'+
+    '<div class="fg"><label class="fl">轮询方式</label><select class="fc" id="rtRotation"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select></div>'+
+    '<div class="fg"><label class="fl">运行开关</label><div class="landing-switch-row"><label><input type="checkbox" id="rtTrackingEnabled"> 边缘统计</label><label><input type="checkbox" id="rtProtectionEnabled" onchange="toggleLandingRuntimeProtectionRules()"> 访问控制</label></div></div>'+
+   '</div>'+
+   '<div class="fg"><label class="fl">跳转目标链接</label><textarea class="fc" id="rtTargets" style="min-height:120px" placeholder="每行一个 WhatsApp / 跳转链接">'+escHtml(urls.join('\n'))+'</textarea><div class="fh">这里改的是运行时跳转目标，不会改变已投广告入口短链。</div></div>'+
+   '<div id="rtRulesBox" class="landing-rules-box" style="display:'+(p.protection_enabled?'block':'none')+'">'+_landingRuntimeRuleFields(r)+'</div>'+
+  '</div>'+
+  '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingRuntime&quot;)">取消</button><button class="btn btn-p" onclick="saveLandingRuntimeConfig('+pageId+')">保存配置</button></div>'+
+ '</div>';
+ document.body.appendChild(mo);
+ mo.style.display='flex';
+ var rot=document.getElementById('rtRotation');if(rot)rot.value=p.rotation_mode||'sequential';
+ var tr=document.getElementById('rtTrackingEnabled');if(tr)tr.checked=!!p.tracking_enabled;
+ var pr=document.getElementById('rtProtectionEnabled');if(pr)pr.checked=!!p.protection_enabled;
+}
+async function saveLandingRuntimeConfig(pageId){
+ var targets=((document.getElementById('rtTargets')||{}).value||'').split(/\n+/).map(function(s){return s.trim();}).filter(Boolean);
+ if(!targets.length){toast('请至少保留一个跳转目标链接','wa');return;}
+ var payload={
+  target_urls:targets,
+  rotation_mode:(document.getElementById('rtRotation')||{}).value||'sequential',
+  tracking_enabled:!!((document.getElementById('rtTrackingEnabled')||{}).checked),
+  protection_enabled:!!((document.getElementById('rtProtectionEnabled')||{}).checked),
+  protection_rules:_landingRulesByPrefix('rt')
+ };
+ try{
+  var res=await api('PATCH','/landing-pages/pages/'+pageId+'/runtime-config',payload);
+  closeModal('moLandingRuntime');
+  toast((res&&res.requires_republish_once)?'配置已保存；旧页面请重新发布一次后启用动态配置':'配置已保存，约 30 秒内生效','ok');
+  await loadLandingCenter(true);
+ }catch(e){
+  toast('保存配置失败：'+(e.message||e),'er');
+ }
 }
 function updateLandingRotationHint(){
  var el=document.getElementById('lpRotationHint');

@@ -3,6 +3,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -66,6 +67,19 @@ class LandingPublishReq(BaseModel):
     tracking_enabled: bool = True
     protection_enabled: bool = False
     protection_rules: dict[str, Any] = Field(default_factory=dict)
+
+
+class LandingRuntimeConfigPatch(BaseModel):
+    target_urls: list[str] = []
+    rotation_mode: str = "sequential"
+    tracking_enabled: bool = True
+    protection_enabled: bool = False
+    protection_rules: dict[str, Any] = Field(default_factory=dict)
+
+
+class LandingRuntimeConfigReq(BaseModel):
+    page_id: int
+    secret: str
 
 
 class LandingEventIngest(BaseModel):
@@ -595,6 +609,13 @@ def _route_url(request: Optional[Request] = None) -> str:
     return _ingest_url(request).replace(
         "/api/landing-pages/events/ingest",
         "/api/landing-pages/router/next",
+    )
+
+
+def _config_url(request: Optional[Request] = None) -> str:
+    return _ingest_url(request).replace(
+        "/api/landing-pages/events/ingest",
+        "/api/landing-pages/edge/config",
     )
 
 
@@ -1639,6 +1660,55 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
+def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(rules, dict):
+        return {}
+    allowed = {
+        "country_allow",
+        "country_block",
+        "source_allow",
+        "source_block",
+        "platform_block",
+        "device_block",
+        "ua_block",
+        "referer_block",
+        "query_block",
+        "required_query",
+    }
+    source_alias = {
+        "fb": "facebook",
+        "facebook": "facebook",
+        "ig": "instagram",
+        "instagram": "instagram",
+        "tk": "tiktok",
+        "tt": "tiktok",
+        "tiktok": "tiktok",
+        "google": "google",
+        "gg": "google",
+        "bing": "bing",
+        "wa": "whatsapp",
+        "whatsapp": "whatsapp",
+        "tg": "telegram",
+        "telegram": "telegram",
+        "unknown": "unknown",
+    }
+    clean: dict[str, Any] = {}
+    for key in allowed:
+        value = rules.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            parts = [x.strip()[:80] for x in re.split(r"[,，;\n]+", value) if x.strip()]
+        elif isinstance(value, list):
+            parts = [str(x).strip()[:80] for x in value if str(x).strip()]
+        else:
+            continue
+        if key in {"source_allow", "source_block"}:
+            parts = [source_alias.get(p.lower(), p.lower()) for p in parts]
+        clean[key] = parts[:80]
+    return clean
+
+
 @router.get("/tokens")
 def list_cf_tokens(user=Depends(get_current_user)):
     where, params = _scope_where(user, "cf_tokens")
@@ -1971,6 +2041,81 @@ def list_landing_pages(user=Depends(get_current_user)):
         pages.append(item)
     conn.close()
     return pages
+
+
+def _landing_runtime_config(page: dict) -> dict[str, Any]:
+    link_kind = (page.get("link_kind") or "landing").strip().lower()
+    if link_kind not in {"landing", "form"}:
+        link_kind = "landing"
+    rotation_mode = (page.get("rotation_mode") or "sequential").strip().lower()
+    if rotation_mode not in {"sequential", "random", "first"}:
+        rotation_mode = "sequential"
+    return {
+        "link_kind": link_kind,
+        "target_urls": [u for u in _json_loads(page.get("target_urls"), []) if isinstance(u, str) and u.strip()],
+        "rotation_mode": rotation_mode,
+        "tracking_enabled": bool(page.get("tracking_enabled")),
+        "protection_enabled": bool(page.get("protection_enabled")),
+        "protection_rules": _safe_rules(_json_loads(page.get("protection_rules"), {})),
+    }
+
+
+@router.post("/edge/config")
+def landing_edge_runtime_config(body: LandingRuntimeConfigReq):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM landing_pages WHERE id=?", (body.page_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Landing page not found")
+        page = dict(row)
+        if not secrets.compare_digest(str(page.get("ingest_secret") or ""), str(body.secret or "")):
+            raise HTTPException(status_code=403, detail="invalid landing config secret")
+        if str(page.get("status") or "").lower() == "archived":
+            raise HTTPException(status_code=410, detail="landing page archived")
+        return {"success": True, "cache_seconds": 30, "config": _landing_runtime_config(page)}
+    finally:
+        conn.close()
+
+
+@router.patch("/pages/{page_id}/runtime-config")
+def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch, user=Depends(get_current_user)):
+    urls = [u.strip() for u in body.target_urls if isinstance(u, str) and u.strip()]
+    if not urls:
+        raise HTTPException(status_code=400, detail="At least one target URL is required")
+    if any(not (u.startswith("http://") or u.startswith("https://")) for u in urls):
+        raise HTTPException(status_code=400, detail="Target URLs must start with http:// or https://")
+    rotation_mode = (body.rotation_mode or "sequential").strip().lower()
+    if rotation_mode not in {"sequential", "random", "first"}:
+        raise HTTPException(status_code=400, detail="rotation_mode must be sequential, random, or first")
+    rules = _safe_rules(body.protection_rules)
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+        worker_enabled = bool(page.get("worker_enabled") or body.tracking_enabled or body.protection_enabled or (page.get("link_kind") or "landing") == "form")
+        conn.execute(
+            """UPDATE landing_pages
+               SET target_urls=?, rotation_mode=?, tracking_enabled=?, protection_enabled=?,
+                   protection_rules=?, worker_enabled=?, updated_at=datetime('now','+8 hours')
+               WHERE id=?""",
+            (
+                json.dumps(urls, ensure_ascii=False),
+                rotation_mode,
+                1 if body.tracking_enabled else 0,
+                1 if body.protection_enabled else 0,
+                json.dumps(rules, ensure_ascii=False),
+                1 if worker_enabled else 0,
+                page_id,
+            ),
+        )
+        conn.commit()
+        updated = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
+        item = _public_page(updated)
+        _refresh_page_ad_link_urls(conn, page_id, item)
+        conn.commit()
+        item["usage"] = _landing_page_usage(conn, item, user)
+        return {"success": True, "page": item, "requires_republish_once": not bool(page.get("worker_enabled"))}
+    finally:
+        conn.close()
 
 
 @router.get("/pages/{page_id}/ad-links")
@@ -2411,6 +2556,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
             ingest_secret=ingest_secret,
             ingest_url=_ingest_url(request),
             route_url=_route_url(request),
+            config_url=_config_url(request),
         )
         response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
         deployment_id = str(response.get("id") or "")
@@ -2590,6 +2736,7 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
             ingest_secret=ingest_secret,
             ingest_url=_ingest_url(request),
             route_url=_route_url(request),
+            config_url=_config_url(request),
         )
         response = deploy_pages_static(raw_token, cf_account_id, project_name, work_dir)
         deployment_id = str(response.get("id") or "")
