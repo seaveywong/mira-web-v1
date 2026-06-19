@@ -1936,15 +1936,15 @@ select.fc option{background:#fff;color:#1d1d1f}
 #page-landing_center{display:flex!important;flex-direction:column!important}
 #page-landing_center>.ph{order:0}
 #page-landing_center>.landing-path-strip{order:1}
-#page-landing_center>.landing-record-card{order:1}
-#page-landing_center>#landingStatsPanel{order:2}
+#page-landing_center>.landing-record-card{order:2}
+#page-landing_center>#landingStatsPanel{order:3}
 #page-landing_center>.landing-center-grid{order:10;display:block!important;margin-top:0!important}
 #page-landing_center>.landing-flow,#page-landing_center>.landing-ops-strip,#page-landing_center>.landing-long-help{display:none!important}
 #page-landing_center .landing-record-card{margin-top:0!important}
 #page-landing_center .landing-center-grid{grid-template-columns:1fr!important}
-#page-landing_center .landing-side-card{display:none!important}
+#page-landing_center .landing-side-card,#page-landing_center .landing-protection-card{display:none!important}
 #page-landing_center .landing-work-card{display:none!important}
-.landing-drawer-close,.landing-api-close{display:none!important}
+.landing-drawer-close,.landing-api-close,.landing-protection-close{display:none!important}
 .landing-path-strip{
  display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-4px 0 14px;padding:10px 12px;background:#fff;border:1px solid #dedee4;
  border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.035);font-size:12px;color:#6e6e73
@@ -1953,7 +1953,8 @@ select.fc option{background:#fff;color:#1d1d1f}
 .landing-path-strip span{display:inline-flex;align-items:center;min-height:24px;padding:0 9px;border:1px solid #e5e5ea;border-radius:999px;background:#f5f5f7;color:#424245;font-weight:680}
 body.landing-publish-open{overflow:hidden}
 body.landing-api-open{overflow:hidden}
-body.landing-publish-open:before,body.landing-api-open:before{
+body.landing-protection-open{overflow:hidden}
+body.landing-publish-open:before,body.landing-api-open:before,body.landing-protection-open:before{
  content:'';position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:4100;backdrop-filter:blur(2px);
 }
 body.landing-publish-open #page-landing_center .landing-work-card{
@@ -1964,8 +1965,13 @@ body.landing-api-open #page-landing_center .landing-side-card{
  display:block!important;position:fixed!important;z-index:4200;right:24px;top:70px;bottom:24px;width:min(460px,calc(100vw - 48px));
  overflow:auto!important;border-radius:16px!important;padding:20px!important;box-shadow:0 24px 80px rgba(15,23,42,.24)!important;
 }
+body.landing-protection-open #page-landing_center .landing-protection-card{
+ display:block!important;position:fixed!important;z-index:4200;right:24px;top:70px;bottom:24px;width:min(760px,calc(100vw - 48px));
+ overflow:auto!important;border-radius:16px!important;padding:20px!important;box-shadow:0 24px 80px rgba(15,23,42,.24)!important;
+}
 body.landing-publish-open .landing-drawer-close{display:inline-flex!important}
 body.landing-api-open .landing-api-close{display:inline-flex!important}
+body.landing-protection-open .landing-protection-close{display:inline-flex!important}
 #page-landing_center .landing-row-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;position:relative;white-space:nowrap}
 #page-landing_center .landing-row-actions>.btn,#page-landing_center .landing-row-more-wrap>.btn{height:32px!important;min-height:32px!important;padding:0 10px!important}
 #page-landing_center .landing-row-more-wrap{position:relative;display:inline-flex}
@@ -1987,10 +1993,29 @@ body.landing-api-open .landing-api-close{display:inline-flex!important}
 .landing-url-empty-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .landing-url-empty-actions button{height:30px;min-height:30px;padding:0 10px;border-radius:999px;border:1px solid #d2d2d7;background:#fff;color:#1d1d1f;font-size:12px;font-weight:760;cursor:pointer}
 .landing-url-empty-actions button.primary{background:#0071e3;border-color:#0071e3;color:#fff}
+.landing-api-token-card{padding:0!important;border-radius:10px!important;overflow:hidden}
+.landing-api-token-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#fff;border:1px solid #e5e5ea;border-radius:10px}
+.landing-api-token-main{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.landing-api-dot{width:9px;height:9px;border-radius:50%;background:#9ca3af;flex:0 0 9px}
+.landing-api-dot.ok{background:#22c55e}.landing-api-dot.er{background:#ef4444}
+.landing-api-token-title{font-size:13px!important;font-weight:820!important;color:#1d1d1f!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-api-token-line{font-size:12px;color:#6e6e73;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-api-token-actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;margin:0!important}
+.landing-api-token-actions .btn{height:30px!important;min-height:30px!important;padding:0 10px!important}
+.landing-api-account-select{margin:8px 0 0!important;height:34px!important;width:100%!important}
+.landing-template-list{display:grid;gap:8px;margin-top:12px}
+.landing-protection-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid #e5e5ea;border-radius:10px;background:#fff}
+.landing-protection-item-main{min-width:0}
+.landing-protection-item-title{font-size:13px;font-weight:820;color:#1d1d1f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-protection-item-rules{font-size:11px;color:#6e6e73;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:460px}
+.landing-protection-item-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.landing-template-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.landing-template-tools .fc{flex:1 1 180px;min-width:180px!important}
 @media(max-width:1100px){
  #page-landing_center .landing-flow,#page-landing_center .landing-ops-strip{display:none!important}
  body.landing-publish-open #page-landing_center .landing-work-card{left:12px;right:12px;top:64px;bottom:12px;width:auto}
  body.landing-api-open #page-landing_center .landing-side-card{left:12px;right:12px;top:64px;bottom:12px;width:auto}
+ body.landing-protection-open #page-landing_center .landing-protection-card{left:12px;right:12px;top:64px;bottom:12px;width:auto}
  #page-landing_center .landing-row-actions{display:flex;flex-wrap:wrap;justify-content:flex-start}
  #page-landing_center .landing-record-card .table-wrap{overflow:auto!important}
 }
@@ -2886,6 +2911,7 @@ body.landing-api-open .landing-api-close{display:inline-flex!important}
    <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:36px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
    <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
+   <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">访问控制模板</button>
    <button class="btn btn-g" onclick="scrollLandingApiPanel()">API 通道</button>
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
@@ -2921,6 +2947,53 @@ body.landing-api-open .landing-api-close{display:inline-flex!important}
    <button class="btn btn-p role-hide-viewer landing-full-btn" onclick="addCloudflareToken()">验证并保存</button>
    <div id="cfTokenList" class="landing-token-list"></div>
   </div>
+  <div class="card landing-protection-card" id="landingProtectionPanel">
+   <div class="landing-card-head">
+    <div><div class="card-title">访问控制模板</div><p>把常用国家、来源、设备和参数规则保存成模板，发布或运行配置时直接套用。</p></div>
+    <button class="btn btn-g btn-sm landing-protection-close" onclick="closeLandingProtectionDrawer()">关闭</button>
+   </div>
+   <div class="landing-form-section">
+    <div class="landing-section-title">新建 / 更新模板</div>
+    <div class="landing-form-grid">
+     <div class="fg"><label class="fl">模板名称</label><input class="fc" id="ptName" placeholder="如：FB 新加坡移动端"></div>
+     <div class="fg"><label class="fl">备注</label><input class="fc" id="ptNote" placeholder="可选，说明适用场景"></div>
+    </div>
+    <input type="hidden" id="ptEditingId" value="">
+    <div class="landing-template-tools">
+     <button class="btn btn-g btn-sm" onclick="copyCurrentPublishRulesToTemplate()">读取当前发布规则</button>
+     <button class="btn btn-g btn-sm" onclick="clearProtectionTemplateEditor()">清空</button>
+     <button class="btn btn-p btn-sm" onclick="saveProtectionTemplate()">保存模板</button>
+    </div>
+    <div class="landing-rules-box" style="display:block;margin-top:10px">
+     <div class="landing-rule-groups">
+      <div class="landing-rule-card">
+       <div class="landing-rule-card-title">地区</div>
+       <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="ptCountryAllow" oninput="renderProtectionTemplateSummary()" placeholder="US,SG,TW"></div>
+       <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="ptCountryBlock" oninput="renderProtectionTemplateSummary()" placeholder="CN,RU"></div>
+      </div>
+      <div class="landing-rule-card">
+       <div class="landing-rule-card-title">设备与环境</div>
+       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="ptDeviceBlock" oninput="renderProtectionTemplateSummary()" placeholder="desktop,tablet"></div>
+       <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="ptPlatformBlock" oninput="renderProtectionTemplateSummary()" placeholder="Windows,Android"></div>
+       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="ptUaBlock" oninput="renderProtectionTemplateSummary()" placeholder="bot,crawler,spider"></div>
+      </div>
+      <div class="landing-rule-card">
+       <div class="landing-rule-card-title">来源与参数</div>
+       <div class="fg"><label class="fl">只允许来源平台</label><input class="fc" id="ptSourceAllow" oninput="renderProtectionTemplateSummary()" placeholder="FB,IG,TK"></div>
+       <div class="fg"><label class="fl">拦截来源平台</label><input class="fc" id="ptSourceBlock" oninput="renderProtectionTemplateSummary()" placeholder="Unknown,TK"></div>
+       <div class="fg"><label class="fl">拦截来源关键词</label><input class="fc" id="ptRefererBlock" oninput="renderProtectionTemplateSummary()" placeholder="example.com"></div>
+       <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="ptQueryBlock" oninput="renderProtectionTemplateSummary()" placeholder="test,preview"></div>
+       <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="ptRequiredQuery" oninput="renderProtectionTemplateSummary()" placeholder="utm_source 或 fbclid"></div>
+      </div>
+     </div>
+     <div id="ptProtectionSummary" class="landing-rule-summary"></div>
+    </div>
+   </div>
+   <div class="landing-form-section">
+    <div class="landing-section-title">已保存模板</div>
+    <div id="landingProtectionTemplateList" class="landing-template-list"></div>
+   </div>
+  </div>
   <div class="card landing-work-card">
    <div class="landing-card-head">
     <div><div class="card-title">发布新链接</div><p>配置页面、跳转、统计、防护和账户绑定。</p></div>
@@ -2955,6 +3028,11 @@ body.landing-api-open .landing-api-close{display:inline-flex!important}
      <label><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
      <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用访问控制</label>
      <select class="fc" id="lpRotation" onchange="updateLandingRotationHint()"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
+    </div>
+    <div class="landing-template-tools">
+     <select class="fc" id="lpProtectionTemplate" onchange="applyProtectionTemplateToPrefix(this.value,'lp')"><option value="">选择访问控制模板</option></select>
+     <button class="btn btn-g btn-sm" type="button" onclick="openLandingProtectionDrawer()">管理模板</button>
+     <button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveCurrentRulesAsProtectionTemplate('lp')">当前规则存为模板</button>
     </div>
     <div id="lpRotationHint" class="landing-help" style="margin-top:10px">顺序轮询由 Mira 服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。</div>
     <div id="lpRulesBox" class="landing-rules-box" style="display:none">
@@ -16347,7 +16425,7 @@ async function importLandingUrlsCsv(input) {
 }
 
 // ── 落地页发布中心 ──
-var _cfTokens=[], _lpTemplates=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
+var _cfTokens=[], _lpTemplates=[], _lpProtectionTemplates=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
 var _landingTrueCostTarget=parseFloat(localStorage.getItem('landing_true_cost_target_usd')||'')||0;
 function setLandingPerfDays(v){
  _landingPerfDays=Math.max(1,Math.min(90,parseInt(v||'7',10)||7));
@@ -16373,15 +16451,18 @@ async function loadLandingCenter(force){
   var data=await Promise.all([
    api('GET','/landing-pages/tokens'),
    api('GET','/landing-pages/templates'),
+   api('GET','/landing-pages/protection-templates').catch(function(){return []}),
    api('GET','/landing-pages/pages'),
    api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=500').catch(function(){return null;})
   ]);
   _cfTokens=data[0]||[];
   _lpTemplates=data[1]||[];
-  _landingPages=data[2]||[];
-  _landingAdPerf=data[3]||null;
+  _lpProtectionTemplates=data[2]||[];
+  _landingPages=data[3]||[];
+  _landingAdPerf=data[4]||null;
   renderCloudflareTokens();
   renderLandingPublishOptions();
+  renderProtectionTemplateList();
   renderLandingPerformance();
   renderLandingPages();
  }catch(e){
@@ -16392,7 +16473,7 @@ function renderCloudflareTokens(){
  var el=document.getElementById('cfTokenList'); if(!el)return;
  if(!_cfTokens.length){el.innerHTML='<div style="font-size:12px;color:var(--t3);padding:12px;border:1px dashed var(--bd);border-radius:8px">暂无发布通道 API。保存后系统会自动识别账号。</div>';return;}
  el.innerHTML=_cfTokens.map(function(t){
-  var status=t.status==='active'?'<span class="badge bg-ok">可用</span>':'<span class="badge bg-er">'+escHtml(t.status||'异常')+'</span>';
+  var active=t.status==='active';
   var accounts=Array.isArray(t.cf_accounts)?t.cf_accounts:[];
   var accountHtml='';
   if(accounts.length>1){
@@ -16401,32 +16482,35 @@ function renderCloudflareTokens(){
     accounts.map(function(a){return '<option value="'+escHtml(a.id||'')+'" '+((t.selected_account_id||t.cf_account_id)===(a.id||'')?'selected':'')+'>'+escHtml(a.name||a.id)+' · '+escHtml(a.id||'')+'</option>';}).join('')+
    '</select>';
   }else if(accounts.length===1){
-   accountHtml='<div class="landing-api-token-meta">账号：'+escHtml(accounts[0].name||accounts[0].id)+'<br><code>'+escHtml(accounts[0].id||'')+'</code></div>';
+   accountHtml='';
   }
   var usageCount=parseInt(t.usage_count||0,10)||0;
   var usageBadge=usageCount>0
    ?'<span class="badge bg-wa" title="已有落地页记录使用该 API，不能直接删除">引用 '+usageCount+'</span>'
    :'<span class="badge bg-mu" title="当前没有落地页记录引用该 API">未引用</span>';
   var ownerText=resourceOwnerLabel(t,'未指定负责人');
-  var ownerHtml='<div class="landing-api-token-owner">'+
-   resourceTeamBadge(t)+
-   '<span class="resource-owner-pill '+(ownerText==='未指定负责人'?'muted':'')+'" title="发布通道负责人">'+escHtml(ownerText)+'</span>'+
-   usageBadge+
-  '</div>';
-  var actionBtns='<button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">重新验证</button>'+
+  var accountName=t.cf_account_name||t.selected_account_name||((accounts[0]||{}).name)||'未选择账号';
+  var identity=[accountName, ownerText&&ownerText!=='未指定负责人'?ownerText:''].filter(Boolean).join(' · ');
+  var actionBtns='<button class="btn btn-g btn-sm role-hide-viewer" onclick="renameCloudflareToken('+t.id+')">改名</button>'+
+   '<button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">验证</button>'+
    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="diagnoseCloudflareToken('+t.id+')">诊断</button>';
   if(usageCount===0){
    actionBtns+='<button class="btn btn-g btn-sm role-hide-viewer" onclick="deleteCloudflareToken('+t.id+')">删除</button>';
   }
   return '<div class="landing-api-token-card">'+
-   '<div class="landing-api-token-top">'+
-    '<div style="min-width:0;flex:1"><div class="landing-api-token-title">'+escHtml(t.name||('API '+t.id))+'</div>'+
-    '<div class="landing-api-token-meta">'+escHtml(t.cf_account_name||'未选择账号')+'<br><code>'+escHtml(t.cf_account_id||t.selected_account_id||'未选择账号')+'</code><br>'+escHtml(t.token_mask||'****')+'</div></div>'+status+
+   '<div class="landing-api-token-row">'+
+    '<div class="landing-api-token-main">'+
+     '<span class="landing-api-dot '+(active?'ok':'er')+'"></span>'+
+     '<div style="min-width:0;flex:1"><div class="landing-api-token-title">'+escHtml(t.name||('API '+t.id))+'</div>'+
+     '<div class="landing-api-token-line" title="'+escHtml(identity)+'">'+escHtml(identity||'未选择账号')+'</div></div>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">'+
+     '<span class="badge '+(active?'bg-ok':'bg-er')+'">'+(active?'可用':escHtml(t.status||'异常'))+'</span>'+usageBadge+
+     '<div class="landing-api-token-actions">'+actionBtns+'</div>'+
+    '</div>'+
    '</div>'+
    accountHtml+
-   ownerHtml+
    '<div id="cfDiag'+t.id+'" style="display:none;margin-top:8px"></div>'+
-   '<div class="landing-api-token-actions">'+actionBtns+'</div>'+
   '</div>';
  }).join('');
 }
@@ -16435,6 +16519,7 @@ function renderLandingPublishOptions(){
  if(tk)tk.innerHTML=_cfTokens.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('API '+t.id))+' · '+escHtml(t.cf_account_name||'未识别账号')+'</option>';}).join('');
  var tp=document.getElementById('lpTemplate');
  if(tp)tp.innerHTML=_lpTemplates.map(function(t){return '<option value="'+t.id+'">'+escHtml(t.name||('模板 '+t.id))+'</option>';}).join('');
+ renderProtectionTemplateSelects();
  onLandingKindChanged();
 }
 function _landingMatrixIdsFromPage(page){
@@ -16696,6 +16781,7 @@ function renderLandingPerformance(){
 }
 function openLandingPublishDrawer(){
  document.body.classList.remove('landing-api-open');
+ document.body.classList.remove('landing-protection-open');
  document.body.classList.add('landing-publish-open');
  setTimeout(function(){
   var el=document.getElementById('lpTitle');
@@ -16708,6 +16794,7 @@ function closeLandingPublishDrawer(){
 function openLandingApiDrawer(){
  if(!document.getElementById('page-landing_center').classList.contains('active'))showPage('landing_center');
  document.body.classList.remove('landing-publish-open');
+ document.body.classList.remove('landing-protection-open');
  document.body.classList.add('landing-api-open');
  setTimeout(function(){
   var el=document.getElementById('cfApiName');
@@ -16716,6 +16803,17 @@ function openLandingApiDrawer(){
 }
 function closeLandingApiDrawer(){
  document.body.classList.remove('landing-api-open');
+}
+function openLandingProtectionDrawer(){
+ if(!document.getElementById('page-landing_center').classList.contains('active'))showPage('landing_center');
+ document.body.classList.remove('landing-publish-open');
+ document.body.classList.remove('landing-api-open');
+ document.body.classList.add('landing-protection-open');
+ renderProtectionTemplateList();
+ renderProtectionTemplateSummary();
+}
+function closeLandingProtectionDrawer(){
+ document.body.classList.remove('landing-protection-open');
 }
 function scrollLandingApiPanel(){
  openLandingApiDrawer();
@@ -16736,7 +16834,7 @@ document.addEventListener('click',function(ev){
  closeLandingRowMenus();
 });
 document.addEventListener('keydown',function(ev){
- if(ev.key==='Escape'){closeLandingPublishDrawer();closeLandingApiDrawer();}
+ if(ev.key==='Escape'){closeLandingPublishDrawer();closeLandingApiDrawer();closeLandingProtectionDrawer();}
 });
 function _landingRuntimeBadge(p){
  if(!p||p.status==='archived')return '';
@@ -17229,6 +17327,19 @@ async function addCloudflareToken(){
 async function verifyCloudflareToken(id){
  try{await api('POST','/landing-pages/tokens/'+id+'/verify',{});toast('验证成功','ok');await loadLandingCenter(true)}catch(e){toast('验证失败：'+(e.message||e),'er')}
 }
+async function renameCloudflareToken(id){
+ var item=(_cfTokens||[]).find(function(t){return String(t.id)===String(id);});
+ var oldName=(item&&item.name)||'';
+ var name=await promptAsync('重命名 API 通道','输入新的显示名称。这里只修改 Mira 内部名称，不会改变 API Token。',oldName,'例如：团队A主发布号');
+ if(name==null)return;
+ name=String(name||'').trim();
+ if(!name){toast('请填写 API 名称','wa');return;}
+ try{
+  await api('PATCH','/landing-pages/tokens/'+id,{name:name});
+  toast('API 名称已更新','ok');
+  await loadLandingCenter(true);
+ }catch(e){toast('改名失败：'+(e.message||e),'er')}
+}
 async function setCloudflareAccount(id, accountId){
  if(!accountId)return;
  try{await api('PATCH','/landing-pages/tokens/'+id+'/account',{account_id:accountId});toast('默认发布账号已更新','ok');await loadLandingCenter(true)}catch(e){toast('更新账号失败：'+(e.message||e),'er')}
@@ -17396,6 +17507,174 @@ function _landingRulesByPrefix(prefix){
   required_query:_lpCsv(prefix+'RequiredQuery')
  };
 }
+function _setLandingRulesByPrefix(prefix,rules){
+ rules=rules||{};
+ var map={
+  country_allow:'CountryAllow',
+  country_block:'CountryBlock',
+  source_allow:'SourceAllow',
+  source_block:'SourceBlock',
+  platform_block:'PlatformBlock',
+  device_block:'DeviceBlock',
+  ua_block:'UaBlock',
+  referer_block:'RefererBlock',
+  query_block:'QueryBlock',
+  required_query:'RequiredQuery'
+ };
+ Object.keys(map).forEach(function(key){
+  var el=document.getElementById(prefix+map[key]);
+  if(el)el.value=Array.isArray(rules[key])?rules[key].join(','):(rules[key]||'');
+ });
+ if(prefix==='lp'){toggleLandingProtectionRules();renderLandingProtectionSummary();}
+ if(prefix==='pt')renderProtectionTemplateSummary();
+ if(prefix==='rt')toggleLandingRuntimeProtectionRules();
+}
+function _protectionTemplateById(id){
+ return (_lpProtectionTemplates||[]).find(function(t){return String(t.id)===String(id);})||null;
+}
+function _protectionRuleSummaryText(rules){
+ rules=rules||{};
+ var names={
+  country_allow:'允许国家',country_block:'拦截国家',source_allow:'允许来源',source_block:'拦截来源',
+  device_block:'拦截设备',platform_block:'拦截平台',ua_block:'拦截 UA',referer_block:'拦截来源词',
+  query_block:'拦截参数',required_query:'必须参数'
+ };
+ var parts=[];
+ Object.keys(names).forEach(function(k){
+  var v=Array.isArray(rules[k])?rules[k]:[];
+  if(v.length)parts.push(names[k]+': '+v.join('/'));
+ });
+ return parts.join('；')||'未配置规则';
+}
+function renderProtectionTemplateSelects(){
+ var opts='<option value="">选择访问控制模板</option>'+(_lpProtectionTemplates||[]).map(function(t){
+  return '<option value="'+t.id+'">'+escHtml(t.name||('模板 '+t.id))+'</option>';
+ }).join('');
+ ['lpProtectionTemplate','rtProtectionTemplate'].forEach(function(id){
+  var el=document.getElementById(id);
+  if(el){
+   var old=el.value||'';
+   el.innerHTML=opts;
+   if(old)el.value=old;
+  }
+ });
+}
+function applyProtectionTemplateToPrefix(id,prefix){
+ var tpl=_protectionTemplateById(id);
+ if(!tpl)return;
+ if(prefix==='lp'){
+  var on=document.getElementById('lpProtectionEnabled');
+  if(on)on.checked=true;
+ }
+ if(prefix==='rt'){
+  var rtOn=document.getElementById('rtProtectionEnabled');
+  if(rtOn)rtOn.checked=true;
+ }
+ _setLandingRulesByPrefix(prefix,tpl.rules||{});
+ toast('已套用访问控制模板：'+(tpl.name||('模板 '+tpl.id)),'ok');
+}
+function renderProtectionTemplateSummary(){
+ var box=document.getElementById('ptProtectionSummary');
+ if(!box)return;
+ var r=_landingRulesByPrefix('pt');
+ var html='';
+ html+=_landingRuleChip('只允许国家',r.country_allow,'warn');
+ html+=_landingRuleChip('拦截国家',r.country_block,'block');
+ html+=_landingRuleChip('只允许来源',r.source_allow,'warn');
+ html+=_landingRuleChip('拦截来源平台',r.source_block,'block');
+ html+=_landingRuleChip('拦截设备',r.device_block,'block');
+ html+=_landingRuleChip('拦截平台',r.platform_block,'block');
+ html+=_landingRuleChip('拦截 UA',r.ua_block,'block');
+ html+=_landingRuleChip('拦截来源',r.referer_block,'block');
+ html+=_landingRuleChip('拦截参数',r.query_block,'block');
+ html+=_landingRuleChip('必须参数',r.required_query,'warn');
+ if(!html)html='<span class="landing-rule-chip muted">未配置规则</span>';
+ box.innerHTML=html;
+}
+function renderProtectionTemplateList(){
+ renderProtectionTemplateSelects();
+ var el=document.getElementById('landingProtectionTemplateList');
+ if(!el)return;
+ if(!_lpProtectionTemplates.length){
+  el.innerHTML='<div style="padding:14px;border:1px dashed var(--bd);border-radius:10px;color:var(--t3);font-size:12px">暂无模板。可以在上方填写规则后保存，或从当前发布表单读取规则。</div>';
+  return;
+ }
+ el.innerHTML=_lpProtectionTemplates.map(function(t){
+  var owner=resourceOwnerLabel(t,'团队模板');
+  return '<div class="landing-protection-item">'+
+   '<div class="landing-protection-item-main"><div class="landing-protection-item-title">'+escHtml(t.name||('模板 '+t.id))+'</div>'+
+   '<div class="landing-protection-item-rules" title="'+escHtml(_protectionRuleSummaryText(t.rules))+'">'+escHtml(_protectionRuleSummaryText(t.rules))+'</div>'+
+   '<div style="font-size:11px;color:var(--t3);margin-top:4px">'+escHtml(owner)+(t.note?' · '+escHtml(t.note):'')+'</div></div>'+
+   '<div class="landing-protection-item-actions">'+
+    '<button class="btn btn-g btn-sm" onclick="editProtectionTemplate('+t.id+')">编辑</button>'+
+    '<button class="btn btn-g btn-sm" onclick="applyProtectionTemplateToPrefix('+t.id+',&quot;lp&quot;)">套用到发布</button>'+
+    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="deleteProtectionTemplate('+t.id+')">删除</button>'+
+   '</div>'+
+  '</div>';
+ }).join('');
+}
+function copyCurrentPublishRulesToTemplate(){
+ _setLandingRulesByPrefix('pt',_landingProtectionRules());
+ toast('已读取当前发布规则','ok');
+}
+function clearProtectionTemplateEditor(){
+ var name=document.getElementById('ptName');if(name)name.value='';
+ var note=document.getElementById('ptNote');if(note)note.value='';
+ var id=document.getElementById('ptEditingId');if(id)id.value='';
+ _setLandingRulesByPrefix('pt',{});
+}
+function editProtectionTemplate(id){
+ var tpl=_protectionTemplateById(id);
+ if(!tpl)return;
+ openLandingProtectionDrawer();
+ var name=document.getElementById('ptName');if(name)name.value=tpl.name||'';
+ var note=document.getElementById('ptNote');if(note)note.value=tpl.note||'';
+ var edit=document.getElementById('ptEditingId');if(edit)edit.value=String(tpl.id);
+ _setLandingRulesByPrefix('pt',tpl.rules||{});
+}
+async function saveProtectionTemplate(){
+ var name=((document.getElementById('ptName')||{}).value||'').trim();
+ if(!name){toast('请填写模板名称','wa');return;}
+ var payload={name:name,note:((document.getElementById('ptNote')||{}).value||'').trim(),rules:_landingRulesByPrefix('pt')};
+ var hasRule=Object.keys(payload.rules||{}).some(function(k){return (payload.rules[k]||[]).length;});
+ if(!hasRule){toast('请至少配置一条规则','wa');return;}
+ var id=((document.getElementById('ptEditingId')||{}).value||'').trim();
+ try{
+  if(id)await api('PATCH','/landing-pages/protection-templates/'+id,payload);
+  else await api('POST','/landing-pages/protection-templates',payload);
+  toast(id?'模板已更新':'模板已保存','ok');
+  clearProtectionTemplateEditor();
+  _lpProtectionTemplates=await api('GET','/landing-pages/protection-templates');
+  renderProtectionTemplateList();
+ }catch(e){toast('保存模板失败：'+(e.message||e),'er')}
+}
+async function deleteProtectionTemplate(id){
+ var tpl=_protectionTemplateById(id);
+ var ok=await confirmDialog('确认删除访问控制模板「'+escHtml((tpl&&tpl.name)||id)+'」？已发布页面不会受影响。');
+ if(!ok)return;
+ try{
+  await api('DELETE','/landing-pages/protection-templates/'+id);
+  toast('模板已删除','ok');
+  _lpProtectionTemplates=await api('GET','/landing-pages/protection-templates');
+  renderProtectionTemplateList();
+ }catch(e){toast('删除模板失败：'+(e.message||e),'er')}
+}
+async function saveCurrentRulesAsProtectionTemplate(prefix){
+ var rules=_landingRulesByPrefix(prefix||'lp');
+ var hasRule=Object.keys(rules||{}).some(function(k){return (rules[k]||[]).length;});
+ if(!hasRule){toast('当前没有可保存的访问控制规则','wa');return;}
+ var name=await promptAsync('保存访问控制模板','输入模板名称，后续发布落地页时可直接选择。','','例如：FB SG 移动端');
+ if(name==null)return;
+ name=String(name||'').trim();
+ if(!name){toast('请填写模板名称','wa');return;}
+ try{
+  await api('POST','/landing-pages/protection-templates',{name:name,rules:rules,note:''});
+  toast('模板已保存','ok');
+  _lpProtectionTemplates=await api('GET','/landing-pages/protection-templates');
+  renderProtectionTemplateList();
+  renderProtectionTemplateSelects();
+ }catch(e){toast('保存模板失败：'+(e.message||e),'er')}
+}
 function _landingProtectionRules(){
  return _landingRulesByPrefix('lp');
 }
@@ -17479,6 +17758,7 @@ function editLandingRuntimeConfig(pageId){
     '<div class="fg"><label class="fl">运行开关</label><div class="landing-switch-row"><label><input type="checkbox" id="rtTrackingEnabled"> 边缘统计</label><label><input type="checkbox" id="rtProtectionEnabled" onchange="toggleLandingRuntimeProtectionRules()"> 访问控制</label></div></div>'+
    '</div>'+
    '<div class="fg"><label class="fl">跳转目标链接</label><textarea class="fc" id="rtTargets" style="min-height:120px" placeholder="每行一个 WhatsApp / 跳转链接">'+escHtml(urls.join('\n'))+'</textarea><div class="fh">这里改的是运行时跳转目标，不会改变已投广告入口短链。</div></div>'+
+   '<div class="landing-template-tools"><select class="fc" id="rtProtectionTemplate" onchange="applyProtectionTemplateToPrefix(this.value,&quot;rt&quot;)"><option value="">选择访问控制模板</option></select><button class="btn btn-g btn-sm" type="button" onclick="openLandingProtectionDrawer()">管理模板</button><button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveCurrentRulesAsProtectionTemplate(&quot;rt&quot;)">当前规则存为模板</button></div>'+
    '<div id="rtRulesBox" class="landing-rules-box" style="display:'+(p.protection_enabled?'block':'none')+'">'+_landingRuntimeRuleFields(r)+'</div>'+
   '</div>'+
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingRuntime&quot;)">取消</button><button class="btn btn-p" onclick="saveLandingRuntimeConfig('+pageId+')">保存配置</button></div>'+
@@ -17488,6 +17768,7 @@ function editLandingRuntimeConfig(pageId){
  var rot=document.getElementById('rtRotation');if(rot)rot.value=p.rotation_mode||'sequential';
  var tr=document.getElementById('rtTrackingEnabled');if(tr)tr.checked=!!p.tracking_enabled;
  var pr=document.getElementById('rtProtectionEnabled');if(pr)pr.checked=!!p.protection_enabled;
+ renderProtectionTemplateSelects();
 }
 async function saveLandingRuntimeConfig(pageId){
  var targets=((document.getElementById('rtTargets')||{}).value||'').split(/\n+/).map(function(s){return s.trim();}).filter(Boolean);

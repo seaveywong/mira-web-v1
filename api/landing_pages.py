@@ -51,6 +51,17 @@ class CloudflareTokenAccountPatch(BaseModel):
     account_id: str
 
 
+class CloudflareTokenPatch(BaseModel):
+    name: Optional[str] = None
+
+
+class LandingProtectionTemplateReq(BaseModel):
+    name: str
+    rules: dict[str, Any] = Field(default_factory=dict)
+    note: Optional[str] = ""
+    team_id: Optional[int] = None
+
+
 class LandingPublishReq(BaseModel):
     token_id: int
     template_id: int = 1
@@ -208,6 +219,19 @@ def _ensure_schema():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             template_path TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            team_id INTEGER,
+            owner_user_id INTEGER,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now','+8 hours')),
+            updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+
+        CREATE TABLE IF NOT EXISTS landing_protection_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            rules TEXT DEFAULT '{}',
+            note TEXT,
             status TEXT DEFAULT 'active',
             team_id INTEGER,
             owner_user_id INTEGER,
@@ -644,6 +668,29 @@ def _assert_template_access(conn, template_id: int, user) -> dict:
     if row["team_id"] != tid:
         raise HTTPException(status_code=403, detail="Landing template belongs to another team")
     return dict(row)
+
+
+def _public_protection_template(row) -> dict:
+    item = dict(row)
+    item["rules"] = _safe_rules(_json_loads(item.get("rules"), {}))
+    item["team_name"] = item.get("team_name")
+    item["owner_user_name"] = item.get("owner_user_name")
+    return item
+
+
+def _assert_protection_template_access(conn, template_id: int, user) -> dict:
+    row = conn.execute("SELECT * FROM landing_protection_templates WHERE id=? AND status='active'", (template_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="访问控制模板不存在")
+    item = dict(row)
+    if is_superadmin(user):
+        return item
+    tid = team_id_for_create(user)
+    if item.get("team_id") != tid:
+        raise HTTPException(status_code=403, detail="访问控制模板属于其他团队")
+    if is_operator_user(user) and item.get("owner_user_id") not in (None, user_id(user)):
+        raise HTTPException(status_code=403, detail="访问控制模板属于其他运营")
+    return item
 
 
 def _assert_page_access(conn, page_id: int, user) -> dict:
@@ -1967,6 +2014,35 @@ def create_cf_token(body: CloudflareTokenCreate, user=Depends(get_current_user))
     return {"success": True, "token": _public_token(row), "accounts": accounts}
 
 
+@router.patch("/tokens/{token_id}")
+def update_cf_token(token_id: int, body: CloudflareTokenPatch, user=Depends(get_current_user)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="请填写 API 名称")
+    conn = get_conn()
+    try:
+        _assert_token_access(conn, token_id, user)
+        conn.execute(
+            "UPDATE cf_tokens SET name=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+            (name[:120], token_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            """SELECT cf_tokens.*,
+                      tm.name AS team_name,
+                      COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name,
+                      (SELECT COUNT(1) FROM landing_pages lp WHERE lp.cf_token_id=cf_tokens.id) AS usage_count
+               FROM cf_tokens
+               LEFT JOIN teams tm ON tm.id=cf_tokens.team_id
+               LEFT JOIN users ou ON ou.id=cf_tokens.owner_user_id
+               WHERE cf_tokens.id=?""",
+            (token_id,),
+        ).fetchone()
+        return {"success": True, "token": _public_token(row)}
+    finally:
+        conn.close()
+
+
 @router.post("/tokens/{token_id}/verify")
 def verify_cf_token(token_id: int, user=Depends(get_current_user)):
     conn = get_conn()
@@ -2101,6 +2177,114 @@ def list_landing_templates(user=Depends(get_current_user)):
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+@router.get("/protection-templates")
+def list_landing_protection_templates(user=Depends(get_current_user)):
+    where, params = ["landing_protection_templates.status='active'"], []
+    scope_where, scope_params = _scope_where(user, "landing_protection_templates")
+    where.extend(scope_where)
+    params.extend(scope_params)
+    sql = """SELECT landing_protection_templates.*,
+                    tm.name AS team_name,
+                    COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+             FROM landing_protection_templates
+             LEFT JOIN teams tm ON tm.id=landing_protection_templates.team_id
+             LEFT JOIN users ou ON ou.id=landing_protection_templates.owner_user_id
+             WHERE """ + " AND ".join(where) + " ORDER BY landing_protection_templates.id DESC"
+    conn = get_conn()
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [_public_protection_template(r) for r in rows]
+
+
+@router.post("/protection-templates")
+def create_landing_protection_template(body: LandingProtectionTemplateReq, user=Depends(get_current_user)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="请填写模板名称")
+    rules = _safe_rules(body.rules)
+    if not rules:
+        raise HTTPException(status_code=400, detail="请至少配置一条访问控制规则")
+    team_id, owner_id = _stamp(user, body.team_id)
+    conn = get_conn()
+    try:
+        conn.execute(
+            """INSERT INTO landing_protection_templates
+               (name, rules, note, team_id, owner_user_id, created_by)
+               VALUES (?,?,?,?,?,?)""",
+            (
+                name[:120],
+                json.dumps(rules, ensure_ascii=False),
+                (body.note or "").strip()[:500],
+                team_id,
+                owner_id,
+                user.get("username", "unknown"),
+            ),
+        )
+        template_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        row = conn.execute(
+            """SELECT landing_protection_templates.*,
+                      tm.name AS team_name,
+                      COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+               FROM landing_protection_templates
+               LEFT JOIN teams tm ON tm.id=landing_protection_templates.team_id
+               LEFT JOIN users ou ON ou.id=landing_protection_templates.owner_user_id
+               WHERE landing_protection_templates.id=?""",
+            (template_id,),
+        ).fetchone()
+        return {"success": True, "template": _public_protection_template(row)}
+    finally:
+        conn.close()
+
+
+@router.patch("/protection-templates/{template_id}")
+def update_landing_protection_template(template_id: int, body: LandingProtectionTemplateReq, user=Depends(get_current_user)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="请填写模板名称")
+    rules = _safe_rules(body.rules)
+    if not rules:
+        raise HTTPException(status_code=400, detail="请至少配置一条访问控制规则")
+    conn = get_conn()
+    try:
+        _assert_protection_template_access(conn, template_id, user)
+        conn.execute(
+            """UPDATE landing_protection_templates
+               SET name=?, rules=?, note=?, updated_at=datetime('now','+8 hours')
+               WHERE id=?""",
+            (name[:120], json.dumps(rules, ensure_ascii=False), (body.note or "").strip()[:500], template_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            """SELECT landing_protection_templates.*,
+                      tm.name AS team_name,
+                      COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name
+               FROM landing_protection_templates
+               LEFT JOIN teams tm ON tm.id=landing_protection_templates.team_id
+               LEFT JOIN users ou ON ou.id=landing_protection_templates.owner_user_id
+               WHERE landing_protection_templates.id=?""",
+            (template_id,),
+        ).fetchone()
+        return {"success": True, "template": _public_protection_template(row)}
+    finally:
+        conn.close()
+
+
+@router.delete("/protection-templates/{template_id}")
+def delete_landing_protection_template(template_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_protection_template_access(conn, template_id, user)
+        conn.execute(
+            "UPDATE landing_protection_templates SET status='archived', updated_at=datetime('now','+8 hours') WHERE id=?",
+            (template_id,),
+        )
+        conn.commit()
+        return {"success": True, "archived": True, "id": template_id}
+    finally:
+        conn.close()
 
 
 @router.post("/preflight")
