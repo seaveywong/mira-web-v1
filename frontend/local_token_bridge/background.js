@@ -12,7 +12,7 @@ const HEARTBEAT_ALARM = "mira_heartbeat";
 const POLL_ALARM = "mira_poll";
 const TOKEN_ALARM = "mira_token_refresh";
 const GRAPH_BASE = "https://graph.facebook.com/v22.0";
-const VERSION = "2.4.3";
+const VERSION = "2.4.4";
 const ASSET_DISCOVERY_FRESH_MS = 6 * 60 * 60 * 1000;
 const ASSET_DISCOVERY_MIN_INTERVAL_MS = 20 * 60 * 1000;
 const LOCAL_SESSION_PROBE_FRESH_MS = 5 * 60 * 1000;
@@ -862,6 +862,13 @@ async function discoverBusinessAssetsViaPages() {
   let discoveryTabId = null;
   const errors = [];
   try {
+    try {
+      const localBusinesses = await runBusinessOperationInTab('list_businesses', {});
+      merged = mergeAssetSummary(merged, localBusinesses || {});
+    } catch (e) {
+      errors.push(`local:list_businesses: ${e.message || e}`);
+    }
+
     for (const url of discoveryUrls) {
       try {
         const scanned = await openAndScanBusinessUrl(url, discoveryTabId, 'business_discovery');
@@ -1261,7 +1268,10 @@ async function runGraphTask(task) {
     return {
       data: (summary.accounts || []).map(a => ({
         id: a.act_id || ('act_' + a.account_id),
+        act_id: a.act_id || ('act_' + a.account_id),
+        account_id: a.account_id || String(a.act_id || '').replace(/^act_/, ''),
         name: a.name,
+        account_status: a.account_status || 1,
         currency: a.currency,
         timezone_name: a.timezone,
         business_id: a.business_id || '',
@@ -1353,12 +1363,27 @@ async function scheduleTokenRefresh() {
 
 // ========== 初始化 ==========
 
+async function migrateVersionCache() {
+  const d = await chrome.storage.local.get(['miraExecutorVersion']);
+  if (d.miraExecutorVersion === VERSION) return;
+  await chrome.storage.local.remove([
+    'discoveredAssets',
+    'discoveredAssetsFbUserId',
+    'assetDiscoveryLastAutoAt',
+    'assetDiscoveryLastError',
+  ]);
+  await chrome.storage.local.set({ miraExecutorVersion: VERSION });
+}
+
 async function initialSetup() {
   await new Promise(r => setTimeout(r, randomBetween(5000, 15000)));
+  await migrateVersionCache().catch(() => {});
   const s = await getSettings();
   if (s.nodeId && s.accessToken) {
     // 已有绑定和 Token，做个心跳
     heartbeat().catch(() => {});
+  } else if (s.nodeId) {
+    maybeAutoDiscoverAssets('startup').then(() => heartbeat().catch(() => {})).catch(() => {});
   }
 }
 

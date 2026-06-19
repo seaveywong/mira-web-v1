@@ -419,6 +419,11 @@ def apply_discovered_accounts(node_id: str, data: dict) -> None:
     rows = (data or {}).get("data") if isinstance(data, dict) else []
     if not isinstance(rows, list):
         rows = []
+    business_rows = []
+    if isinstance(data, dict):
+        business_rows = data.get("businesses") or (data.get("assets") or {}).get("businesses") or []
+    if not isinstance(business_rows, list):
+        business_rows = []
     normalized = []
     raw_ids = set()
     for item in rows:
@@ -434,8 +439,33 @@ def apply_discovered_accounts(node_id: str, data: dict) -> None:
             "currency": str(item.get("currency") or ""),
             "timezone": str(item.get("timezone") or item.get("timezone_name") or ""),
             "write_status": str(item.get("write_status") or item.get("status") or item.get("account_status") or ""),
+            "account_status": item.get("account_status") or "",
             "business_id": str(item.get("business_id") or ""),
             "business_name": _business_display_name(item.get("business_id"), item.get("business_name")),
+        })
+    normalized_businesses = []
+    seen_biz_ids = set()
+    for item in business_rows:
+        if not isinstance(item, dict):
+            continue
+        biz_id = "".join(ch for ch in str(item.get("id") or item.get("business_id") or "") if ch.isdigit())
+        if not biz_id or biz_id in seen_biz_ids:
+            continue
+        seen_biz_ids.add(biz_id)
+        biz_accounts = []
+        for raw in (item.get("account_ids") or item.get("accounts") or []):
+            if isinstance(raw, dict):
+                act_id = _account_id_from_item(raw)
+            else:
+                act_id = _normalize_act_id(raw)
+            if act_id and act_id not in biz_accounts:
+                biz_accounts.append(act_id)
+        normalized_businesses.append({
+            "id": biz_id,
+            "name": _business_display_name(biz_id, item.get("name") or item.get("business_name")),
+            "source": str(item.get("source") or "discover_accounts"),
+            "account_ids": biz_accounts[:MAX_ACCOUNT_PROBE],
+            "account_count": int(item.get("account_count") or len(biz_accounts) or 0),
         })
     with _lock:
         _load_persisted_nodes_locked()
@@ -443,6 +473,8 @@ def apply_discovered_accounts(node_id: str, data: dict) -> None:
         if not node:
             return
         node["reported_all_accounts"] = normalized[:MAX_ACCOUNT_PROBE]
+        if normalized_businesses:
+            node["reported_businesses"] = normalized_businesses[:MAX_ACCOUNT_PROBE]
         if any(_write_status_allows_write(item.get("write_status")) for item in normalized):
             node["has_ads_management"] = True
         _refresh_node_matches_locked(node)
@@ -743,7 +775,8 @@ def heartbeat_node(
                     "name": str(item.get("name") or item.get("account_name") or act_id),
                     "currency": str(item.get("currency") or ""),
                     "timezone": str(item.get("timezone") or item.get("timezone_name") or ""),
-                    "write_status": str(item.get("write_status") or item.get("status") or ""),
+                    "write_status": str(item.get("write_status") or item.get("status") or item.get("account_status") or ""),
+                    "account_status": item.get("account_status") or "",
                     "business_id": str(item.get("business_id") or ""),
                     "business_name": _business_display_name(item.get("business_id"), item.get("business_name")),
                 })
@@ -803,11 +836,13 @@ def heartbeat_node(
             _refresh_node_matches_locked(node)
             node["verified_at_ts"] = _now_ts()
             node["verified_at"] = _now_cst()
-            node["last_error"] = str(token_summary.get("last_error") or "")
+            summary_error = str(token_summary.get("last_error") or "")
+            if summary_error:
+                node["last_error"] = summary_error
             node["local_runtime_ready"] = bool(node["has_ads_management"] and node["account_ids"])
             if runtime_status:
                 node["runtime_status"] = str(runtime_status or "")
-            if present and node["last_error"]:
+            if present and summary_error:
                 node["status"] = "token_error"
             elif present and node["has_ads_management"]:
                 node["status"] = "online" if node["account_ids"] else "no_accounts"

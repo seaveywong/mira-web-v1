@@ -311,6 +311,26 @@ function normalizeGraphBusiness(item) {
 
 function collectBusinessesFromGraph(data) {
   const byId = new Map();
+  const pushBusiness = (item, source = 'adsmanager_graph') => {
+    const b = normalizeGraphBusiness(item);
+    if (!b) return;
+    const old = byId.get(b.id) || { id: b.id, name: `BM ${b.id}`, source: '', account_ids: [], account_count: 0 };
+    old.name = betterLabel(old.name, b.name, `BM ${b.id}`);
+    if (source && !String(old.source || '').includes(source)) {
+      old.source = old.source ? `${old.source},${source}` : source;
+    }
+    byId.set(b.id, old);
+  };
+
+  if (Array.isArray(data?.data)) {
+    data.data.forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      if (item.id && (item.name || item.verification_status || item.permitted_roles || item.business_users)) {
+        pushBusiness(item, 'me_businesses');
+      }
+    });
+  }
+
   walkObject(data, (item) => {
     if (!item || typeof item !== 'object') return;
     const looksLikeBusiness =
@@ -318,12 +338,7 @@ function collectBusinessesFromGraph(data) {
       item.business_users || item.partner_relationships ||
       item.verification_status || item.permitted_roles || item.can_use_extended_credit;
     if (!looksLikeBusiness) return;
-    const b = normalizeGraphBusiness(item);
-    if (!b) return;
-    const old = byId.get(b.id) || { id: b.id, name: `BM ${b.id}`, source: '' };
-    old.name = betterLabel(old.name, b.name, `BM ${b.id}`);
-    old.source = old.source ? `${old.source},${b.source}` : b.source;
-    byId.set(b.id, old);
+    pushBusiness(item, 'adsmanager_graph');
   });
   return [...byId.values()];
 }
@@ -336,13 +351,14 @@ function collectAdAccountsFromGraph(data, fallbackBusinessId = '', fallbackBusin
     if (!/^\d{6,}$/.test(id)) return;
     const business = item.business || item.owner_business || item.viewable_business || item.business_manager || null;
     const businessId = String((business && business.id) || item.business_id || fallbackBusinessId || '').replace(/\D/g, '');
+    const accountStatus = item.account_status !== undefined && item.account_status !== null ? item.account_status : 1;
     const current = byId.get(id) || {
       account_id: id,
       act_id: `act_${id}`,
       id: `act_${id}`,
       name: `act_${id}`,
-      account_status: item.account_status || 1,
-      write_status: 'ok',
+      account_status: accountStatus,
+      write_status: String(accountStatus) === '1' ? 'ok' : 'error',
       source: 'adsmanager_graph',
       business_id: businessId,
       business_name: fallbackBusinessName || '',
@@ -350,7 +366,8 @@ function collectAdAccountsFromGraph(data, fallbackBusinessId = '', fallbackBusin
     current.name = betterLabel(current.name, item.name || item.account_name, `act_${id}`);
     current.currency = item.currency || current.currency || '';
     current.timezone = item.timezone_name || current.timezone || '';
-    current.account_status = item.account_status || current.account_status || 1;
+    current.account_status = accountStatus || current.account_status || 1;
+    current.write_status = String(current.account_status) === '1' ? 'ok' : (item.write_status || current.write_status || 'error');
     current.business_id = businessId || current.business_id || '';
     current.business_name = betterLabel(current.business_name, business && business.name || fallbackBusinessName, current.business_id ? `BM ${current.business_id}` : '');
     byId.set(id, current);
@@ -389,38 +406,117 @@ function collectPixelsFromGraph(data, fallbackBusinessId = '') {
   return [...byId.values()].filter(px => !fallbackBusinessId || !px.business_id || String(px.business_id) === String(fallbackBusinessId));
 }
 
+function mergeGraphAccounts(items) {
+  const byId = new Map();
+  (items || []).forEach(item => {
+    if (!item || typeof item !== 'object') return;
+    const id = String(item.account_id || item.act_id || item.id || '').replace(/^act_/, '').replace(/\D/g, '');
+    if (!/^\d{6,}$/.test(id)) return;
+    const current = byId.get(id) || { account_id: id, act_id: `act_${id}`, id: `act_${id}`, name: `act_${id}` };
+    Object.entries(item).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') current[k] = v;
+    });
+    current.account_id = id;
+    current.act_id = `act_${id}`;
+    current.id = `act_${id}`;
+    current.name = betterLabel(current.name, item.name || item.account_name, `act_${id}`);
+    if (!current.write_status) current.write_status = String(current.account_status || 1) === '1' ? 'ok' : 'error';
+    byId.set(id, current);
+  });
+  return [...byId.values()];
+}
+
+function mergeGraphBusinesses(items, accounts = []) {
+  const byId = new Map();
+  (items || []).forEach(item => {
+    if (!item || typeof item !== 'object') return;
+    const id = String(item.id || item.business_id || '').replace(/\D/g, '');
+    if (!/^\d{6,}$/.test(id)) return;
+    const current = byId.get(id) || { id, name: `BM ${id}`, source: '', account_ids: [], account_count: 0 };
+    current.name = betterLabel(current.name, item.name || item.business_name, `BM ${id}`);
+    if (item.source && !String(current.source || '').includes(item.source)) {
+      current.source = current.source ? `${current.source},${item.source}` : item.source;
+    } else if (!current.source) {
+      current.source = 'adsmanager_graph';
+    }
+    (item.account_ids || []).forEach(raw => {
+      const act = String(raw || '').startsWith('act_') ? String(raw) : `act_${String(raw || '').replace(/\D/g, '')}`;
+      if (/^act_\d{6,}$/.test(act) && !current.account_ids.includes(act)) current.account_ids.push(act);
+    });
+    current.account_count = Math.max(Number(current.account_count || 0), current.account_ids.length, Number(item.account_count || 0));
+    byId.set(id, current);
+  });
+  (accounts || []).forEach(acc => {
+    const id = String(acc.business_id || '').replace(/\D/g, '');
+    if (!/^\d{6,}$/.test(id)) return;
+    const current = byId.get(id) || { id, name: `BM ${id}`, source: 'account_link', account_ids: [], account_count: 0 };
+    current.name = betterLabel(current.name, acc.business_name, `BM ${id}`);
+    const act = acc.act_id || (acc.account_id ? `act_${acc.account_id}` : '');
+    if (/^act_\d{6,}$/.test(act) && !current.account_ids.includes(act)) current.account_ids.push(act);
+    current.account_count = Math.max(Number(current.account_count || 0), current.account_ids.length);
+    byId.set(id, current);
+  });
+  return [...byId.values()].sort((a, b) => (b.account_count || 0) - (a.account_count || 0) || String(a.name).localeCompare(String(b.name)));
+}
+
 async function runBusinessOperation(operation, payload = {}) {
   const businessId = String(payload.business_id || payload.bm_id || '').replace(/\D/g, '');
   if (operation === 'list_businesses') {
     const data = await adsManagerGraph('me/businesses', {
-      fields: 'id,name,verification_status,permitted_roles,business_users,owned_pixels.limit(1){id,name,status}',
+      fields: 'partner_relationships.limit(100){id},created_by,is_disabled_for_integrity_reasons,can_use_extended_credit,name,id,verification_status,business_users,sharing_eligibility_status,created_time,permitted_roles,can_add_or_create_page,owned_pixels.limit(1){id,name,status}',
       limit: 700,
       summary: 1,
     });
-    return { businesses: collectBusinessesFromGraph(data), raw: data };
+    const businesses = mergeGraphBusinesses(collectBusinessesFromGraph(data), []);
+    return { businesses, raw: data };
   }
 
   if (operation === 'list_ad_accounts') {
     const businesses = [];
     const accounts = [];
-    if (businessId) {
+    const errors = [];
+    const loadBusinessAccounts = async (bmId, bmName = '') => {
+      if (!bmId) return;
       const businessCalls = [
-        () => adsManagerGraph(businessId, {
-          fields: 'owned_ad_accounts.limit(5000),client_ad_accounts.limit(5000)',
-        }),
-        () => adsManagerGraph(businessId, {
+        () => adsManagerGraph(bmId, {
           fields: 'id,name,owned_ad_accounts.limit(5000){id,account_id,name,account_status,currency,timezone_name,business{id,name},owner_business{id,name}},client_ad_accounts.limit(5000){id,account_id,name,account_status,currency,timezone_name,business{id,name},owner_business{id,name}}',
+        }),
+        () => adsManagerGraph(bmId, {
+          fields: 'id,name,owned_ad_accounts.limit(5000),client_ad_accounts.limit(5000)',
         }),
       ];
       for (const call of businessCalls) {
         try {
           const data = await call();
-          businesses.push(...collectBusinessesFromGraph(data));
-          accounts.push(...collectAdAccountsFromGraph(data, businessId, businesses[0] && businesses[0].name || ''));
-          if (accounts.length) break;
-        } catch (e) {}
+          const biz = collectBusinessesFromGraph(data);
+          businesses.push(...biz);
+          const fallbackName = bmName || (biz[0] && biz[0].name) || '';
+          accounts.push(...collectAdAccountsFromGraph(data, bmId, fallbackName));
+          if (accounts.some(a => String(a.business_id || '') === String(bmId))) break;
+        } catch (e) {
+          errors.push(`bm:${bmId}: ${e.message || e}`);
+        }
+      }
+    };
+
+    if (businessId) {
+      await loadBusinessAccounts(businessId);
+    } else {
+      try {
+        const listData = await adsManagerGraph('me/businesses', {
+          fields: 'partner_relationships.limit(100){id},created_by,is_disabled_for_integrity_reasons,can_use_extended_credit,name,id,verification_status,business_users,sharing_eligibility_status,created_time,permitted_roles,can_add_or_create_page',
+          limit: 700,
+          summary: 1,
+        });
+        businesses.push(...collectBusinessesFromGraph(listData));
+      } catch (e) {
+        errors.push(`me/businesses: ${e.message || e}`);
+      }
+      for (const biz of mergeGraphBusinesses(businesses, []).slice(0, 30)) {
+        await loadBusinessAccounts(biz.id, biz.name);
       }
     }
+
     const allCalls = [
       () => adsManagerGraph('me/adaccounts', {
         fields: 'id,account_id,name,account_status,business,owner_business,agencies,users{role,id}',
@@ -439,12 +535,17 @@ async function runBusinessOperation(operation, payload = {}) {
         businesses.push(...collectBusinessesFromGraph(all));
         accounts.push(...collectAdAccountsFromGraph(all, '', ''));
         if (accounts.length) break;
-      } catch (e) {}
+      } catch (e) {
+        errors.push(`me/adaccounts: ${e.message || e}`);
+      }
     }
+    const mergedAccounts = mergeGraphAccounts(accounts);
+    const mergedBusinesses = mergeGraphBusinesses(businesses, mergedAccounts);
     const filtered = businessId
-      ? accounts.filter(a => String(a.business_id || '') === businessId)
-      : accounts;
-    return { businesses, accounts: filtered, assets: { businesses, ad_accounts: filtered, pixels: [] } };
+      ? mergedAccounts.filter(a => String(a.business_id || '') === businessId)
+      : mergedAccounts;
+    const finalBusinesses = mergeGraphBusinesses(mergedBusinesses, filtered);
+    return { businesses: finalBusinesses, accounts: filtered, assets: { businesses: finalBusinesses, ad_accounts: filtered, pixels: [] }, errors: errors.slice(-12) };
   }
 
   if (operation === 'list_pixels') {
@@ -471,7 +572,7 @@ async function runBusinessOperation(operation, payload = {}) {
     }
     const byId = new Map();
     pixels.forEach(px => { if (!byId.has(px.id)) byId.set(px.id, px); });
-    return { pixels: [...byId.values()], errors };
+    return { pixels: [...byId.values()], businesses: mergeGraphBusinesses([], []), errors };
   }
 
   if (operation === 'share_pixel') {
