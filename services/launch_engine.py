@@ -145,6 +145,41 @@ REGIONAL_REGULATION_CONFIG = {
     "SG": ("SINGAPORE_UNIVERSAL", "singapore_universal_beneficiary", "singapore_universal_payer"),
 }
 TAIWAN_UNIVERSAL_COUNTRIES = {"TW", "HK"}
+USD_VALUE_BY_CURRENCY = {
+    "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067,
+    "CNY": 0.138, "HKD": 0.128, "TWD": 0.031, "SGD": 0.74,
+    "AUD": 0.65, "CAD": 0.74, "BRL": 0.20, "MXN": 0.058,
+    "CLP": 0.0011, "COP": 0.00025, "PEN": 0.27, "ARS": 0.001,
+    "THB": 0.028, "VND": 0.000040, "IDR": 0.000063, "PHP": 0.017,
+    "MYR": 0.21, "INR": 0.012, "TRY": 0.031, "ZAR": 0.053,
+    "BDT": 0.0091, "PKR": 0.0036, "LKR": 0.0031, "NPR": 0.0075,
+    "KRW": 0.00072, "CHF": 1.12, "NZD": 0.60, "SEK": 0.096,
+    "NOK": 0.093, "DKK": 0.145, "PLN": 0.25, "CZK": 0.044,
+    "HUF": 0.0028, "RON": 0.22, "BGN": 0.55, "AED": 0.272,
+    "SAR": 0.267, "QAR": 0.275, "KWD": 3.26, "BHD": 2.65,
+    "OMR": 2.60, "JOD": 1.41, "EGP": 0.021, "MAD": 0.099,
+    "TND": 0.32, "GHS": 0.067, "NGN": 0.00065, "KES": 0.0077,
+    "UAH": 0.027, "KZT": 0.0022, "GEL": 0.37,
+}
+NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
+
+
+def _usd_to_account_currency(amount_usd: float, currency: str) -> float:
+    currency = str(currency or "USD").upper()
+    amount = float(amount_usd or 0)
+    if currency == "USD":
+        return amount
+    rate = float(USD_VALUE_BY_CURRENCY.get(currency, 1.0) or 1.0)
+    if rate <= 0:
+        return amount
+    return round(amount / rate, 2)
+
+
+def _fb_money_units(amount: float, currency: str) -> int:
+    currency = str(currency or "USD").upper()
+    if currency in NO_DECIMAL_CURRENCIES:
+        return max(1, int(round(float(amount or 0))))
+    return max(1, int(round(float(amount or 0) * 100)))
 
 
 def _normalize_verified_identity_value(value) -> str:
@@ -899,14 +934,34 @@ class AutoPilotEngine:
             logger.info(f"[AutoPilot] campaign_id={campaign_id} 状态为 {campaign['status']}，跳过")
             return
 
-        # 检查是否已建过 Campaign（幂等保护）
-        if campaign["fb_campaign_id"]:
-            logger.info(f"[AutoPilot] campaign_id={campaign_id} 已有 fb_campaign_id，跳过重复建营")
-            # 修复：有fb_campaign_id但状态仍为pending，说明之前执行到一半被中断，更新为done避免永久卡死
-            if campaign["status"] == "pending":
-                self._update_campaign_status(campaign_id, "done")
-                logger.info(f"[AutoPilot] campaign_id={campaign_id} 状态从pending修正为done")
-            return
+        existing_fb_campaign_id = str(campaign.get("fb_campaign_id") or "").strip()
+        if existing_fb_campaign_id:
+            conn = get_conn()
+            try:
+                row = conn.execute(
+                    """SELECT
+                           COUNT(*) AS total_rows,
+                           SUM(CASE WHEN fb_ad_id IS NOT NULL AND TRIM(fb_ad_id)!=''
+                                     AND COALESCE(status,'done')='done' THEN 1 ELSE 0 END) AS done_ads
+                       FROM auto_campaign_ads WHERE campaign_id=?""",
+                    (campaign_id,),
+                ).fetchone()
+                done_ads = int((row["done_ads"] if row else 0) or 0)
+                total_rows = int((row["total_rows"] if row else 0) or 0)
+            finally:
+                conn.close()
+            if done_ads > 0:
+                logger.info(
+                    f"[AutoPilot] campaign_id={campaign_id} 已有 fb_campaign_id={existing_fb_campaign_id} "
+                    f"且已有成功广告 {done_ads} 条，跳过重复创建"
+                )
+                if campaign["status"] == "pending":
+                    self._update_campaign_status(campaign_id, "done")
+                return
+            logger.warning(
+                f"[AutoPilot] campaign_id={campaign_id} 已有 fb_campaign_id={existing_fb_campaign_id} "
+                f"但没有成功广告记录，将复用该 Campaign 继续创建 AdSet/Ad（existing_rows={total_rows}）"
+            )
 
         act_id = campaign["act_id"]
         self._active_act_id = act_id
@@ -1075,32 +1130,11 @@ class AutoPilotEngine:
                                self._get_setting("autopilot_test_budget", "20"))
             # 获取账户货币
             _acc_currency = (_acc["currency"] if _acc and _acc.get("currency") else "USD").upper()
-            # 汇率表（USD -> 账户货币：1 USD = 1/rate 账户货币）
-            _DEFAULT_RATES = {
-                "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067,
-                "CNY": 0.138, "HKD": 0.128, "TWD": 0.031, "SGD": 0.74,
-                "AUD": 0.65, "CAD": 0.74, "BRL": 0.20, "MXN": 0.058,
-                "CLP": 0.0011, "COP": 0.00025, "PEN": 0.27, "ARS": 0.001,
-                "THB": 0.028, "VND": 0.000040, "IDR": 0.000063, "PHP": 0.017,
-                "MYR": 0.21, "INR": 0.012, "TRY": 0.031, "ZAR": 0.053,
-                "BDT": 0.0091, "PKR": 0.0036, "LKR": 0.0031, "NPR": 0.0075,
-                "KRW": 0.00072, "CHF": 1.12, "NZD": 0.60, "SEK": 0.096,
-                "NOK": 0.093, "DKK": 0.145, "PLN": 0.25, "CZK": 0.044,
-                "HUF": 0.0028, "RON": 0.22, "BGN": 0.55, "AED": 0.272,
-                "SAR": 0.267, "QAR": 0.275, "KWD": 3.26, "BHD": 2.65,
-                "OMR": 2.60, "JOD": 1.41, "EGP": 0.021, "MAD": 0.099,
-                "TND": 0.32, "GHS": 0.067, "NGN": 0.00065, "KES": 0.0077,
-                "UAH": 0.027, "KZT": 0.0022, "GEL": 0.37,
-            }
             if _acc_currency == "USD":
                 test_budget = budget_usd
             else:
-                # USD -> 账户货币：budget_usd / rate_of_acc_currency
-                _rate = _DEFAULT_RATES.get(_acc_currency, 1.0)
-                if _rate > 0:
-                    test_budget = round(budget_usd / _rate, 2)
-                else:
-                    test_budget = budget_usd
+                test_budget = _usd_to_account_currency(budget_usd, _acc_currency)
+                _rate = float(USD_VALUE_BY_CURRENCY.get(_acc_currency, 1.0) or 1.0)
                 logger.info(
                     f"[AutoPilot] 预算换算: {budget_usd} USD -> {test_budget} {_acc_currency} "
                     f"(汇率 1 USD = {1/_rate:.4f} {_acc_currency})"
@@ -1205,18 +1239,24 @@ class AutoPilotEngine:
             _campaign_display_name = f"{_src_prefix}-{_obj_short}-{_ctry_str}-{_ast_code}-{_mmdd}"
             # ──────────────────────────────────────────────────────────────────────
 
-            fb_campaign_id, _campaign_token_candidate = self._run_with_token_fallback(
-                _token_candidates,
-                token,
-                "创建 Campaign",
-                lambda try_token, _: self._create_campaign(
-                    act_id, _campaign_display_name, campaign["objective"], try_token
-                ),
-            )
-            token = self._candidate_token(_campaign_token_candidate, token)
-            _used_token_label = _campaign_token_candidate["label"]
-            self._update_campaign_field(campaign_id, "fb_campaign_id", fb_campaign_id)
-            logger.info(f"[AutoPilot] ✅ Campaign 创建成功 (Token={_used_token_label}): {fb_campaign_id}")
+            fb_campaign_id = existing_fb_campaign_id
+            if fb_campaign_id:
+                _campaign_token_candidate = _token_candidates[0]
+                _used_token_label = _campaign_token_candidate.get("label", "existing")
+                logger.info(f"[AutoPilot] 复用已有 Campaign: {fb_campaign_id}")
+            else:
+                fb_campaign_id, _campaign_token_candidate = self._run_with_token_fallback(
+                    _token_candidates,
+                    token,
+                    "创建 Campaign",
+                    lambda try_token, _: self._create_campaign(
+                        act_id, _campaign_display_name, campaign["objective"], try_token
+                    ),
+                )
+                token = self._candidate_token(_campaign_token_candidate, token)
+                _used_token_label = _campaign_token_candidate["label"]
+                self._update_campaign_field(campaign_id, "fb_campaign_id", fb_campaign_id)
+                logger.info(f"[AutoPilot] ✅ Campaign 创建成功 (Token={_used_token_label}): {fb_campaign_id}")
 
             # 6. 生成受众矩阵（兴趣词分组 + 宽泛受众）
             audience_groups = self._build_audience_groups(
@@ -1994,9 +2034,7 @@ class AutoPilotEngine:
     ) -> str:
         """创建 Facebook AdSet"""
         act_id_num = act_id.replace("act_", "")
-        # FB API 预算单位：大多数货币为"分"（×100），无小数位货币（JPY/KRW等）直接传整数
-        # 注意：此处 daily_budget 已经是账户货币金额（由 run_campaign 换算完毕）
-        _NO_DECIMAL_CURRENCIES = {"JPY", "KRW", "IDR", "VND", "CLP", "COP", "HUF", "PYG", "UGX", "TZS"}
+        # daily_budget is already converted to the account currency by run_campaign.
         # 从账户查询货币类型（通过 act_id 推断）
         _budget_currency = "USD"
         try:
@@ -2008,10 +2046,7 @@ class AutoPilotEngine:
                 _budget_currency = _acc_row["currency"].upper()
         except Exception:
             pass  # 查询失败时默认为 USD
-        if _budget_currency in _NO_DECIMAL_CURRENCIES:
-            budget_cents = int(daily_budget)  # 零小数位货币：直接传整数
-        else:
-            budget_cents = int(daily_budget * 100)  # 标准货币：FB 单位为分
+        budget_cents = _fb_money_units(daily_budget, _budget_currency)
         # 规范化 objective：将旧版/前端传来的 MESSAGES 映射为 OUTCOME_ENGAGEMENT
         _OBJ_NORMALIZE = {
             "OUTCOME_MESSAGES":  "OUTCOME_ENGAGEMENT",
@@ -2145,16 +2180,34 @@ class AutoPilotEngine:
                 # 自动版位时不强制设置，FB会自动处理
                 pass
             payload["targeting"] = targeting
+        bid_amount_units = None
+        if target_cpa and target_cpa > 0:
+            # Frontend stores target CPA in USD. FB bid_amount must use account currency units.
+            target_cpa_local = _usd_to_account_currency(float(target_cpa), _budget_currency)
+            bid_amount_units = _fb_money_units(target_cpa_local, _budget_currency)
+            if _budget_currency != "USD":
+                logger.info(
+                    "[AutoPilot] 目标 CPA 换算: %s USD -> %s %s -> bid_amount=%s",
+                    target_cpa, target_cpa_local, _budget_currency, bid_amount_units,
+                )
+
         # 出价策略：如果设了 target_cpa 且策略为 COST_CAP/BID_CAP，优先使用 CPA
         if target_cpa and target_cpa > 0 and bid_strategy in ("COST_CAP", "BID_CAP"):
             payload["bid_strategy"] = bid_strategy
-            payload["bid_amount"] = int(target_cpa * 100)
+            payload["bid_amount"] = bid_amount_units
         elif target_cpa and target_cpa > 0:
             # 有 CPA 但策略为自动，使用 COST_CAP
             payload["bid_strategy"] = "COST_CAP"
-            payload["bid_amount"] = int(target_cpa * 100)
+            payload["bid_amount"] = bid_amount_units
         else:
-            payload["bid_strategy"] = bid_strategy
+            if bid_strategy in ("COST_CAP", "BID_CAP"):
+                logger.warning(
+                    "[AutoPilot] bid_strategy=%s requires target_cpa; fallback to LOWEST_COST_WITHOUT_CAP",
+                    bid_strategy,
+                )
+                payload["bid_strategy"] = "LOWEST_COST_WITHOUT_CAP"
+            else:
+                payload["bid_strategy"] = bid_strategy
 
         # 需要认证国家：按国家设置对应的区域声明类别与身份字段。
         countries = targeting.get("geo_locations", {}).get("countries", [])
