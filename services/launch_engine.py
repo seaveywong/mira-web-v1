@@ -1164,6 +1164,8 @@ class AutoPilotEngine:
             # 表单链接：潜在客户广告（lead_generation）时使用
             _acc_form_link = (_acc.get("form_link") if _acc else None) or ""
             form_link = campaign.get("form_link") or _acc_form_link or landing_url
+            landing_url = self._normalize_managed_landing_url_for_launch(landing_url)
+            form_link = self._normalize_managed_landing_url_for_launch(form_link)
 
             if not page_id:
                 raise Exception(
@@ -3194,14 +3196,38 @@ class AutoPilotEngine:
         except Exception:
             return raw.rstrip("/").lower()
 
-    def _find_published_landing_page_for_url(self, landing_url: Optional[str]) -> Optional[dict]:
+    def _landing_domain_status_usable(self, item: dict) -> bool:
+        domain = str(item.get("custom_domain") or "").strip()
+        if not domain:
+            return False
+        raw = self._parse_json_field(item.get("raw_response"), {})
+        if isinstance(raw, dict) and raw.get("custom_domain_runtime_usable"):
+            return True
+        err = str(item.get("last_error") or "").strip().lower()
+        if any(token in err for token in ("authentication", "permission", "not authorized", "forbidden", "failed")):
+            return False
+        status = None
+        if isinstance(raw, dict):
+            status = raw.get("domain_status") or raw.get("custom_domain_result")
+        values = []
+        if isinstance(status, dict):
+            for key in ("status", "verified", "validation_status", "verification_status", "ssl_status"):
+                value = status.get(key)
+                if value is not None:
+                    values.append(str(value).strip().lower())
+        elif status is not None:
+            values.append(str(status).strip().lower())
+        return any(value in {"active", "success", "verified", "ready", "ok"} for value in values)
+
+    def _match_managed_landing_page_for_url(self, landing_url: Optional[str]) -> Optional[dict]:
         target = self._landing_link_base(landing_url)
         if not target:
             return None
         conn = get_conn()
         try:
             rows = conn.execute(
-                """SELECT id, pages_url, custom_domain, target_urls, team_id, owner_user_id
+                """SELECT id, pages_url, custom_domain, target_urls, team_id, owner_user_id,
+                          raw_response, last_error
                    FROM landing_pages
                    WHERE status='published'
                      AND (COALESCE(pages_url,'')!='' OR COALESCE(custom_domain,'')!='')
@@ -3209,20 +3235,46 @@ class AutoPilotEngine:
             ).fetchall()
             for row in rows:
                 item = dict(row)
-                candidates = []
-                if item.get("pages_url"):
-                    candidates.append(str(item.get("pages_url") or "").strip().rstrip("/"))
-                if item.get("custom_domain"):
-                    candidates.append("https://" + str(item.get("custom_domain") or "").strip().rstrip("/"))
-                for candidate in candidates:
-                    if candidate and self._landing_link_base(candidate) == target:
-                        item["public_url"] = candidate.rstrip("/")
-                        return item
+                pages_url = str(item.get("pages_url") or "").strip().rstrip("/")
+                custom_domain = str(item.get("custom_domain") or "").strip().rstrip("/")
+                custom_url = f"https://{custom_domain}" if custom_domain else ""
+                pages_match = bool(pages_url and self._landing_link_base(pages_url) == target)
+                custom_match = bool(custom_url and self._landing_link_base(custom_url) == target)
+                if not pages_match and not custom_match:
+                    continue
+                if self._landing_domain_status_usable(item):
+                    item["public_url"] = custom_url.rstrip("/")
+                else:
+                    item["public_url"] = ""
+                item["matched_pages_fallback"] = pages_match
+                item["matched_custom_domain"] = custom_match
+                return item
         except Exception as exc:
             logger.warning("[AutoPilot] landing link page lookup failed: %s", exc)
         finally:
             conn.close()
         return None
+
+    def _find_published_landing_page_for_url(self, landing_url: Optional[str]) -> Optional[dict]:
+        page = self._match_managed_landing_page_for_url(landing_url)
+        if page and page.get("public_url"):
+            return page
+        return None
+
+    def _normalize_managed_landing_url_for_launch(self, landing_url: Optional[str]) -> str:
+        raw = str(landing_url or "").strip()
+        if not raw:
+            return ""
+        page = self._match_managed_landing_page_for_url(raw)
+        if not page:
+            return raw
+        public_url = str(page.get("public_url") or "").strip()
+        if public_url:
+            if self._landing_link_base(raw) != self._landing_link_base(public_url):
+                logger.info("[AutoPilot] replaced landing fallback URL with custom domain for page %s", page.get("id"))
+            return public_url
+        logger.warning("[AutoPilot] managed landing URL ignored because custom domain is not ready: page_id=%s", page.get("id"))
+        return ""
 
     def _new_landing_slug(self, conn) -> str:
         alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
