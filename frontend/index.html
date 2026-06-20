@@ -5201,7 +5201,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.35';
+var APP_VERSION='v3.11.36';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -21165,18 +21165,46 @@ async function showLandingStats(id){
   function eventName(t){
    return {visit:'访问',click:'点击',redirect:'跳转',block:'拦截',submit:'提交',error:'错误',pass:'通过'}[String(t||'').toLowerCase()]||String(t||'--');
   }
+  function sourceDisplay(v){
+   var key=String(v||'').toLowerCase();
+   var map={facebook:'Facebook',instagram:'Instagram',tiktok:'TikTok',google:'Google',bing:'Bing',whatsapp:'WhatsApp',telegram:'Telegram',unknown:'未知来源'};
+   if(map[key])return map[key];
+   if(!key||key.indexOf('/')>-1)return '未知来源';
+   return String(v||'未知来源');
+  }
+  function landingEventState(x){
+   var t=String(x.event_type||'').toLowerCase();
+   var d=String(x.decision||'').toLowerCase();
+   if(t==='block'||d==='block')return {label:'拒绝',cls:'bg-er'};
+   if(t==='error')return {label:'错误',cls:'bg-er'};
+   return {label:'通过',cls:'bg-ok'};
+  }
+  function landingAdInfo(x){
+   var ad=String(x.ad_id||'').trim();
+   var slug=String(x.ad_slug||'').trim();
+   if(ad&&slug)return '广告 '+ad+' · 子码 '+slug;
+   if(ad)return '广告 '+ad;
+   if(slug)return '子码 '+slug+' · 未展开广告ID';
+   return '未识别广告';
+  }
+  function landingReasonText(x){
+   var t=String(x.event_type||'').toLowerCase();
+   if(t==='block')return '拦截原因：'+(x.reason||'--');
+   if(t==='redirect')return '跳转目标：'+(x.target_url||'--');
+   if(t==='click')return '点击目标：'+(x.target_url||'页面按钮');
+   if(t==='error')return '错误信息：'+(x.reason||x.target_url||'--');
+   return '记录说明：'+(x.reason||x.target_url||'--');
+  }
   var recent=(r.recent||[]).slice(0,24).map(function(x){
-   var pass=String(x.decision||'').toLowerCase()==='block'?'拒绝':'通过';
-   var passClass=pass==='拒绝'?'bg-er':'bg-ok';
-   var reason=x.reason||x.target_url||'';
+   var state=landingEventState(x);
    var ref=String(x.referrer||'').replace(/^https?:\/\//,'').replace(/\/$/,'');
-   var source=(x.source_platform||x.platform||'--')+(ref?' · '+ref.slice(0,90):'');
+   var source=sourceDisplay(x.source_platform||'')+(ref?' · '+ref.slice(0,90):'');
    var place=[x.country||'',x.region||'',x.city||''].filter(Boolean).join(' / ')||'--';
    var device=[x.device_type||'',x.os||'',x.browser||''].filter(Boolean).join(' · ')||'--';
-   var adInfo=(x.ad_id||x.ad_slug)?('广告 '+(x.ad_id||'--')+(x.ad_slug?' · 子码 '+x.ad_slug:'')):'未识别广告';
+   var adInfo=landingAdInfo(x);
    var pathText=x.path||'--';
    return '<div class="landing-event-card">'+
-    '<div class="landing-event-top"><div class="landing-event-title"><span>'+escHtml(eventName(x.event_type))+'</span><span class="badge '+passClass+'">'+escHtml(pass)+'</span></div><span class="landing-event-time">'+escHtml(x.created_at||'')+'</span></div>'+
+    '<div class="landing-event-top"><div class="landing-event-title"><span>'+escHtml(eventName(x.event_type))+'</span><span class="badge '+state.cls+'">'+escHtml(state.label)+'</span></div><span class="landing-event-time">'+escHtml(x.created_at||'')+'</span></div>'+
     '<div class="landing-event-fields">'+
      '<div class="landing-event-field"><span>地区</span><b title="'+escHtml(place)+'">'+escHtml(place)+'</b></div>'+
      '<div class="landing-event-field"><span>设备</span><b title="'+escHtml(device)+'">'+escHtml(device)+'</b></div>'+
@@ -21184,7 +21212,7 @@ async function showLandingStats(id){
      '<div class="landing-event-field"><span>广告归因</span><b title="'+escHtml(adInfo)+'">'+escHtml(adInfo)+'</b></div>'+
      '<div class="landing-event-field"><span>访问路径</span><b title="'+escHtml(pathText)+'">'+escHtml(pathText)+'</b></div>'+
     '</div>'+
-    '<div class="landing-event-reason"><b style="color:var(--t1)">原因 / 目标：</b>'+escHtml(reason||'--')+'</div>'+
+    '<div class="landing-event-reason"><b style="color:var(--t1)">结果：</b>'+escHtml(landingReasonText(x))+'</div>'+
    '</div>';
   }).join('');
   var metricCards=[
