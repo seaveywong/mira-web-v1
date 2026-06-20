@@ -1027,7 +1027,7 @@ export default {
         return blockedResponse(decision.reason);
       }
       const target = await selectTarget(request, cfg);
-      if (!target) return new Response('No target configured', { status: 503 });
+      if (!target) return blockedResponse('no_target');
       ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
     }
