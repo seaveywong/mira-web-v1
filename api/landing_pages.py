@@ -662,6 +662,24 @@ def _public_provider_error(message: Any, user=None) -> str:
     return text
 
 
+def _public_error(message: Any, user=None, fallback: str = "操作失败") -> str:
+    text = _public_provider_error(message, user)
+    if not text:
+        return fallback
+    text = re.sub(r"(?i)\b(Bearer)\s+[A-Za-z0-9._~+/=-]+", r"\1 ***", text)
+    text = re.sub(
+        r"(?i)\b(access[_ -]?token|api[_ -]?token|token|secret|password|key)\s*[:=]\s*[^,\s;]+",
+        lambda m: f"{m.group(1)}=***",
+        text,
+    )
+    text = re.sub(r"https?://(?:43\.129\.230\.237|shouhu\.asia)[^\s\"'<>)]*", "内部服务地址", text)
+    text = re.sub(r"(?i)(?:/opt/mira|/var/log/mira|C:\\Users\\Seavey)[^\s\"'<>)]*", "服务器内部路径", text)
+    text = text.replace("Mira", "系统")
+    if "Traceback" in text or len(text) > 500:
+        return fallback
+    return text[:300] or fallback
+
+
 def _short_slug(size: int = 8) -> str:
     alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
     return "".join(secrets.choice(alphabet) for _ in range(size))
@@ -731,7 +749,7 @@ def _validate_landing_template_zip(zip_path: Path) -> dict:
                 try:
                     norm = _safe_zip_member_name(info.filename)
                 except ValueError as exc:
-                    errors.append(str(exc))
+                    errors.append(_public_error(exc, user, "模板包包含非法路径"))
                     continue
                 names.append(norm)
                 total_unpacked += max(0, int(info.file_size or 0))
@@ -1127,7 +1145,7 @@ def _landing_fetch_ads_for_link_binding(act_id: str, token: str, limit_ads: int)
             resp = requests.get(url, params=params if "graph.facebook.com" in url else None, timeout=35)
             data = resp.json()
         except Exception as exc:
-            err_msg = str(exc)
+            err_msg = _public_error(exc, None, "FB 数据读取失败")
             break
         if isinstance(data, dict) and data.get("error"):
             err = data.get("error") or {}
@@ -1455,7 +1473,7 @@ def _asset_binding_values(body: LandingAssetBindingReq, conn, user) -> dict:
     try:
         custom_domain = normalize_custom_domain(custom_domain_raw) if custom_domain_raw else ""
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=_public_error(exc, user, "自定义域名格式不正确")) from exc
     pixel_id = (body.pixel_id or "").strip() or ((page or {}).get("pixel_id") or "")
     pixel_name = (body.pixel_name or "").strip()
     if not pixel_name and pixel_id and not custom_domain and not page_id:
@@ -1807,7 +1825,7 @@ def _refresh_landing_ad_link_spend(conn, row, result_date: str) -> dict:
         }
     except Exception as exc:
         logger.exception("landing ad link live spend refresh failed: link_id=%s ad_id=%s", row["id"], ad_id)
-        return {"ok": False, "reason": "exception", "message": str(exc)[:300]}
+        return {"ok": False, "reason": "exception", "message": _public_error(exc, None, "FB 数据读取失败")}
 
 
 def _ad_link_decision(stats: dict) -> dict:
@@ -3859,7 +3877,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
     try:
         custom_domain = normalize_custom_domain(body.custom_domain)
     except ValueError as exc:
-        custom_domain_error = str(exc)
+        custom_domain_error = _public_error(exc, user, "自定义域名格式不正确")
     checks = []
     if custom_domain_error:
         checks.append({"key": "custom_domain", "status": "fail", "label": "自定义域名", "detail": custom_domain_error})
@@ -4089,7 +4107,7 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
             try:
                 new_custom_domain = normalize_custom_domain(body.custom_domain)
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+                raise HTTPException(status_code=400, detail=_public_error(exc, user, "自定义域名格式不正确")) from exc
             should_republish = should_republish or new_custom_domain != custom_domain
             custom_domain = new_custom_domain
         if body.template_id is not None:
@@ -4738,7 +4756,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
     try:
         custom_domain = normalize_custom_domain(body.custom_domain)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=_public_error(exc, user, "自定义域名格式不正确")) from exc
 
     conn = get_conn()
     token_row = _assert_token_access(conn, body.token_id, user)
@@ -4877,10 +4895,12 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
         item["domain_notice"] = domain_notice
         return {"success": True, "page": item}
     except Exception as exc:
+        logger.exception("landing page publish failed")
+        public_error = _public_error(exc, user, "发布失败，请检查发布通道权限、域名配置或模板包")
         if page_id:
             conn.execute(
                 "UPDATE landing_pages SET status='failed', last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",
-                (str(exc), page_id),
+                (public_error, page_id),
             )
         else:
             conn.execute(
@@ -4909,7 +4929,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
                     1 if body.protection_enabled else 0,
                     json.dumps(protection_rules, ensure_ascii=False),
                     1 if worker_enabled else 0,
-                    str(exc),
+                    public_error,
                     body.note or "",
                     team_id,
                     owner_id,
@@ -4917,7 +4937,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
                 ),
             )
         conn.commit()
-        raise HTTPException(status_code=400, detail=f"Publish failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"发布失败：{public_error}") from exc
     finally:
         if work_dir:
             try:
@@ -4957,7 +4977,7 @@ def republish_stale_landing_pages(request: Request, limit: int = 20, user=Depend
             page = res.get("page") if isinstance(res, dict) else None
             republished.append({"id": page_id, "title": (page or {}).get("title") or ""})
         except Exception as exc:
-            failed.append({"id": page_id, "error": _public_provider_error(str(exc), user)})
+            failed.append({"id": page_id, "error": _public_error(exc, user, "重新发布失败")})
     return {
         "success": not failed,
         "current_version": EDGE_RUNTIME_VERSION,
@@ -5093,12 +5113,14 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("landing page republish failed: page_id=%s", page_id)
+        public_error = _public_error(exc, user, "重新发布失败，请检查发布通道权限、域名配置或模板包")
         conn.execute(
             "UPDATE landing_pages SET status='failed', last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",
-            (str(exc), page_id),
+            (public_error, page_id),
         )
         conn.commit()
-        raise HTTPException(status_code=400, detail=f"Republish failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"重新发布失败：{public_error}") from exc
     finally:
         if work_dir:
             try:
@@ -5120,12 +5142,14 @@ def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("landing domain refresh failed: page_id=%s", page_id)
+        public_error = _public_error(exc, user, "域名状态同步失败")
         conn.execute(
             "UPDATE landing_pages SET last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",
-            (f"Domain status refresh failed: {exc}", page_id),
+            (f"域名状态同步失败：{public_error}", page_id),
         )
         conn.commit()
-        raise HTTPException(status_code=400, detail=f"Domain status refresh failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"域名状态同步失败：{public_error}") from exc
     finally:
         conn.close()
 
@@ -5141,12 +5165,14 @@ def repair_landing_page_domain(page_id: int, user=Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("landing domain repair failed: page_id=%s", page_id)
+        public_error = _public_error(exc, user, "域名补齐失败")
         conn.execute(
             "UPDATE landing_pages SET last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",
-            (f"Domain repair failed: {exc}", page_id),
+            (f"域名补齐失败：{public_error}", page_id),
         )
         conn.commit()
-        raise HTTPException(status_code=400, detail=f"Domain repair failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=f"域名补齐失败：{public_error}") from exc
     finally:
         conn.close()
 
@@ -5376,11 +5402,12 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("landing route target failed: page_id=%s", body.page_id)
         try:
             conn.rollback()
         except Exception:
             pass
-        raise HTTPException(status_code=500, detail=f"route target failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail="route target failed") from exc
     finally:
         conn.close()
 
