@@ -18,8 +18,9 @@ CF_API_BASE = "https://api.cloudflare.com/client/v4"
 BASE_DIR = Path(os.environ.get("MIRA_BASE_DIR", "/opt/mira"))
 DEFAULT_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "default_page"
 LEGACY_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "rh_fp_advanced"
+LEGACY_TEMPLATE_DIRS = (LEGACY_TEMPLATE_DIR,)
 IGNORE_STATIC_NAMES = {"_headers", "_redirects", "_routes.json", "_worker.js"}
-EDGE_RUNTIME_VERSION = "20260621.2"
+EDGE_RUNTIME_VERSION = "20260621.3"
 
 
 class CloudflareError(RuntimeError):
@@ -64,6 +65,7 @@ def _normalize_template_markers(html: str) -> str:
         "mira_ad_id": "aid",
         "mira_rt_idx": "lp_rt_idx",
         "Mira landing page publish": "landing page publish",
+        "Mira": "Site",
     }
     for src, dst in replacements.items():
         html = html.replace(src, dst)

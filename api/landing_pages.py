@@ -27,7 +27,7 @@ from services.token_manager import ACTION_READ, get_exec_token
 from services.landing_publisher import (
     DEFAULT_TEMPLATE_DIR,
     EDGE_RUNTIME_VERSION,
-    LEGACY_TEMPLATE_DIR,
+    LEGACY_TEMPLATE_DIRS,
     CloudflareError,
     add_pages_custom_domain,
     delete_pages_project,
@@ -600,7 +600,8 @@ def _ensure_schema():
         )
         if row and DEFAULT_TEMPLATE_DIR.exists() and str(row["created_by"] or "system") == "system":
             current_path = str(row["template_path"] or "")
-            if current_path in {"", str(LEGACY_TEMPLATE_DIR)} or not Path(current_path).exists():
+            legacy_template_paths = {str(path) for path in LEGACY_TEMPLATE_DIRS}
+            if current_path in {"", *legacy_template_paths} or not Path(current_path).exists():
                 conn.execute(
                     "UPDATE landing_templates SET template_path=? WHERE id=1 AND COALESCE(created_by,'system')='system'",
                     (str(DEFAULT_TEMPLATE_DIR),),
