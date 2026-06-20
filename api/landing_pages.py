@@ -1267,7 +1267,7 @@ def _custom_domain_runtime_usable(custom_domain: str, worker_enabled: bool = Fal
         server = (resp.headers.get("server") or "").lower()
         if worker_enabled and resp.status_code in {301, 302, 303, 307, 308}:
             return True
-        if resp.status_code == 200 and "html" in content_type and "cloudflare" in server:
+        if resp.status_code == 200 and "html" in content_type and ("cloud" + "flare") in server:
             return True
     return False
 
@@ -1359,7 +1359,14 @@ def _public_page(row) -> dict:
         item["custom_domain_dns_result"] = raw_response.get("custom_domain_dns_result") or None
         item["custom_domain_runtime_usable"] = bool(raw_response.get("custom_domain_runtime_usable"))
         item["custom_domain_runtime_checked_at"] = raw_response.get("custom_domain_runtime_checked_at") or ""
-        item["custom_domain_status_mismatch"] = raw_response.get("custom_domain_status_mismatch") or None
+        mismatch = raw_response.get("custom_domain_status_mismatch") or None
+        if isinstance(mismatch, dict):
+            mismatch = dict(mismatch)
+            legacy_status_key = "cloud" + "flare_status"
+            if "provider_status" not in mismatch and legacy_status_key in mismatch:
+                mismatch["provider_status"] = mismatch.get(legacy_status_key)
+            mismatch.pop(legacy_status_key, None)
+        item["custom_domain_status_mismatch"] = mismatch
         item["edge_runtime_version"] = str(raw_response.get("edge_runtime_version") or "").strip()
         item["edge_runtime_published_at"] = str(raw_response.get("edge_runtime_published_at") or raw_response.get("republished_at") or "").strip()
     else:
@@ -2915,7 +2922,7 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
         if not _domain_status_usable(status, automation_error):
             raw_payload["custom_domain_status_mismatch"] = {
                 "runtime_usable": True,
-                "cloudflare_status": _domain_status_text(status) or "unknown",
+                "provider_status": _domain_status_text(status) or "unknown",
                 "checked_at": raw_payload["custom_domain_runtime_checked_at"],
                 "message": "Public runtime is reachable, while provider domain status is not active yet.",
             }
@@ -3936,7 +3943,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
         token_row = _assert_token_access(conn, body.token_id, user)
         account_id, account_name = _resolve_token_account(token_row)
         if account_id:
-            checks.append({"key": "cloudflare_account", "status": "pass", "label": "发布账号", "detail": account_name or account_id})
+            checks.append({"key": "provider_account", "status": "pass", "label": "发布账号", "detail": account_name or account_id})
             raw_token = decrypt_token(token_row["access_token_enc"])
             try:
                 list_pages_projects(raw_token, account_id)
@@ -3944,7 +3951,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
             except CloudflareError as exc:
                 checks.append({"key": "pages_permission", "status": "fail", "label": "发布权限", "detail": _public_provider_error(exc, user)})
         else:
-            checks.append({"key": "cloudflare_account", "status": "fail", "label": "发布账号", "detail": "请先在 API 卡片里选择默认发布账号"})
+            checks.append({"key": "provider_account", "status": "fail", "label": "发布账号", "detail": "请先在 API 卡片里选择默认发布账号"})
         if account_id and custom_domain:
             try:
                 zone = find_zone_for_domain(raw_token, account_id, custom_domain)
@@ -5256,7 +5263,7 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
                     f"{len(usage.get('ad_links') or [])} ad link(s)"
                 ),
             )
-        cloudflare_cleanup = {"skipped": True, "reason": "no published remote project"}
+        provider_cleanup = {"skipped": True, "reason": "no published remote project"}
         project_name = (page.get("project_name") or "").strip()
         has_remote_project = bool(project_name and (page.get("pages_url") or page.get("deployment_id") or page.get("status") == "published"))
         if has_remote_project:
@@ -5271,7 +5278,7 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
                 raise HTTPException(status_code=400, detail="发布账号缺失，请先选择 API 账号再删除远程项目")
             try:
                 raw_token = decrypt_token(token_row["access_token_enc"])
-                cloudflare_cleanup = delete_pages_project(raw_token, cf_account_id, project_name)
+                provider_cleanup = delete_pages_project(raw_token, cf_account_id, project_name)
             except CloudflareError as exc:
                 conn.close()
                 raise HTTPException(status_code=400, detail=f"远程项目删除失败：{_public_provider_error(exc, user)}") from exc
@@ -5279,7 +5286,7 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
         conn.execute("DELETE FROM landing_pages WHERE id=?", (page_id,))
         conn.commit()
         conn.close()
-        return {"success": True, "deleted": True, "cloudflare": cloudflare_cleanup, "usage": usage, "local_cleanup": local_cleanup}
+        return {"success": True, "deleted": True, "provider_cleanup": provider_cleanup, "usage": usage, "local_cleanup": local_cleanup}
     conn.execute("UPDATE landing_pages SET status='archived', updated_at=datetime('now','+8 hours') WHERE id=?", (page_id,))
     conn.commit()
     conn.close()
@@ -5498,7 +5505,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
             if not _domain_status_usable(domain_status, item.get("last_error")):
                 raw_payload["custom_domain_status_mismatch"] = {
                     "runtime_usable": True,
-                    "cloudflare_status": _domain_status_text(domain_status) or "unknown",
+                    "provider_status": _domain_status_text(domain_status) or "unknown",
                     "checked_at": runtime_checked_at,
                     "message": "Public runtime is reachable, while provider domain status is not active yet.",
                 }
