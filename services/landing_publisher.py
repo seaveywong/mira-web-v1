@@ -1033,7 +1033,7 @@ export default {
       }
       ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass', metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       const assetUrl = new URL(request.url);
-      assetUrl.pathname = '/index.html';
+      assetUrl.pathname = '/';
       return env.ASSETS.fetch(new Request(assetUrl.toString(), request));
     }
     if (isHtmlRequest(request)) {
