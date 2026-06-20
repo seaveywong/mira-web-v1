@@ -138,11 +138,11 @@ class LandingPublishReq(BaseModel):
 
 
 class LandingRuntimeConfigPatch(BaseModel):
-    target_urls: list[str] = []
-    rotation_mode: str = "sequential"
-    tracking_enabled: bool = True
-    protection_enabled: bool = False
-    protection_rules: dict[str, Any] = Field(default_factory=dict)
+    target_urls: Optional[list[str]] = None
+    rotation_mode: Optional[str] = None
+    tracking_enabled: Optional[bool] = None
+    protection_enabled: Optional[bool] = None
+    protection_rules: Optional[dict[str, Any]] = None
     custom_domain: Optional[str] = None
     pixel_id: Optional[str] = None
     template_id: Optional[int] = None
@@ -4155,19 +4155,46 @@ def landing_edge_runtime_config(body: LandingRuntimeConfigReq):
 
 @router.patch("/pages/{page_id}/runtime-config")
 def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch, request: Request, user=Depends(get_current_user)):
-    urls = [u.strip() for u in body.target_urls if isinstance(u, str) and u.strip()]
-    if not urls:
-        raise HTTPException(status_code=400, detail="请至少配置一个跳转链接")
-    if any(not (u.startswith("http://") or u.startswith("https://")) for u in urls):
-        raise HTTPException(status_code=400, detail="跳转链接必须以 http:// 或 https:// 开头")
-    rotation_mode = (body.rotation_mode or "sequential").strip().lower()
-    if rotation_mode not in {"sequential", "random", "first"}:
-        raise HTTPException(status_code=400, detail="跳转方式只能是顺序轮询、随机轮询或固定第一个")
-    rules = _safe_rules(body.protection_rules)
     conn = get_conn()
     should_republish = False
     try:
         page = _assert_page_access(conn, page_id, user)
+        current_urls = [
+            u.strip()
+            for u in _json_loads(page.get("target_urls"), [])
+            if isinstance(u, str) and u.strip()
+        ]
+        urls = (
+            [u.strip() for u in body.target_urls if isinstance(u, str) and u.strip()]
+            if body.target_urls is not None
+            else current_urls
+        )
+        if not urls:
+            raise HTTPException(status_code=400, detail="请至少配置一个跳转链接")
+        if any(not (u.startswith("http://") or u.startswith("https://")) for u in urls):
+            raise HTTPException(status_code=400, detail="跳转链接必须以 http:// 或 https:// 开头")
+        rotation_mode = (
+            body.rotation_mode
+            if body.rotation_mode is not None
+            else (page.get("rotation_mode") or "sequential")
+        ).strip().lower()
+        if rotation_mode not in {"sequential", "random", "first"}:
+            raise HTTPException(status_code=400, detail="跳转方式只能是顺序轮询、随机轮询或固定第一个")
+        tracking_enabled = (
+            bool(body.tracking_enabled)
+            if body.tracking_enabled is not None
+            else bool(page.get("tracking_enabled"))
+        )
+        protection_enabled = (
+            bool(body.protection_enabled)
+            if body.protection_enabled is not None
+            else bool(page.get("protection_enabled"))
+        )
+        rules_json = (
+            json.dumps(_safe_rules(body.protection_rules), ensure_ascii=False)
+            if body.protection_rules is not None
+            else (page.get("protection_rules") or "{}")
+        )
         pixel_id = page.get("pixel_id") or ""
         custom_domain = page.get("custom_domain") or ""
         template_id = int(page.get("template_id") or 1)
@@ -4187,7 +4214,7 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
             _assert_template_access(conn, new_template_id, user)
             should_republish = should_republish or new_template_id != template_id
             template_id = new_template_id
-        worker_enabled = bool(page.get("worker_enabled") or body.tracking_enabled or body.protection_enabled or (page.get("link_kind") or "landing") == "form")
+        worker_enabled = bool(page.get("worker_enabled") or tracking_enabled or protection_enabled or (page.get("link_kind") or "landing") == "form")
         conn.execute(
             """UPDATE landing_pages
                SET target_urls=?, rotation_mode=?, tracking_enabled=?, protection_enabled=?,
@@ -4197,9 +4224,9 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
             (
                 json.dumps(urls, ensure_ascii=False),
                 rotation_mode,
-                1 if body.tracking_enabled else 0,
-                1 if body.protection_enabled else 0,
-                json.dumps(rules, ensure_ascii=False),
+                1 if tracking_enabled else 0,
+                1 if protection_enabled else 0,
+                rules_json,
                 1 if worker_enabled else 0,
                 custom_domain,
                 pixel_id,
