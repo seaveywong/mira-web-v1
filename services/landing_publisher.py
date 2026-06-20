@@ -16,7 +16,8 @@ import requests
 
 CF_API_BASE = "https://api.cloudflare.com/client/v4"
 BASE_DIR = Path(os.environ.get("MIRA_BASE_DIR", "/opt/mira"))
-DEFAULT_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "rh_fp_advanced"
+DEFAULT_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "default_page"
+LEGACY_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "rh_fp_advanced"
 IGNORE_STATIC_NAMES = {"_headers", "_redirects", "_routes.json", "_worker.js"}
 
 
@@ -1003,9 +1004,6 @@ export default {
     const adSlug = adSlugFromRequest(request);
     const adId = adIdFromRequest(request);
     if (url.pathname === '/_worker.js' || url.pathname === '/_routes.json') {
-      return notFoundResponse();
-    }
-    if (url.pathname === '/__mira' || url.pathname.startsWith('/__mira/')) {
       return notFoundResponse();
     }
     if (url.pathname === '/__edge-legacy' || url.pathname.startsWith('/__edge-legacy/')) {

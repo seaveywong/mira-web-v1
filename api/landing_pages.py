@@ -26,6 +26,7 @@ from core.tenancy import assert_row_access, is_operator_user, team_id_for_create
 from services.token_manager import ACTION_READ, get_exec_token
 from services.landing_publisher import (
     DEFAULT_TEMPLATE_DIR,
+    LEGACY_TEMPLATE_DIR,
     CloudflareError,
     add_pages_custom_domain,
     delete_pages_project,
@@ -584,7 +585,7 @@ def _ensure_schema():
                 conn.execute(f"ALTER TABLE landing_templates ADD COLUMN {name} {ddl}")
     except Exception:
         logger.exception("landing_templates schema patch failed")
-    row = conn.execute("SELECT id FROM landing_templates WHERE id=1").fetchone()
+    row = conn.execute("SELECT id, template_path, created_by FROM landing_templates WHERE id=1").fetchone()
     if not row and DEFAULT_TEMPLATE_DIR.exists():
         conn.execute(
             """INSERT INTO landing_templates
@@ -596,6 +597,13 @@ def _ensure_schema():
         conn.execute(
             "UPDATE landing_templates SET name='Default Template' WHERE id=1 AND COALESCE(created_by,'system')='system'"
         )
+        if row and DEFAULT_TEMPLATE_DIR.exists() and str(row["created_by"] or "system") == "system":
+            current_path = str(row["template_path"] or "")
+            if current_path in {"", str(LEGACY_TEMPLATE_DIR)} or not Path(current_path).exists():
+                conn.execute(
+                    "UPDATE landing_templates SET template_path=? WHERE id=1 AND COALESCE(created_by,'system')='system'",
+                    (str(DEFAULT_TEMPLATE_DIR),),
+                )
     conn.execute(
         "UPDATE landing_templates SET name='Default Template' WHERE id=1 AND COALESCE(created_by,'system')='system'"
     )
