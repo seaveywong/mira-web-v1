@@ -31,7 +31,7 @@ FB_API_BASE = "https://graph.facebook.com/v25.0"
 FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
     "campaign{id,name,objective,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
-    "adset{id,name,optimization_goal,destination_type,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
+    "adset{id,name,optimization_goal,destination_type,promoted_object,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
     "insights.date_preset(today){date_start,date_stop,spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}"
 )
 MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
@@ -2107,7 +2107,8 @@ class GuardEngine:
                     if ad_id in stored_map:
                         adset_d = ad.get("adset", {})
                         if isinstance(adset_d, dict):
-                            ce = (adset_d.get("custom_event_type") or "").upper()
+                            promoted = adset_d.get("promoted_object") if isinstance(adset_d.get("promoted_object"), dict) else {}
+                            ce = (adset_d.get("custom_event_type") or promoted.get("custom_event_type") or "").upper()
                             expected = None
                             try:
                                 ce_r = _get_custom_event_rule(ce)
@@ -2504,10 +2505,12 @@ class GuardEngine:
             adset_opt_goal = ""
             adset_dest_type = ""
             adset_custom_event = ""
+            promoted_object = {}
             if isinstance(adset_data, dict):
                 adset_opt_goal = adset_data.get("optimization_goal", "")
                 adset_dest_type = adset_data.get("destination_type", "")
-                adset_custom_event = adset_data.get("custom_event_type", "")
+                promoted_object = adset_data.get("promoted_object") if isinstance(adset_data.get("promoted_object"), dict) else {}
+                adset_custom_event = adset_data.get("custom_event_type", "") or promoted_object.get("custom_event_type", "")
 
             # 获取 KPI 配置（v3.3.6: 传入完整 adset 元数据供 KpiResolver 使用）
             kpi_field, kpi_label, kpi_source = get_kpi_for_ad(
@@ -2517,6 +2520,7 @@ class GuardEngine:
                     "optimization_goal": adset_opt_goal,
                     "destination_type": adset_dest_type,
                     "custom_event_type": adset_custom_event,
+                    "promoted_object": promoted_object,
                     "spend": spend,
                 },
                 actions=actions_raw,
@@ -3678,9 +3682,9 @@ def sentinel_patrol() -> dict:
     global_enabled = enabled == "1"
     dry_run = _is_dry_run()
     try:
-        failure_cooldown = int(_get_setting("sentinel_failure_cooldown", "30"))
+        failure_cooldown = int(_get_setting("sentinel_failure_cooldown", "5"))
     except (ValueError, TypeError):
-        failure_cooldown = 30
+        failure_cooldown = 5
     conn = get_conn()
     if global_enabled:
         accounts = conn.execute(

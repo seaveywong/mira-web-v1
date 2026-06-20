@@ -104,6 +104,22 @@ _MESSAGING_DEST_TYPES = {
     "CONVERSATIONS",  # 部分账户返回此值
 }
 
+
+def _custom_event_from_meta(meta: dict) -> str:
+    """Return the ad set custom event from direct metadata or promoted_object."""
+    custom_event = str((meta or {}).get("custom_event_type") or "").upper().strip()
+    if custom_event:
+        return custom_event
+    promoted = (meta or {}).get("promoted_object") or {}
+    if isinstance(promoted, str):
+        try:
+            promoted = json.loads(promoted)
+        except Exception:
+            promoted = {}
+    if isinstance(promoted, dict):
+        return str(promoted.get("custom_event_type") or "").upper().strip()
+    return ""
+
 # KPI字段完整映射表（用于前端展示）
 KPI_FIELD_MAP = {
     # Purchase / Sales
@@ -574,7 +590,7 @@ class KpiResolver:
     def _l4_rule(self, meta: dict, actions: list = None) -> Optional[Tuple[str, str]]:
         objective = meta.get("objective", "")
         opt_goal = meta.get("optimization_goal", "")
-        custom_event = meta.get("custom_event_type", "")
+        custom_event = _custom_event_from_meta(meta)
         dest_type = meta.get("destination_type", "")
 
         # 私信类特判（最高优先级）：涵盖所有私信类型
@@ -795,7 +811,7 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
             if _is_valid_kpi_field(row["kpi_field"], actions):
                 # v3.3.7: custom_event_type 覆盖——adset 的像素事件优先级高于历史存储
                 # v3.3.12: DB驱动优先，硬编码兜底
-                custom_event = (campaign_meta.get("custom_event_type") or "").upper()
+                custom_event = _custom_event_from_meta(campaign_meta)
                 expected_field = None
                 if custom_event:
                     try:
@@ -831,7 +847,7 @@ def get_kpi_for_ad(act_id: str, ad_id: str, campaign_id: str,
 
     # v3.3.7: 自愈写回时也尊重 custom_event_type (DB驱动优先)
     if not found_invalid:
-        custom_event = (campaign_meta.get("custom_event_type") or "").upper()
+        custom_event = _custom_event_from_meta(campaign_meta)
         expected_field = None
         if custom_event:
             try:
@@ -888,7 +904,7 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         fields = (
             "id,name,adset_id,campaign_id,"
             "campaign{objective},"
-            "adset{optimization_goal,destination_type},"
+            "adset{optimization_goal,destination_type,promoted_object},"
             "insights.date_preset(last_7d){actions,spend}"
         )
         ads = _fb_get_all_pages(
@@ -935,7 +951,9 @@ def scan_and_preset_kpi(act_id: str, token: str) -> dict:
         if isinstance(adset_data, dict):
             campaign_meta["optimization_goal"] = adset_data.get("optimization_goal", "")
             campaign_meta["destination_type"] = adset_data.get("destination_type", "")
-            campaign_meta["custom_event_type"] = adset_data.get("custom_event_type", "")
+            promoted_object = adset_data.get("promoted_object") if isinstance(adset_data.get("promoted_object"), dict) else {}
+            campaign_meta["promoted_object"] = promoted_object
+            campaign_meta["custom_event_type"] = adset_data.get("custom_event_type", "") or promoted_object.get("custom_event_type", "")
 
         # 从近7天actions推断
         insights = ad.get("insights", {}).get("data", [])
