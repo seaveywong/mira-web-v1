@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN" data-v="1781553860">
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.19</title>
+<title>Mira · 广告投放管理系统 v3.11.20</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -2873,7 +2873,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.19</p>
+<p id="loginVer">广告投放管理系统 v3.11.20</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -2892,7 +2892,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.19</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.20</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5153,7 +5153,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.19';
+var APP_VERSION='v3.11.20';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -17897,7 +17897,7 @@ async function downloadLandingTemplateReference(){
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
   a.href=url;
-  a.download='mira-landing-template-reference.zip';
+  a.download='landing-template-reference.zip';
   document.body.appendChild(a);
   a.click();
   setTimeout(function(){URL.revokeObjectURL(url);a.remove();},800);
@@ -18560,6 +18560,8 @@ function _landingHealthText(text){
   'Worker is disabled; edge tracking, protection and server-side rotation are unavailable':'未启用动态配置，无法做统计、防护或服务端轮询',
   'The request was blocked by protection rules; test again from an allowed environment':'请求被防护规则拦截，请使用符合规则的访问环境复测',
   'The request was blocked by protection rules; the page may still be healthy':'请求被防护规则拦截；页面可能正常，但当前自检环境不在允许范围内',
+  'Protection rules are active; this probe was redirected to the fallback URL':'防护规则已生效；本次自检环境被拦截并返回 Facebook',
+  'Edge runtime is active; protection rules intercepted this probe':'边缘运行时已生效；防护规则拦截了本次探测',
   'Public URL request failed':'请求公开链接失败',
   'No custom domain configured':'未配置自定义域名'
  };
@@ -19055,9 +19057,9 @@ function renderLandingPages(){
   var createdLine=(p.created_by||p.created_at)?'<div style="font-size:11px;color:var(--t3);margin-top:4px">发布：'+escHtml(p.created_by||'system')+(p.created_at?' · '+escHtml(p.created_at):'')+'</div>':'';
   var kindHtml=p.link_kind==='form'
    ?'<span class="badge bg-ac">表单直跳</span><span class="landing-page-note">根路径 302</span>'
-   :'<span class="badge bg-mu">普通落地页</span><span class="landing-page-note">展示页面 · 按钮按顺序跳转</span>';
+   :'<span class="badge bg-mu">普通落地页</span><span class="landing-page-note">先展示页面 · 点击后跳转</span>';
   var pixelName=_landingPixelNameById(p.pixel_id);
-  var pixelBadge=p.pixel_id?'<span class="badge bg-ac" title="当前页面 Pixel">'+escHtml('Pixel '+(pixelName||_maskLandingPixelId(p.pixel_id)))+'</span>':'<span class="badge bg-mu">未配置 Pixel</span>';
+  var pixelBadge=p.pixel_id?'<span class="badge bg-ac" title="当前页面 Pixel">'+escHtml(pixelName||'已配置 Pixel')+'</span>':'<span class="badge bg-mu">未配置 Pixel</span>';
   return '<tr><td colspan="7">'+
    '<div class="landing-page-row">'+
     '<div class="landing-page-main">'+

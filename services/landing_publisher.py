@@ -451,7 +451,7 @@ def sanitize_project_name(value: str) -> str:
     cleaned = re.sub(r"[^a-z0-9-]+", "-", cleaned)
     cleaned = re.sub(r"-{2,}", "-", cleaned).strip("-")
     if not cleaned:
-        cleaned = f"mira-landing-{int(time.time())}"
+        cleaned = f"site-landing-{int(time.time())}"
     if len(cleaned) > 58:
         cleaned = cleaned[:58].strip("-")
     return cleaned
@@ -987,7 +987,7 @@ export default {
     if (url.pathname === '/_worker.js' || url.pathname === '/_routes.json') {
       return new Response('', { status: 404, headers: { 'cache-control': 'no-store' } });
     }
-    if (url.pathname === '/__mira' || url.pathname.startsWith('/__mira/')) {
+    if (url.pathname === '/__edge-legacy' || url.pathname.startsWith('/__edge-legacy/')) {
       return blockedResponse('legacy_route');
     }
     if (url.pathname === '/__edge/event' && request.method === 'POST') {

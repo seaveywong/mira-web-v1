@@ -2399,6 +2399,7 @@ def _stable_landing_health_checks(
     location = str(http_info.get("location") or "") if http_info else ""
     content_type = str(http_info.get("content_type") or "") if http_info else ""
     blocked_by_protection = bool(str(http_info.get("block_reason") or "").strip()) if http_info else False
+    protection_block_ok = blocked_by_protection and bool(item.get("protection_enabled"))
     out: list[dict[str, Any]] = []
     for raw in checks:
         check = dict(raw)
@@ -2437,7 +2438,10 @@ def _stable_landing_health_checks(
                 check["detail"] = "Dynamic routing is disabled; tracking, protection and server-side rotation are unavailable"
         elif key == "runtime_redirect":
             check["label"] = "Live redirect"
-            if state == "pass":
+            if protection_block_ok:
+                check["status"] = "pass"
+                check["detail"] = "Protection rules are active; this probe was redirected to the fallback URL"
+            elif state == "pass":
                 check["detail"] = f"Root path returned HTTP {http_code} and redirected to a configured target"
             elif state == "warn" and blocked_by_protection:
                 check["detail"] = "The request was blocked by protection rules; test again from an allowed environment"
@@ -2449,7 +2453,10 @@ def _stable_landing_health_checks(
                 check["detail"] = f"Form direct-link mode expects a 302 redirect; got HTTP {http_code or '--'}"
         elif key == "runtime_page":
             check["label"] = "Live page"
-            if state == "pass":
+            if protection_block_ok:
+                check["status"] = "pass"
+                check["detail"] = "Protection rules are active; this probe was redirected to the fallback URL"
+            elif state == "pass":
                 check["detail"] = "Public URL returns HTML and the landing page is reachable"
             elif state == "warn" and (http_code == 403 or blocked_by_protection):
                 check["detail"] = "The request was blocked by protection rules; the page may still be healthy"
@@ -2463,6 +2470,9 @@ def _stable_landing_health_checks(
             check["label"] = "Edge route"
             if state == "pass":
                 check["detail"] = "Edge runtime is active; /__edge/redirect is handled"
+            elif state == "warn" and "protection" in str(check.get("detail") or "").lower():
+                check["status"] = "pass"
+                check["detail"] = "Edge runtime is active; protection rules intercepted this probe"
             elif state == "warn":
                 check["detail"] = "Runtime route was blocked by current protection rules; this still proves dynamic routing is active"
             else:
@@ -3823,7 +3833,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
     bind_target = (body.bind_target or "none").strip().lower()
     custom_domain = ""
     custom_domain_error = ""
-    project_hint = sanitize_project_name(body.project_name or title or "mira-landing")
+    project_hint = sanitize_project_name(body.project_name or title or "site-landing")
     try:
         custom_domain = normalize_custom_domain(body.custom_domain)
     except ValueError as exc:
@@ -3838,7 +3848,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
             "label": "自定义域名",
             "detail": f"{custom_domain} 将绑定到发布站点；请确保域名可管理并完成 DNS 指向。",
         })
-        project_hint = sanitize_project_name(body.project_name or title or "mira-landing")
+        project_hint = sanitize_project_name(body.project_name or title or "site-landing")
         checks.append({
             "key": "custom_domain_dns",
             "status": "warn",
@@ -5365,6 +5375,33 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
     page = _assert_page_access(conn, page_id, user)
     page_dict = dict(page)
     item = _public_page(page)
+    raw_response_update: Optional[dict[str, Any]] = None
+    custom_domain_for_probe = str(item.get("custom_domain") or "").strip()
+    if custom_domain_for_probe and not item.get("custom_domain_usable"):
+        runtime_checked_at = _now_cst()
+        if _custom_domain_runtime_usable(custom_domain_for_probe, bool(item.get("worker_enabled"))):
+            raw_payload = _json_loads(page_dict.get("raw_response"), {})
+            if not isinstance(raw_payload, dict):
+                raw_payload = {}
+            raw_payload["custom_domain_runtime_usable"] = True
+            raw_payload["custom_domain_runtime_checked_at"] = runtime_checked_at
+            domain_status = item.get("domain_status") or raw_payload.get("domain_status") or raw_payload.get("custom_domain_result")
+            if not _domain_status_usable(domain_status, item.get("last_error")):
+                raw_payload["custom_domain_status_mismatch"] = {
+                    "runtime_usable": True,
+                    "cloudflare_status": _domain_status_text(domain_status) or "unknown",
+                    "checked_at": runtime_checked_at,
+                    "message": "Public runtime is reachable, while provider domain status is not active yet.",
+                }
+            else:
+                raw_payload.pop("custom_domain_status_mismatch", None)
+            raw_response_update = raw_payload
+            item["custom_domain_runtime_usable"] = True
+            item["custom_domain_runtime_checked_at"] = runtime_checked_at
+            item["custom_domain_usable"] = True
+            item["public_url"] = f"https://{custom_domain_for_probe}"
+            item["public_url_source"] = "custom_domain"
+            item["custom_domain_status_mismatch"] = raw_payload.get("custom_domain_status_mismatch")
     fb_probe_token, fb_probe_source = _landing_facebook_probe_token(conn, page_dict, user)
     conn.close()
 
@@ -5582,16 +5619,36 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
     conn = None
     try:
         conn = get_conn()
-        conn.execute(
-            """UPDATE landing_pages
-               SET last_health_status=?,
-                   last_health_summary=?,
-                   last_health_checked_at=?,
-                   last_health_http_code=?,
-                   updated_at=datetime('now','+8 hours')
-               WHERE id=?""",
-            (health_status, health_summary, health_checked_at, health_http_code, page_id),
-        )
+        if raw_response_update is not None:
+            conn.execute(
+                """UPDATE landing_pages
+                   SET last_health_status=?,
+                       last_health_summary=?,
+                       last_health_checked_at=?,
+                       last_health_http_code=?,
+                       raw_response=?,
+                       updated_at=datetime('now','+8 hours')
+                   WHERE id=?""",
+                (
+                    health_status,
+                    health_summary,
+                    health_checked_at,
+                    health_http_code,
+                    json.dumps(raw_response_update, ensure_ascii=False),
+                    page_id,
+                ),
+            )
+        else:
+            conn.execute(
+                """UPDATE landing_pages
+                   SET last_health_status=?,
+                       last_health_summary=?,
+                       last_health_checked_at=?,
+                       last_health_http_code=?,
+                       updated_at=datetime('now','+8 hours')
+                   WHERE id=?""",
+                (health_status, health_summary, health_checked_at, health_http_code, page_id),
+            )
         conn.commit()
     except Exception:
         logger.exception("landing page health persistence failed: page_id=%s", page_id)
