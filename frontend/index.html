@@ -1752,6 +1752,15 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-domain-dot{width:8px;height:8px;border-radius:50%;background:#0071e3;flex:0 0 8px;margin-top:5px}
 .landing-quick-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .landing-quick-actions .btn{height:32px!important;min-height:32px!important}
+.landing-mvp-panel{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.landing-mvp-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-height:94px;padding:13px 14px;border:1px solid #e5e5ea;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.035)}
+.landing-mvp-copy{min-width:0}
+.landing-mvp-copy b{display:block;font-size:13px;color:#1d1d1f;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-mvp-copy span{display:block;font-size:12px;color:#6e6e73;line-height:1.4}
+.landing-mvp-state{display:inline-flex;align-items:center;justify-content:center;min-width:54px;height:26px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap}
+.landing-mvp-state.ok{background:#ecfdf5;color:#047857;border:1px solid #bbf7d0}
+.landing-mvp-state.todo{background:#fff7ed;color:#b45309;border:1px solid #fed7aa}
+.landing-mvp-item .btn{margin-top:10px;height:30px!important;min-height:30px!important;padding:0 10px!important}
 .landing-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
 .landing-section-head .landing-section-title{margin:0}
 .landing-section-desc{font-size:12px;color:#6e6e73;line-height:1.45;margin-top:3px}
@@ -3240,6 +3249,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <div class="landing-guide-note"><b>绑定关系：</b><span>域名、像素、落地页和默认跳转链接可以保存成“资产预设”，下次发布直接套用，避免填错。</span></div>
   </div>
  </div>
+ <div class="landing-mvp-panel" id="landingMvpPanel"></div>
  <div class="landing-flow">
   <div class="landing-flow-step"><b>1</b><span>保存发布通道 API</span></div>
   <div class="landing-flow-step"><b>2</b><span>选择模板并填写跳转链接</span></div>
@@ -17354,9 +17364,38 @@ async function loadLandingCenter(force){
   renderProtectionTemplateList();
   renderLandingPerformance();
   renderLandingPages();
+  renderLandingMvpPanel();
  }catch(e){
   toast('落地页工作台加载失败：'+(e.message||e),'er');
  }
+}
+function renderLandingMvpPanel(){
+ var el=document.getElementById('landingMvpPanel');
+ if(!el)return;
+ var activeTokens=(_cfTokens||[]).filter(function(t){return t.status==='active';});
+ var selectedTokens=activeTokens.filter(function(t){return t.selected_account_id||t.cf_account_id;});
+ var domains=Array.isArray(_landingDomains)?_landingDomains:[];
+ var usableDomains=domains.filter(function(d){return d&&d.domain;});
+ var pages=Array.isArray(_landingPages)?_landingPages:[];
+ var published=pages.filter(function(p){return String(p.status||'')==='published';});
+ var customPublished=published.filter(function(p){return !!String(p.custom_domain||'').trim();});
+ var perf=_landingAdPerf||{};
+ var perfItems=Array.isArray(perf.items)?perf.items:[];
+ var linkedAdItems=perfItems.filter(function(x){return !!(x&&x.ad_id);});
+ var firstPage=(published[0]||pages[0]||{});
+ function card(ok,title,desc,btn,action){
+  return '<div class="landing-mvp-item">'+
+   '<div class="landing-mvp-copy"><b>'+escHtml(title)+'</b><span>'+escHtml(desc)+'</span>'+(btn?'<button class="btn '+(ok?'btn-g':'btn-p')+' btn-sm role-hide-viewer" onclick="'+action+'">'+escHtml(btn)+'</button>':'')+'</div>'+
+   '<span class="landing-mvp-state '+(ok?'ok':'todo')+'">'+(ok?'就绪':'待办')+'</span>'+
+  '</div>';
+ }
+ var html=[
+  card(activeTokens.length>0,'API 通道',activeTokens.length?('可用 '+activeTokens.length+' 个，已选账号 '+selectedTokens.length+' 个'):'先保存一个可发布站点的账号 API','去配置','scrollLandingApiPanel()'),
+  card(usableDomains.length>0,'域名库',usableDomains.length?('可选域名 '+usableDomains.length+' 个，优先使用自定义域'):'没有识别到可选域名，可先手动填写域名发布','看域名','showLandingDomainLibrary()'),
+  card(published.length>0,'发布链接',published.length?('已发布 '+published.length+' 条，正式域名 '+customPublished.length+' 条'):'先发布一个主链接，再绑定到账户或生成广告短码','发布链接','openLandingPublishDrawer()'),
+  card(perfItems.length>0,'广告效果',perfItems.length?('广告入口 '+perfItems.length+' 条，已绑定广告 '+linkedAdItems.length+' 条'):'发布链接后生成广告级短码，投放时复制推荐链接','广告链接',firstPage.id?'showLandingAdLinks('+firstPage.id+')':'openLandingPublishDrawer()')
+ ].join('');
+ el.innerHTML=html;
 }
 function renderCloudflareTokens(){
  var el=document.getElementById('cfTokenList'); if(!el)return;
