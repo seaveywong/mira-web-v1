@@ -4526,6 +4526,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
     <div class="fg">
      <label class="fl">目标 CPA (USD)</label>
      <input class="fc" id="launchTargetCpa" type="number" placeholder="留空=最低成本" oninput="onBidStrategyChange()">
+     <div id="launchCpaHint" class="fh">填写后系统会按 USD 目标控制出价；非 USD 账户会在提交时自动换算为账户货币。</div>
     </div>
    </div>
    <div id="launchKpiPreview" style="display:none;margin-bottom:12px;padding:8px 12px;background:var(--pug);border:1px solid rgba(139,92,246,.3);border-radius:6px;font-size:12px;color:var(--pu)"></div>
@@ -5200,7 +5201,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.31';
+var APP_VERSION='v3.11.33';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -12858,7 +12859,31 @@ function onBidStrategyChange(){
  var bs=document.getElementById('launchBidStrategy')&&document.getElementById('launchBidStrategy').value;
  var cpa=parseFloat(document.getElementById('launchTargetCpa')&&document.getElementById('launchTargetCpa').value)||0;
  var hint=document.getElementById('bidStrategyHint');
- if(hint)hint.style.display=(bs==='LOWEST_COST_WITHOUT_CAP'&&cpa>0)?'block':'none';
+ var cpaHint=document.getElementById('launchCpaHint');
+ var needsBid=(bs==='COST_CAP'||bs==='BID_CAP');
+ if(hint){
+  if(bs==='LOWEST_COST_WITHOUT_CAP'&&cpa>0){
+   hint.style.display='block';
+   hint.textContent='已填写目标 CPA，提交时会按「目标成本上限」投放，并自动换算账户货币。';
+  }else if(needsBid&&cpa<=0){
+   hint.style.display='block';
+   hint.textContent='该出价策略必须填写目标 CPA；不填时系统会自动改为「最低成本」，避免 Meta 报错。';
+  }else{
+   hint.style.display='none';
+  }
+ }
+ if(cpaHint){
+  if(needsBid&&cpa<=0){
+   cpaHint.style.color='#f59e0b';
+   cpaHint.textContent='当前未填写目标 CPA，提交时会按最低成本处理。';
+  }else if(cpa>0){
+   cpaHint.style.color='var(--t2)';
+   cpaHint.textContent='目标 CPA 按 USD 填写；VND、IDR、JPY 等账户会自动换算为账户货币后写入 Meta。';
+  }else{
+   cpaHint.style.color='var(--t2)';
+   cpaHint.textContent='留空表示最低成本投放，不设置成本上限。';
+  }
+ }
 }
 async function onLaunchObjectiveChange() {
   var objEl = document.getElementById('launchObjective');
@@ -13538,6 +13563,9 @@ async function onLaunchObjectiveChange() {
  var gender=parseInt((document.getElementById('launchGender')||{}).value)||0;
  var placements=_getLaunchPlacements();
  var bidStrategy=(document.getElementById('launchBidStrategy')||{}).value||'LOWEST_COST_WITHOUT_CAP';
+ if((bidStrategy==='COST_CAP'||bidStrategy==='BID_CAP')&&!cpa){
+  bidStrategy='LOWEST_COST_WITHOUT_CAP';
+ }
  var maxAdsets=parseInt((document.getElementById('launchMaxAdsets')||{}).value)||5;
  var pageEl=document.getElementById('launchPageId');
  var pageId=pageEl?(pageEl.tagName==='SELECT'?pageEl.value:(pageEl.value||'').trim()):'';

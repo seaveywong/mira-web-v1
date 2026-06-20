@@ -1775,6 +1775,17 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
     body.landing_url = (body.landing_url or "").strip() or None
     body.form_link = (body.form_link or "").strip() or None
     body.tw_page_id = (body.tw_page_id or "").strip() or None
+    try:
+        if body.target_cpa is not None and float(body.target_cpa) <= 0:
+            body.target_cpa = None
+    except Exception:
+        body.target_cpa = None
+    allowed_bid_strategies = {"LOWEST_COST_WITHOUT_CAP", "COST_CAP", "BID_CAP"}
+    body.bid_strategy = str(body.bid_strategy or "LOWEST_COST_WITHOUT_CAP").strip().upper()
+    if body.bid_strategy not in allowed_bid_strategies:
+        body.bid_strategy = "LOWEST_COST_WITHOUT_CAP"
+    if body.bid_strategy in {"COST_CAP", "BID_CAP"} and not body.target_cpa:
+        body.bid_strategy = "LOWEST_COST_WITHOUT_CAP"
 
 
 def _launch_act_ids(body: LaunchCampaignBody) -> list[str]:
