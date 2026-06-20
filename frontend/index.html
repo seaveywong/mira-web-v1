@@ -2082,6 +2082,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 .landing-api-token-line{font-size:12px;color:#6e6e73;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .landing-api-token-actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;margin:0!important}
 .landing-api-token-actions .btn{height:30px!important;min-height:30px!important;padding:0 10px!important}
+.landing-api-token-actions .btn:disabled{opacity:.45!important;cursor:not-allowed!important;background:#f5f5f7!important;color:#86868b!important}
 .landing-api-account-select{margin:8px 0 0!important;height:34px!important;width:100%!important}
 .landing-template-list{display:grid;gap:8px;margin-top:12px}
 .landing-protection-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid #e5e5ea;border-radius:10px;background:#fff}
@@ -17379,12 +17380,14 @@ function renderCloudflareTokens(){
   var ownerText=resourceOwnerLabel(t,'未指定负责人');
   var accountName=t.cf_account_name||t.selected_account_name||((accounts[0]||{}).name)||'未选择账号';
   var identity=[accountName, ownerText&&ownerText!=='未指定负责人'?ownerText:''].filter(Boolean).join(' · ');
+  var deleteBtn=usageCount>0
+   ?'<button class="btn btn-g btn-sm role-hide-viewer" disabled title="已有落地页引用该 API，不能删除。先删除或迁移引用记录。">删除</button>'
+   :'<button class="btn btn-g btn-sm role-hide-viewer" onclick="deleteCloudflareToken('+t.id+')">删除</button>';
   var actionBtns='<button class="btn btn-g btn-sm role-hide-viewer" onclick="renameCloudflareToken('+t.id+')">改名</button>'+
+   '<button class="btn btn-g btn-sm role-hide-viewer" onclick="rotateCloudflareToken('+t.id+')">修密钥</button>'+
    '<button class="btn btn-g btn-sm role-hide-viewer" onclick="verifyCloudflareToken('+t.id+')">验证</button>'+
-   '<button class="btn btn-g btn-sm role-hide-viewer" onclick="diagnoseCloudflareToken('+t.id+')">诊断</button>';
-  if(usageCount===0){
-   actionBtns+='<button class="btn btn-g btn-sm role-hide-viewer" onclick="deleteCloudflareToken('+t.id+')">删除</button>';
-  }
+   '<button class="btn btn-g btn-sm role-hide-viewer" onclick="diagnoseCloudflareToken('+t.id+')">诊断</button>'+
+   deleteBtn;
   return '<div class="landing-api-token-card">'+
    '<div class="landing-api-token-row">'+
     '<div class="landing-api-token-main">'+
@@ -18587,8 +18590,28 @@ async function renameCloudflareToken(id){
  try{
   await api('PATCH','/landing-pages/tokens/'+id,{name:name});
   toast('API 名称已更新','ok');
-  await loadLandingCenter(true);
+ await loadLandingCenter(true);
  }catch(e){toast('改名失败：'+(e.message||e),'er')}
+}
+async function rotateCloudflareToken(id){
+ var item=(_cfTokens||[]).find(function(t){return String(t.id)===String(id);})||{};
+ var accountDefault=item.selected_account_id||item.cf_account_id||'';
+ var accountId=await promptAsync('修正 API 密钥','Account ID（可留空；账号级 Token 建议填写，系统会按该账号验证 Pages 发布权限）',accountDefault,'例如：7a461cf8493abd25476d20eaa2bc5171');
+ if(accountId==null)return;
+ var apiToken=await promptTextareaAsync('重新录入 API Token','粘贴新的 Cloudflare Account API Token。保存后会立即验证，并刷新账号/域名缓存。','','cfat_xxx...');
+ if(apiToken==null)return;
+ apiToken=String(apiToken||'').trim();
+ if(!apiToken){toast('请粘贴新的 API Token','wa');return;}
+ var payload={api_token:apiToken,account_id:String(accountId||'').trim()};
+ if(item.name)payload.name=item.name;
+ try{
+  toast('正在验证并保存 API Token...','ac');
+  await api('PATCH','/landing-pages/tokens/'+id,payload);
+  toast('API 密钥已更新','ok');
+  await loadLandingCenter(true);
+ }catch(e){
+  toast('密钥更新失败：'+(e.message||e),'er');
+ }
 }
 async function setCloudflareAccount(id, accountId){
  if(!accountId)return;

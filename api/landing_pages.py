@@ -56,6 +56,8 @@ class CloudflareTokenAccountPatch(BaseModel):
 
 class CloudflareTokenPatch(BaseModel):
     name: Optional[str] = None
+    api_token: Optional[str] = None
+    account_id: Optional[str] = None
 
 
 class LandingProtectionTemplateReq(BaseModel):
@@ -2422,16 +2424,66 @@ def create_cf_token(body: CloudflareTokenCreate, user=Depends(get_current_user))
 
 @router.patch("/tokens/{token_id}")
 def update_cf_token(token_id: int, body: CloudflareTokenPatch, user=Depends(get_current_user)):
-    name = (body.name or "").strip()
-    if not name:
+    name = (body.name or "").strip() if body.name is not None else None
+    raw_token = (body.api_token or "").strip()
+    account_id = (body.account_id or "").strip()
+    if name == "":
         raise HTTPException(status_code=400, detail="请填写 API 名称")
+    if not any([name is not None, raw_token, account_id]):
+        raise HTTPException(status_code=400, detail="请提交要修改的 API 名称、Account ID 或 API Token")
     conn = get_conn()
     try:
-        _assert_token_access(conn, token_id, user)
-        conn.execute(
-            "UPDATE cf_tokens SET name=?, updated_at=datetime('now','+8 hours') WHERE id=?",
-            (name[:120], token_id),
-        )
+        current = _assert_token_access(conn, token_id, user)
+        sets, params = [], []
+        if name is not None:
+            sets.append("name=?")
+            params.append(name[:120])
+        if raw_token:
+            try:
+                info = verify_token_and_accounts(raw_token, account_id=account_id or None)
+            except CloudflareError as exc:
+                raise HTTPException(status_code=400, detail=f"API Token 验证失败：{_public_provider_error(exc, user)}") from exc
+            accounts = _normalize_cf_accounts(info.get("accounts") or [])
+            if not accounts:
+                raise HTTPException(
+                    status_code=400,
+                    detail="API Token 已返回有效响应，但没有读取到可用发布账号。请填写 Account ID，或给 Token 增加账号读取和站点发布权限。",
+                )
+            selected_account_id = account_id or current.get("selected_account_id") or current.get("cf_account_id")
+            if selected_account_id and not any(a.get("id") == selected_account_id for a in accounts):
+                raise HTTPException(status_code=400, detail="Account ID 不在新 API Token 可用范围内，请检查 Account ID 或 Token 权限")
+            if not selected_account_id and len(accounts) == 1:
+                selected_account_id = accounts[0].get("id")
+            selected_account_name = next((a.get("name") for a in accounts if a.get("id") == selected_account_id), None)
+            primary_account = next((a for a in accounts if a.get("id") == selected_account_id), None) or accounts[0]
+            sets.extend([
+                "access_token_enc=?",
+                "token_mask=?",
+                "cf_accounts_json=?",
+                "selected_account_id=?",
+                "cf_account_id=?",
+                "cf_account_name=?",
+                "status='active'",
+                "last_verified_at=datetime('now','+8 hours')",
+            ])
+            params.extend([
+                encrypt_token(raw_token),
+                mask_token(raw_token),
+                json.dumps(accounts, ensure_ascii=False),
+                selected_account_id,
+                primary_account.get("id"),
+                selected_account_name or primary_account.get("name"),
+            ])
+        elif account_id:
+            accounts = _public_accounts(current.get("cf_accounts_json"))
+            matched = next((acct for acct in accounts if isinstance(acct, dict) and acct.get("id") == account_id), None)
+            if not matched:
+                raise HTTPException(status_code=400, detail="该发布账号不在当前 API Token 可用范围内；请先修正 API Token 或重新验证")
+            sets.extend(["selected_account_id=?", "cf_account_id=?", "cf_account_name=?"])
+            params.extend([matched.get("id"), matched.get("id"), matched.get("name")])
+        sets.append("updated_at=datetime('now','+8 hours')")
+        params.append(token_id)
+        conn.execute(f"UPDATE cf_tokens SET {', '.join(sets)} WHERE id=?", params)
         conn.commit()
         row = conn.execute(
             """SELECT cf_tokens.*,
