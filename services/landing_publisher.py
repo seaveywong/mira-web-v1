@@ -980,6 +980,13 @@ function blockedResponse(reason) {
   });
 }
 
+function notFoundResponse() {
+  return new Response('', {
+    status: 404,
+    headers: { 'cache-control': 'no-store' }
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const cfg = await runtimeConfig();
@@ -987,7 +994,10 @@ export default {
     const adSlug = adSlugFromRequest(request);
     const adId = adIdFromRequest(request);
     if (url.pathname === '/_worker.js' || url.pathname === '/_routes.json') {
-      return new Response('', { status: 404, headers: { 'cache-control': 'no-store' } });
+      return notFoundResponse();
+    }
+    if (url.pathname.startsWith('/__mira/')) {
+      return notFoundResponse();
     }
     if (url.pathname === '/__edge-legacy' || url.pathname.startsWith('/__edge-legacy/')) {
       return blockedResponse('legacy_route');
@@ -1011,6 +1021,9 @@ export default {
       if (!target) return new Response('No target configured', { status: 503 });
       ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
+    }
+    if (url.pathname.startsWith('/__edge/')) {
+      return notFoundResponse();
     }
     if ((adSlug || (url.pathname === '/a' && adId)) && isReadRequest(request)) {
       const decision = evaluate(request, cfg);
