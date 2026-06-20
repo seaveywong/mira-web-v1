@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.28</title>
+<title>Mira · 广告投放管理系统 v3.11.29</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -2157,7 +2157,8 @@ body.landing-publish-open{overflow:hidden}
 body.landing-api-open{overflow:hidden}
 body.landing-protection-open{overflow:hidden}
 body.landing-publish-open:before,body.landing-api-open:before,body.landing-protection-open:before{
- content:'';display:none!important;
+ content:'';display:block!important;position:fixed!important;inset:0!important;z-index:5100!important;
+ background:rgba(0,0,0,.42)!important;backdrop-filter:blur(4px)!important;-webkit-backdrop-filter:blur(4px)!important;
 }
 body.landing-publish-open #page-landing_center .landing-work-card{
  display:block!important;position:fixed!important;z-index:5200;right:24px;top:70px;bottom:24px;width:min(900px,calc(100vw - 48px));
@@ -2253,6 +2254,38 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 .landing-ad-bind-id{font-size:11px;color:var(--t2);margin-top:4px}
 .landing-ad-link-stat-lines{font-size:12px;color:var(--t2);line-height:1.55}
 .landing-ad-link-stat-lines b{color:var(--t1)}
+.landing-stats-head{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.landing-stats-title{font-size:16px;font-weight:820;color:var(--t1);line-height:1.35}
+.landing-stats-sub{font-size:12px;color:var(--t3);margin-top:3px;line-height:1.45}
+.landing-stats-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px}
+.landing-stats-info-card,.landing-health-card,.landing-stat-panel{padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0}
+.landing-stats-link{font-size:12px;color:var(--t3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-health-card{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin:10px 0}
+.landing-health-text{font-size:12px;color:var(--t3);line-height:1.55}
+.landing-health-window{font-size:12px;color:var(--t3);white-space:nowrap}
+.landing-metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:10px 0}
+.landing-metric-card{padding:11px 12px;border:1px solid var(--bd);border-radius:8px;background:#fff}
+.landing-metric-label{font-size:12px;color:var(--t3)}
+.landing-metric-value{font-size:22px;font-weight:820;margin-top:4px;color:var(--t1)}
+.landing-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0}
+.landing-stat-panel-title{font-weight:820;font-size:13px;margin-bottom:8px;color:var(--t1)}
+.landing-stat-table{width:100%;border-collapse:collapse;font-size:12px}
+.landing-stat-table th,.landing-stat-table td{padding:7px;border-bottom:1px solid var(--bd)}
+.landing-stat-table th{text-align:left;color:var(--t3);font-weight:650}
+.landing-stat-table .num{text-align:right}
+.landing-stats-pill-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px}
+.landing-stats-pill-card{min-width:0}
+.landing-stats-pill-card b{font-size:13px;color:var(--t1)}
+.landing-event-list{display:grid;gap:8px;max-height:560px;overflow:auto;padding-right:2px}
+.landing-event-card{border:1px solid var(--bd);border-radius:10px;background:#fff;padding:10px 12px;display:grid;gap:8px}
+.landing-event-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.landing-event-title{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-weight:820;color:var(--t1)}
+.landing-event-time{color:var(--t3);font-size:12px}
+.landing-event-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px;font-size:12px;color:var(--t2)}
+.landing-event-field span{display:block;color:var(--t3);margin-bottom:2px}
+.landing-event-field b{display:block;color:var(--t1);font-weight:760;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.landing-event-reason{font-size:12px;color:var(--t3);word-break:break-all;line-height:1.5}
+.landing-event-empty{padding:14px;color:var(--t3);border:1px solid var(--bd);border-radius:10px;background:#fff;font-size:13px}
 .landing-performance-table{width:100%;min-width:0;border-collapse:collapse;table-layout:fixed}
 .landing-performance-table th,.landing-performance-table td{word-break:break-word;vertical-align:top;overflow:hidden}
 .landing-performance-table th:nth-child(1),.landing-performance-table td:nth-child(1){width:82px}
@@ -2881,7 +2914,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.28</p>
+<p id="loginVer">广告投放管理系统 v3.11.29</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -2900,7 +2933,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.28</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.29</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -3920,6 +3953,12 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
      <div class="landing-section-head">
       <div><div class="landing-section-title">防护规则</div><div class="landing-section-desc">推荐先只配置国家和必要参数；设备、UA、来源规则只在明确需要时使用。</div></div>
       <button class="btn btn-g btn-sm" onclick="clearLandingProtectionRules()" type="button">清空规则</button>
+     </div>
+     <div class="landing-rule-presets">
+      <button class="landing-rule-preset" type="button" onclick="applyLandingPublishPreset('fb_mobile')"><b>社交流量常用</b><span>允许 FB/IG，拦截桌面和常见爬虫。</span></button>
+      <button class="landing-rule-preset" type="button" onclick="applyLandingPublishPreset('social_only')"><b>只收社媒来源</b><span>允许 FB/IG/TK，适合投放入口。</span></button>
+      <button class="landing-rule-preset" type="button" onclick="applyLandingPublishPreset('block_desktop')"><b>拦截桌面</b><span>仅加入 desktop，其他规则不动。</span></button>
+      <button class="landing-rule-preset" type="button" onclick="applyLandingPublishPreset('clean_bots')"><b>拦截爬虫</b><span>加入常见 bot、crawler、preview、debug。</span></button>
      </div>
      <div class="landing-rule-groups">
       <div class="landing-rule-card">
@@ -5161,7 +5200,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.28';
+var APP_VERSION='v3.11.29';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -19070,8 +19109,8 @@ function renderLandingPages(){
   '</div>';
   var createdLine=(p.created_by||p.created_at)?'<div style="font-size:11px;color:var(--t3);margin-top:4px">发布：'+escHtml(p.created_by||'system')+(p.created_at?' · '+escHtml(p.created_at):'')+'</div>':'';
   var kindHtml=p.link_kind==='form'
-   ?'<span class="badge bg-ac">表单直跳</span><span class="landing-page-note">根路径 302</span>'
-   :'<span class="badge bg-mu">普通落地页</span><span class="landing-page-note">先展示页面 · 点击后跳转</span>';
+   ?'<span class="badge bg-ac">直跳链接</span><span class="landing-page-note">打开后直接进入目标链接</span>'
+   :'<span class="badge bg-mu">落地页</span><span class="landing-page-note">先展示页面 · 点击按钮进入目标链接</span>';
   var pixelName=_landingPixelNameById(p.pixel_id);
   var pixelBadge=p.pixel_id?'<span class="badge bg-ac" title="当前页面 Pixel">'+escHtml(pixelName||'已配置 Pixel')+'</span>':'<span class="badge bg-mu">未配置 Pixel</span>';
   return '<tr><td colspan="7">'+
@@ -20034,20 +20073,20 @@ function showLandingUsage(id){
   }).join('');
   return '<div style="display:flex;justify-content:space-between;gap:12px;border:1px solid var(--bd);border-radius:8px;padding:9px 10px;background:var(--bg2);margin-bottom:8px">'+
    '<div style="min-width:0"><div style="font-weight:760;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(title||'--')+matrixHtml+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(sub||'')+'</div></div>'+
-   '<div style="font-size:11px;color:var(--t2);white-space:nowrap">'+escHtml((fields||[]).join(' / ')||'引用')+'</div>'+
+   '<div style="font-size:11px;color:var(--t2);white-space:nowrap">'+escHtml((fields||[]).join(' / ')||'使用中')+'</div>'+
   '</div>';
  }
  var body='';
  if(accounts.length){
-  body+='<div style="font-size:13px;font-weight:800;margin:0 0 8px">账户引用</div>'+
+  body+='<div style="font-size:13px;font-weight:800;margin:0 0 8px">账户使用关系</div>'+
    accounts.map(function(a){return row(displayAccountName(a.name,a.act_id), displayActId(a.act_id), a.fields||[], a.linked_matrix_ids||[]);}).join('');
  }
  if(campaigns.length){
-  body+='<div style="font-size:13px;font-weight:800;margin:14px 0 8px">投放任务引用</div>'+
+  body+='<div style="font-size:13px;font-weight:800;margin:14px 0 8px">投放任务使用关系</div>'+
    campaigns.map(function(c){return row(c.name||('任务 '+c.id), (displayActId(c.act_id)||'')+(c.status?(' · '+c.status):''), c.fields||[], c.linked_matrix_ids||[]);}).join('');
  }
  if(adLinks.length){
-  body+='<div style="font-size:13px;font-weight:800;margin:14px 0 8px">广告子码引用</div>'+
+  body+='<div style="font-size:13px;font-weight:800;margin:14px 0 8px">广告入口使用关系</div>'+
    adLinks.map(function(l){
     var title=(l.ad_name||l.ad_id||('短码 '+(l.slug||l.id||'')));
     var sub=[
@@ -20063,12 +20102,12 @@ function showLandingUsage(id){
     return row(title, sub, fields, []);
    }).join('');
  }
- if(!body)body='<div class="empty"><p>没有找到引用详情</p></div>';
+ if(!body)body='<div class="empty"><p>没有找到使用关系</p></div>';
  var mo=document.createElement('div');
  mo.className='mo';
  mo.id='moLandingUsage';
  mo.innerHTML='<div class="modal" style="max-width:720px">'+
-  '<div class="mh"><h3>引用详情</h3><button class="mc" onclick="closeModal(&quot;moLandingUsage&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>使用详情</h3><button class="mc" onclick="closeModal(&quot;moLandingUsage&quot;)">✕</button></div>'+
   '<div class="mb"><div style="font-size:12px;color:var(--t3);margin-bottom:12px">'+escHtml(p.title||'未命名')+' · '+escHtml(p.public_url||p.pages_url||'')+'</div>'+body+'</div>'+
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingUsage&quot;)">关闭</button></div>'+
  '</div>';
@@ -20338,8 +20377,9 @@ function renderLandingRuntimeProtectionSummary(){
  html+=_landingProtectionExplainHtml(r,on,'当前落地页主链接、子码和广告入口都会继承这套防护规则');
  box.innerHTML=html;
 }
-function applyLandingRuntimePreset(kind){
- var on=document.getElementById('rtProtectionEnabled');
+function applyLandingRulePreset(prefix,kind){
+ prefix=prefix||'rt';
+ var on=document.getElementById(prefix+'ProtectionEnabled');
  if(on)on.checked=true;
  var patch={};
  if(kind==='fb_mobile'){
@@ -20354,9 +20394,25 @@ function applyLandingRuntimePreset(kind){
   patch={country_allow:[],country_block:[],source_allow:[],source_block:[],platform_block:[],device_block:[],ua_block:[],referer_block:[],query_block:[],required_query:[]};
  }
  var current=_landingRulesByPrefix('rt');
+ if(prefix!=='rt')current=_landingRulesByPrefix(prefix);
  Object.keys(patch).forEach(function(k){current[k]=patch[k];});
- _setLandingRulesByPrefix('rt',current);
+ _setLandingRulesByPrefix(prefix,current);
+ if(prefix==='lp'){
+  toggleLandingProtectionRules();
+  renderLandingProtectionSummary();
+ }else if(prefix==='rt'){
+  toggleLandingRuntimeProtectionRules();
+  renderLandingRuntimeProtectionSummary();
+ }else if(prefix==='pt'){
+  renderProtectionTemplateSummary();
+ }
  toast(kind==='reset'?'已清空防护规则':'已填入常用防护规则','ok');
+}
+function applyLandingRuntimePreset(kind){
+ applyLandingRulePreset('rt',kind);
+}
+function applyLandingPublishPreset(kind){
+ applyLandingRulePreset('lp',kind);
 }
 function renderProtectionTemplateList(){
  renderProtectionTemplateSelects();
@@ -21065,10 +21121,10 @@ async function showLandingStats(id){
    });
    var keys=Object.keys(map).sort().slice(-(limit||7));
    if(!keys.length)return '<div style="color:var(--t3);font-size:12px">暂无趋势数据</div>';
-   return '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:6px;border-bottom:1px solid var(--bd)">'+(label||'日期')+'</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">访问</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">点击</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">跳转</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--bd)">拦截</th></tr></thead><tbody>'+
+   return '<table class="landing-stat-table"><thead><tr><th>'+(label||'日期')+'</th><th class="num">访问</th><th class="num">点击</th><th class="num">跳转</th><th class="num">拦截</th></tr></thead><tbody>'+
     keys.map(function(k){
      var v=map[k]||{};
-     return '<tr><td style="padding:6px;border-bottom:1px solid var(--bd)">'+escHtml(k)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.visit||0)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.click||0)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.redirect||0)+'</td><td style="padding:6px;text-align:right;border-bottom:1px solid var(--bd)">'+(v.block||0)+'</td></tr>';
+     return '<tr><td>'+escHtml(k)+'</td><td class="num">'+(v.visit||0)+'</td><td class="num">'+(v.click||0)+'</td><td class="num">'+(v.redirect||0)+'</td><td class="num">'+(v.block||0)+'</td></tr>';
     }).join('')+'</tbody></table>';
   }
   var countries=(r.by_country||[]).slice(0,8).map(function(x){return '<span class="badge bg-mu">'+escHtml(x.country||'未知')+' '+(x.cnt||0)+'</span>';}).join(' ');
@@ -21076,7 +21132,7 @@ async function showLandingStats(id){
   var sources=(r.by_source||[]).slice(0,8).map(function(x){return '<span class="badge bg-mu">'+escHtml(x.source||'Unknown')+' '+(x.cnt||0)+'</span>';}).join(' ');
   var reasons=(r.by_reason||[]).slice(0,8).map(function(x){return '<span class="badge bg-wa" title="'+escHtml(x.reason||'')+'">'+escHtml(x.reason||'--')+' '+(x.cnt||0)+'</span>';}).join(' ');
   var targetRows=(r.by_target||[]).slice(0,10).map(function(x){
-   return '<tr><td style="padding:7px;border-top:1px solid var(--bd);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(x.target_url||'')+'">'+escHtml(x.target_url||'--')+'</td><td style="padding:7px;border-top:1px solid var(--bd)">'+escHtml(x.event_type||'')+'</td><td style="padding:7px;text-align:right;border-top:1px solid var(--bd)">'+(x.cnt||0)+'</td></tr>';
+   return '<tr><td title="'+escHtml(x.target_url||'')+'" style="max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(x.target_url||'--')+'</td><td>'+escHtml(eventName(x.event_type||''))+'</td><td class="num">'+(x.cnt||0)+'</td></tr>';
   }).join('');
   function eventName(t){
    return {visit:'访问',click:'点击',redirect:'跳转',block:'拦截',submit:'提交',error:'错误',pass:'通过'}[String(t||'').toLowerCase()]||String(t||'--');
@@ -21089,16 +21145,18 @@ async function showLandingStats(id){
    var source=(x.source_platform||x.platform||'--')+(ref?' · '+ref.slice(0,90):'');
    var place=[x.country||'',x.region||'',x.city||''].filter(Boolean).join(' / ')||'--';
    var device=[x.device_type||'',x.os||'',x.browser||''].filter(Boolean).join(' · ')||'--';
-   var adInfo=(x.ad_id||x.ad_slug)?('<span>广告 '+escHtml(x.ad_id||'--')+(x.ad_slug?' · 子码 '+escHtml(x.ad_slug):'')+'</span>'):'<span>未识别广告</span>';
-   return '<div style="border:1px solid var(--bd);border-radius:10px;background:#fff;padding:10px 12px;display:grid;gap:7px">'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>'+escHtml(eventName(x.event_type))+'</b> <span class="badge '+passClass+'">'+escHtml(pass)+'</span></div><span style="color:var(--t3);font-size:12px">'+escHtml(x.created_at||'')+'</span></div>'+
-    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:12px;color:var(--t2)">'+
-     '<div><span style="color:var(--t3)">地区</span><br><b style="color:var(--t1)">'+escHtml(place)+'</b></div>'+
-     '<div><span style="color:var(--t3)">设备</span><br><b style="color:var(--t1)">'+escHtml(device)+'</b></div>'+
-     '<div><span style="color:var(--t3)">来源</span><br><b style="color:var(--t1)">'+escHtml(source)+'</b></div>'+
-     '<div><span style="color:var(--t3)">归因</span><br><b style="color:var(--t1)">'+adInfo+'</b></div>'+
+   var adInfo=(x.ad_id||x.ad_slug)?('广告 '+(x.ad_id||'--')+(x.ad_slug?' · 子码 '+x.ad_slug:'')):'未识别广告';
+   var pathText=x.path||'--';
+   return '<div class="landing-event-card">'+
+    '<div class="landing-event-top"><div class="landing-event-title"><span>'+escHtml(eventName(x.event_type))+'</span><span class="badge '+passClass+'">'+escHtml(pass)+'</span></div><span class="landing-event-time">'+escHtml(x.created_at||'')+'</span></div>'+
+    '<div class="landing-event-fields">'+
+     '<div class="landing-event-field"><span>地区</span><b title="'+escHtml(place)+'">'+escHtml(place)+'</b></div>'+
+     '<div class="landing-event-field"><span>设备</span><b title="'+escHtml(device)+'">'+escHtml(device)+'</b></div>'+
+     '<div class="landing-event-field"><span>来源</span><b title="'+escHtml(source)+'">'+escHtml(source)+'</b></div>'+
+     '<div class="landing-event-field"><span>广告归因</span><b title="'+escHtml(adInfo)+'">'+escHtml(adInfo)+'</b></div>'+
+     '<div class="landing-event-field"><span>访问路径</span><b title="'+escHtml(pathText)+'">'+escHtml(pathText)+'</b></div>'+
     '</div>'+
-    '<div style="font-size:12px;color:var(--t3);word-break:break-all"><b style="color:var(--t1)">原因 / 目标：</b>'+escHtml(reason||'--')+'</div>'+
+    '<div class="landing-event-reason"><b style="color:var(--t1)">原因 / 目标：</b>'+escHtml(reason||'--')+'</div>'+
    '</div>';
   }).join('');
   var metricCards=[
@@ -21114,30 +21172,30 @@ async function showLandingStats(id){
   ];
   var page=r.page||{};
   var pageKind=String(page.link_kind||'landing')==='form'
-   ?'<span class="badge bg-ac">表单直跳</span><span style="color:var(--t3);font-size:12px;margin-left:6px">访问首页即按轮询策略跳转</span>'
-   :'<span class="badge bg-mu">普通落地页</span><span style="color:var(--t3);font-size:12px;margin-left:6px">展示模板，按钮点击后轮询跳转</span>';
+   ?'<span class="badge bg-ac">直跳链接</span><span style="color:var(--t3);font-size:12px;margin-left:6px">打开后直接进入目标链接</span>'
+   :'<span class="badge bg-mu">落地页</span><span style="color:var(--t3);font-size:12px;margin-left:6px">先展示页面，点击按钮后进入目标链接</span>';
   var pageUrl=page.public_url||page.pages_url||'';
   var bindMap={none:'未自动绑定',landing:'账户落地页',form:'账户表单链接',both:'落地页 + 表单链接'};
   var bindText=bindMap[page.bind_target]||(page.bind_target||'未自动绑定');
   if(panel)panel.innerHTML=
-   '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div class="card-title">访问统计与日志 · '+escHtml((r.page||{}).title||'')+'</div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
-   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px">'+
-    '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div>'+pageKind+'</div><div style="font-size:12px;color:var(--t3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(pageUrl)+'">主链接：'+(pageUrl?escHtml(pageUrl):'--')+'</div></div>'+
-    '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-size:12px;color:var(--t3)">账户绑定字段</div><div style="font-size:16px;font-weight:800;margin-top:4px">'+escHtml(bindText)+'</div></div>'+
+   '<div class="landing-stats-head"><div><div class="landing-stats-title">访问统计与日志 · '+escHtml((r.page||{}).title||'')+'</div><div class="landing-stats-sub">仅展示近 7 天边缘事件；访问/跳转按北京时间记录，FB 消耗仍按广告账户本地日期读取。</div></div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
+   '<div class="landing-stats-info-grid">'+
+    '<div class="landing-stats-info-card"><div>'+pageKind+'</div><div class="landing-stats-link" title="'+escHtml(pageUrl)+'">主链接：'+(pageUrl?escHtml(pageUrl):'--')+'</div></div>'+
+    '<div class="landing-stats-info-card"><div class="landing-metric-label">账户绑定字段</div><div style="font-size:16px;font-weight:800;margin-top:4px">'+escHtml(bindText)+'</div></div>'+
    '</div>'+
-   '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border:1px solid var(--bd);border-radius:10px;background:var(--bg2);padding:12px;margin:10px 0"><div><div style="font-size:13px;font-weight:800;margin-bottom:4px">运行诊断 <span class="badge '+healthClass+'" style="margin-left:6px">'+health+'</span></div><div style="font-size:12px;color:var(--t3);line-height:1.55">'+healthDesc+'</div></div><div style="font-size:12px;color:var(--t3);white-space:nowrap">统计周期：近 '+escHtml(String(r.days||7))+' 天</div></div>'+
-   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:10px 0">'+
-    metricCards.map(function(m){return '<div class="ss"><div style="font-size:12px;color:var(--t3)">'+escHtml(m.label)+'</div><div style="font-size:22px;font-weight:800;margin-top:4px">'+escHtml(String(m.value))+'</div></div>';}).join('')+
+   '<div class="landing-health-card"><div><div style="font-size:13px;font-weight:820;margin-bottom:4px">运行诊断 <span class="badge '+healthClass+'" style="margin-left:6px">'+health+'</span></div><div class="landing-health-text">'+healthDesc+'</div></div><div class="landing-health-window">统计周期：近 '+escHtml(String(r.days||7))+' 天</div></div>'+
+   '<div class="landing-metric-grid">'+
+    metricCards.map(function(m){return '<div class="landing-metric-card"><div class="landing-metric-label">'+escHtml(m.label)+'</div><div class="landing-metric-value">'+escHtml(String(m.value))+'</div></div>';}).join('')+
    '</div>'+
-   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0"><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 24 小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 7 天趋势</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
-   '<div style="margin:10px 0;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-weight:800;font-size:13px;margin-bottom:8px">跳转目标分布</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">目标链接</th><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">事件</th><th style="text-align:right;padding:7px;border-bottom:1px solid var(--bd)">次数</th></tr></thead><tbody>'+(targetRows||'<tr><td colspan="3" style="padding:12px;color:var(--t3)">暂无跳转目标数据</td></tr>')+'</tbody></table></div>'+
-   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px">'+
-    '<div><b>国家</b><div style="margin-top:6px">'+(countries||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
-    '<div><b>设备</b><div style="margin-top:6px">'+(devices||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
-    '<div><b>来源平台</b><div style="margin-top:6px">'+(sources||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
-    '<div><b>拦截原因</b><div style="margin-top:6px">'+(reasons||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+   '<div class="landing-stat-grid"><div class="landing-stat-panel"><div class="landing-stat-panel-title">近 24 小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div class="landing-stat-panel"><div class="landing-stat-panel-title">近 7 天趋势</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
+   '<div class="landing-stat-panel" style="margin:10px 0"><div class="landing-stat-panel-title">跳转目标分布</div><table class="landing-stat-table"><thead><tr><th>目标链接</th><th>事件</th><th class="num">次数</th></tr></thead><tbody>'+(targetRows||'<tr><td colspan="3" style="padding:12px;color:var(--t3)">暂无跳转目标数据</td></tr>')+'</tbody></table></div>'+
+   '<div class="landing-stats-pill-grid">'+
+    '<div class="landing-stats-pill-card"><b>国家</b><div style="margin-top:6px">'+(countries||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+    '<div class="landing-stats-pill-card"><b>设备</b><div style="margin-top:6px">'+(devices||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+    '<div class="landing-stats-pill-card"><b>来源平台</b><div style="margin-top:6px">'+(sources||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+    '<div class="landing-stats-pill-card"><b>拦截原因</b><div style="margin-top:6px">'+(reasons||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
    '</div>'+
-   '<div style="margin-top:10px"><div style="font-weight:800;font-size:13px;margin-bottom:8px">最近访问日志</div><div style="display:grid;gap:8px">'+(recent||'<div style="padding:14px;color:var(--t3);border:1px solid var(--bd);border-radius:10px;background:#fff">暂无事件</div>')+'</div></div>';
+   '<div style="margin-top:10px"><div class="landing-stat-panel-title">最近访问日志</div><div class="landing-event-list">'+(recent||'<div class="landing-event-empty">暂无事件</div>')+'</div></div>';
  }catch(e){
   if(panel)panel.innerHTML='<div class="card-title">访问统计与日志</div><div style="color:var(--er);font-size:13px">加载失败：'+escHtml(e.message||e)+'</div>';
  }
