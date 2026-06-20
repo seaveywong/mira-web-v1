@@ -1502,12 +1502,15 @@ def _normalize_ad_id(value: str | None) -> str:
     return raw
 
 
-def _ad_param_url(page: dict, ad_id: str) -> str:
+def _ad_param_url(page: dict, ad_id: str, slug: str = "") -> str:
     base = _page_public_url(page)
     base = _landing_root_url(base)
     ad = _normalize_ad_id(ad_id)
     if not base or not ad:
         return ""
+    clean_slug = str(slug or "").strip()
+    if clean_slug:
+        return f"{base}/a/{clean_slug}?ad={ad}"
     return f"{base}/a?ad={ad}"
 
 
@@ -1532,7 +1535,7 @@ def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = No
     elif item.get("public_url"):
         item["public_url"] = str(item.get("public_url") or "").strip()
     if page:
-        item["ad_param_url"] = _ad_param_url(page, item.get("ad_id") or "")
+        item["ad_param_url"] = _ad_param_url(page, item.get("ad_id") or "", item.get("slug") or "")
     if stats:
         item["stats"] = stats
     return item
