@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.18</title>
+<title>Mira · 广告投放管理系统 v3.11.19</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -2733,16 +2733,25 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 }
 /* Landing P0 layout guardrails: drawers/modals must not be covered by the app topbar. */
 body.modal-open .topbar,
+body:has(.mo.show) .topbar,
+body:has(.mo[style*="display: flex"]) .topbar,
+body:has(.modal-overlay) .topbar,
 body.landing-publish-open .topbar,
 body.landing-api-open .topbar,
 body.landing-protection-open .topbar{
   z-index:80!important;
 }
-body.modal-open .topbar{
+body.modal-open .topbar,
+body:has(.mo.show) .topbar,
+body:has(.mo[style*="display: flex"]) .topbar,
+body:has(.modal-overlay) .topbar{
   opacity:0!important;
   pointer-events:none!important;
 }
-body.modal-open{overflow:hidden}
+body.modal-open,
+body:has(.mo.show),
+body:has(.mo[style*="display: flex"]),
+body:has(.modal-overlay){overflow:hidden}
 body.landing-publish-open #page-landing_center .landing-work-card,
 body.landing-api-open #page-landing_center .landing-side-card,
 body.landing-protection-open #page-landing_center .landing-protection-card{
@@ -2864,7 +2873,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.18</p>
+<p id="loginVer">广告投放管理系统 v3.11.19</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -2883,7 +2892,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.18</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.19</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5144,7 +5153,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.18';
+var APP_VERSION='v3.11.19';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -5300,12 +5309,22 @@ function toast(msg,type){
  },3000);
 }
 function showToast(msg,type){toast(msg,type)}
+function syncModalOpenState(){
+ var nodes=Array.from(document.querySelectorAll('.mo,.modal-overlay'));
+ var hasVisible=nodes.some(function(el){
+  if(!el)return false;
+  if(el.classList&&el.classList.contains('show'))return true;
+  var style=window.getComputedStyle?window.getComputedStyle(el):null;
+  return style&&style.display!=='none'&&style.visibility!=='hidden'&&style.opacity!=='0';
+ });
+ document.body.classList.toggle('modal-open',hasVisible);
+}
 function openModal(id){
  var el=document.getElementById(id);
  if(!el)return;
  el.style.display='';
  el.classList.add('show');
- document.body.classList.add('modal-open');
+ syncModalOpenState();
 }
 function closeModal(id){
  var el=document.getElementById(id);
@@ -5313,11 +5332,14 @@ function closeModal(id){
  el.classList.remove('show');
  el.style.display='none';
  setTimeout(function(){
-  if(!document.querySelector('.mo.show'))document.body.classList.remove('modal-open');
+  syncModalOpenState();
  },10);
  if(el.dataset&&el.dataset.dynamicModal==='1'){
   setTimeout(function(){if(el&&el.parentNode)el.remove();},220);
  }
+}
+if(window.MutationObserver){
+ new MutationObserver(function(){syncModalOpenState();}).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
 }
 function showConfirm(msg, onOk) {
  var moId = 'moConfirm';
@@ -6636,7 +6658,7 @@ async function createTeamQuick(){
  mo.innerHTML='<div class="modal" style="max-width:520px">'+
   '<div class="mh"><h3>新建团队</h3><button class="mc" onclick="closeModal(\'moCreateTeam\')">×</button></div>'+
   '<div class="mb">'+
-   '<div class="fg"><label class="fl">团队名称</label><input class="fc" id="ct_name" placeholder="例如：越南团队 / 台湾团队"></div>'+
+   '<div class="fg"><label class="fl">团队名称</label><input class="fc" id="ct_name" placeholder="例如：区域团队 / 项目团队"></div>'+
    '<div class="fg"><label class="fl">备注</label><input class="fc" id="ct_note" placeholder="可选，用于区分团队职责"></div>'+
    '<div class="fg"><label class="fl">团队 TG 群 ID</label><input class="fc" id="ct_tg_chat_ids" placeholder="可选，多个群 ID 用英文逗号分隔"></div>'+
    '<label style="display:flex;align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="ct_notify_enabled" checked> 启用团队通知</label>'+
@@ -11658,7 +11680,7 @@ function _showCountrySelectThenPick(){
    '<p style="font-size:13px;color:var(--t2);margin-bottom:12px">请先选择素材适用的目标市场，然后选择文件：</p>'+
    '<div style="margin-bottom:12px">'+
     '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材组（建议按产品/项目归类）</label>'+
-    '<input id="uploadFolderInputPick" class="inp" style="width:100%" value="'+escHtml(_assetLastFolderName||'')+'" placeholder="例如：金融-US-消息 / 表单线索 / 减脂视频" />'+
+    '<input id="uploadFolderInputPick" class="inp" style="width:100%" value="'+escHtml(_assetLastFolderName||'')+'" placeholder="例如：区域-目标-素材类型 / 表单线索 / 视频素材" />'+
    '</div>'+
    '<div style="margin-bottom:12px">'+
     '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材级矩阵（可选）</label>'+
@@ -11736,7 +11758,7 @@ function _showCountrySelectModal(files){
    '<p style="font-size:13px;color:var(--t2);margin-bottom:12px">将上传 <strong>'+files.length+'</strong>个素材，请选择该素材适用的目标市场：</p>'+
    '<div style="margin-bottom:12px">'+
     '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材组（建议按产品/项目归类）</label>'+
-    '<input id="uploadFolderInput" class="inp" style="width:100%" value="'+escHtml(_assetLastFolderName||'')+'" placeholder="例如：金融-US-消息 / 表单线索 / 减脂视频" />'+
+    '<input id="uploadFolderInput" class="inp" style="width:100%" value="'+escHtml(_assetLastFolderName||'')+'" placeholder="例如：区域-目标-素材类型 / 表单线索 / 视频素材" />'+
    '</div>'+
    '<div style="margin-bottom:12px">'+
     '<label style="font-size:12px;color:var(--t3);display:block;margin-bottom:4px">素材级矩阵（可选）</label>'+
@@ -12220,7 +12242,7 @@ async function openAssetDetail(assetId){
   html+='<div style="font-size:12px;color:var(--t3);margin-bottom:8px">素材整理</div>';
   html+='<div class="fr">';
   html+='<div class="fg"><label class="fl">展示名称</label><input class="fc" id="detailDisplayName" value="'+safeDisplayName+'" placeholder="素材展示名称"></div>';
-  html+='<div class="fg"><label class="fl">素材组</label><input class="fc" id="detailFolderName" value="'+safeFolderName+'" placeholder="例如：金融-US-消息 / 表单线索"></div>';
+  html+='<div class="fg"><label class="fl">素材组</label><input class="fc" id="detailFolderName" value="'+safeFolderName+'" placeholder="例如：区域-目标-素材类型 / 表单线索"></div>';
   html+='</div>';
   html+='<div class="fr">';
   html+='<div class="fg"><label class="fl">上传批次</label><input class="fc" id="detailBatchCode" value="'+safeBatchCode+'" placeholder="留空=未分批"></div>';
@@ -17702,7 +17724,7 @@ function _prefillLaunchLandingUrl(actId, mode, nextUrl){
 }
 async function loadLandingUrls() {
  try {
-  var accs = await api('GET', '/accounts?limit=500&enabled=all') || [];
+  var accs = await api('GET', '/accounts?limit=2000&enabled=all') || [];
   _landingUrlAccs = accs;
   filterLandingUrls();
  } catch(e) {
@@ -18111,8 +18133,8 @@ function renderCloudflareTokens(){
   }
   var usageCount=parseInt(t.usage_count||0,10)||0;
   var usageBadge=usageCount>0
-   ?'<span class="badge bg-wa" title="已有落地页记录使用该 API，不能直接删除">引用 '+usageCount+'</span>'
-   :'<span class="badge bg-mu" title="当前没有落地页记录引用该 API">未引用</span>';
+   ?'<span class="badge bg-wa" title="已有发布项目使用该 API，不能直接删除">使用中 '+usageCount+'</span>'
+   :'<span class="badge bg-mu" title="当前没有发布项目使用该 API，可以删除">可删除</span>';
   var ownerText=resourceOwnerLabel(t,'未指定负责人');
   var deleteBtn=usageCount>0
    ?'<button class="btn btn-g btn-sm role-hide-viewer" disabled title="已有落地页引用该 API，不能删除。先删除或迁移引用记录。">删除</button>'
@@ -21102,7 +21124,7 @@ var _launchLandingUrlOptions = [];
 var _launchFormLinkOptions = [];
 async function loadLandingUrlOptions() {
  try {
-  var accs = await api('GET', '/accounts?limit=500&enabled=all') || [];
+  var accs = await api('GET', '/accounts?limit=2000&enabled=all') || [];
   // 全量缓存（所有账户）
   window._allLandingUrlOptions = accs
    .filter(function(a) { return a.landing_url; })
