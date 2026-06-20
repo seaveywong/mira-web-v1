@@ -3091,22 +3091,25 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
         "required_query",
     }
     source_alias = {
-        "fb": "facebook",
-        "facebook": "facebook",
-        "ig": "instagram",
-        "instagram": "instagram",
-        "tk": "tiktok",
-        "tt": "tiktok",
-        "tiktok": "tiktok",
-        "google": "google",
-        "go": "google",
-        "gg": "google",
-        "bing": "bing",
-        "wa": "whatsapp",
-        "whatsapp": "whatsapp",
-        "tg": "telegram",
-        "telegram": "telegram",
-        "unknown": "unknown",
+        "fb": ["facebook"],
+        "facebook": ["facebook"],
+        "ig": ["instagram"],
+        "instagram": ["instagram"],
+        "tk": ["tiktok"],
+        "tt": ["tiktok"],
+        "tiktok": ["tiktok"],
+        "google": ["google"],
+        "go": ["google"],
+        "gg": ["google"],
+        "bing": ["bing"],
+        "wa": ["whatsapp"],
+        "whatsapp": ["whatsapp"],
+        "tg": ["telegram"],
+        "telegram": ["telegram"],
+        "unknown": ["unknown"],
+        "direct": ["unknown"],
+        "social": ["facebook", "instagram", "tiktok"],
+        "search": ["google", "bing"],
     }
     device_allowed = {"mobile", "desktop", "tablet"}
 
@@ -3144,7 +3147,7 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
             for part in parts:
                 mapped = source_alias.get(part.lower())
                 if mapped:
-                    normalized.append(mapped)
+                    normalized.extend(mapped)
         elif key == "device_block":
             for part in parts:
                 device = part.lower()

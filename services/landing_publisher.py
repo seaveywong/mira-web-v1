@@ -835,8 +835,9 @@ function evaluate(request, cfg) {
   if (listHit(rules.referer_block, ref)) return { pass: false, reason: 'referer_blocked' };
   if (listHit(rules.query_block, url.search)) return { pass: false, reason: 'query_blocked' };
   const required = lowerList(rules.required_query);
-  for (const key of required) {
-    if (!url.searchParams.has(key)) return { pass: false, reason: 'required_query_missing:' + key };
+  if (required.length) {
+    const hasRequired = required.some(key => url.searchParams.has(key));
+    if (!hasRequired) return { pass: false, reason: 'required_query_missing:' + required.join('|') };
   }
   return { pass: true, reason: '' };
 }
