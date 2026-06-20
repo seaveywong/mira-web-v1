@@ -279,8 +279,6 @@ app.include_router(landing_pages_router, prefix="/api/landing-pages", tags=["lan
 app.include_router(meta_oauth_router,  prefix="/api/meta-oauth", tags=["meta-oauth"])
 app.include_router(local_tokens_router, prefix="/api/local-tokens", tags=["local-tokens"])
 app.include_router(local_executor_router, prefix="/api/local-executor", tags=["local-executor"])
-app.include_router(local_tokens_router, prefix="/api/local-executors", tags=["local-executors"])
-app.include_router(local_executor_router, prefix="/api/local-executors", tags=["local-executors"])
 app.include_router(telegram_router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
 

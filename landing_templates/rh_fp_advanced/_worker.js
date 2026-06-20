@@ -1,5 +1,5 @@
 /**
- * RH Geo Guard for Cloudflare Pages - Production Version
+ * Edge Guard for Cloudflare Pages - Production Version
  *
  * 结构：
  * _worker.js

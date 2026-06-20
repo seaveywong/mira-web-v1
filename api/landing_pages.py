@@ -5,12 +5,17 @@ import logging
 import os
 import re
 import secrets
+import shutil
+import tempfile
+import zipfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user, is_superadmin
@@ -25,10 +30,14 @@ from services.landing_publisher import (
     add_pages_custom_domain,
     delete_pages_project,
     deploy_pages_static,
+    ensure_pages_cname_dns_record,
+    find_zone_for_domain,
     get_pages_custom_domain_status,
     list_account_zones,
+    list_dns_records,
     list_pages_projects,
     normalize_custom_domain,
+    pages_cname_target,
     prepare_template,
     sanitize_project_name,
     stable_pages_url,
@@ -40,6 +49,32 @@ logger = logging.getLogger("mira.landing_pages")
 router = APIRouter()
 CST = timezone(timedelta(hours=8))
 LANDING_TRACKING_RETENTION_DAYS = 7
+LANDING_TEMPLATE_REFERENCE_ZIP = os.environ.get(
+    "MIRA_LANDING_TEMPLATE_REFERENCE_ZIP",
+    "/opt/mira/assets/mira-landing-template-reference.zip",
+)
+LANDING_TEMPLATE_UPLOAD_DIR = Path(
+    os.environ.get("MIRA_LANDING_TEMPLATE_UPLOAD_DIR", "/opt/mira/landing_templates/custom")
+)
+LANDING_TEMPLATE_MAX_ZIP_BYTES = int(os.environ.get("MIRA_LANDING_TEMPLATE_MAX_ZIP_BYTES", str(20 * 1024 * 1024)))
+LANDING_TEMPLATE_MAX_UNPACKED_BYTES = int(os.environ.get("MIRA_LANDING_TEMPLATE_MAX_UNPACKED_BYTES", str(80 * 1024 * 1024)))
+LANDING_TEMPLATE_MAX_FILES = int(os.environ.get("MIRA_LANDING_TEMPLATE_MAX_FILES", "400"))
+LANDING_TEMPLATE_BLOCKED_NAMES = {"_worker.js", "_routes.json", "_headers", "_redirects"}
+LANDING_TEMPLATE_BLOCKED_SUFFIXES = {
+    ".php",
+    ".py",
+    ".rb",
+    ".pl",
+    ".cgi",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".bat",
+    ".cmd",
+    ".sh",
+    ".ps1",
+}
 _landing_cleanup_last: Optional[datetime] = None
 
 
@@ -70,6 +105,7 @@ class LandingProtectionTemplateReq(BaseModel):
 class LandingAssetBindingReq(BaseModel):
     name: str
     custom_domain: Optional[str] = ""
+    pixel_name: Optional[str] = ""
     pixel_id: Optional[str] = ""
     landing_page_id: Optional[int] = None
     target_urls: list[str] = []
@@ -105,11 +141,19 @@ class LandingRuntimeConfigPatch(BaseModel):
     tracking_enabled: bool = True
     protection_enabled: bool = False
     protection_rules: dict[str, Any] = Field(default_factory=dict)
+    custom_domain: Optional[str] = None
+    pixel_id: Optional[str] = None
+    template_id: Optional[int] = None
 
 
 class LandingRuntimeConfigReq(BaseModel):
     page_id: int
     secret: str
+
+
+class LandingFacebookProbeReq(BaseModel):
+    url: str
+    act_id: Optional[str] = None
 
 
 class LandingEventIngest(BaseModel):
@@ -156,6 +200,12 @@ class LandingAdLinkCreate(BaseModel):
     ad_name: Optional[str] = None
     target_url: Optional[str] = None
     note: Optional[str] = None
+
+
+class LandingAdAutoBindReq(BaseModel):
+    act_ids: list[str] = []
+    limit_accounts: int = Field(default=50, ge=1, le=200)
+    limit_ads_per_account: int = Field(default=500, ge=1, le=2000)
 
 
 def _landing_ad_link_create_count(requested_count: int, target_urls: list[str]) -> int:
@@ -254,6 +304,11 @@ def _ensure_schema():
             name TEXT NOT NULL,
             template_path TEXT NOT NULL,
             status TEXT DEFAULT 'active',
+            source TEXT DEFAULT 'system',
+            original_filename TEXT,
+            size_bytes INTEGER DEFAULT 0,
+            validation_json TEXT DEFAULT '{}',
+            note TEXT,
             team_id INTEGER,
             owner_user_id INTEGER,
             created_by TEXT,
@@ -278,6 +333,7 @@ def _ensure_schema():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             custom_domain TEXT,
+            pixel_name TEXT,
             pixel_id TEXT,
             landing_page_id INTEGER,
             target_urls TEXT DEFAULT '[]',
@@ -488,6 +544,12 @@ def _ensure_schema():
     except Exception:
         logger.exception("landing_pages schema patch failed")
     try:
+        binding_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_asset_bindings)").fetchall()}
+        if "pixel_name" not in binding_cols:
+            conn.execute("ALTER TABLE landing_asset_bindings ADD COLUMN pixel_name TEXT")
+    except Exception:
+        logger.exception("landing_asset_bindings schema patch failed")
+    try:
         ad_link_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_ad_links)").fetchall()}
         if "target_urls" not in ad_link_cols:
             conn.execute("ALTER TABLE landing_ad_links ADD COLUMN target_urls TEXT DEFAULT '[]'")
@@ -508,18 +570,35 @@ def _ensure_schema():
             conn.execute("ALTER TABLE cf_tokens ADD COLUMN selected_account_id TEXT")
     except Exception:
         logger.exception("cf_tokens schema patch failed")
+    try:
+        template_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_templates)").fetchall()}
+        template_alters = {
+            "source": "TEXT DEFAULT 'system'",
+            "original_filename": "TEXT",
+            "size_bytes": "INTEGER DEFAULT 0",
+            "validation_json": "TEXT DEFAULT '{}'",
+            "note": "TEXT",
+        }
+        for name, ddl in template_alters.items():
+            if name not in template_cols:
+                conn.execute(f"ALTER TABLE landing_templates ADD COLUMN {name} {ddl}")
+    except Exception:
+        logger.exception("landing_templates schema patch failed")
     row = conn.execute("SELECT id FROM landing_templates WHERE id=1").fetchone()
     if not row and DEFAULT_TEMPLATE_DIR.exists():
         conn.execute(
             """INSERT INTO landing_templates
                (id, name, template_path, status, created_by)
-               VALUES (1, 'RH FP 高级默认模板', ?, 'active', 'system')""",
+               VALUES (1, 'Mira 通用默认模板', ?, 'active', 'system')""",
             (str(DEFAULT_TEMPLATE_DIR),),
         )
     else:
         conn.execute(
-            "UPDATE landing_templates SET name='RH FP 高级默认模板' WHERE id=1 AND COALESCE(created_by,'system')='system'"
+            "UPDATE landing_templates SET name='Mira 通用默认模板' WHERE id=1 AND COALESCE(created_by,'system')='system'"
         )
+    conn.execute(
+        "UPDATE landing_templates SET name='Mira 通用默认模板' WHERE id=1 AND COALESCE(created_by,'system')='system'"
+    )
     try:
         _cleanup_landing_tracking(conn, force=True)
     except Exception:
@@ -577,6 +656,128 @@ def _public_provider_error(message: Any, user=None) -> str:
 def _short_slug(size: int = 8) -> str:
     alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
     return "".join(secrets.choice(alphabet) for _ in range(size))
+
+
+def _safe_zip_member_name(name: str) -> str:
+    raw = str(name or "").replace("\\", "/").strip()
+    raw = re.sub(r"/+", "/", raw)
+    if not raw or raw.startswith("/") or raw.startswith("../") or "/../" in raw or raw == "..":
+        raise ValueError(f"Invalid path: {name}")
+    if re.match(r"^[A-Za-z]:", raw):
+        raise ValueError(f"Invalid path: {name}")
+    return raw.strip("/")
+
+
+def _landing_template_candidate_prefix(names: list[str]) -> tuple[str, str]:
+    lowered = {n.lower(): n for n in names}
+    for candidate in ("landing.html", "index.html"):
+        if candidate in lowered:
+            return "", lowered[candidate]
+    html_candidates = [n for n in names if n.lower().endswith("/landing.html") or n.lower().endswith("/index.html")]
+    if not html_candidates:
+        raise HTTPException(status_code=400, detail="模板包缺少入口文件：请在根目录放 landing.html 或 index.html")
+    html_candidates.sort(key=lambda n: (len(n.split("/")), 0 if n.lower().endswith("/landing.html") else 1, len(n)))
+    entry = html_candidates[0]
+    prefix = entry.rsplit("/", 1)[0]
+    return prefix, entry
+
+
+def _validate_landing_template_html(html: str) -> tuple[list[str], list[str]]:
+    errors, warnings = [], []
+    if not re.search(r"\bvar\s+MIRA_PIXEL_ID\s*=", html):
+        errors.append("缺少变量：var MIRA_PIXEL_ID = \"\";")
+    if not re.search(r"\bvar\s+MIRA_TARGET_URL\s*=", html):
+        errors.append("缺少变量：var MIRA_TARGET_URL = \"\";")
+    if "MIRA_TARGET_URL" not in html:
+        errors.append("按钮或表单没有接入 MIRA_TARGET_URL")
+    hard_jump = re.search(
+        r"""(?:href|action)\s*=\s*['"]https?://(?:api\.whatsapp\.com|wa\.me|t\.me|line\.me|m\.me|messenger\.com|facebook\.com/messages|chat\.whatsapp\.com)""",
+        html,
+        re.I,
+    )
+    if hard_jump:
+        errors.append("检测到硬编码咨询/跳转链接，请改为使用 MIRA_TARGET_URL")
+    if re.search(r"\b(fbq\(['\"]init['\"]\s*,\s*['\"]\d{8,}['\"])", html, re.I):
+        errors.append("检测到硬编码 Pixel ID，请改为使用 MIRA_PIXEL_ID")
+    if re.search(r"""(?:href|action|location\.href|location\.replace|window\.open)\s*(?:=|\()\s*['"]https?://""", html, re.I):
+        warnings.append("检测到外部链接调用；请确认最终投放跳转没有绕过 MIRA_TARGET_URL")
+    if "data-mira-cta" not in html and "MIRA_TARGET_URL" in html:
+        warnings.append("未发现 data-mira-cta 标记；可以发布，但请确认按钮点击会使用 MIRA_TARGET_URL")
+    return errors, warnings
+
+
+def _validate_landing_template_zip(zip_path: Path) -> dict:
+    errors, warnings = [], []
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            infos = [info for info in zf.infolist() if not info.is_dir()]
+            if not infos:
+                raise HTTPException(status_code=400, detail="模板包为空")
+            if len(infos) > LANDING_TEMPLATE_MAX_FILES:
+                errors.append(f"文件数量过多：{len(infos)}，上限 {LANDING_TEMPLATE_MAX_FILES}")
+            names = []
+            total_unpacked = 0
+            for info in infos:
+                try:
+                    norm = _safe_zip_member_name(info.filename)
+                except ValueError as exc:
+                    errors.append(str(exc))
+                    continue
+                names.append(norm)
+                total_unpacked += max(0, int(info.file_size or 0))
+                base = norm.rsplit("/", 1)[-1].lower()
+                suffix = Path(base).suffix.lower()
+                if base in LANDING_TEMPLATE_BLOCKED_NAMES:
+                    errors.append(f"禁止包含 {base}，该文件由 Mira 发布时生成")
+                if suffix in LANDING_TEMPLATE_BLOCKED_SUFFIXES:
+                    errors.append(f"禁止包含可执行/服务端文件：{norm}")
+            if total_unpacked > LANDING_TEMPLATE_MAX_UNPACKED_BYTES:
+                errors.append(f"解压后体积过大：{total_unpacked} bytes")
+            prefix, entry = _landing_template_candidate_prefix(names)
+            html = zf.read(entry).decode("utf-8", errors="ignore")
+            html_errors, html_warnings = _validate_landing_template_html(html)
+            errors.extend(html_errors)
+            warnings.extend(html_warnings)
+            return {
+                "valid": not errors,
+                "errors": errors,
+                "warnings": warnings,
+                "entry_file": entry,
+                "prefix": prefix,
+                "file_count": len(infos),
+                "unpacked_bytes": total_unpacked,
+            }
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="请上传有效的 zip 模板包")
+
+
+def _extract_landing_template_zip(zip_path: Path, dest: Path, validation: dict) -> None:
+    prefix = str(validation.get("prefix") or "").strip("/")
+    entry = str(validation.get("entry_file") or "")
+    dest.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            norm = _safe_zip_member_name(info.filename)
+            if prefix:
+                if norm != prefix and not norm.startswith(prefix + "/"):
+                    continue
+                rel = norm[len(prefix) + 1 :]
+            else:
+                rel = norm
+            if not rel:
+                continue
+            base = rel.rsplit("/", 1)[-1].lower()
+            if base in LANDING_TEMPLATE_BLOCKED_NAMES or Path(base).suffix.lower() in LANDING_TEMPLATE_BLOCKED_SUFFIXES:
+                continue
+            out = dest / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info, "r") as src, open(out, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+    entry_rel = entry[len(prefix) + 1 :] if prefix and entry.startswith(prefix + "/") else entry
+    if entry_rel.lower() == "index.html" and not (dest / "landing.html").exists():
+        shutil.copyfile(dest / entry_rel, dest / "landing.html")
 
 
 def _json_loads(raw: Optional[str], default):
@@ -749,6 +950,46 @@ def _assert_template_access(conn, template_id: int, user) -> dict:
     return dict(row)
 
 
+def _template_validation_summary(raw: Optional[str]) -> dict:
+    data = _json_loads(raw, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _can_delete_landing_template(item: dict, user) -> bool:
+    if not item or int(item.get("id") or 0) == 1:
+        return False
+    if (item.get("source") or "system") == "system":
+        return False
+    if is_superadmin(user):
+        return True
+    return item.get("owner_user_id") is not None and item.get("owner_user_id") == user_id(user)
+
+
+def _public_landing_template(row, user) -> dict:
+    item = dict(row)
+    validation = _template_validation_summary(item.get("validation_json"))
+    return {
+        "id": item.get("id"),
+        "name": item.get("name"),
+        "status": item.get("status"),
+        "source": item.get("source") or "system",
+        "original_filename": item.get("original_filename"),
+        "size_bytes": item.get("size_bytes") or 0,
+        "note": item.get("note") or "",
+        "team_id": item.get("team_id"),
+        "owner_user_id": item.get("owner_user_id"),
+        "created_by": item.get("created_by"),
+        "created_at": item.get("created_at"),
+        "validation": {
+            "valid": bool(validation.get("valid", True)),
+            "warnings": validation.get("warnings") or [],
+            "entry_file": validation.get("entry_file") or "",
+            "file_count": validation.get("file_count") or 0,
+        },
+        "can_delete": _can_delete_landing_template(item, user),
+    }
+
+
 def _public_protection_template(row) -> dict:
     item = dict(row)
     item["rules"] = _safe_rules(_json_loads(item.get("rules"), {}))
@@ -821,6 +1062,79 @@ def _bind_page_to_accounts(conn, act_ids: list[str], bind_target: str, url: str,
     return {"requested": clean_ids, "bound": bound, "skipped": skipped, "target": bind_target}
 
 
+def _landing_auto_bind_accounts(conn, page: dict, body: LandingAdAutoBindReq, user) -> list[dict]:
+    requested = _clean_act_ids(body.act_ids or [])
+    if not requested:
+        requested = _clean_act_ids(_json_loads(page.get("bound_act_ids"), []))
+    rows = []
+    if requested:
+        placeholders = ",".join(["?"] * len(requested))
+        rows = conn.execute(
+            f"""SELECT id, act_id, name FROM accounts
+                WHERE REPLACE(COALESCE(act_id,''),'act_','') IN ({placeholders})
+                ORDER BY id DESC""",
+            requested,
+        ).fetchall()
+    else:
+        where, params = _scope_where(user, "a")
+        sql = "SELECT a.id, a.act_id, a.name FROM accounts a"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY a.id DESC LIMIT ?"
+        params.append(int(body.limit_accounts or 50))
+        rows = conn.execute(sql, params).fetchall()
+    out, seen = [], set()
+    for row in rows:
+        clean = (_clean_act_ids([row["act_id"] or ""]) or [""])[0]
+        if not clean or clean in seen:
+            continue
+        try:
+            assert_row_access(conn, "accounts", int(row["id"]), user, allow_unassigned=False)
+        except HTTPException:
+            continue
+        seen.add(clean)
+        out.append({"act_id": clean, "name": row["name"] or ""})
+    return out[: int(body.limit_accounts or 50)]
+
+
+def _landing_fetch_ads_for_link_binding(act_id: str, token: str, limit_ads: int) -> tuple[list[dict], Optional[str]]:
+    fields = (
+        "id,name,status,effective_status,adset_id,campaign_id,"
+        "adset{id,name,campaign{id,name}},"
+        "creative{id,name,object_story_spec,asset_feed_spec,url_tags,link_url,object_url}"
+    )
+    url = f"https://graph.facebook.com/v25.0/{_fb_act_id(act_id)}/ads"
+    params = {
+        "access_token": token,
+        "fields": fields,
+        "effective_status": json.dumps(["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "PENDING_REVIEW"]),
+        "limit": 100,
+    }
+    ads: list[dict] = []
+    err_msg: Optional[str] = None
+    while url and len(ads) < max(1, int(limit_ads or 500)):
+        try:
+            resp = requests.get(url, params=params if "graph.facebook.com" in url else None, timeout=35)
+            data = resp.json()
+        except Exception as exc:
+            err_msg = str(exc)
+            break
+        if isinstance(data, dict) and data.get("error"):
+            err = data.get("error") or {}
+            err_msg = err.get("message") or str(err)
+            break
+        batch = (data or {}).get("data") or []
+        if not isinstance(batch, list):
+            break
+        ads.extend([x for x in batch if isinstance(x, dict)])
+        next_url = ((data or {}).get("paging") or {}).get("next")
+        if not next_url:
+            break
+        url = next_url
+        params = None
+    return ads[: max(1, int(limit_ads or 500))], err_msg
+
+
 def _effective_bind_target_for_link_kind(link_kind: str, bind_target: str) -> str:
     kind = (link_kind or "landing").strip().lower()
     target = (bind_target or "none").strip().lower()
@@ -833,6 +1147,19 @@ def _effective_bind_target_for_link_kind(link_kind: str, bind_target: str) -> st
 
 def _public_token(row) -> dict:
     accounts = _public_accounts(row["cf_accounts_json"] if "cf_accounts_json" in row.keys() else "[]")
+    selected_account_id = row["selected_account_id"] if "selected_account_id" in row.keys() else None
+    selected_account_name = None
+    if selected_account_id:
+        selected_account_name = next(
+            (
+                acct.get("name")
+                for acct in accounts
+                if isinstance(acct, dict) and acct.get("id") == selected_account_id
+            ),
+            None,
+        )
+    if not selected_account_name:
+        selected_account_name = row["cf_account_name"]
     return {
         "id": row["id"],
         "name": row["name"],
@@ -841,7 +1168,8 @@ def _public_token(row) -> dict:
         "cf_account_name": row["cf_account_name"],
         "cf_accounts": accounts,
         "cf_accounts_count": len(accounts),
-        "selected_account_id": row["selected_account_id"] if "selected_account_id" in row.keys() else None,
+        "selected_account_id": selected_account_id,
+        "selected_account_name": selected_account_name,
         "status": row["status"],
         "last_verified_at": row["last_verified_at"],
         "team_id": row["team_id"],
@@ -879,6 +1207,43 @@ def _domain_status_usable(domain_status: Any, last_error: Optional[str]) -> bool
     return False
 
 
+def _custom_domain_runtime_usable(custom_domain: str, worker_enabled: bool = False) -> bool:
+    """Treat a custom domain as usable when the live edge already serves Mira.
+
+    Cloudflare Pages custom-domain status can remain "pending" for a short
+    period even after DNS and Worker routing are already effective. We only use
+    this as a fallback when the host clearly responds through the Mira runtime.
+    """
+    host = normalize_custom_domain(custom_domain) if custom_domain else ""
+    if not host:
+        return False
+    urls = [f"https://{host}"]
+    if worker_enabled:
+        urls.insert(0, f"https://{host}/__mira/redirect")
+    for url in urls:
+        try:
+            resp = requests.get(
+                url,
+                allow_redirects=False,
+                timeout=8,
+                headers={
+                    "User-Agent": "MiraDomainProbe/1.0",
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                },
+            )
+        except Exception:
+            continue
+        if resp.headers.get("x-mira-block-reason"):
+            return True
+        content_type = (resp.headers.get("content-type") or "").lower()
+        server = (resp.headers.get("server") or "").lower()
+        if worker_enabled and resp.status_code in {301, 302, 303, 307, 308}:
+            return True
+        if resp.status_code == 200 and "html" in content_type and "cloudflare" in server:
+            return True
+    return False
+
+
 def _domain_status_text(domain_status: Any) -> str:
     if isinstance(domain_status, dict):
         for key in ("status", "validation_status", "verification_status", "state", "ssl_status", "name"):
@@ -888,6 +1253,64 @@ def _domain_status_text(domain_status: Any) -> str:
     if domain_status:
         return str(domain_status)
     return ""
+
+
+def _setup_custom_domain_automation(
+    raw_token: str,
+    cf_account_id: str,
+    project_name: str,
+    custom_domain: str,
+    pages_url: str,
+    user=None,
+) -> tuple[Optional[dict], Optional[dict], str, str]:
+    """Ensure DNS CNAME and Pages custom-domain binding for a Pages project.
+
+    Returns (dns_result, domain_result, error_text, notice_text). DNS failure is
+    intentionally non-fatal so the Pages fallback URL remains publishable.
+    """
+    custom_domain = normalize_custom_domain(custom_domain)
+    dns_result: Optional[dict] = None
+    domain_result: Optional[dict] = None
+    errors: list[str] = []
+    notices: list[str] = []
+    if not custom_domain:
+        return dns_result, domain_result, "", ""
+
+    try:
+        dns_result = ensure_pages_cname_dns_record(
+            raw_token,
+            cf_account_id,
+            project_name,
+            custom_domain,
+            pages_url,
+        )
+        action = (dns_result or {}).get("action") or "checked"
+        target = (dns_result or {}).get("target") or pages_cname_target(project_name, pages_url)
+        notices.append(f"DNS {action}: CNAME {custom_domain} -> {target}")
+    except CloudflareError as exc:
+        errors.append(f"DNS automation failed: {_public_provider_error(exc, user)}")
+
+    try:
+        domain_result = add_pages_custom_domain(raw_token, cf_account_id, project_name, custom_domain)
+        if str((domain_result or {}).get("status") or "").lower() == "already_exists":
+            try:
+                domain_result = get_pages_custom_domain_status(
+                    raw_token,
+                    cf_account_id,
+                    project_name,
+                    custom_domain,
+                )
+            except Exception:
+                pass
+        status_text = _domain_status_text(domain_result) or "pending"
+        if _domain_status_usable(domain_result, None):
+            notices.append(f"Custom domain active: {custom_domain}")
+        else:
+            notices.append(f"Custom domain {custom_domain} is {status_text}; fallback URL is used until it becomes active.")
+    except CloudflareError as exc:
+        errors.append(f"Custom domain binding failed: {_public_provider_error(exc, user)}")
+
+    return dns_result, domain_result, "\n".join(errors), "\n".join(notices)
 
 
 def _public_page(row) -> dict:
@@ -905,7 +1328,18 @@ def _public_page(row) -> dict:
     if isinstance(raw_response, dict):
         domain_status = raw_response.get("domain_status") or raw_response.get("custom_domain_result") or None
         item["domain_status"] = domain_status
-    custom_domain_usable = bool(custom_domain and _domain_status_usable(domain_status, item.get("last_error")))
+        item["custom_domain_dns_result"] = raw_response.get("custom_domain_dns_result") or None
+        item["custom_domain_runtime_usable"] = bool(raw_response.get("custom_domain_runtime_usable"))
+        item["custom_domain_runtime_checked_at"] = raw_response.get("custom_domain_runtime_checked_at") or ""
+        item["custom_domain_status_mismatch"] = raw_response.get("custom_domain_status_mismatch") or None
+    runtime_domain_usable = bool(isinstance(raw_response, dict) and raw_response.get("custom_domain_runtime_usable"))
+    custom_domain_usable = bool(
+        custom_domain
+        and (
+            _domain_status_usable(domain_status, item.get("last_error"))
+            or runtime_domain_usable
+        )
+    )
     item["custom_domain_usable"] = custom_domain_usable
     item["public_url"] = f"https://{custom_domain}" if custom_domain_usable else pages_url
     item["public_url_source"] = "custom_domain" if custom_domain_usable else ("pages_url" if pages_url else "")
@@ -1003,6 +1437,9 @@ def _asset_binding_values(body: LandingAssetBindingReq, conn, user) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     pixel_id = (body.pixel_id or "").strip() or ((page or {}).get("pixel_id") or "")
+    pixel_name = (body.pixel_name or "").strip()
+    if not pixel_name and pixel_id and not custom_domain and not page_id:
+        pixel_name = name
     target_urls = [u.strip() for u in body.target_urls if isinstance(u, str) and u.strip()]
     if not target_urls and page:
         target_urls = [u for u in _json_loads(page.get("target_urls"), []) if isinstance(u, str) and u.strip()]
@@ -1017,6 +1454,7 @@ def _asset_binding_values(body: LandingAssetBindingReq, conn, user) -> dict:
     return {
         "name": name[:120],
         "custom_domain": custom_domain,
+        "pixel_name": pixel_name[:120],
         "pixel_id": pixel_id[:80],
         "landing_page_id": page_id,
         "target_urls": target_urls,
@@ -1088,15 +1526,66 @@ def _refresh_page_ad_link_urls(conn, page_id: int, page_public: dict) -> None:
 def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = None) -> dict:
     item = dict(row)
     item["target_urls"] = _json_loads(item.get("target_urls"), [])
-    if item.get("public_url"):
-        item["public_url"] = str(item.get("public_url") or "").strip()
-    elif page:
+    if page:
         item["public_url"] = _ad_link_url(page, item.get("slug") or "")
+    elif item.get("public_url"):
+        item["public_url"] = str(item.get("public_url") or "").strip()
     if page:
         item["ad_param_url"] = _ad_param_url(page, item.get("ad_id") or "")
     if stats:
         item["stats"] = stats
     return item
+
+
+def _landing_extract_url_strings(value: Any, output: Optional[list[str]] = None) -> list[str]:
+    output = output if output is not None else []
+    if value is None:
+        return output
+    if isinstance(value, dict):
+        for v in value.values():
+            _landing_extract_url_strings(v, output)
+        return output
+    if isinstance(value, list):
+        for v in value:
+            _landing_extract_url_strings(v, output)
+        return output
+    if not isinstance(value, str):
+        return output
+    text = value.strip()
+    if not text:
+        return output
+    for match in re.findall(r"https?://[^\s\"'<>]+", text):
+        output.append(match.rstrip("),.;]"))
+    return output
+
+
+def _landing_slug_from_url(raw_url: str, known_slugs: set[str]) -> str:
+    if not raw_url or not known_slugs:
+        return ""
+    try:
+        parsed = urlparse(raw_url)
+        path = unquote(parsed.path or "")
+        parts = [p for p in path.split("/") if p]
+        if len(parts) >= 2 and parts[0] == "a" and parts[1] in known_slugs:
+            return parts[1]
+        qs = parse_qs(parsed.query or "")
+        for key in ("mira_ad_slug", "ad_slug", "slug"):
+            for val in qs.get(key, []):
+                val = str(val or "").strip()
+                if val in known_slugs:
+                    return val
+    except Exception:
+        return ""
+    return ""
+
+
+def _landing_ad_nested(obj: dict, *keys: str) -> str:
+    cur: Any = obj
+    for key in keys:
+        if not isinstance(cur, dict):
+            return ""
+        cur = cur.get(key)
+    return str(cur or "").strip()
 
 
 def _fb_act_id(raw: str) -> str:
@@ -1966,6 +2455,14 @@ def _stable_landing_health_checks(
             check["label"] = "Live access"
             if not str(check.get("detail") or "").strip():
                 check["detail"] = "Public URL request failed"
+        elif key == "runtime_worker_route":
+            check["label"] = "Worker route"
+            if state == "pass":
+                check["detail"] = "Edge Worker is active; /__mira/redirect is handled by Worker"
+            elif state == "warn":
+                check["detail"] = "Worker route was blocked by current protection rules; this still proves Worker is active"
+            else:
+                check["detail"] = str(check.get("detail") or "Worker route is not active; republish the page once")
         out.append(check)
     return out
 
@@ -1995,6 +2492,142 @@ def _page_url_candidates(item: dict) -> list[str]:
             seen.add(key)
             out.append(url)
     return out
+
+
+def _fb_probe_error_looks_blocked(message: str) -> bool:
+    text = str(message or "").lower()
+    hints = [
+        "blocked",
+        "spam",
+        "malicious",
+        "unsafe",
+        "security",
+        "violat",
+        "policy",
+        "can't be crawled",
+        "cannot be crawled",
+        "could not resolve",
+        "ssl",
+        "certificate",
+        "redirect",
+    ]
+    return any(h in text for h in hints)
+
+
+def _landing_facebook_probe_token(conn, page: dict, user, preferred_act_id: str = "") -> tuple[str, str]:
+    act_ids: list[str] = []
+    if preferred_act_id:
+        act_ids.extend(_clean_act_ids([preferred_act_id]))
+    act_ids.extend(_clean_act_ids(_json_loads(page.get("bound_act_ids"), [])))
+    try:
+        rows = conn.execute(
+            """SELECT act_id FROM landing_ad_links
+               WHERE page_id=? AND COALESCE(act_id,'')!=''
+               ORDER BY updated_at DESC, id DESC LIMIT 20""",
+            (page.get("id"),),
+        ).fetchall()
+        act_ids.extend(_clean_act_ids([r["act_id"] for r in rows]))
+    except Exception:
+        pass
+    if not act_ids:
+        try:
+            where, params = _scope_where(user, "a")
+            sql = "SELECT a.act_id FROM accounts a WHERE COALESCE(a.act_id,'')!=''"
+            if where:
+                sql += " AND " + " AND ".join(where)
+            sql += " ORDER BY a.updated_at DESC, a.id DESC LIMIT 20"
+            rows = conn.execute(sql, params).fetchall()
+            act_ids.extend(_clean_act_ids([r["act_id"] for r in rows]))
+        except Exception:
+            pass
+    seen = set()
+    for act_id in act_ids:
+        clean = (_clean_act_ids([act_id]) or [""])[0]
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        token = get_exec_token(_fb_act_id(clean), ACTION_READ, notify_exhausted=False)
+        if token:
+            return token, clean
+    return "", ""
+
+
+def _facebook_url_probe_check(url: str, token: str, token_source: str = "") -> dict[str, Any]:
+    clean = str(url or "").strip()
+    if not clean:
+        return {
+            "key": "facebook_scrape",
+            "status": "warn",
+            "label": "Facebook 抓取",
+            "detail": "没有可探测的公开链接",
+        }
+    if not token:
+        return {
+            "key": "facebook_scrape",
+            "status": "warn",
+            "label": "Facebook 抓取",
+            "detail": "未找到可用的 FB 可读 Token，已跳过抓取探测",
+        }
+    endpoint = "https://graph.facebook.com/v25.0/"
+    payload = {
+        "id": clean,
+        "scrape": "true",
+        "access_token": token,
+    }
+    try:
+        resp = requests.post(endpoint, data=payload, timeout=18)
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw": resp.text[:500]}
+    except Exception as exc:
+        return {
+            "key": "facebook_scrape",
+            "status": "warn",
+            "label": "Facebook 抓取",
+            "detail": f"Graph URL 探测请求失败：{exc}",
+        }
+    if isinstance(data, dict) and data.get("error"):
+        err = data.get("error") or {}
+        message = str(err.get("message") or err)
+        code = err.get("code")
+        subcode = err.get("error_subcode") or err.get("subcode")
+        status = "fail" if _fb_probe_error_looks_blocked(message) else "warn"
+        if str(code) in {"190", "200", "10", "4", "17", "32"}:
+            status = "warn"
+        detail = f"Graph 返回错误"
+        if code:
+            detail += f" code={code}"
+        if subcode:
+            detail += f" subcode={subcode}"
+        detail += f"：{message[:220]}"
+        return {
+            "key": "facebook_scrape",
+            "status": status,
+            "label": "Facebook 抓取",
+            "detail": detail,
+        }
+    og = data.get("og_object") if isinstance(data, dict) else None
+    share = data.get("share") if isinstance(data, dict) else None
+    object_id = ""
+    if isinstance(og, dict):
+        object_id = str(og.get("id") or "")
+    if not object_id and isinstance(data, dict):
+        object_id = str(data.get("id") or "")
+    share_count = ""
+    if isinstance(share, dict) and share.get("share_count") is not None:
+        share_count = f"，分享计数 {share.get('share_count')}"
+    source = f"，Token 来源账户 {token_source}" if token_source else ""
+    detail = "Facebook crawler 已能通过 Graph URL node 读取该链接"
+    if object_id:
+        detail += f"，对象 ID {object_id}"
+    detail += share_count + source
+    return {
+        "key": "facebook_scrape",
+        "status": "pass",
+        "label": "Facebook 抓取",
+        "detail": detail,
+    }
 
 
 def _matrix_ids_for_account(conn, act_id: str) -> list[int]:
@@ -2057,66 +2690,138 @@ def _has_table(conn, table_name: str) -> bool:
 def _landing_page_usage(conn, item: dict, user) -> dict:
     candidates = {_normalize_url_for_match(v) for v in _page_url_candidates(item)}
     candidates.discard("")
-    usage = {"total": 0, "accounts": [], "campaigns": []}
-    if not candidates:
-        return usage
+    usage = {"total": 0, "accounts": [], "campaigns": [], "ad_links": []}
+    page_id = int(item.get("id") or 0)
 
-    account_where, account_params = ["(COALESCE(a.landing_url,'')!='' OR COALESCE(a.form_link,'')!='')"], []
-    scoped_where, scoped_params = _scope_where(user, "a")
-    account_where.extend(scoped_where)
-    account_params.extend(scoped_params)
-    for row in conn.execute(
-        f"""SELECT a.id, a.act_id, a.name, a.landing_url, a.form_link
-            FROM accounts a
-            WHERE {' AND '.join(account_where)}
-            ORDER BY a.updated_at DESC LIMIT 800""",
-        account_params,
-    ).fetchall():
-        matched_fields = []
-        if _normalize_url_for_match(row["landing_url"]) in candidates:
-            matched_fields.append("landing_url")
-        if _normalize_url_for_match(row["form_link"]) in candidates:
-            matched_fields.append("form_link")
-        if matched_fields:
-            usage["accounts"].append({
+    if candidates:
+        account_where, account_params = ["(COALESCE(a.landing_url,'')!='' OR COALESCE(a.form_link,'')!='')"], []
+        scoped_where, scoped_params = _scope_where(user, "a")
+        account_where.extend(scoped_where)
+        account_params.extend(scoped_params)
+        for row in conn.execute(
+            f"""SELECT a.id, a.act_id, a.name, a.landing_url, a.form_link
+                FROM accounts a
+                WHERE {' AND '.join(account_where)}
+                ORDER BY a.updated_at DESC LIMIT 800""",
+            account_params,
+        ).fetchall():
+            matched_fields = []
+            if _normalize_url_for_match(row["landing_url"]) in candidates:
+                matched_fields.append("landing_url")
+            if _normalize_url_for_match(row["form_link"]) in candidates:
+                matched_fields.append("form_link")
+            if matched_fields:
+                usage["accounts"].append({
+                    "id": row["id"],
+                    "act_id": row["act_id"],
+                    "name": row["name"] or row["act_id"],
+                    "fields": matched_fields,
+                    "linked_matrix_ids": _matrix_ids_for_account(conn, row["act_id"]),
+                })
+
+        if _has_table(conn, "auto_campaigns"):
+            try:
+                cols = {r["name"] for r in conn.execute("PRAGMA table_info(auto_campaigns)").fetchall()}
+            except Exception:
+                cols = set()
+            if "landing_url" in cols:
+                campaign_where, campaign_params = ["COALESCE(c.landing_url,'')!=''"], []
+                if not is_superadmin(user):
+                    scoped_where, scoped_params = _scope_where(user, "a")
+                    campaign_where.extend(scoped_where)
+                    campaign_params.extend(scoped_params)
+                for row in conn.execute(
+                    f"""SELECT c.id, c.act_id, c.name, c.status, c.landing_url
+                        FROM auto_campaigns c
+                        LEFT JOIN accounts a ON a.act_id=c.act_id
+                        WHERE {' AND '.join(campaign_where)}
+                        ORDER BY c.updated_at DESC LIMIT 800""",
+                    campaign_params,
+                ).fetchall():
+                    if _normalize_url_for_match(row["landing_url"]) in candidates:
+                        usage["campaigns"].append({
+                            "id": row["id"],
+                            "act_id": row["act_id"],
+                            "name": row["name"] or f"Campaign {row['id']}",
+                            "status": row["status"] or "",
+                            "linked_matrix_ids": _matrix_ids_for_account(conn, row["act_id"]),
+                        })
+    if page_id and _has_table(conn, "landing_ad_links"):
+        for row in conn.execute(
+            """SELECT id, slug, public_url, act_id, account_name, ad_id, ad_name,
+                      adset_id, adset_name, campaign_id, campaign_name, status
+               FROM landing_ad_links
+               WHERE page_id=?
+                 AND (
+                   COALESCE(ad_id,'')!=''
+                   OR COALESCE(act_id,'')!=''
+                   OR COALESCE(status,'reserved') IN ('active','paused')
+                 )
+               ORDER BY updated_at DESC LIMIT 80""",
+            (page_id,),
+        ).fetchall():
+            usage["ad_links"].append({
                 "id": row["id"],
-                "act_id": row["act_id"],
-                "name": row["name"] or row["act_id"],
-                "fields": matched_fields,
-                "linked_matrix_ids": _matrix_ids_for_account(conn, row["act_id"]),
+                "slug": row["slug"],
+                "public_url": row["public_url"] or "",
+                "act_id": row["act_id"] or "",
+                "account_name": row["account_name"] or "",
+                "ad_id": row["ad_id"] or "",
+                "ad_name": row["ad_name"] or "",
+                "adset_id": row["adset_id"] or "",
+                "adset_name": row["adset_name"] or "",
+                "campaign_id": row["campaign_id"] or "",
+                "campaign_name": row["campaign_name"] or "",
+                "status": row["status"] or "",
             })
-
-    if _has_table(conn, "auto_campaigns"):
-        try:
-            cols = {r["name"] for r in conn.execute("PRAGMA table_info(auto_campaigns)").fetchall()}
-        except Exception:
-            cols = set()
-        if "landing_url" in cols:
-            campaign_where, campaign_params = ["COALESCE(c.landing_url,'')!=''"], []
-            if not is_superadmin(user):
-                scoped_where, scoped_params = _scope_where(user, "a")
-                campaign_where.extend(scoped_where)
-                campaign_params.extend(scoped_params)
-            for row in conn.execute(
-                f"""SELECT c.id, c.act_id, c.name, c.status, c.landing_url
-                    FROM auto_campaigns c
-                    LEFT JOIN accounts a ON a.act_id=c.act_id
-                    WHERE {' AND '.join(campaign_where)}
-                    ORDER BY c.updated_at DESC LIMIT 800""",
-                campaign_params,
-            ).fetchall():
-                if _normalize_url_for_match(row["landing_url"]) in candidates:
-                    usage["campaigns"].append({
-                        "id": row["id"],
-                        "act_id": row["act_id"],
-                        "name": row["name"] or f"Campaign {row['id']}",
-                        "status": row["status"] or "",
-                        "linked_matrix_ids": _matrix_ids_for_account(conn, row["act_id"]),
-                    })
     usage["total"] = len(usage["accounts"]) + len(usage["campaigns"])
+    usage["total"] += len(usage["ad_links"])
     usage["accounts"] = usage["accounts"][:20]
     usage["campaigns"] = usage["campaigns"][:20]
+    usage["ad_links"] = usage["ad_links"][:20]
     return usage
+
+
+def _delete_landing_page_local_rows(conn, page_id: int) -> dict:
+    summary = {
+        "ad_links": 0,
+        "events": 0,
+        "results": 0,
+        "route_states": 0,
+        "asset_bindings_detached": 0,
+    }
+    if not page_id:
+        return summary
+    link_ids = []
+    if _has_table(conn, "landing_ad_links"):
+        rows = conn.execute("SELECT id FROM landing_ad_links WHERE page_id=?", (page_id,)).fetchall()
+        link_ids = [int(r["id"]) for r in rows]
+    if link_ids:
+        placeholders = ",".join(["?"] * len(link_ids))
+        if _has_table(conn, "landing_ad_link_results"):
+            cur = conn.execute(f"DELETE FROM landing_ad_link_results WHERE link_id IN ({placeholders})", link_ids)
+            summary["results"] += int(cur.rowcount or 0)
+        if _has_table(conn, "landing_ad_route_state"):
+            cur = conn.execute(f"DELETE FROM landing_ad_route_state WHERE link_id IN ({placeholders})", link_ids)
+            summary["route_states"] += int(cur.rowcount or 0)
+    if _has_table(conn, "landing_ad_links"):
+        cur = conn.execute("DELETE FROM landing_ad_links WHERE page_id=?", (page_id,))
+        summary["ad_links"] = int(cur.rowcount or 0)
+    if _has_table(conn, "landing_events"):
+        cur = conn.execute("DELETE FROM landing_events WHERE page_id=?", (page_id,))
+        summary["events"] = int(cur.rowcount or 0)
+    if _has_table(conn, "landing_route_state"):
+        cur = conn.execute("DELETE FROM landing_route_state WHERE page_id=?", (page_id,))
+        summary["route_states"] += int(cur.rowcount or 0)
+    if _has_table(conn, "landing_asset_bindings"):
+        cur = conn.execute(
+            """UPDATE landing_asset_bindings
+               SET landing_page_id=NULL, updated_at=datetime('now','+8 hours')
+               WHERE landing_page_id=?""",
+            (page_id,),
+        )
+        summary["asset_bindings_detached"] = int(cur.rowcount or 0)
+    return summary
 
 
 def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
@@ -2131,18 +2836,45 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
     cf_account_id = page.get("cf_account_id") or token_row.get("cf_account_id")
     if not cf_account_id:
         raise HTTPException(status_code=400, detail="发布通道没有选择默认发布账号，请先选择账号")
-    status = get_pages_custom_domain_status(
+    dns_result, status, automation_error, automation_notice = _setup_custom_domain_automation(
         raw_token,
         cf_account_id,
         page.get("project_name") or "",
         custom_domain,
+        page.get("pages_url") or "",
+        user,
     )
     raw_payload = _json_loads(page.get("raw_response"), {})
     if not isinstance(raw_payload, dict):
         raw_payload = {}
+    if dns_result is not None:
+        raw_payload["custom_domain_dns_result"] = dns_result
     raw_payload["domain_status"] = status
+    raw_payload["custom_domain_result"] = status
+    runtime_usable = _custom_domain_runtime_usable(
+        custom_domain,
+        bool(page.get("worker_enabled")),
+    )
+    if runtime_usable:
+        raw_payload["custom_domain_runtime_usable"] = True
+        raw_payload["custom_domain_runtime_checked_at"] = _now_cst()
+        if not _domain_status_usable(status, automation_error):
+            raw_payload["custom_domain_status_mismatch"] = {
+                "runtime_usable": True,
+                "cloudflare_status": _domain_status_text(status) or "unknown",
+                "checked_at": raw_payload["custom_domain_runtime_checked_at"],
+                "message": "Public runtime is reachable, while provider domain status is not active yet.",
+            }
+        else:
+            raw_payload.pop("custom_domain_status_mismatch", None)
+    else:
+        raw_payload.pop("custom_domain_runtime_usable", None)
+        raw_payload.pop("custom_domain_runtime_checked_at", None)
+        raw_payload.pop("custom_domain_status_mismatch", None)
+    if automation_notice:
+        raw_payload["custom_domain_notice"] = automation_notice
     detail = json.dumps(status, ensure_ascii=False)
-    last_error = "" if (status.get("status") or "").lower() not in {"not_found", "error"} else detail
+    last_error = automation_error or ("" if (status.get("status") or "").lower() not in {"not_found", "error"} else detail)
     conn.execute(
         """UPDATE landing_pages
            SET last_error=?, raw_response=?, updated_at=datetime('now','+8 hours')
@@ -2154,7 +2886,10 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
     item = _public_page(updated)
     item["domain_status"] = status
     binding = None
+    refreshed_ad_links = False
     if item.get("custom_domain_usable") and item.get("public_url"):
+        _refresh_page_ad_link_urls(conn, item["id"], item)
+        refreshed_ad_links = True
         original_bind_target = item.get("bind_target") or "none"
         safe_bind_target = _effective_bind_target_for_link_kind(item.get("link_kind"), original_bind_target)
         binding = _bind_page_to_accounts(
@@ -2168,8 +2903,53 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
             binding["target_adjusted_from"] = original_bind_target
         if binding and binding.get("bound"):
             conn.commit()
+    if refreshed_ad_links:
+        conn.commit()
     item["usage"] = _landing_page_usage(conn, item, user)
-    return {"page": item, "domain_status": status, "binding": binding}
+    return {
+        "page": item,
+        "domain_status": status,
+        "dns_result": dns_result,
+        "automation_error": automation_error,
+        "automation_notice": automation_notice,
+        "binding": binding,
+    }
+
+
+def _parse_cst_time(value: Any) -> Optional[datetime]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(raw[:19], fmt).replace(tzinfo=CST)
+        except ValueError:
+            continue
+    return None
+
+
+def _should_refresh_landing_domain_cache(page: dict, interval_seconds: int = 300) -> bool:
+    if not page or not (page.get("custom_domain") or "").strip():
+        return False
+    if (page.get("status") or "").strip().lower() == "archived":
+        return False
+    if not page.get("cf_token_id"):
+        return False
+    raw = _json_loads(page.get("raw_response"), {})
+    if not isinstance(raw, dict):
+        raw = {}
+    status = raw.get("domain_status") or raw.get("custom_domain_result") or {}
+    if _domain_status_usable(status, page.get("last_error")):
+        return False
+    last_checked = (
+        raw.get("custom_domain_runtime_checked_at")
+        or raw.get("custom_domain_status_checked_at")
+        or page.get("updated_at")
+    )
+    parsed = _parse_cst_time(last_checked)
+    if parsed and datetime.now(CST) - parsed < timedelta(seconds=interval_seconds):
+        return False
+    return True
 
 
 def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
@@ -2191,7 +2971,7 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
         if value is None:
             continue
         if isinstance(value, str):
-            parts = [x.strip()[:80] for x in value.replace("，", ",").split(",") if x.strip()]
+            parts = [x.strip()[:80] for x in re.split(r"[\s,，;；]+", value) if x.strip()]
         elif isinstance(value, list):
             parts = [str(x).strip()[:80] for x in value if str(x).strip()]
         else:
@@ -2238,7 +3018,7 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
         if value is None:
             continue
         if isinstance(value, str):
-            parts = [x.strip()[:80] for x in re.split(r"[,，;\n]+", value) if x.strip()]
+            parts = [x.strip()[:80] for x in re.split(r"[\s,，;；]+", value) if x.strip()]
         elif isinstance(value, list):
             parts = [str(x).strip()[:80] for x in value if str(x).strip()]
         else:
@@ -2246,6 +3026,88 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
         if key in {"source_allow", "source_block"}:
             parts = [source_alias.get(p.lower(), p.lower()) for p in parts]
         clean[key] = parts[:80]
+    return clean
+
+def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(rules, dict):
+        return {}
+    allowed = {
+        "country_allow",
+        "country_block",
+        "source_allow",
+        "source_block",
+        "platform_block",
+        "device_block",
+        "ua_block",
+        "referer_block",
+        "query_block",
+        "required_query",
+    }
+    source_alias = {
+        "fb": "facebook",
+        "facebook": "facebook",
+        "ig": "instagram",
+        "instagram": "instagram",
+        "tk": "tiktok",
+        "tt": "tiktok",
+        "tiktok": "tiktok",
+        "google": "google",
+        "go": "google",
+        "gg": "google",
+        "bing": "bing",
+        "wa": "whatsapp",
+        "whatsapp": "whatsapp",
+        "tg": "telegram",
+        "telegram": "telegram",
+        "unknown": "unknown",
+    }
+    device_allowed = {"mobile", "desktop", "tablet"}
+
+    def raw_parts(value: Any) -> list[str]:
+        if isinstance(value, str):
+            source = re.split(r"[\s,，;；]+", value)
+        elif isinstance(value, list):
+            source = value
+        else:
+            return []
+        return [str(x).strip()[:80] for x in source if str(x).strip()]
+
+    def dedupe(items: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for item in items:
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            out.append(item)
+        return out
+
+    clean: dict[str, Any] = {}
+    for key in allowed:
+        parts = raw_parts(rules.get(key))
+        if not parts:
+            continue
+        normalized: list[str] = []
+        if key in {"country_allow", "country_block"}:
+            for part in parts:
+                code = part.upper()
+                if re.fullmatch(r"[A-Z]{2}", code):
+                    normalized.append(code)
+        elif key in {"source_allow", "source_block"}:
+            for part in parts:
+                mapped = source_alias.get(part.lower())
+                if mapped:
+                    normalized.append(mapped)
+        elif key == "device_block":
+            for part in parts:
+                device = part.lower()
+                if device in device_allowed:
+                    normalized.append(device)
+        else:
+            normalized = [part.lower() if key in {"query_block", "required_query"} else part for part in parts]
+        normalized = dedupe(normalized)
+        if normalized:
+            clean[key] = normalized[:80]
     return clean
 
 
@@ -2392,9 +3254,10 @@ def create_cf_token(body: CloudflareTokenCreate, user=Depends(get_current_user))
             status_code=400,
             detail="API Token 已返回有效响应，但没有读取到可用发布账号。请填写 Account ID，或给 Token 增加账号读取和站点发布权限。",
         )
-    account = accounts[0]
-    selected_account_id = account_id or (account.get("id") if len(accounts) == 1 else None)
-    selected_account_name = account.get("name") if selected_account_id else None
+    selected_account_id = account_id or (accounts[0].get("id") if len(accounts) == 1 else None)
+    selected_account = next((a for a in accounts if a.get("id") == selected_account_id), None)
+    account = selected_account or accounts[0]
+    selected_account_name = selected_account.get("name") if selected_account else None
     team_id, owner_id = _stamp(user, body.team_id)
     conn = get_conn()
     conn.execute(
@@ -2647,11 +3510,128 @@ def list_landing_templates(user=Depends(get_current_user)):
     if not is_superadmin(user):
         where.append("(team_id=? OR team_id IS NULL)")
         params.append(team_id_for_create(user))
-    sql = "SELECT id, name, status, team_id, owner_user_id, created_by, created_at FROM landing_templates WHERE " + " AND ".join(where)
+    sql = "SELECT * FROM landing_templates WHERE " + " AND ".join(where) + " ORDER BY id ASC"
     conn = get_conn()
     rows = conn.execute(sql, params).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_public_landing_template(r, user) for r in rows]
+
+
+@router.post("/templates/upload")
+async def upload_landing_template(
+    name: str = Form(...),
+    note: str = Form(""),
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    title = (name or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="请填写模板名称")
+    filename = (file.filename or "").strip()
+    if not filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="请上传 zip 模板包")
+    tmp_dir = Path(tempfile.mkdtemp(prefix="mira_tpl_upload_"))
+    tmp_zip = tmp_dir / "template.zip"
+    size = 0
+    try:
+        with open(tmp_zip, "wb") as dst:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > LANDING_TEMPLATE_MAX_ZIP_BYTES:
+                    raise HTTPException(status_code=400, detail=f"模板包过大，上限 {LANDING_TEMPLATE_MAX_ZIP_BYTES // 1024 // 1024}MB")
+                dst.write(chunk)
+        validation = _validate_landing_template_zip(tmp_zip)
+        if not validation.get("valid"):
+            raise HTTPException(status_code=400, detail={"message": "模板检测未通过", "validation": validation})
+        team_id = None if is_superadmin(user) else team_id_for_create(user)
+        owner_id = user_id(user)
+        slug = _short_slug(10)
+        target_dir = LANDING_TEMPLATE_UPLOAD_DIR / f"tpl_{slug}"
+        while target_dir.exists():
+            slug = _short_slug(10)
+            target_dir = LANDING_TEMPLATE_UPLOAD_DIR / f"tpl_{slug}"
+        _extract_landing_template_zip(tmp_zip, target_dir, validation)
+        conn = get_conn()
+        try:
+            conn.execute(
+                """INSERT INTO landing_templates
+                   (name, template_path, status, source, original_filename, size_bytes, validation_json, note,
+                    team_id, owner_user_id, created_by)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    title[:120],
+                    str(target_dir),
+                    "active",
+                    "upload",
+                    filename[:255],
+                    size,
+                    json.dumps(validation, ensure_ascii=False),
+                    (note or "").strip()[:500],
+                    team_id,
+                    owner_id,
+                    user.get("username", "unknown"),
+                ),
+            )
+            template_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.commit()
+            row = conn.execute("SELECT * FROM landing_templates WHERE id=?", (template_id,)).fetchone()
+            return {"success": True, "template": _public_landing_template(row, user), "validation": validation}
+        finally:
+            conn.close()
+    except Exception:
+        if "target_dir" in locals() and isinstance(target_dir, Path) and target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        raise
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.delete("/templates/{template_id}")
+def delete_landing_template(template_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    template_path = None
+    try:
+        item = _assert_template_access(conn, template_id, user)
+        if not _can_delete_landing_template(item, user):
+            raise HTTPException(status_code=403, detail="只能删除自己上传且未锁定的模板包")
+        usage = conn.execute(
+            "SELECT COUNT(*) FROM landing_pages WHERE COALESCE(template_id,1)=? AND status!='archived'",
+            (template_id,),
+        ).fetchone()[0]
+        if usage:
+            raise HTTPException(status_code=400, detail=f"该模板仍被 {usage} 个落地页引用，不能删除")
+        template_path = item.get("template_path")
+        conn.execute(
+            "UPDATE landing_templates SET status='archived', updated_at=datetime('now','+8 hours') WHERE id=?",
+            (template_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    if template_path:
+        try:
+            root = LANDING_TEMPLATE_UPLOAD_DIR.resolve()
+            path = Path(template_path).resolve()
+            if root in path.parents and path.exists():
+                shutil.rmtree(path, ignore_errors=True)
+        except Exception:
+            logger.exception("delete landing template files failed")
+    return {"success": True, "archived": True, "id": template_id}
+
+
+@router.get("/template-reference.zip")
+def download_landing_template_reference(user=Depends(get_current_user)):
+    path = LANDING_TEMPLATE_REFERENCE_ZIP
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="模板参考包尚未部署")
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename="mira-landing-template-reference.zip",
+    )
 
 
 @router.get("/protection-templates")
@@ -2801,12 +3781,13 @@ def create_landing_asset_binding(body: LandingAssetBindingReq, user=Depends(get_
             team_id = vals["page"].get("team_id")
         conn.execute(
             """INSERT INTO landing_asset_bindings
-               (name, custom_domain, pixel_id, landing_page_id, target_urls, rotation_mode,
+               (name, custom_domain, pixel_name, pixel_id, landing_page_id, target_urls, rotation_mode,
                 link_kind, protection_template_id, note, team_id, owner_user_id, created_by)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 vals["name"],
                 vals["custom_domain"],
+                vals["pixel_name"],
                 vals["pixel_id"],
                 vals["landing_page_id"],
                 json.dumps(vals["target_urls"], ensure_ascii=False),
@@ -2850,13 +3831,14 @@ def update_landing_asset_binding(binding_id: int, body: LandingAssetBindingReq, 
         vals = _asset_binding_values(body, conn, user)
         conn.execute(
             """UPDATE landing_asset_bindings
-               SET name=?, custom_domain=?, pixel_id=?, landing_page_id=?, target_urls=?,
+               SET name=?, custom_domain=?, pixel_name=?, pixel_id=?, landing_page_id=?, target_urls=?,
                    rotation_mode=?, link_kind=?, protection_template_id=?, note=?,
                    updated_at=datetime('now','+8 hours')
                WHERE id=?""",
             (
                 vals["name"],
                 vals["custom_domain"],
+                vals["pixel_name"],
                 vals["pixel_id"],
                 vals["landing_page_id"],
                 json.dumps(vals["target_urls"], ensure_ascii=False),
@@ -2913,6 +3895,7 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
     bind_target = (body.bind_target or "none").strip().lower()
     custom_domain = ""
     custom_domain_error = ""
+    project_hint = sanitize_project_name(body.project_name or title or "mira-landing")
     try:
         custom_domain = normalize_custom_domain(body.custom_domain)
     except ValueError as exc:
@@ -2984,6 +3967,36 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
                 checks.append({"key": "pages_permission", "status": "fail", "label": "发布权限", "detail": _public_provider_error(exc, user)})
         else:
             checks.append({"key": "cloudflare_account", "status": "fail", "label": "发布账号", "detail": "请先在 API 卡片里选择默认发布账号"})
+        if account_id and custom_domain:
+            try:
+                zone = find_zone_for_domain(raw_token, account_id, custom_domain)
+                zone_id = str(zone.get("id") or "")
+                records = list_dns_records(raw_token, zone_id, custom_domain)
+                cname = [r for r in records if str(r.get("type") or "").upper() == "CNAME"]
+                conflicts = [r for r in records if str(r.get("type") or "").upper() != "CNAME"]
+                if conflicts and not cname:
+                    types = ", ".join(sorted({str(r.get("type") or "UNKNOWN").upper() for r in conflicts}))
+                    checks.append({
+                        "key": "custom_domain_dns_write",
+                        "status": "fail",
+                        "label": "DNS 自动化",
+                        "detail": f"{custom_domain} 已存在 {types} 记录，不能自动改成 Pages CNAME。请换子域名或先清理冲突记录。",
+                    })
+                else:
+                    action = "更新" if cname else "创建"
+                    checks.append({
+                        "key": "custom_domain_dns_write",
+                        "status": "pass",
+                        "label": "DNS 自动化",
+                        "detail": f"可在 {zone.get('name') or '匹配 Zone'} 中自动{action} CNAME {custom_domain} -> {pages_cname_target(project_hint)}。",
+                    })
+            except CloudflareError as exc:
+                checks.append({
+                    "key": "custom_domain_dns_write",
+                    "status": "fail",
+                    "label": "DNS 自动化",
+                    "detail": _public_provider_error(exc, user),
+                })
         _assert_template_access(conn, body.template_id, user)
         checks.append({"key": "template", "status": "pass", "label": "模板", "detail": "模板可用"})
         clean_ids = _clean_act_ids(body.bind_act_ids)
@@ -3026,8 +4039,19 @@ def list_landing_pages(user=Depends(get_current_user)):
     conn = get_conn()
     rows = conn.execute(sql, params).fetchall()
     pages = []
+    refresh_budget = 3
     for row in rows:
-        item = _public_page(row)
+        row_dict = dict(row)
+        item = None
+        if refresh_budget > 0 and _should_refresh_landing_domain_cache(row_dict):
+            try:
+                refreshed = _refresh_landing_domain_record(conn, row_dict, user)
+                item = refreshed.get("page")
+                refresh_budget -= 1
+            except Exception:
+                logger.exception("landing domain cache auto refresh failed: page_id=%s", row_dict.get("id"))
+        if not item:
+            item = _public_page(row)
         item["linked_matrix_ids"] = _matrix_ids_for_accounts(conn, item.get("bound_act_ids") or [])
         item["usage"] = _landing_page_usage(conn, item, user)
         pages.append(item)
@@ -3070,7 +4094,7 @@ def landing_edge_runtime_config(body: LandingRuntimeConfigReq):
 
 
 @router.patch("/pages/{page_id}/runtime-config")
-def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch, user=Depends(get_current_user)):
+def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch, request: Request, user=Depends(get_current_user)):
     urls = [u.strip() for u in body.target_urls if isinstance(u, str) and u.strip()]
     if not urls:
         raise HTTPException(status_code=400, detail="At least one target URL is required")
@@ -3081,13 +4105,34 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
         raise HTTPException(status_code=400, detail="rotation_mode must be sequential, random, or first")
     rules = _safe_rules(body.protection_rules)
     conn = get_conn()
+    should_republish = False
     try:
         page = _assert_page_access(conn, page_id, user)
+        pixel_id = page.get("pixel_id") or ""
+        custom_domain = page.get("custom_domain") or ""
+        template_id = int(page.get("template_id") or 1)
+        if body.pixel_id is not None:
+            new_pixel_id = (body.pixel_id or "").strip()[:80]
+            should_republish = should_republish or new_pixel_id != pixel_id
+            pixel_id = new_pixel_id
+        if body.custom_domain is not None:
+            try:
+                new_custom_domain = normalize_custom_domain(body.custom_domain)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            should_republish = should_republish or new_custom_domain != custom_domain
+            custom_domain = new_custom_domain
+        if body.template_id is not None:
+            new_template_id = int(body.template_id or 1)
+            _assert_template_access(conn, new_template_id, user)
+            should_republish = should_republish or new_template_id != template_id
+            template_id = new_template_id
         worker_enabled = bool(page.get("worker_enabled") or body.tracking_enabled or body.protection_enabled or (page.get("link_kind") or "landing") == "form")
         conn.execute(
             """UPDATE landing_pages
                SET target_urls=?, rotation_mode=?, tracking_enabled=?, protection_enabled=?,
-                   protection_rules=?, worker_enabled=?, updated_at=datetime('now','+8 hours')
+                   protection_rules=?, worker_enabled=?, custom_domain=?, pixel_id=?, template_id=?,
+                   updated_at=datetime('now','+8 hours')
                WHERE id=?""",
             (
                 json.dumps(urls, ensure_ascii=False),
@@ -3096,6 +4141,9 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
                 1 if body.protection_enabled else 0,
                 json.dumps(rules, ensure_ascii=False),
                 1 if worker_enabled else 0,
+                custom_domain,
+                pixel_id,
+                template_id,
                 page_id,
             ),
         )
@@ -3105,9 +4153,14 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
         _refresh_page_ad_link_urls(conn, page_id, item)
         conn.commit()
         item["usage"] = _landing_page_usage(conn, item, user)
-        return {"success": True, "page": item, "requires_republish_once": not bool(page.get("worker_enabled"))}
+        republish_needed = bool(should_republish and str(page.get("status") or "").lower() == "published")
     finally:
         conn.close()
+    if republish_needed:
+        result = republish_landing_page(page_id, request, user)
+        result["asset_republished"] = True
+        return result
+    return {"success": True, "page": item, "requires_republish_once": not bool(page.get("worker_enabled")), "asset_republished": False}
 
 
 @router.get("/pages/{page_id}/ad-links")
@@ -3240,6 +4293,116 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
         conn.close()
 
 
+@router.post("/pages/{page_id}/ad-links/auto-bind")
+def auto_bind_landing_ad_links(page_id: int, body: LandingAdAutoBindReq = LandingAdAutoBindReq(), user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+        rows = conn.execute(
+            """SELECT * FROM landing_ad_links
+               WHERE page_id=?
+                 AND COALESCE(status,'reserved') NOT IN ('archived','failed','unused')
+               ORDER BY id ASC""",
+            (page_id,),
+        ).fetchall()
+        links = [dict(r) for r in rows]
+        unbound = {
+            str(item.get("slug") or ""): item
+            for item in links
+            if str(item.get("slug") or "").strip() and not str(item.get("ad_id") or "").strip()
+        }
+        known_slugs = {str(item.get("slug") or "") for item in links if str(item.get("slug") or "").strip()}
+        accounts = _landing_auto_bind_accounts(conn, page, body, user)
+        result = {
+            "success": True,
+            "page_id": page_id,
+            "accounts_checked": 0,
+            "ads_checked": 0,
+            "links_total": len(links),
+            "links_unbound": len(unbound),
+            "bound": [],
+            "skipped": [],
+            "conflicts": [],
+        }
+        if not unbound:
+            return result
+        for acc in accounts:
+            act_id = acc["act_id"]
+            token = get_exec_token(_fb_act_id(act_id), ACTION_READ, notify_exhausted=False)
+            if not token:
+                result["skipped"].append({"act_id": act_id, "reason": "missing_read_token"})
+                continue
+            result["accounts_checked"] += 1
+            ads, err_msg = _landing_fetch_ads_for_link_binding(act_id, token, body.limit_ads_per_account)
+            if err_msg:
+                result["skipped"].append({"act_id": act_id, "reason": "fb_api_error", "message": err_msg})
+                continue
+            for ad in ads:
+                result["ads_checked"] += 1
+                ad_id = _normalize_ad_id(ad.get("id") or "")
+                if not ad_id:
+                    continue
+                urls = _landing_extract_url_strings(ad)
+                matched_slug = ""
+                matched_url = ""
+                for url in urls:
+                    slug = _landing_slug_from_url(url, known_slugs)
+                    if slug:
+                        matched_slug = slug
+                        matched_url = url
+                        break
+                if not matched_slug:
+                    continue
+                link = unbound.get(matched_slug)
+                if not link:
+                    result["conflicts"].append({"slug": matched_slug, "ad_id": ad_id, "reason": "already_bound_or_not_found"})
+                    continue
+                adset = ad.get("adset") if isinstance(ad.get("adset"), dict) else {}
+                campaign = adset.get("campaign") if isinstance(adset.get("campaign"), dict) else {}
+                campaign_id = ad.get("campaign_id") or campaign.get("id") or ""
+                campaign_name = campaign.get("name") or ""
+                adset_id = ad.get("adset_id") or adset.get("id") or ""
+                adset_name = adset.get("name") or ""
+                conn.execute(
+                    """UPDATE landing_ad_links
+                       SET act_id=?, account_name=?, campaign_id=?, campaign_name=?,
+                           adset_id=?, adset_name=?, ad_id=?, ad_name=?,
+                           status=CASE WHEN COALESCE(status,'reserved')='reserved' THEN 'active' ELSE status END,
+                           updated_at=datetime('now','+8 hours')
+                       WHERE id=? AND (COALESCE(ad_id,'')='' OR ad_id=?)""",
+                    (
+                        act_id,
+                        acc.get("name") or "",
+                        str(campaign_id or "")[:80],
+                        str(campaign_name or "")[:255],
+                        str(adset_id or "")[:80],
+                        str(adset_name or "")[:255],
+                        ad_id,
+                        str(ad.get("name") or ad_id)[:255],
+                        int(link["id"]),
+                        ad_id,
+                    ),
+                )
+                result["bound"].append({
+                    "slug": matched_slug,
+                    "ad_id": ad_id,
+                    "ad_name": ad.get("name") or ad_id,
+                    "act_id": act_id,
+                    "account_name": acc.get("name") or "",
+                    "url": matched_url,
+                })
+                unbound.pop(matched_slug, None)
+                if not unbound:
+                    break
+            if not unbound:
+                break
+        conn.commit()
+        result["links_unbound_after"] = len(unbound)
+        return result
+    finally:
+        conn.close()
+
+
 @router.post("/pages/{page_id}/ad-links")
 def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depends(get_current_user)):
     conn = get_conn()
@@ -3353,6 +4516,74 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         page_public = _public_page(page)
         return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"]))}
+    finally:
+        conn.close()
+
+
+@router.delete("/ad-links/{link_id}")
+def delete_landing_ad_link(link_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="广告级链接不存在")
+        page = _assert_page_access(conn, int(row["page_id"]), user)
+        if str(row["ad_id"] or "").strip():
+            raise HTTPException(status_code=400, detail="该子码已绑定广告，不能删除；如需停用请先解除绑定或归档。")
+
+        slug = str(row["slug"] or "").strip()
+        event_count = 0
+        if _has_table(conn, "landing_events"):
+            event_count = int(
+                (
+                    conn.execute(
+                        """SELECT COUNT(*) AS cnt
+                           FROM landing_events
+                           WHERE page_id=?
+                             AND (
+                              path=?
+                              OR COALESCE(metadata,'') LIKE ?
+                              OR COALESCE(metadata,'') LIKE ?
+                             )""",
+                        (
+                            int(row["page_id"]),
+                            f"/a/{slug}",
+                            f'%"ad_slug":"{slug}"%',
+                            f'%"ad_slug": "{slug}"%',
+                        ),
+                    ).fetchone()
+                    or {"cnt": 0}
+                )["cnt"]
+                or 0
+            )
+        if event_count > 0:
+            raise HTTPException(status_code=400, detail="该子码已有访问/点击/跳转数据，不能删除；可保留用于追溯。")
+
+        result_count = 0
+        if _has_table(conn, "landing_ad_link_results"):
+            result_count = int(
+                (
+                    conn.execute(
+                        "SELECT COUNT(*) AS cnt FROM landing_ad_link_results WHERE link_id=?",
+                        (link_id,),
+                    ).fetchone()
+                    or {"cnt": 0}
+                )["cnt"]
+                or 0
+            )
+        if result_count > 0:
+            raise HTTPException(status_code=400, detail="该子码已有真实结果回填，不能删除。")
+
+        if _has_table(conn, "landing_ad_route_state"):
+            conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (link_id,))
+        cur = conn.execute("DELETE FROM landing_ad_links WHERE id=?", (link_id,))
+        conn.commit()
+        return {
+            "success": True,
+            "deleted": int(cur.rowcount or 0),
+            "page_id": int(page["id"]),
+            "slug": slug,
+        }
     finally:
         conn.close()
 
@@ -3620,33 +4851,25 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
         domain_error = ""
         domain_notice = ""
         domain_result = None
+        dns_result = None
         if custom_domain:
-            try:
-                domain_result = add_pages_custom_domain(raw_token, cf_account_id, project_name, custom_domain)
-                if str((domain_result or {}).get("status") or "").lower() == "already_exists":
-                    try:
-                        domain_result = get_pages_custom_domain_status(
-                            raw_token,
-                            cf_account_id,
-                            project_name,
-                            custom_domain,
-                        )
-                    except Exception:
-                        pass
-                if _domain_status_usable(domain_result, None):
-                    public_url = f"https://{custom_domain}"
-                else:
-                    status_text = _domain_status_text(domain_result) or "pending"
-                    domain_notice = (
-                        f"Custom domain {custom_domain} is {status_text}; "
-                        "auto-binding used the fallback URL until the domain is active."
-                    )
-            except CloudflareError as exc:
-                domain_error = f"Custom domain binding failed: {exc}"
+            dns_result, domain_result, domain_error, domain_notice = _setup_custom_domain_automation(
+                raw_token,
+                cf_account_id,
+                project_name,
+                custom_domain,
+                pages_url,
+                user,
+            )
+            if _domain_status_usable(domain_result, None):
+                public_url = f"https://{custom_domain}"
         binding = _bind_page_to_accounts(conn, body.bind_act_ids, bind_target, public_url, user)
         response_payload = dict(response)
+        if dns_result is not None:
+            response_payload["custom_domain_dns_result"] = dns_result
         if domain_result is not None:
             response_payload["custom_domain_result"] = domain_result
+            response_payload["domain_status"] = domain_result
         if domain_notice:
             response_payload["custom_domain_notice"] = domain_notice
         note_text = (body.note or "")
@@ -3798,22 +5021,35 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
         pages_url = response.get("stable_url") or stable_pages_url(project_name, deployment=response) or response.get("url") or response.get("aliases", [None])[0] or page.get("pages_url") or ""
         public_url = pages_url
         domain_error = ""
+        domain_notice = ""
         domain_result = None
+        dns_result = None
         if custom_domain:
-            try:
-                domain_result = get_pages_custom_domain_status(raw_token, cf_account_id, project_name, custom_domain)
-                if _domain_status_usable(domain_result, None):
-                    public_url = f"https://{custom_domain}"
-            except CloudflareError as exc:
-                domain_error = f"Custom domain status refresh failed: {exc}"
+            dns_result, domain_result, domain_error, domain_notice = _setup_custom_domain_automation(
+                raw_token,
+                cf_account_id,
+                project_name,
+                custom_domain,
+                pages_url,
+                user,
+            )
+            if _domain_status_usable(domain_result, None):
+                public_url = f"https://{custom_domain}"
         binding = _bind_page_to_accounts(conn, bound_act_ids, bind_target, public_url, user)
         response_payload = dict(response)
         response_payload["republished_at"] = _now_cst()
+        if dns_result is not None:
+            response_payload["custom_domain_dns_result"] = dns_result
         if domain_result is not None:
             response_payload["custom_domain_result"] = domain_result
+            response_payload["domain_status"] = domain_result
+        if domain_notice:
+            response_payload["custom_domain_notice"] = domain_notice
         note = page.get("note") or ""
         if domain_error:
             note += ("\n" if note else "") + domain_error
+        if domain_notice:
+            note += ("\n" if note else "") + domain_notice
         if binding.get("skipped"):
             note += ("\n" if note else "") + "Republish binding skipped: " + json.dumps(binding.get("skipped", []), ensure_ascii=False)
         conn.execute(
@@ -3882,6 +5118,27 @@ def refresh_landing_page_domain(page_id: int, user=Depends(get_current_user)):
         conn.close()
 
 
+@router.post("/pages/{page_id}/repair-domain")
+def repair_landing_page_domain(page_id: int, user=Depends(get_current_user)):
+    """Re-run DNS CNAME creation/update, Pages custom-domain binding and status refresh."""
+    conn = get_conn()
+    page = _assert_page_access(conn, page_id, user)
+    try:
+        result = _refresh_landing_domain_record(conn, page, user)
+        return {"success": True, "repaired": True, **result}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        conn.execute(
+            "UPDATE landing_pages SET last_error=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+            (f"Domain repair failed: {exc}", page_id),
+        )
+        conn.commit()
+        raise HTTPException(status_code=400, detail=f"Domain repair failed: {exc}") from exc
+    finally:
+        conn.close()
+
+
 @router.post("/pages/refresh-domains")
 def refresh_landing_page_domains(limit: int = 50, user=Depends(get_current_user)):
     limit = max(1, min(int(limit or 50), 100))
@@ -3937,6 +5194,12 @@ def refresh_landing_page_domains(limit: int = 50, user=Depends(get_current_user)
         conn.close()
 
 
+@router.post("/pages/repair-domains")
+def repair_landing_page_domains(limit: int = 50, user=Depends(get_current_user)):
+    """Batch repair custom domains visible to the current user."""
+    return refresh_landing_page_domains(limit=limit, user=user)
+
+
 @router.delete("/pages/{page_id}")
 def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_current_user)):
     conn = get_conn()
@@ -3946,7 +5209,15 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
     if cleanup:
         if usage["total"] > 0:
             conn.close()
-            raise HTTPException(status_code=400, detail=f"Landing page is still in use by {usage['total']} resource(s)")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Landing page is still in use by {usage['total']} resource(s): "
+                    f"{len(usage.get('accounts') or [])} account(s), "
+                    f"{len(usage.get('campaigns') or [])} campaign(s), "
+                    f"{len(usage.get('ad_links') or [])} ad link(s)"
+                ),
+            )
         cloudflare_cleanup = {"skipped": True, "reason": "no published remote project"}
         project_name = (page.get("project_name") or "").strip()
         has_remote_project = bool(project_name and (page.get("pages_url") or page.get("deployment_id") or page.get("status") == "published"))
@@ -3966,10 +5237,11 @@ def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_c
             except CloudflareError as exc:
                 conn.close()
                 raise HTTPException(status_code=400, detail=f"远程项目删除失败：{_public_provider_error(exc, user)}") from exc
+        local_cleanup = _delete_landing_page_local_rows(conn, page_id)
         conn.execute("DELETE FROM landing_pages WHERE id=?", (page_id,))
         conn.commit()
         conn.close()
-        return {"success": True, "deleted": True, "cloudflare": cloudflare_cleanup, "usage": usage}
+        return {"success": True, "deleted": True, "cloudflare": cloudflare_cleanup, "usage": usage, "local_cleanup": local_cleanup}
     conn.execute("UPDATE landing_pages SET status='archived', updated_at=datetime('now','+8 hours') WHERE id=?", (page_id,))
     conn.commit()
     conn.close()
@@ -4163,7 +5435,9 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
 def landing_page_health(page_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     page = _assert_page_access(conn, page_id, user)
+    page_dict = dict(page)
     item = _public_page(page)
+    fb_probe_token, fb_probe_source = _landing_facebook_probe_token(conn, page_dict, user)
     conn.close()
 
     checks: list[dict[str, str]] = []
@@ -4311,6 +5585,51 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                 "detail": f"请求公开链接失败：{exc}",
             })
 
+    if public_url and item.get("worker_enabled"):
+        worker_probe_url = public_url.rstrip("/") + "/__mira/redirect"
+        try:
+            worker_resp = requests.get(
+                worker_probe_url,
+                allow_redirects=False,
+                timeout=12,
+                headers={
+                    "User-Agent": "MiraWorkerProbe/1.0",
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                },
+            )
+            if worker_resp.status_code in {301, 302, 303, 307, 308}:
+                checks.append({
+                    "key": "runtime_worker_route",
+                    "status": "pass",
+                    "label": "Worker route",
+                    "detail": "Worker route returned redirect",
+                })
+            elif worker_resp.status_code == 403 and item.get("protection_enabled"):
+                checks.append({
+                    "key": "runtime_worker_route",
+                    "status": "warn",
+                    "label": "Worker route",
+                    "detail": "Worker route returned protection block",
+                })
+            else:
+                ct = worker_resp.headers.get("content-type", "")
+                checks.append({
+                    "key": "runtime_worker_route",
+                    "status": "fail",
+                    "label": "Worker route",
+                    "detail": f"Worker route not active: /__mira/redirect returned HTTP {worker_resp.status_code}, Content-Type: {ct or '--'}. Republish this page once.",
+                })
+        except Exception as exc:
+            checks.append({
+                "key": "runtime_worker_route",
+                "status": "fail",
+                "label": "Worker route",
+                "detail": f"Worker route probe failed: {exc}",
+            })
+
+    if public_url:
+        checks.append(_facebook_url_probe_check(public_url, fb_probe_token, fb_probe_source))
+
     checks = _stable_landing_health_checks(checks, item, targets, link_kind, http_info)
     health_status = _health_status_from_checks(checks)
     health_summary = _health_summary_from_checks(checks)
@@ -4347,6 +5666,29 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
         "http": http_info,
         "checked_at": health_checked_at,
     }
+
+
+@router.post("/facebook/link-probe")
+def facebook_link_probe(body: LandingFacebookProbeReq, user=Depends(get_current_user)):
+    url = str(body.url or "").strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="请提交完整的 http(s) 链接")
+    conn = get_conn()
+    try:
+        page_stub = {
+            "id": None,
+            "bound_act_ids": json.dumps(_clean_act_ids([body.act_id or ""])) if body.act_id else "[]",
+        }
+        token, source = _landing_facebook_probe_token(conn, page_stub, user, body.act_id or "")
+        check = _facebook_url_probe_check(url, token, source)
+        return {
+            "success": check.get("status") == "pass",
+            "url": url,
+            "check": check,
+            "checked_at": _now_cst(),
+        }
+    finally:
+        conn.close()
 
 
 @router.get("/pages/{page_id}/stats")

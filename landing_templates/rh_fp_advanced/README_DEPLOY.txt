@@ -1,4 +1,4 @@
-RH Protected Geo Worker Template - Production Version
+Protected Edge Worker Template - Production Version
 
 文件结构：
 _worker.js

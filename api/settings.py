@@ -14,7 +14,17 @@ from core.database import get_conn
 
 router = APIRouter()
 
-SENSITIVE_KEYS = {"ai_api_key", "tg_bot_token", "vision_api_key", "img_gen_fal_key", "img_gen_openai_key", "img_gen_ideogram_key", "img_gen_stability_key", "img_gen_replicate_key"}
+SENSITIVE_KEYS = {
+    "ai_api_key",
+    "tg_bot_token",
+    "vision_api_key",
+    "img_gen_fal_key",
+    "img_gen_openai_key",
+    "img_gen_ideogram_key",
+    "img_gen_stability_key",
+    "img_gen_replicate_key",
+    "autopilot_fb_pixel_id",
+}
 
 PUBLIC_SETTING_KEYS = {
     "sentinel_enabled",
@@ -81,7 +91,7 @@ def _cleanup_obsolete_settings(conn):
     )
     conn.execute(
         """UPDATE settings
-           SET label='铺广告默认 Pixel ID',
+           SET label='铺广告默认 Pixel',
                description='账户未绑定 Pixel、铺广告弹窗也未选择 Pixel 时使用；不是 AI 托管开关。',
                category='general',
                sort_order=41

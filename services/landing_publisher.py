@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -16,7 +17,7 @@ import requests
 CF_API_BASE = "https://api.cloudflare.com/client/v4"
 BASE_DIR = Path(os.environ.get("MIRA_BASE_DIR", "/opt/mira"))
 DEFAULT_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "rh_fp_advanced"
-IGNORE_STATIC_NAMES = {"_headers", "_redirects", "_routes.json"}
+IGNORE_STATIC_NAMES = {"_headers", "_redirects", "_routes.json", "_worker.js"}
 
 
 class CloudflareError(RuntimeError):
@@ -25,6 +26,22 @@ class CloudflareError(RuntimeError):
 
 def _headers(api_token: str) -> dict:
     return {"Authorization": f"Bearer {api_token}"}
+
+
+def _replace_js_var(html: str, names: list[str], value: str) -> tuple[str, int]:
+    """Replace the first matching JS string variable assignment.
+
+    New templates should use MIRA_* variables. Legacy names are still accepted so
+    existing packages keep publishing while the template library is cleaned up.
+    """
+    total = 0
+    for name in names:
+        pattern = rf'var\s+{re.escape(name)}\s*=\s*"[^"]*"\s*;'
+        html, count = re.subn(pattern, f"var {name} = {json.dumps(value or '')};", html, count=1)
+        total += count
+        if count:
+            break
+    return html, total
 
 
 def cf_request(api_token: str, method: str, path: str, **kwargs) -> dict:
@@ -86,6 +103,132 @@ def list_account_zones(api_token: str, account_id: str) -> list[dict[str, Any]]:
         if isinstance(items, list):
             return [x for x in items if isinstance(x, dict)]
     return []
+
+
+def _host_from_url(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw if re.match(r"^https?://", raw, flags=re.I) else f"https://{raw}")
+    return (parsed.hostname or "").strip().lower().strip(".")
+
+
+def pages_cname_target(project_name: str, pages_url: str | None = None) -> str:
+    host = _host_from_url(pages_url)
+    if host and host.endswith(".pages.dev"):
+        parts = host.split(".")
+        if len(parts) == 3:
+            return host
+    return f"{sanitize_project_name(project_name)}.pages.dev"
+
+
+def find_zone_for_domain(api_token: str, account_id: str, domain: str) -> dict[str, Any]:
+    domain = normalize_custom_domain(domain)
+    matches: list[dict[str, Any]] = []
+    for zone in list_account_zones(api_token, account_id):
+        zone_name = str(zone.get("name") or "").strip().lower().strip(".")
+        if zone_name and (domain == zone_name or domain.endswith("." + zone_name)):
+            matches.append(zone)
+    if not matches:
+        raise CloudflareError(
+            f"No Cloudflare zone matched {domain}. The API token needs Zone Read for the root domain account."
+        )
+    matches.sort(key=lambda z: len(str(z.get("name") or "")), reverse=True)
+    return matches[0]
+
+
+def list_dns_records(api_token: str, zone_id: str, name: str, record_type: str | None = None) -> list[dict[str, Any]]:
+    params: dict[str, str | int] = {"name": normalize_custom_domain(name), "per_page": 100}
+    if record_type:
+        params["type"] = record_type.upper()
+    result = cf_request(api_token, "GET", f"/zones/{zone_id}/dns_records", params=params)
+    if isinstance(result, list):
+        return [x for x in result if isinstance(x, dict)]
+    if isinstance(result, dict):
+        items = result.get("result") or []
+        if isinstance(items, list):
+            return [x for x in items if isinstance(x, dict)]
+    return []
+
+
+def ensure_pages_cname_dns_record(
+    api_token: str,
+    account_id: str,
+    project_name: str,
+    domain: str,
+    pages_url: str | None = None,
+    *,
+    proxied: bool = True,
+) -> dict[str, Any]:
+    domain = normalize_custom_domain(domain)
+    target = pages_cname_target(project_name, pages_url)
+    zone = find_zone_for_domain(api_token, account_id, domain)
+    zone_id = str(zone.get("id") or "").strip()
+    zone_name = str(zone.get("name") or "").strip()
+    if not zone_id:
+        raise CloudflareError(f"Cloudflare zone for {domain} has no zone id")
+
+    records = list_dns_records(api_token, zone_id, domain)
+    cname_records = [r for r in records if str(r.get("type") or "").upper() == "CNAME"]
+    conflicts = [r for r in records if str(r.get("type") or "").upper() != "CNAME"]
+    if conflicts and not cname_records:
+        types = ", ".join(sorted({str(r.get("type") or "UNKNOWN").upper() for r in conflicts}))
+        raise CloudflareError(
+            f"DNS record {domain} already exists as {types}. Remove it or choose a subdomain before Mira can create CNAME."
+        )
+
+    payload = {"type": "CNAME", "name": domain, "content": target, "ttl": 1, "proxied": bool(proxied)}
+    if cname_records:
+        record = cname_records[0]
+        record_id = str(record.get("id") or "")
+        current_content = str(record.get("content") or "").strip().lower().strip(".")
+        current_proxied = bool(record.get("proxied"))
+        if current_content == target and current_proxied == bool(proxied):
+            return {
+                "success": True,
+                "action": "unchanged",
+                "domain": domain,
+                "target": target,
+                "zone_id": zone_id,
+                "zone_name": zone_name,
+                "record_id": record_id,
+                "proxied": current_proxied,
+            }
+        updated = cf_request(
+            api_token,
+            "PATCH",
+            f"/zones/{zone_id}/dns_records/{record_id}",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        return {
+            "success": True,
+            "action": "updated",
+            "domain": domain,
+            "target": target,
+            "zone_id": zone_id,
+            "zone_name": zone_name,
+            "record_id": str(updated.get("id") or record_id) if isinstance(updated, dict) else record_id,
+            "proxied": bool((updated if isinstance(updated, dict) else {}).get("proxied", proxied)),
+        }
+
+    created = cf_request(
+        api_token,
+        "POST",
+        f"/zones/{zone_id}/dns_records",
+        json=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    return {
+        "success": True,
+        "action": "created",
+        "domain": domain,
+        "target": target,
+        "zone_id": zone_id,
+        "zone_name": zone_name,
+        "record_id": str(created.get("id") or "") if isinstance(created, dict) else "",
+        "proxied": bool((created if isinstance(created, dict) else {}).get("proxied", proxied)),
+    }
 
 
 def add_pages_custom_domain(api_token: str, account_id: str, project_name: str, domain: str) -> dict:
@@ -338,20 +481,14 @@ def prepare_template(
         html = _form_redirect_html(primary)
     else:
         html = landing.read_text(encoding="utf-8", errors="ignore")
-        html = re.sub(
-            r'var\s+RH_PIXEL_ID\s*=\s*"[^"]*"\s*;',
-            f'var RH_PIXEL_ID = {json.dumps(pixel_id or "")};',
-            html,
-            count=1,
-        )
-        html = re.sub(
-            r'var\s+RH_TARGET_URL\s*=\s*"[^"]*"\s*;',
-            f'var RH_TARGET_URL = {json.dumps(primary)};',
-            html,
-            count=1,
-        )
+        html, _ = _replace_js_var(html, ["MIRA_PIXEL_ID", "RH_PIXEL_ID"], pixel_id or "")
+        html, _ = _replace_js_var(html, ["MIRA_TARGET_URL", "RH_TARGET_URL"], primary)
     if worker_enabled:
         html = _inject_client_tracker(html, page_id or 0)
+        (work / "_routes.json").write_text(
+            json.dumps({"version": 1, "include": ["/*"], "exclude": []}, separators=(",", ":")),
+            encoding="utf-8",
+        )
         _write_worker(
             work / "_worker.js",
             {
@@ -373,7 +510,7 @@ def prepare_template(
         if worker_file.exists():
             worker_file.unlink()
         rotation = _rotation_script(urls, rotation_mode)
-        if "var RH_TARGET_URLS" not in html:
+        if "var MIRA_TARGET_URLS" not in html and "var RH_TARGET_URLS" not in html:
             html = html.replace("</script>", rotation + "\n  </script>", 1)
 
     landing.write_text(html, encoding="utf-8")
@@ -449,6 +586,7 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
   }}
   function preserveAdContext(){{
     try {{
+      if (typeof window.MIRA_TARGET_URL === 'string') window.MIRA_TARGET_URL = withAdContext(window.MIRA_TARGET_URL);
       if (typeof window.RH_TARGET_URL === 'string') window.RH_TARGET_URL = withAdContext(window.RH_TARGET_URL);
       document.querySelectorAll('a[href]').forEach(function(a){{
         var next = withAdContext(a.getAttribute('href') || '');
@@ -507,20 +645,21 @@ def _rotation_script(urls: list[str], rotation_mode: str) -> str:
     if mode not in {"sequential", "random", "first"}:
         mode = "sequential"
     return (
-        "\n    var RH_TARGET_URLS = "
+        "\n    var MIRA_TARGET_URLS = "
         + json.dumps(urls, ensure_ascii=False)
         + ";\n"
-        + f"    var RH_ROTATION_MODE = {json.dumps(mode)};\n"
+        + f"    var MIRA_ROTATION_MODE = {json.dumps(mode)};\n"
         + "    (function(){\n"
-        + "      if (!RH_TARGET_URLS || !RH_TARGET_URLS.length) return;\n"
+        + "      if (!MIRA_TARGET_URLS || !MIRA_TARGET_URLS.length) return;\n"
         + "      var idx = 0;\n"
-        + "      if (RH_ROTATION_MODE === 'random') idx = Math.floor(Math.random() * RH_TARGET_URLS.length);\n"
-        + "      else if (RH_ROTATION_MODE === 'sequential') {\n"
-        + "        var key = 'mira_rh_target_idx_' + location.hostname + location.pathname;\n"
+        + "      if (MIRA_ROTATION_MODE === 'random') idx = Math.floor(Math.random() * MIRA_TARGET_URLS.length);\n"
+        + "      else if (MIRA_ROTATION_MODE === 'sequential') {\n"
+        + "        var key = 'mira_target_idx_' + location.hostname + location.pathname;\n"
         + "        idx = parseInt(localStorage.getItem(key) || '0', 10) || 0;\n"
-        + "        localStorage.setItem(key, String((idx + 1) % RH_TARGET_URLS.length));\n"
+        + "        localStorage.setItem(key, String((idx + 1) % MIRA_TARGET_URLS.length));\n"
         + "      }\n"
-        + "      RH_TARGET_URL = RH_TARGET_URLS[idx % RH_TARGET_URLS.length] || RH_TARGET_URL;\n"
+        + "      MIRA_TARGET_URL = MIRA_TARGET_URLS[idx % MIRA_TARGET_URLS.length] || MIRA_TARGET_URL;\n"
+        + "      if (typeof RH_TARGET_URL === 'string') RH_TARGET_URL = MIRA_TARGET_URL;\n"
         + "    })();"
     )
 
@@ -669,7 +808,12 @@ function evaluate(request, cfg) {
 function isHtmlRequest(request) {
   const url = new URL(request.url);
   const accept = request.headers.get('accept') || '';
-  return request.method === 'GET' && (url.pathname === '/' || url.pathname.endsWith('.html') || accept.includes('text/html'));
+  const method = request.method === 'GET' || request.method === 'HEAD';
+  return method && (url.pathname === '/' || url.pathname.endsWith('.html') || accept.includes('text/html'));
+}
+
+function isReadRequest(request) {
+  return request.method === 'GET' || request.method === 'HEAD';
 }
 
 function adSlugFromPath(pathname) {
@@ -799,9 +943,9 @@ async function sendEvent(request, event, cfg) {
 }
 
 function blockedResponse(reason) {
-  return new Response('<!doctype html><meta charset="utf-8"><title>Unavailable</title><body style="font-family:sans-serif;padding:40px">Request unavailable.</body>', {
-    status: 403,
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-mira-block-reason': reason || 'blocked' }
+  return new Response('', {
+    status: 302,
+    headers: { location: 'https://www.facebook.com/', 'cache-control': 'no-store', 'x-mira-block-reason': reason || 'blocked' }
   });
 }
 
@@ -818,7 +962,7 @@ export default {
       return new Response('', { status: 204, headers: { 'cache-control': 'no-store' } });
     }
     const directFormRedirect = String(cfg.link_kind || '').toLowerCase() === 'form'
-      && request.method === 'GET'
+      && isReadRequest(request)
       && (url.pathname === '/' || url.pathname === '/index.html' || !!adSlug || (url.pathname === '/a' && !!adId));
     if (url.pathname === '/__mira/redirect' || directFormRedirect) {
       const decision = evaluate(request, cfg);
@@ -831,7 +975,7 @@ export default {
       ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
     }
-    if ((adSlug || (url.pathname === '/a' && adId)) && request.method === 'GET') {
+    if ((adSlug || (url.pathname === '/a' && adId)) && isReadRequest(request)) {
       const decision = evaluate(request, cfg);
       if (!decision.pass) {
         ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
@@ -889,6 +1033,27 @@ def _file_map(directory: str) -> dict[str, dict[str, Any]]:
     return files
 
 
+def _worker_bundle_bytes(worker_path: Path) -> bytes:
+    boundary = "----mira-worker-bundle-" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:24]
+    metadata = json.dumps({"main_module": worker_path.name}, separators=(",", ":"))
+    worker_source = worker_path.read_text(encoding="utf-8")
+    parts = [
+        (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="metadata"\r\n\r\n'
+            f"{metadata}\r\n"
+        ),
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{worker_path.name}"; filename="{worker_path.name}"\r\n'
+            "Content-Type: application/javascript+module\r\n\r\n"
+            f"{worker_source}\r\n"
+        ),
+        f"--{boundary}--\r\n",
+    ]
+    return "".join(parts).encode("utf-8")
+
+
 def deploy_pages_static(api_token: str, account_id: str, project_name: str, directory: str) -> dict:
     project_name = sanitize_project_name(project_name)
     project = ensure_project(api_token, account_id, project_name)
@@ -932,6 +1097,20 @@ def deploy_pages_static(api_token: str, account_id: str, project_name: str, dire
         "commit_message": (None, "Mira landing page publish"),
         "commit_dirty": (None, "true"),
     }
+    worker_file = Path(directory) / "_worker.js"
+    if worker_file.exists():
+        multipart["_worker.bundle"] = (
+            "_worker.bundle",
+            _worker_bundle_bytes(worker_file),
+            "application/octet-stream",
+        )
+    routes_file = Path(directory) / "_routes.json"
+    if routes_file.exists():
+        multipart["_routes.json"] = (
+            "_routes.json",
+            routes_file.read_text(encoding="utf-8"),
+            "application/json",
+        )
     deployment = cf_request(
         api_token,
         "POST",

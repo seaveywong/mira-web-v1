@@ -1,24 +1,43 @@
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
+
 from core.auth import (
-    verify_credentials, verify_password,
-    create_token, check_login_lock, get_remaining_attempts, record_fail, record_success,
-    ADMIN_USERNAME, ROLE_LABELS, build_user_claims, normalize_user_claims
+    ADMIN_USERNAME,
+    ROLE_LABELS,
+    build_user_claims,
+    check_login_lock,
+    create_token,
+    decode_token,
+    get_remaining_attempts,
+    normalize_user_claims,
+    record_fail,
+    record_success,
+    verify_credentials,
 )
 from core.database import get_db
+
 router = APIRouter()
+
 
 class LoginReq(BaseModel):
     password: str
     username: Optional[str] = None
 
+
+def _login_key(username: str, ip: str) -> str:
+    name = (username or "").strip().lower()[:80] or "unknown"
+    return f"login:{name}:{ip or 'unknown'}"
+
+
 @router.post("/login")
 def login(req: LoginReq, request: Request):
     ip = request.client.host if request.client else "unknown"
     username = (req.username or ADMIN_USERNAME).strip()
-    login_key = f"{ip}:{username.lower()[:80]}"
+    login_key = _login_key(username, ip)
+
     try:
         check_login_lock(login_key)
     except HTTPException as exc:
@@ -28,6 +47,7 @@ def login(req: LoginReq, request: Request):
                 content={"detail": exc.detail, "remaining": 0},
             )
         raise
+
     ok, role, uid = verify_credentials(username, req.password)
     if not ok:
         record_fail(login_key)
@@ -38,10 +58,11 @@ def login(req: LoginReq, request: Request):
                 "remaining": get_remaining_attempts(login_key),
             },
         )
+
     record_success(login_key)
     claims = build_user_claims(username, role, uid)
     token = create_token(claims)
-    # 更新最后登录时间（非超级管理员ENV账户）
+
     if uid and uid > 0:
         try:
             conn = get_db()
@@ -50,6 +71,7 @@ def login(req: LoginReq, request: Request):
             conn.close()
         except Exception:
             pass
+
     return {
         "token": token,
         "username": username,
@@ -61,70 +83,62 @@ def login(req: LoginReq, request: Request):
         "is_superadmin": claims.get("is_superadmin", False),
     }
 
+
 @router.get("/me")
 def get_me(request: Request):
-    """返回当前用户信息（用于前端显示）"""
-    from core.auth import ADMIN_USERNAME, _reload_env, decode_token, ROLE_LABELS
-    _reload_env()
-    # 尝试从token解析
     auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="未登录")
+
+    payload = normalize_user_claims(decode_token(auth_header[7:]))
+    uid = payload.get("uid", 0)
+    role = payload.get("role", "viewer")
+
+    if uid and uid > 0:
+        conn = get_db()
         try:
-            payload = normalize_user_claims(decode_token(auth_header[7:]))
-            uid = payload.get("uid", 0)
-            role = payload.get("role", "superadmin")
-            if uid and uid > 0:
-                conn = get_db()
-                row = conn.execute(
-                    """SELECT u.username, u.display_name, u.team_id, u.group_name,
-                              t.name AS team_name, t.status AS team_status
-                       FROM users u
-                       LEFT JOIN teams t ON t.id = u.team_id
-                       WHERE u.id=?""",
-                    (uid,)
-                ).fetchone()
-                conn.close()
-                if row:
-                    return {
-                        "username": row["username"],
-                        "display_name": row["display_name"],
-                        "role": role,
-                        "role_label": ROLE_LABELS.get(role, role),
-                        "team_id": row["team_id"],
-                        "team_name": row["team_name"] or row["group_name"],
-                        "team_status": (row["team_status"] or "active") if row["team_id"] else None,
-                        "is_superadmin": False,
-                    }
-            if not payload.get("is_superadmin"):
-                return {
-                    "username": payload.get("username") or ADMIN_USERNAME,
-                    "display_name": None,
-                    "role": role,
-                    "role_label": ROLE_LABELS.get(role, role),
-                    "team_id": payload.get("team_id"),
-                    "team_name": payload.get("team_name"),
-                    "team_status": payload.get("team_status"),
-                    "is_superadmin": False,
-                }
+            row = conn.execute(
+                """SELECT u.username, u.display_name, u.team_id, u.group_name,
+                          t.name AS team_name, t.status AS team_status
+                   FROM users u
+                   LEFT JOIN teams t ON t.id = u.team_id
+                   WHERE u.id=?""",
+                (uid,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row:
             return {
-                "username": ADMIN_USERNAME,
-                "display_name": None,
-                "role": "superadmin",
-                "role_label": "超级管理员",
-                "team_id": None,
-                "team_name": None,
-                "team_status": None,
-                "is_superadmin": True,
+                "username": row["username"],
+                "display_name": row["display_name"],
+                "role": role,
+                "role_label": ROLE_LABELS.get(role, role),
+                "team_id": row["team_id"],
+                "team_name": row["team_name"] or row["group_name"],
+                "team_status": (row["team_status"] or "active") if row["team_id"] else None,
+                "is_superadmin": False,
             }
-        except Exception:
-            pass
+        raise HTTPException(status_code=401, detail="用户不存在或已被删除，请重新登录")
+
+    if payload.get("is_superadmin"):
+        return {
+            "username": payload.get("username") or ADMIN_USERNAME,
+            "display_name": None,
+            "role": "superadmin",
+            "role_label": ROLE_LABELS.get("superadmin", "superadmin"),
+            "team_id": None,
+            "team_name": None,
+            "team_status": None,
+            "is_superadmin": True,
+        }
+
     return {
-        "username": ADMIN_USERNAME,
+        "username": payload.get("username") or "unknown",
         "display_name": None,
-        "role": "superadmin",
-        "role_label": "超级管理员",
-        "team_id": None,
-        "team_name": None,
-        "team_status": None,
-        "is_superadmin": True,
+        "role": role,
+        "role_label": ROLE_LABELS.get(role, role),
+        "team_id": payload.get("team_id"),
+        "team_name": payload.get("team_name"),
+        "team_status": payload.get("team_status"),
+        "is_superadmin": False,
     }

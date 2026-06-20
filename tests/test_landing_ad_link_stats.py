@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Focused checks for ad-level landing link performance attribution."""
 
 import sqlite3
@@ -141,8 +141,8 @@ def test_redirect_events_with_ad_slug_metadata_are_attributed_to_ad_link():
            (page_id, event_type, path, target_url, ip_hash, user_agent_hash, metadata, created_at)
            VALUES
            (1, 'visit', '/a/abc123', '', 'ip1', 'ua1', '{"ad_slug": "abc123"}', '2026-06-19 10:00:00'),
-           (1, 'redirect', '/__mira/redirect', 'https://wa.me/111', 'ip1', 'ua1', '{"ad_slug": "abc123"}', '2026-06-19 10:01:00'),
-           (1, 'redirect', '/__mira/redirect', 'https://wa.me/222', 'ip2', 'ua2', '{"ad_slug": "other"}', '2026-06-19 10:02:00')"""
+           (1, 'redirect', '/__edge/redirect', 'https://wa.me/111', 'ip1', 'ua1', '{"ad_slug": "abc123"}', '2026-06-19 10:01:00'),
+           (1, 'redirect', '/__edge/redirect', 'https://wa.me/222', 'ip2', 'ua2', '{"ad_slug": "other"}', '2026-06-19 10:02:00')"""
     )
     stats = _ad_link_stats(conn, 1, "abc123", date_from="2026-06-19", date_to="2026-06-19")
     assert_equal(stats["visit"], 1, "visit on /a/slug should be counted")
@@ -155,7 +155,7 @@ def test_redirect_events_with_ad_slug_metadata_are_attributed_to_ad_link():
 
 
 def test_router_prefers_ad_link_target_then_rotates_fallback():
-    tmp = tempfile.NamedTemporaryFile(prefix="mira_route_test_", suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(prefix="lp_route_test_", suffix=".db", delete=False)
     db_path = tmp.name
     tmp.close()
 
@@ -210,18 +210,18 @@ def test_router_prefers_ad_link_target_then_rotates_fallback():
     landing_pages.get_conn = open_conn
     try:
         direct = next_landing_route_target(
-            LandingRouteNextReq(page_id=7, secret="secret", path="/__mira/redirect", metadata={"ad_slug": "abc123"}),
+            LandingRouteNextReq(page_id=7, secret="secret", path="/__edge/redirect", metadata={"ad_slug": "abc123"}),
             None,
         )
         assert_equal(direct["mode"], "ad_link", "ad slug should prefer the ad-specific target")
         assert_equal(direct["target_url"], "https://wa.me/specific", "ad-specific target should be returned")
 
         first = next_landing_route_target(
-            LandingRouteNextReq(page_id=7, secret="secret", path="/__mira/redirect"),
+            LandingRouteNextReq(page_id=7, secret="secret", path="/__edge/redirect"),
             None,
         )
         second = next_landing_route_target(
-            LandingRouteNextReq(page_id=7, secret="secret", path="/__mira/redirect"),
+            LandingRouteNextReq(page_id=7, secret="secret", path="/__edge/redirect"),
             None,
         )
         assert_equal(first["target_url"], "https://wa.me/a", "fallback rotation should return first target")
@@ -254,3 +254,4 @@ if __name__ == "__main__":
     test_router_prefers_ad_link_target_then_rotates_fallback()
     test_explicit_targets_define_ad_link_count()
     print("landing ad link stats tests passed")
+

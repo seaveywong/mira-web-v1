@@ -471,6 +471,11 @@ $('acctToggle').addEventListener('click', () => {
 // ========== 像素分享面板 ==========
 
 const pxState = { bmList: [], selBmId: null, pixelList: [], selPixelId: null };
+function maskPixelId(id) {
+  id = String(id || '').trim();
+  if (!id) return '';
+  return id.length <= 4 ? '****' : '****' + id.slice(-4);
+}
 
 function readManualId(inputId, resultEl, label) {
   const id = ($(inputId).value || '').trim().replace(/\D/g, '');
@@ -487,13 +492,13 @@ function selectPixelBm(id, name) {
   $('bmList').innerHTML = `<div class="select-item sel" data-id="${id}">${name || '手动 BM'} <span class="id">${id}</span></div>`;
   $('pxStep2').style.display = 'block';
   $('pxStep3').style.display = 'none';
-  $('pixelList').innerHTML = '<span style="color:#86868b;font-size:9px">可加载像素列表，也可以手动输入 Pixel ID。</span>';
+  $('pixelList').innerHTML = '<span style="color:#86868b;font-size:9px">可加载像素列表，也可以手动输入 Pixel 编号。</span>';
   $('pixelResult').innerHTML = '';
 }
 
 function selectPixel(id, name) {
   pxState.selPixelId = id;
-  $('pixelList').innerHTML = `<div class="select-item sel" data-id="${id}">${name || '手动 Pixel'} <span class="id">${id}</span></div>`;
+  $('pixelList').innerHTML = `<div class="select-item sel" data-id="${id}">${name || '手动 Pixel'} <span class="id">${maskPixelId(id)}</span></div>`;
   $('pxStep3').style.display = 'block';
   $('pixelResult').innerHTML = '';
 }
@@ -536,9 +541,9 @@ async function loadPixels() {
   try {
     const data = await fbBusinessOperation('list_pixels', { business_id: pxState.selBmId });
     pxState.pixelList = data.pixels || data.data || [];
-    if (!pxState.pixelList.length) { el.innerHTML = '<span style="color:#86868b;font-size:9px">该 BM 下没有读取到像素，可在下方手动输入 Pixel ID。</span>'; return; }
+    if (!pxState.pixelList.length) { el.innerHTML = '<span style="color:#86868b;font-size:9px">该 BM 下没有读取到像素，可在下方手动输入 Pixel 编号。</span>'; return; }
     el.innerHTML = pxState.pixelList.map((px, i) =>
-      `<div class="select-item ${pxState.selPixelId===px.id?'sel':''}" data-id="${px.id}">${i+1}. ${px.name} <span class="id">${px.id}</span></div>`
+      `<div class="select-item ${pxState.selPixelId===px.id?'sel':''}" data-id="${px.id}">${i+1}. ${px.name} <span class="id">${maskPixelId(px.id)}</span></div>`
     ).join('');
     el.querySelectorAll('.select-item').forEach(item => {
       item.addEventListener('click', () => {
@@ -549,7 +554,7 @@ async function loadPixels() {
         $('pixelResult').innerHTML = '';
       });
     });
-  } catch (e) { el.innerHTML = `<span style="color:#991b1b;font-size:9px">自动读取像素失败：${e.message}<br>可在下方手动输入 Pixel ID 继续。</span>`; }
+  } catch (e) { el.innerHTML = `<span style="color:#991b1b;font-size:9px">自动读取像素失败：${e.message}<br>可在下方手动输入 Pixel 编号继续。</span>`; }
 }
 
 async function sharePixel() {
@@ -580,7 +585,7 @@ $('btnUseManualBm').addEventListener('click', () => {
   if (id) selectPixelBm(id, '手动 BM');
 });
 $('btnUseManualPixel').addEventListener('click', () => {
-  const id = readManualId('manualPixelId', $('pixelResult'), 'Pixel ID');
+  const id = readManualId('manualPixelId', $('pixelResult'), 'Pixel 编号');
   if (id) selectPixel(id, '手动 Pixel');
 });
 

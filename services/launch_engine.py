@@ -2079,10 +2079,10 @@ class AutoPilotEngine:
             if not pixel_id:
                 raise ValueError(
                     f"选择「网站转化」或「转化价値」转化目的时，Pixel 像素为必填。"
-                    f"请在账户详情「🏠 主页/像素」中配置 Pixel ID，或在铺广告高级设置中选择像素。"
+                    f"请在账户详情「主页/像素」中配置 Pixel 像素，或在铺广告高级设置中选择像素。"
                     f"当前转化目的：{conversion_goal}"
                 )
-            # 网站转化：需要真实 Pixel ID + 转化事件类型
+            # 网站转化：需要真实 Pixel 像素 + 转化事件类型
             po = {"pixel_id": pixel_id}
             if conversion_event:
                 po["custom_event_type"] = conversion_event

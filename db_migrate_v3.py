@@ -180,8 +180,8 @@ def run():
          '每次自动铺广告最多创建的广告组数量', '5', 'autopilot', 4),
         ('autopilot_fb_page_id', '', '默认 Facebook 主页 ID',
          '自动建广告时使用的默认主页 ID', 'xxxxxxxxx', 'autopilot', 5),
-        ('autopilot_fb_pixel_id', '', '默认 Pixel ID',
-         '自动建广告时使用的默认 Pixel ID', 'xxxxxxxxx', 'autopilot', 6),
+        ('autopilot_fb_pixel_id', '', '默认 Pixel',
+         '自动建广告时使用的默认 Pixel', 'xxxxxxxxx', 'autopilot', 6),
         # AI 视觉分析（v3 新增）
         ('ai_vision_enabled', '0', '启用 AI 视觉分析',
          '上传素材后自动调用多模态 AI 分析画面内容并生成文案', '', 'ai', 10),
