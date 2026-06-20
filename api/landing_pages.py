@@ -2408,7 +2408,7 @@ def _stable_landing_health_checks(
             check["detail"] = "Published" if status_raw == "published" else f"Current status: {status_raw or 'unknown'}"
         elif key == "public_url":
             check["label"] = "Public URL"
-            check["detail"] = public_url or "No reachable Pages or custom-domain URL"
+            check["detail"] = public_url or "No reachable fallback or custom-domain URL"
         elif key == "custom_domain":
             check["label"] = "Custom domain"
             if custom_domain:
@@ -2424,16 +2424,16 @@ def _stable_landing_health_checks(
             check["detail"] = f"{target_count} target link(s) configured" if target_count else "No redirect target configured"
         elif key == "form_mode":
             check["label"] = "Form direct-link mode"
-            check["detail"] = "Root path redirects directly to the rotating target" if item.get("worker_enabled") else "Form direct-link mode requires Worker"
+            check["detail"] = "Root path redirects directly to the rotating target" if item.get("worker_enabled") else "Form direct-link mode requires dynamic routing"
         elif key == "landing_mode":
             check["label"] = "Landing-page mode"
             check["detail"] = "Root path returns HTML; button clicks redirect to rotating targets"
         elif key == "worker":
-            check["label"] = "Worker / tracking / protection"
+            check["label"] = "Runtime config / tracking / protection"
             if item.get("worker_enabled"):
-                check["detail"] = f"Worker enabled; tracking {'on' if item.get('tracking_enabled') else 'off'}, protection {'on' if item.get('protection_enabled') else 'off'}"
+                check["detail"] = f"Runtime config enabled; tracking {'on' if item.get('tracking_enabled') else 'off'}, protection {'on' if item.get('protection_enabled') else 'off'}"
             else:
-                check["detail"] = "Worker is disabled; edge tracking, protection and server-side rotation are unavailable"
+                check["detail"] = "Dynamic routing is disabled; tracking, protection and server-side rotation are unavailable"
         elif key == "runtime_redirect":
             check["label"] = "Live redirect"
             if state == "pass":
@@ -2461,7 +2461,7 @@ def _stable_landing_health_checks(
             if state == "pass":
                 check["detail"] = "Edge runtime is active; /__edge/redirect is handled"
             elif state == "warn":
-                check["detail"] = "Edge route was blocked by current protection rules; this still proves Worker is active"
+                check["detail"] = "Runtime route was blocked by current protection rules; this still proves dynamic routing is active"
             else:
                 check["detail"] = str(check.get("detail") or "Edge route is not active; republish the page once")
         out.append(check)
@@ -5382,7 +5382,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
         "key": "public_url",
         "status": "pass" if public_url else "fail",
         "label": "公开链接",
-        "detail": public_url or "没有可访问的 Pages 或自定义域链接",
+        "detail": public_url or "没有可访问的备用域或自定义域链接",
     })
     if item.get("custom_domain"):
         checks.append({
@@ -5414,7 +5414,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
             "key": "form_mode",
             "status": "pass" if item.get("worker_enabled") else "fail",
             "label": "表单直跳模式",
-            "detail": "根路径访问应直接 302 到轮询目标" if item.get("worker_enabled") else "表单直跳必须启用 Worker",
+            "detail": "根路径访问应直接 302 到轮询目标" if item.get("worker_enabled") else "表单直跳必须启用动态路由",
         })
     else:
         checks.append({
@@ -5426,11 +5426,11 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
     checks.append({
         "key": "worker",
         "status": "pass" if item.get("worker_enabled") else "warn",
-        "label": "Worker / 统计防护",
+        "label": "动态配置 / 统计防护",
         "detail": (
-            f"Worker 已启用；统计 {'开' if item.get('tracking_enabled') else '关'}，防护 {'开' if item.get('protection_enabled') else '关'}"
+            f"动态配置已启用；统计 {'开' if item.get('tracking_enabled') else '关'}，防护 {'开' if item.get('protection_enabled') else '关'}"
             if item.get("worker_enabled")
-            else "未启用 Worker，无法做边缘统计、防护或服务端直跳"
+            else "未启用动态配置，无法做统计、防护或服务端直跳"
         ),
     })
 

@@ -5,7 +5,7 @@ This document defines the neutral landing page package format.
 Public package rules:
 
 - Do not include backend domains, server IPs, internal API paths, or platform branding.
-- Do not include Worker files. Runtime Worker files are generated during publishing.
+- Do not include runtime files. Runtime files are generated during publishing.
 - Put page markup in `landing.html`.
 - Keep final user actions routed through `LP_TARGET_URL`.
 - Keep Pixel initialization controlled by `LP_PIXEL_ID`.

@@ -15,7 +15,7 @@ Required variables in landing.html:
 Rules:
 - Do not hard-code pixel IDs.
 - Do not hard-code final chat or redirect links.
-- Do not include server-side code, worker files, API keys, tokens, or platform-specific publish files.
+- Do not include server-side code, runtime files, API keys, tokens, or platform-specific publish files.
 - Do not add analytics beacons that expose the publishing platform.
 
 To create a new design:

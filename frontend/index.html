@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.16</title>
+<title>Mira · 广告投放管理系统 v3.11.17</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -1834,7 +1834,17 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-runtime-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
 .landing-runtime-section-title{font-size:14px;font-weight:860;color:#1d1d1f}
 .landing-runtime-section-desc{font-size:12px;color:#6e6e73;line-height:1.45;margin-top:3px}
-.landing-runtime-controlbar{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:8px;align-items:center;margin-bottom:10px}
+.landing-runtime-controlbar{
+  display:grid;
+  grid-template-columns:minmax(220px,1fr) repeat(3,minmax(92px,auto));
+  gap:8px;
+  align-items:center;
+  margin-bottom:10px;
+}
+.landing-runtime-controlbar .btn{
+  min-width:92px;
+  justify-content:center;
+}
 .landing-runtime-switches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
 .landing-runtime-switch{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid #e5e5ea;border-radius:10px;background:#fbfbfd;font-size:13px;font-weight:760;color:#1d1d1f}
 .landing-runtime-switch span{display:block;font-size:11px;font-weight:600;color:#86868b;margin-top:2px}
@@ -2547,7 +2557,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
   grid-template-columns:1fr!important;
  }
  .modal .landing-runtime-controlbar{
-  grid-template-columns:minmax(0,1fr) auto!important;
+  grid-template-columns:minmax(0,1fr) repeat(3,minmax(92px,auto))!important;
  }
  .modal .landing-rule-presets,
  .modal .landing-result-modal-grid{
@@ -2728,6 +2738,10 @@ body.landing-api-open .topbar,
 body.landing-protection-open .topbar{
   z-index:80!important;
 }
+body.modal-open .topbar{
+  opacity:0!important;
+  pointer-events:none!important;
+}
 body.modal-open{overflow:hidden}
 body.landing-publish-open #page-landing_center .landing-work-card,
 body.landing-api-open #page-landing_center .landing-side-card,
@@ -2773,13 +2787,31 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
   table-layout:fixed!important;
 }
 .landing-ad-link-actions{
-  grid-template-columns:1fr!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+  gap:6px!important;
 }
 .landing-ad-link-actions .primary{
-  grid-column:auto!important;
+  grid-column:1/-1!important;
+}
+.landing-ad-link-actions .btn{
+  width:100%!important;
+  min-width:0!important;
+  justify-content:center!important;
+  padding-left:8px!important;
+  padding-right:8px!important;
 }
 .landing-ad-link-url-row{
-  grid-template-columns:74px minmax(0,1fr)!important;
+  grid-template-columns:82px minmax(0,1fr)!important;
+  align-items:start!important;
+  gap:8px!important;
+}
+.landing-ad-link-url-row a{
+  display:block!important;
+  min-width:0!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
 }
 .modal .landing-ad-link-table th,
 .modal .landing-ad-link-table td,
@@ -2798,6 +2830,9 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
   }
   #page-landing_center .landing-page-actions{
     grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  .landing-ad-link-actions{
+    grid-template-columns:1fr!important;
   }
 }
 @media(max-width:760px){
@@ -2829,7 +2864,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.16</p>
+<p id="loginVer">广告投放管理系统 v3.11.17</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -2848,7 +2883,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.16</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.17</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5109,7 +5144,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.16';
+var APP_VERSION='v3.11.17';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -18484,19 +18519,23 @@ function _landingHealthText(text){
   'Redirect targets':'跳转目标',
   'Form direct-link mode':'表单直跳模式',
   'Landing-page mode':'普通落地页模式',
-  'Worker / tracking / protection':'Worker / 统计防护',
+  'Runtime config / tracking / protection':'动态配置 / 统计防护',
+  'Worker / tracking / protection':'动态配置 / 统计防护',
   'Live redirect':'线上直跳',
   'Live page':'线上页面',
   'Live access':'线上访问',
   'All checks passed':'所有检查通过',
   'Published':'已发布',
+  'No reachable fallback or custom-domain URL':'没有可访问的备用域或自定义域链接',
   'No reachable Pages or custom-domain URL':'没有可访问的备用域或自定义域链接',
   'No custom domain configured; using the default 系统备用域':'未配置自定义域名，当前使用系统备用域',
   'No redirect target configured':'没有配置跳转目标',
   'Root path redirects directly to the rotating target':'根路径访问会直接 302 到轮询目标',
-  'Form direct-link mode requires Worker':'表单直跳必须启用 Worker',
+  'Form direct-link mode requires dynamic routing':'表单直跳必须启用动态路由',
+  'Form direct-link mode requires Worker':'表单直跳必须启用动态路由',
   'Root path returns HTML; button clicks redirect to rotating targets':'根路径访问返回 HTML 页面，按钮点击后按轮询策略跳转',
-  'Worker is disabled; edge tracking, protection and server-side rotation are unavailable':'未启用 Worker，无法做边缘统计、防护或服务端轮询',
+  'Dynamic routing is disabled; tracking, protection and server-side rotation are unavailable':'未启用动态配置，无法做统计、防护或服务端轮询',
+  'Worker is disabled; edge tracking, protection and server-side rotation are unavailable':'未启用动态配置，无法做统计、防护或服务端轮询',
   'The request was blocked by protection rules; test again from an allowed environment':'请求被防护规则拦截，请使用符合规则的访问环境复测',
   'The request was blocked by protection rules; the page may still be healthy':'请求被防护规则拦截；页面可能正常，但当前自检环境不在允许范围内',
   'Public URL request failed':'请求公开链接失败',
@@ -18505,13 +18544,18 @@ function _landingHealthText(text){
  Object.keys(map).forEach(function(k){s=s.split(k).join(map[k]);});
  s=s.replace(/Current status:\s*/g,'当前状态：');
  s=s.replace(/https:\/\/([^ ]+) is the primary URL/g,'https://$1 已作为主链接');
+ s=s.replace(/Domain is not active yet; currently using the fallback URL\.\s*/g,'域名未激活，当前使用备用域。');
  s=s.replace(/Domain is not active yet; currently using the Pages fallback URL\.\s*/g,'域名未激活，当前使用备用域。');
  s=s.replace(/Finish the CNAME record in DNS\./g,'请完成 DNS CNAME 指向。');
  s=s.replace(/(\d+) target link\(s\) configured/g,'已配置 $1 个目标链接');
- s=s.replace(/Worker enabled; tracking on, protection on/g,'Worker 已启用；统计开，防护开');
- s=s.replace(/Worker enabled; tracking on, protection off/g,'Worker 已启用；统计开，防护关');
- s=s.replace(/Worker enabled; tracking off, protection on/g,'Worker 已启用；统计关，防护开');
- s=s.replace(/Worker enabled; tracking off, protection off/g,'Worker 已启用；统计关，防护关');
+ s=s.replace(/Runtime config enabled; tracking on, protection on/g,'动态配置已启用；统计开，防护开');
+ s=s.replace(/Runtime config enabled; tracking on, protection off/g,'动态配置已启用；统计开，防护关');
+ s=s.replace(/Runtime config enabled; tracking off, protection on/g,'动态配置已启用；统计关，防护开');
+ s=s.replace(/Runtime config enabled; tracking off, protection off/g,'动态配置已启用；统计关，防护关');
+ s=s.replace(/Worker enabled; tracking on, protection on/g,'动态配置已启用；统计开，防护开');
+ s=s.replace(/Worker enabled; tracking on, protection off/g,'动态配置已启用；统计开，防护关');
+ s=s.replace(/Worker enabled; tracking off, protection on/g,'动态配置已启用；统计关，防护开');
+ s=s.replace(/Worker enabled; tracking off, protection off/g,'动态配置已启用；统计关，防护关');
  s=s.replace(/Root path returned HTTP (\d+) and redirected to a configured target/g,'根路径返回 HTTP $1，并已跳转到配置目标');
  s=s.replace(/Root path redirected, but Location is not in the current target list:\s*/g,'根路径已跳转，但 Location 未命中当前目标列表：');
  s=s.replace(/Form direct-link mode expects a 302 redirect; got HTTP\s*/g,'表单直跳模式期望 302，实际 HTTP ');
@@ -18848,9 +18892,9 @@ document.addEventListener('click',function(ev){
 });
 function _landingRuntimeBadge(p){
  if(!p||p.status==='archived')return '';
- if(p.worker_enabled)return '<span class="badge bg-ok" title="Worker 已支持运行时配置；跳转、防护和统计配置保存后约 30 秒内生效">动态配置已启用</span> ';
+ if(p.worker_enabled)return '<span class="badge bg-ok" title="当前页面支持动态配置；跳转、防护和统计配置保存后约 30 秒内生效">动态配置已启用</span> ';
  if(p.tracking_enabled||p.protection_enabled||(p.link_kind||'landing')==='form')return '<span class="badge bg-wa" title="旧发布包需要重新发布一次，之后运行配置才可动态生效">需要重新发布一次</span> ';
- return '<span class="badge bg-mu" title="未启用统计、防护或直跳 Worker；普通静态页面无需动态配置">静态页面</span> ';
+ return '<span class="badge bg-mu" title="未启用统计、防护或直跳；普通静态页面无需动态配置">静态页面</span> ';
 }
 function _landingPageChildSummary(pageId){
  var items=((_landingAdPerf||{}).items||[]).filter(function(x){return String(x.page_id||'')===String(pageId||'');});
@@ -18893,7 +18937,7 @@ function _landingRowActionsHtml(p, link, usageTotal){
  if(p.custom_domain)more.push(_landingActionButton('复制自定义域',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制自定义域链接'));
  if(p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统备用域'));
  if(p.custom_domain_dns_hint)more.push(_landingActionButton('复制 DNS',"copyText('"+encodeURIComponent(p.custom_domain_dns_hint)+"')",'btn-g','复制自定义域 DNS 配置'));
- more.push(_landingActionButton('重新发布','republishLandingPage('+id+')','btn-g role-hide-viewer','更新线上 HTML/Worker，保留原链接和短码'));
+ more.push(_landingActionButton('重新发布','republishLandingPage('+id+')','btn-g role-hide-viewer','更新线上页面，保留原链接和短码'));
  more.push(_landingActionButton('自检','checkLandingHealth('+id+')','btn-g','检查线上访问、直跳和域名状态'));
  more.push(_landingActionButton('统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
  if(usageTotal>0)more.push(_landingActionButton('使用详情','showLandingUsage('+id+')','btn-g','查看哪些账户、任务或广告入口仍在使用该链接'));
@@ -20529,7 +20573,7 @@ function editLandingRuntimeConfig(pageId){
   '<div class="mh"><h3>落地页运行配置</h3><button class="mc" onclick="closeLandingRuntimeModal()">✕</button></div>'+
   '<div class="mb">'+
    '<div class="landing-runtime-hero">'+
-    '<div><div class="landing-runtime-title">'+escHtml(p.title||'未命名落地页')+'</div><div class="landing-runtime-sub">这里修改运行时跳转、统计和防护规则。广告入口短链不变；已升级 Worker 的页面通常约 30 秒内读取新配置。</div></div>'+
+    '<div><div class="landing-runtime-title">'+escHtml(p.title||'未命名落地页')+'</div><div class="landing-runtime-sub">这里修改运行时跳转、统计和防护规则。广告入口短链不变；支持动态配置的页面通常约 30 秒内读取新配置。</div></div>'+
     '<div class="landing-runtime-status">'+
      '<span class="landing-runtime-pill '+(urls.length?'ok':'warn')+'">跳转 '+urls.length+' 个</span>'+
      '<span class="landing-runtime-pill '+(p.tracking_enabled?'ok':'warn')+'">统计 '+(p.tracking_enabled?'开启':'关闭')+'</span>'+
@@ -20887,7 +20931,7 @@ async function deleteLandingAssetBinding(id){
  }catch(e){toast('删除资产预设失败：'+(e.message||e),'er')}
 }
 async function republishLandingPage(id){
- var ok=await confirmDialog('确认重新发布这个落地页？系统会保留原短码、统计密钥和项目名称，只把线上 HTML/Worker 更新为当前版本。');
+ var ok=await confirmDialog('确认重新发布这个落地页？系统会保留原短码、统计密钥和项目名称，只把线上页面更新为当前版本。');
  if(!ok)return;
  try{
   toast('正在重新发布落地页，请稍候...','wa');
