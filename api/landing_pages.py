@@ -1091,6 +1091,32 @@ def _bind_page_to_accounts(conn, act_ids: list[str], bind_target: str, url: str,
     return {"requested": clean_ids, "bound": bound, "skipped": skipped, "target": bind_target}
 
 
+def _account_binding_public_url(public_url: str, custom_domain: str, user) -> str:
+    url = str(public_url or "").strip().rstrip("/")
+    domain = str(custom_domain or "").strip()
+    if is_superadmin(user):
+        return url
+    if domain and url == f"https://{domain}".rstrip("/"):
+        return url
+    return ""
+
+
+def _bind_page_to_accounts_public_only(conn, act_ids: list[str], bind_target: str, public_url: str, custom_domain: str, user) -> dict:
+    clean_ids = _clean_act_ids(act_ids)
+    target = (bind_target or "none").strip().lower()
+    if target == "none" or not clean_ids:
+        return {"requested": clean_ids, "bound": [], "skipped": [], "target": target}
+    url = _account_binding_public_url(public_url, custom_domain, user)
+    if not url:
+        return {
+            "requested": clean_ids,
+            "bound": [],
+            "skipped": [{"act_id": act_id, "reason": "正式域名未就绪，未写入备用域"} for act_id in clean_ids],
+            "target": target,
+        }
+    return _bind_page_to_accounts(conn, clean_ids, target, url, user)
+
+
 def _landing_auto_bind_accounts(conn, page: dict, body: LandingAdAutoBindReq, user) -> list[dict]:
     requested = _clean_act_ids(body.act_ids or [])
     if not requested:
@@ -1348,7 +1374,7 @@ def _setup_custom_domain_automation(
     return dns_result, domain_result, "\n".join(errors), "\n".join(notices)
 
 
-def _public_page(row) -> dict:
+def _public_page(row, user=None) -> dict:
     item = dict(row)
     item["target_urls"] = _json_loads(item.get("target_urls"), [])
     item["bound_act_ids"] = _json_loads(item.get("bound_act_ids"), [])
@@ -1402,12 +1428,22 @@ def _public_page(row) -> dict:
         if custom_domain and pages_host
         else ""
     )
+    if user is not None and not is_superadmin(user):
+        if item.get("public_url_source") != "custom_domain":
+            item["public_url"] = ""
+            item["public_url_source"] = ""
+            item["public_url_unavailable_reason"] = "正式域名未就绪，请等待管理员复检通过"
+        item["pages_url"] = ""
+        item["custom_domain_cname_target"] = ""
+        item["custom_domain_dns_hint"] = ""
+        item["custom_domain_dns_result"] = None
+        item["custom_domain_status_mismatch"] = None
     item.pop("raw_response", None)
     item.pop("ingest_secret", None)
     return item
 
 
-def _public_asset_binding(row) -> dict:
+def _public_asset_binding(row, user=None) -> dict:
     item = dict(row)
     item["target_urls"] = _json_loads(item.get("target_urls"), [])
     item["landing_page_id"] = item.get("landing_page_id")
@@ -1427,13 +1463,14 @@ def _public_asset_binding(row) -> dict:
                 "protection_enabled": 0,
                 "worker_enabled": 0,
                 "last_error": item.get("page_last_error"),
-            }
+            },
+            user,
         )
         item["landing_page"] = {
             "id": item.get("page_id") or item.get("landing_page_id"),
             "title": item.get("page_title"),
             "public_url": page_public.get("public_url"),
-            "pages_url": item.get("page_pages_url"),
+            "pages_url": "" if user is not None and not is_superadmin(user) else item.get("page_pages_url"),
             "custom_domain": item.get("page_custom_domain"),
             "custom_domain_usable": page_public.get("custom_domain_usable"),
         }
@@ -1578,7 +1615,7 @@ def _refresh_page_ad_link_urls(conn, page_id: int, page_public: dict) -> None:
         )
 
 
-def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = None) -> dict:
+def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = None, user=None) -> dict:
     item = dict(row)
     item["target_urls"] = _json_loads(item.get("target_urls"), [])
     if page:
@@ -1587,6 +1624,10 @@ def _public_ad_link(row, page: Optional[dict] = None, stats: Optional[dict] = No
         item["public_url"] = str(item.get("public_url") or "").strip()
     if page:
         item["ad_param_url"] = _ad_param_url(page, item.get("ad_id") or "", item.get("slug") or "")
+    if user is not None and not is_superadmin(user) and page and page.get("public_url_source") != "custom_domain":
+        item["public_url"] = ""
+        item["ad_param_url"] = ""
+        item["link_unavailable_reason"] = "正式域名未就绪，请等待管理员复检通过"
     if stats:
         item["stats"] = stats
     return item
@@ -2951,7 +2992,7 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
     )
     conn.commit()
     updated = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page["id"],)).fetchone()
-    item = _public_page(updated)
+    item = _public_page(updated, user)
     item["domain_status"] = status
     binding = None
     refreshed_ad_links = False
@@ -3760,7 +3801,7 @@ def list_landing_asset_bindings(user=Depends(get_current_user)):
     conn = get_conn()
     rows = conn.execute(sql, params).fetchall()
     conn.close()
-    return [_public_asset_binding(r) for r in rows]
+    return [_public_asset_binding(r, user) for r in rows]
 
 
 @router.post("/asset-bindings")
@@ -3810,7 +3851,7 @@ def create_landing_asset_binding(body: LandingAssetBindingReq, user=Depends(get_
                WHERE b.id=?""",
             (binding_id,),
         ).fetchone()
-        return {"success": True, "binding": _public_asset_binding(row)}
+        return {"success": True, "binding": _public_asset_binding(row, user)}
     finally:
         conn.close()
 
@@ -3858,7 +3899,7 @@ def update_landing_asset_binding(binding_id: int, body: LandingAssetBindingReq, 
                WHERE b.id=?""",
             (binding_id,),
         ).fetchone()
-        return {"success": True, "binding": _public_asset_binding(row)}
+        return {"success": True, "binding": _public_asset_binding(row, user)}
     finally:
         conn.close()
 
@@ -4043,7 +4084,7 @@ def list_landing_pages(user=Depends(get_current_user)):
             except Exception:
                 logger.exception("landing domain cache auto refresh failed: page_id=%s", row_dict.get("id"))
         if not item:
-            item = _public_page(row)
+            item = _public_page(row, user)
         item["linked_matrix_ids"] = _matrix_ids_for_accounts(conn, item.get("bound_act_ids") or [])
         item["usage"] = _landing_page_usage(conn, item, user)
         pages.append(item)
@@ -4151,7 +4192,7 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
         )
         conn.commit()
         updated = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
-        item = _public_page(updated)
+        item = _public_page(updated, user)
         _refresh_page_ad_link_urls(conn, page_id, item)
         conn.commit()
         item["usage"] = _landing_page_usage(conn, item, user)
@@ -4170,13 +4211,13 @@ def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     try:
         page = _assert_page_access(conn, page_id, user)
-        page_public = _public_page(page)
+        page_public = _public_page(page, user)
         rows = conn.execute(
             "SELECT * FROM landing_ad_links WHERE page_id=? ORDER BY id DESC LIMIT 500",
             (page_id,),
         ).fetchall()
         return [
-            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], ad_id=row["ad_id"], days=LANDING_TRACKING_RETENTION_DAYS))
+            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], ad_id=row["ad_id"], days=LANDING_TRACKING_RETENTION_DAYS), user)
             for row in rows
         ]
     finally:
@@ -4238,11 +4279,12 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
                     "protection_enabled": 0,
                     "worker_enabled": 0,
                     "last_error": "",
-                }
+                },
+                user,
             )
             stats = _ad_link_stats(conn, int(item["page_id"]), item.get("slug") or "", ad_id=item.get("ad_id") or "", days=days)
             decision = _ad_link_decision(stats)
-            public_link = _public_ad_link(row, page_public, stats)
+            public_link = _public_ad_link(row, page_public, stats, user)
             public_link["page_title"] = item.get("page_title") or ""
             public_link["page_status"] = item.get("page_status") or ""
             public_link["decision"] = decision
@@ -4410,7 +4452,7 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
     conn = get_conn()
     try:
         page = _assert_page_access(conn, page_id, user)
-        page_public = _public_page(page)
+        page_public = _public_page(page, user)
         base_url = _page_public_url(page_public)
         if not base_url:
             raise HTTPException(status_code=400, detail="该落地页还没有可用主链接，发布成功后才能生成广告入口")
@@ -4463,7 +4505,7 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
             )
             link_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
-            created.append(_public_ad_link(row, page_public, {"visit": 0, "click": 0, "redirect": 0, "block": 0, "total": 0}))
+            created.append(_public_ad_link(row, page_public, {"visit": 0, "click": 0, "redirect": 0, "block": 0, "total": 0}, user))
         conn.commit()
         return {"success": True, "page_id": page_id, "links": created}
     finally:
@@ -4509,15 +4551,15 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
                 updates.append(f"{key}=?")
                 params.append(value)
         if not updates:
-            page_public = _public_page(page)
-            return {"success": True, "link": _public_ad_link(row, page_public, _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"]))}
+            page_public = _public_page(page, user)
+            return {"success": True, "link": _public_ad_link(row, page_public, _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"]), user)}
         updates.append("updated_at=datetime('now','+8 hours')")
         params.append(link_id)
         conn.execute(f"UPDATE landing_ad_links SET {', '.join(updates)} WHERE id=?", params)
         conn.commit()
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
-        page_public = _public_page(page)
-        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"]))}
+        page_public = _public_page(page, user)
+        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"]), user)}
     finally:
         conn.close()
 
@@ -4616,12 +4658,12 @@ def landing_ad_link_result_preview(
             live_refresh = _refresh_landing_ad_link_spend(conn, row, result_day)
             row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
             stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"], date_from=result_day, date_to=result_day)
-        page_public = _public_page(page)
+        page_public = _public_page(page, user)
         return {
             "success": True,
             "result_date": result_day,
             "refresh": live_refresh,
-            "link": _public_ad_link(row, page_public, stats),
+            "link": _public_ad_link(row, page_public, stats, user),
             "stats": stats,
             "ad": {
                 "act_id": row["act_id"] or "",
@@ -4672,7 +4714,7 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
         )
         conn.commit()
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
-        page_public = _public_page(page)
+        page_public = _public_page(page, user)
         return {
             "success": True,
             "result_date": result_date,
@@ -4680,6 +4722,7 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
                 updated,
                 page_public,
                 _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"], date_from=result_date, date_to=result_date),
+                user,
             ),
         }
     finally:
@@ -4865,7 +4908,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
             )
             if _domain_status_usable(domain_result, None):
                 public_url = f"https://{custom_domain}"
-        binding = _bind_page_to_accounts(conn, body.bind_act_ids, bind_target, public_url, user)
+        binding = _bind_page_to_accounts_public_only(conn, body.bind_act_ids, bind_target, public_url, custom_domain, user)
         response_payload = dict(response)
         response_payload["edge_runtime_version"] = EDGE_RUNTIME_VERSION if worker_enabled else ""
         response_payload["edge_runtime_published_at"] = _now_cst()
@@ -4901,7 +4944,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
         )
         conn.commit()
         saved = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
-        item = _public_page(saved)
+        item = _public_page(saved, user)
         _refresh_page_ad_link_urls(conn, page_id, item)
         conn.commit()
         item["binding"] = binding
@@ -4976,7 +5019,7 @@ def republish_stale_landing_pages(request: Request, limit: int = 20, user=Depend
         rows = conn.execute(sql, params + [limit * 3]).fetchall()
         stale_ids = []
         for row in rows:
-            item = _public_page(row)
+            item = _public_page(row, user)
             if item.get("requires_republish_once"):
                 stale_ids.append(int(item["id"]))
             if len(stale_ids) >= limit:
@@ -5079,7 +5122,7 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
             )
             if _domain_status_usable(domain_result, None):
                 public_url = f"https://{custom_domain}"
-        binding = _bind_page_to_accounts(conn, bound_act_ids, bind_target, public_url, user)
+        binding = _bind_page_to_accounts_public_only(conn, bound_act_ids, bind_target, public_url, custom_domain, user)
         response_payload = dict(response)
         response_payload["republished_at"] = _now_cst()
         response_payload["edge_runtime_version"] = EDGE_RUNTIME_VERSION if worker_enabled else ""
@@ -5118,7 +5161,7 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
         )
         conn.commit()
         saved = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
-        item = _public_page(saved)
+        item = _public_page(saved, user)
         _refresh_page_ad_link_urls(conn, page_id, item)
         conn.commit()
         item["binding"] = binding
@@ -5256,7 +5299,7 @@ def repair_landing_page_domains(limit: int = 50, user=Depends(get_current_user))
 def archive_landing_page(page_id: int, cleanup: bool = False, user=Depends(get_current_user)):
     conn = get_conn()
     page = _assert_page_access(conn, page_id, user)
-    item = _public_page(page)
+    item = _public_page(page, user)
     usage = _landing_page_usage(conn, item, user)
     if cleanup:
         if usage["total"] > 0:
@@ -5497,7 +5540,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
     conn = get_conn()
     page = _assert_page_access(conn, page_id, user)
     page_dict = dict(page)
-    item = _public_page(page)
+    item = _public_page(page, user)
     raw_response_update: Optional[dict[str, Any]] = None
     custom_domain_for_probe = str(item.get("custom_domain") or "").strip()
     if custom_domain_for_probe and not item.get("custom_domain_usable"):
@@ -5914,7 +5957,7 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
     conn.close()
     return {
         "success": True,
-        "page": _public_page(page),
+        "page": _public_page(page, user),
         "days": days,
         "summary": {
             "visits": by_type.get("visit", 0),
