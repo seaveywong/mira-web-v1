@@ -5243,6 +5243,14 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
                    LIMIT 1""",
                 (body.page_id, slug),
             ).fetchone()
+            if not link:
+                conn.commit()
+                return {
+                    "success": False,
+                    "blocked": True,
+                    "reason": "entry_unavailable",
+                    "slug": slug,
+                }
             selected = _select_landing_ad_target(conn, link, dict(page), str(page["rotation_mode"] or "sequential"))
             if selected:
                 conn.commit()

@@ -888,9 +888,17 @@ function adIdFromRequest(request) {
   return '';
 }
 
+function blockedTarget(reason) {
+  return { blocked: true, reason: reason || 'blocked', target_url: '' };
+}
+
+function selectedTarget(target) {
+  return { blocked: false, reason: '', target_url: target || '' };
+}
+
 async function nextTargetFromServer(request, cfg) {
   cfg = cfg || EDGE_CONFIG;
-  if (!cfg.route_url) return '';
+  if (!cfg.route_url) return selectedTarget('');
   try {
     const url = new URL(request.url);
     const adSlug = adSlugFromRequest(request);
@@ -911,11 +919,12 @@ async function nextTargetFromServer(request, cfg) {
         }
       })
     });
-    if (!resp.ok) return '';
+    if (!resp.ok) return selectedTarget('');
     const data = await resp.json();
-    return data && data.target_url ? String(data.target_url) : '';
+    if (data && data.blocked) return blockedTarget(data.reason || 'entry_unavailable');
+    return selectedTarget(data && data.target_url ? String(data.target_url) : '');
   } catch (e) {
-    return '';
+    return selectedTarget('');
   }
 }
 
@@ -923,14 +932,15 @@ async function selectTarget(request, cfg) {
   cfg = cfg || EDGE_CONFIG;
   const urls = Array.isArray(cfg.target_urls) ? cfg.target_urls.filter(Boolean) : [];
   const serverTarget = await nextTargetFromServer(request, cfg);
-  if (serverTarget) return serverTarget;
-  if (!urls.length) return '';
+  if (serverTarget && serverTarget.blocked) return serverTarget;
+  if (serverTarget && serverTarget.target_url) return serverTarget;
+  if (!urls.length) return selectedTarget('');
   const mode = String(cfg.rotation_mode || 'sequential').toLowerCase();
-  if (mode === 'first') return urls[0];
-  if (mode === 'random') return urls[Math.floor(Math.random() * urls.length)];
+  if (mode === 'first') return selectedTarget(urls[0]);
+  if (mode === 'random') return selectedTarget(urls[Math.floor(Math.random() * urls.length)]);
   const cookies = parseCookie(request.headers.get('cookie') || '');
   const current = Math.max(parseInt(cookies.lp_rt_idx || '0', 10) || 0, 0);
-  return urls[current % urls.length];
+  return selectedTarget(urls[current % urls.length]);
 }
 
 function nextCookie(request, cfg) {
@@ -1024,8 +1034,16 @@ export default {
         ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
         return blockedResponse(decision.reason);
       }
-      const target = await selectTarget(request, cfg);
-      if (!target) return blockedResponse('no_target');
+      const selected = await selectTarget(request, cfg);
+      if (selected && selected.blocked) {
+        ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: selected.reason || 'entry_unavailable', metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
+        return blockedResponse(selected.reason || 'entry_unavailable');
+      }
+      const target = selected && selected.target_url ? selected.target_url : '';
+      if (!target) {
+        ctx.waitUntil(sendEvent(request, { event_type: 'error', decision: 'block', reason: 'no_target', metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
+        return blockedResponse('no_target');
+      }
       ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
     }
