@@ -640,6 +640,20 @@ def _truncate(value: Optional[str], limit: int = 255) -> str:
     return str(value).strip()[:limit]
 
 
+def _landing_event_decision(event_type: str, decision: Optional[str]) -> str:
+    raw = str(decision or "").strip().lower()
+    if raw in {"pass", "block", "error"}:
+        return raw
+    event = str(event_type or "").strip().lower()
+    if event == "block":
+        return "block"
+    if event == "error":
+        return "error"
+    if event in {"visit", "pass", "click", "redirect", "submit"}:
+        return "pass"
+    return ""
+
+
 def _provider_label(user=None) -> str:
     return "发布通道"
 
@@ -5475,6 +5489,7 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
     event_type = (body.event_type or "").strip().lower()
     if event_type not in allowed_events:
         raise HTTPException(status_code=400, detail="访问事件类型不正确")
+    decision = _landing_event_decision(event_type, body.decision)
     conn = get_conn()
     page = conn.execute("SELECT id, ingest_secret, status FROM landing_pages WHERE id=?", (body.page_id,)).fetchone()
     if not page or not page["ingest_secret"] or not secrets.compare_digest(str(page["ingest_secret"]), str(body.secret or "")):
@@ -5506,7 +5521,7 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
         (
             body.page_id,
             event_type,
-            _truncate(body.decision, 40),
+            decision,
             _truncate(body.reason, 500),
             _truncate(body.path, 500),
             _truncate(body.target_url, 1000),
