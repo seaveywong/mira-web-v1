@@ -2398,6 +2398,7 @@ def _stable_landing_health_checks(
     http_code = http_info.get("status_code") if http_info else None
     location = str(http_info.get("location") or "") if http_info else ""
     content_type = str(http_info.get("content_type") or "") if http_info else ""
+    blocked_by_protection = bool(str(http_info.get("block_reason") or "").strip()) if http_info else False
     out: list[dict[str, Any]] = []
     for raw in checks:
         check = dict(raw)
@@ -2438,6 +2439,8 @@ def _stable_landing_health_checks(
             check["label"] = "Live redirect"
             if state == "pass":
                 check["detail"] = f"Root path returned HTTP {http_code} and redirected to a configured target"
+            elif state == "warn" and blocked_by_protection:
+                check["detail"] = "The request was blocked by protection rules; test again from an allowed environment"
             elif state == "warn" and http_code in {301, 302, 303, 307, 308}:
                 check["detail"] = f"Root path redirected, but Location is not in the current target list: {location[:180]}"
             elif state == "warn":
@@ -2448,7 +2451,7 @@ def _stable_landing_health_checks(
             check["label"] = "Live page"
             if state == "pass":
                 check["detail"] = "Public URL returns HTML and the landing page is reachable"
-            elif state == "warn" and http_code == 403:
+            elif state == "warn" and (http_code == 403 or blocked_by_protection):
                 check["detail"] = "The request was blocked by protection rules; the page may still be healthy"
             else:
                 check["detail"] = f"Public URL returned HTTP {http_code or '--'}, Content-Type: {content_type or '--'}"
@@ -5448,14 +5451,23 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
             )
             location = resp.headers.get("location", "")
             content_type = resp.headers.get("content-type", "")
+            block_reason = resp.headers.get("x-edge-block-reason", "")
             http_info = {
                 "status_code": resp.status_code,
                 "location": location,
                 "content_type": content_type,
                 "final_url": public_url,
+                "block_reason": block_reason,
             }
             if link_kind == "form":
-                if resp.status_code in {301, 302, 303, 307, 308} and location:
+                if block_reason and item.get("protection_enabled"):
+                    checks.append({
+                        "key": "runtime_redirect",
+                        "status": "warn",
+                        "label": "线上直跳",
+                        "detail": "请求被防护规则拦截，无法在自检中确认跳转；请用符合规则的访问环境复测",
+                    })
+                elif resp.status_code in {301, 302, 303, 307, 308} and location:
                     checks.append({
                         "key": "runtime_redirect",
                         "status": "pass" if _target_location_matches(location, targets) else "warn",
@@ -5481,7 +5493,14 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                         "detail": f"表单直跳模式期望 302，实际 HTTP {resp.status_code}",
                     })
             else:
-                if resp.status_code == 200 and "html" in content_type.lower():
+                if block_reason and item.get("protection_enabled"):
+                    checks.append({
+                        "key": "runtime_page",
+                        "status": "warn",
+                        "label": "线上页面",
+                        "detail": "请求被防护规则拦截；页面可能正常，但当前自检环境不在允许范围内",
+                    })
+                elif resp.status_code == 200 and "html" in content_type.lower():
                     checks.append({
                         "key": "runtime_page",
                         "status": "pass",
@@ -5672,7 +5691,7 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
     recent = [
         dict(r)
         for r in conn.execute(
-            """SELECT event_type, decision, reason, path, target_url, country, device_type, platform, created_at
+            """SELECT event_type, decision, reason, path, target_url, referrer, country, device_type, platform, created_at
                FROM landing_events WHERE page_id=? AND created_at>=?
                ORDER BY id DESC LIMIT 60""",
             params,
