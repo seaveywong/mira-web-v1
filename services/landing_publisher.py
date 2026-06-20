@@ -1005,7 +1005,7 @@ export default {
     if (url.pathname === '/_worker.js' || url.pathname === '/_routes.json') {
       return notFoundResponse();
     }
-    if (url.pathname.startsWith('/__mira/')) {
+    if (url.pathname === '/__mira' || url.pathname.startsWith('/__mira/')) {
       return notFoundResponse();
     }
     if (url.pathname === '/__edge-legacy' || url.pathname.startsWith('/__edge-legacy/')) {
@@ -1031,7 +1031,7 @@ export default {
       ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
     }
-    if (url.pathname.startsWith('/__edge/')) {
+    if (url.pathname === '/__edge' || url.pathname.startsWith('/__edge/')) {
       return notFoundResponse();
     }
     if ((adSlug || (url.pathname === '/a' && adId)) && isReadRequest(request)) {
