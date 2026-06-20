@@ -1758,6 +1758,16 @@ _PIXEL_REQUIRED_GOALS = {"OFFSITE_CONVERSIONS", "VALUE"}
 _REGULATED_IDENTITY_COUNTRIES = {"TW", "HK", "SG"}
 
 
+def _normalize_launch_goal(objective: str, conversion_goal: str = "") -> str:
+    objective_norm = str(objective or "OUTCOME_SALES").strip().upper()
+    goal = str(conversion_goal or "").strip().lower()
+    if objective_norm in _MESSAGE_OBJECTIVES and not goal:
+        return "conversations"
+    if objective_norm == "OUTCOME_LEADS" and not goal:
+        return "lead_generation"
+    return goal
+
+
 def _normalize_launch_body(body: LaunchCampaignBody) -> None:
     body.objective = (body.objective or "OUTCOME_SALES").strip().upper()
     if body.objective in _MESSAGE_OBJECTIVES:
@@ -1769,7 +1779,7 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
         body.target_countries = ["US"]
     body.act_id = str(body.act_id or "").strip() or None
     body.act_ids = [str(a).strip() for a in (body.act_ids or []) if str(a).strip()]
-    body.conversion_goal = (body.conversion_goal or "").strip()
+    body.conversion_goal = _normalize_launch_goal(body.objective, body.conversion_goal)
     body.page_id = (body.page_id or "").strip() or None
     body.pixel_id = (body.pixel_id or "").strip() or None
     body.landing_url = (body.landing_url or "").strip() or None
@@ -1803,11 +1813,12 @@ def _launch_act_ids(body: LaunchCampaignBody) -> list[str]:
 
 def _launch_goal_meta(body: LaunchCampaignBody) -> dict:
     objective = (body.objective or "OUTCOME_SALES").strip().upper()
-    goal = (body.conversion_goal or "").strip().lower()
+    goal = _normalize_launch_goal(objective, body.conversion_goal)
     is_message = objective in _MESSAGE_OBJECTIVES or goal in _MESSAGE_GOALS
     is_lead = goal == "lead_generation"
     is_page_likes = goal == "page_likes"
     return {
+        "goal": goal,
         "is_message": is_message,
         "is_lead": is_lead,
         "is_page_likes": is_page_likes,
@@ -1995,7 +2006,7 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 or default_pixel_id
             )
         ]
-        if (body.conversion_goal or "").upper() in _PIXEL_REQUIRED_GOALS and pixel_missing:
+        if str(meta.get("goal") or "").upper() in _PIXEL_REQUIRED_GOALS and pixel_missing:
             items.append({"key": "pixel", "label": "Pixel", "status": "fail", "msg": "网站转化/转化价值目标缺少 Pixel：" + ", ".join(pixel_missing[:5])})
         elif body.objective == "OUTCOME_SALES" and pixel_missing:
             items.append({"key": "pixel", "label": "Pixel", "status": "warn", "msg": "以下账户未配置 Pixel，转化广告建议补齐：" + ", ".join(pixel_missing[:5])})
