@@ -987,6 +987,15 @@ function notFoundResponse() {
   });
 }
 
+function isStaticAssetPath(pathname) {
+  return /\.(?:js|mjs|css|map|json|txt|xml|ico|png|jpe?g|gif|webp|avif|svg|mp4|webm|woff2?|ttf|otf)$/i.test(String(pathname || ''));
+}
+
+function isHtmlFallbackResponse(response) {
+  const ct = response && response.headers ? (response.headers.get('content-type') || '') : '';
+  return /text\/html/i.test(ct);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const cfg = await runtimeConfig();
@@ -1044,7 +1053,11 @@ export default {
       }
       ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass' }, cfg));
     }
-    return env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(request);
+    if (isStaticAssetPath(url.pathname) && (assetResponse.status === 404 || isHtmlFallbackResponse(assetResponse))) {
+      return notFoundResponse();
+    }
+    return assetResponse;
   }
 };
 """
