@@ -1669,9 +1669,9 @@ def _refresh_landing_ad_link_spend(conn, row, result_date: str) -> dict:
     ad_id = str(row["ad_id"] or "").strip()
     act_id = _fb_act_id(row["act_id"] or "")
     if not ad_id:
-        return {"ok": False, "reason": "missing_ad_id", "message": "该短码还没有绑定广告 ID，无法拉取 FB 消耗"}
+        return {"ok": False, "reason": "missing_ad_id", "message": "该广告入口还没有绑定广告 ID，无法拉取 FB 消耗"}
     if not act_id:
-        return {"ok": False, "reason": "missing_act_id", "message": "该短码缺少账户 ID，无法选择读取 Token"}
+        return {"ok": False, "reason": "missing_act_id", "message": "该广告入口缺少账户 ID，无法选择读取 Token"}
     acc = conn.execute(
         "SELECT act_id, name, currency FROM accounts WHERE act_id IN (?, ?) ORDER BY id DESC LIMIT 1",
         (act_id, act_id.replace("act_", "")),
@@ -4370,7 +4370,7 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
         page_public = _public_page(page)
         base_url = _page_public_url(page_public)
         if not base_url:
-            raise HTTPException(status_code=400, detail="该落地页还没有可用主链接，发布成功后才能生成广告级链接")
+            raise HTTPException(status_code=400, detail="该落地页还没有可用主链接，发布成功后才能生成广告入口")
         target_urls = [u.strip() for u in (body.target_urls or []) if isinstance(u, str) and u.strip()][:200]
         if not target_urls and body.target_url and str(body.target_url).strip():
             target_urls = [str(body.target_url).strip()]
@@ -4434,7 +4434,7 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
     try:
         row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="广告级链接不存在")
+            raise HTTPException(status_code=404, detail="广告入口不存在")
         page = _assert_page_access(conn, int(row["page_id"]), user)
         updates, params = [], []
         mapping = {
@@ -4485,10 +4485,10 @@ def delete_landing_ad_link(link_id: int, user=Depends(get_current_user)):
     try:
         row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="广告级链接不存在")
+            raise HTTPException(status_code=404, detail="广告入口不存在")
         page = _assert_page_access(conn, int(row["page_id"]), user)
         if str(row["ad_id"] or "").strip():
-            raise HTTPException(status_code=400, detail="该子码已绑定广告，不能删除；如需停用请先解除绑定或归档。")
+            raise HTTPException(status_code=400, detail="该广告入口已绑定广告，不能删除；如需停用请先解除绑定或归档。")
 
         slug = str(row["slug"] or "").strip()
         event_count = 0
@@ -4516,7 +4516,7 @@ def delete_landing_ad_link(link_id: int, user=Depends(get_current_user)):
                 or 0
             )
         if event_count > 0:
-            raise HTTPException(status_code=400, detail="该子码已有访问/点击/跳转数据，不能删除；可保留用于追溯。")
+            raise HTTPException(status_code=400, detail="该广告入口已有访问/点击/跳转数据，不能删除；可保留用于追溯。")
 
         result_count = 0
         if _has_table(conn, "landing_ad_link_results"):
@@ -4531,7 +4531,7 @@ def delete_landing_ad_link(link_id: int, user=Depends(get_current_user)):
                 or 0
             )
         if result_count > 0:
-            raise HTTPException(status_code=400, detail="该子码已有真实结果回填，不能删除。")
+            raise HTTPException(status_code=400, detail="该广告入口已有真实结果回填，不能删除。")
 
         if _has_table(conn, "landing_ad_route_state"):
             conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (link_id,))
@@ -4558,7 +4558,7 @@ def landing_ad_link_result_preview(
     try:
         row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="广告级链接不存在")
+            raise HTTPException(status_code=404, detail="广告入口不存在")
         page = _assert_page_access(conn, int(row["page_id"]), user)
         result_day = _normalize_result_date(result_date)
         stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"], date_from=result_day, date_to=result_day)
@@ -4601,7 +4601,7 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
     try:
         row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="广告级链接不存在")
+            raise HTTPException(status_code=404, detail="广告入口不存在")
         page = _assert_page_access(conn, int(row["page_id"]), user)
         result_date = _normalize_result_date(body.result_date)
         conn.execute(
@@ -4656,14 +4656,14 @@ def import_landing_ad_link_results(body: LandingAdLinkResultImport, user=Depends
             slug = (item.slug or "").strip()
             ad_id = (item.ad_id or "").strip()
             if not slug and not ad_id:
-                errors.append({"row": idx, "reason": "缺少短码或广告ID"})
+                errors.append({"row": idx, "reason": "缺少入口码或广告ID"})
                 continue
             if slug:
                 row = conn.execute("SELECT * FROM landing_ad_links WHERE slug=?", (slug,)).fetchone()
             else:
                 row = conn.execute("SELECT * FROM landing_ad_links WHERE ad_id=? ORDER BY id DESC LIMIT 1", (ad_id,)).fetchone()
             if not row:
-                errors.append({"row": idx, "slug": slug, "ad_id": ad_id, "reason": "未匹配到广告级链接"})
+                errors.append({"row": idx, "slug": slug, "ad_id": ad_id, "reason": "未匹配到广告入口"})
                 continue
             try:
                 _assert_page_access(conn, int(row["page_id"]), user)
