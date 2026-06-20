@@ -26,6 +26,7 @@ from core.tenancy import assert_row_access, is_operator_user, team_id_for_create
 from services.token_manager import ACTION_READ, get_exec_token
 from services.landing_publisher import (
     DEFAULT_TEMPLATE_DIR,
+    EDGE_RUNTIME_VERSION,
     LEGACY_TEMPLATE_DIR,
     CloudflareError,
     add_pages_custom_domain,
@@ -1341,6 +1342,16 @@ def _public_page(row) -> dict:
         item["custom_domain_runtime_usable"] = bool(raw_response.get("custom_domain_runtime_usable"))
         item["custom_domain_runtime_checked_at"] = raw_response.get("custom_domain_runtime_checked_at") or ""
         item["custom_domain_status_mismatch"] = raw_response.get("custom_domain_status_mismatch") or None
+        item["edge_runtime_version"] = str(raw_response.get("edge_runtime_version") or "").strip()
+        item["edge_runtime_published_at"] = str(raw_response.get("edge_runtime_published_at") or raw_response.get("republished_at") or "").strip()
+    else:
+        item["edge_runtime_version"] = ""
+        item["edge_runtime_published_at"] = ""
+    item["edge_runtime_current_version"] = EDGE_RUNTIME_VERSION
+    item["edge_runtime_current"] = bool(
+        item.get("worker_enabled") and item.get("edge_runtime_version") == EDGE_RUNTIME_VERSION
+    )
+    item["requires_republish_once"] = bool(item.get("worker_enabled") and not item["edge_runtime_current"])
     runtime_domain_usable = bool(isinstance(raw_response, dict) and raw_response.get("custom_domain_runtime_usable"))
     custom_domain_usable = bool(
         custom_domain
@@ -4119,7 +4130,7 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
         result = republish_landing_page(page_id, request, user)
         result["asset_republished"] = True
         return result
-    return {"success": True, "page": item, "requires_republish_once": not bool(page.get("worker_enabled")), "asset_republished": False}
+    return {"success": True, "page": item, "requires_republish_once": bool(item.get("requires_republish_once")), "asset_republished": False}
 
 
 @router.get("/pages/{page_id}/ad-links")
@@ -4824,6 +4835,8 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
                 public_url = f"https://{custom_domain}"
         binding = _bind_page_to_accounts(conn, body.bind_act_ids, bind_target, public_url, user)
         response_payload = dict(response)
+        response_payload["edge_runtime_version"] = EDGE_RUNTIME_VERSION if worker_enabled else ""
+        response_payload["edge_runtime_published_at"] = _now_cst()
         if dns_result is not None:
             response_payload["custom_domain_dns_result"] = dns_result
         if domain_result is not None:
@@ -4916,6 +4929,44 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
         conn.close()
 
 
+@router.post("/pages/republish-stale")
+def republish_stale_landing_pages(request: Request, limit: int = 20, user=Depends(get_current_user)):
+    limit = max(1, min(int(limit or 20), 50))
+    where, params = _scope_where(user, "p")
+    clauses = ["COALESCE(p.status,'')='published'", "COALESCE(p.worker_enabled,0)=1"]
+    if where:
+        clauses.extend(where)
+    sql = "SELECT p.* FROM landing_pages p WHERE " + " AND ".join(clauses) + " ORDER BY p.id DESC LIMIT ?"
+    conn = get_conn()
+    try:
+        rows = conn.execute(sql, params + [limit * 3]).fetchall()
+        stale_ids = []
+        for row in rows:
+            item = _public_page(row)
+            if item.get("requires_republish_once"):
+                stale_ids.append(int(item["id"]))
+            if len(stale_ids) >= limit:
+                break
+    finally:
+        conn.close()
+    republished = []
+    failed = []
+    for page_id in stale_ids:
+        try:
+            res = republish_landing_page(page_id, request, user)
+            page = res.get("page") if isinstance(res, dict) else None
+            republished.append({"id": page_id, "title": (page or {}).get("title") or ""})
+        except Exception as exc:
+            failed.append({"id": page_id, "error": _public_provider_error(str(exc), user)})
+    return {
+        "success": not failed,
+        "current_version": EDGE_RUNTIME_VERSION,
+        "matched": len(stale_ids),
+        "republished": republished,
+        "failed": failed,
+    }
+
+
 @router.post("/pages/{page_id}/republish")
 def republish_landing_page(page_id: int, request: Request, user=Depends(get_current_user)):
     conn = get_conn()
@@ -4997,6 +5048,8 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
         binding = _bind_page_to_accounts(conn, bound_act_ids, bind_target, public_url, user)
         response_payload = dict(response)
         response_payload["republished_at"] = _now_cst()
+        response_payload["edge_runtime_version"] = EDGE_RUNTIME_VERSION if worker_enabled else ""
+        response_payload["edge_runtime_published_at"] = response_payload["republished_at"]
         if dns_result is not None:
             response_payload["custom_domain_dns_result"] = dns_result
         if domain_result is not None:

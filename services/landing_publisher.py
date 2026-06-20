@@ -19,6 +19,7 @@ BASE_DIR = Path(os.environ.get("MIRA_BASE_DIR", "/opt/mira"))
 DEFAULT_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "default_page"
 LEGACY_TEMPLATE_DIR = BASE_DIR / "landing_templates" / "rh_fp_advanced"
 IGNORE_STATIC_NAMES = {"_headers", "_redirects", "_routes.json", "_worker.js"}
+EDGE_RUNTIME_VERSION = "20260621.2"
 
 
 class CloudflareError(RuntimeError):
@@ -530,6 +531,7 @@ def prepare_template(
                 "ingest_url": ingest_url,
                 "route_url": route_url,
                 "config_url": config_url,
+                "worker_version": EDGE_RUNTIME_VERSION,
                 "target_urls": urls,
                 "rotation_mode": rotation_mode,
                 "tracking_enabled": bool(tracking_enabled),
