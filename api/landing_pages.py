@@ -51,7 +51,7 @@ CST = timezone(timedelta(hours=8))
 LANDING_TRACKING_RETENTION_DAYS = 7
 LANDING_TEMPLATE_REFERENCE_ZIP = os.environ.get(
     "MIRA_LANDING_TEMPLATE_REFERENCE_ZIP",
-    "/opt/mira/assets/mira-landing-template-reference.zip",
+    "/opt/mira/landing-template-reference.zip",
 )
 LANDING_TEMPLATE_UPLOAD_DIR = Path(
     os.environ.get("MIRA_LANDING_TEMPLATE_UPLOAD_DIR", "/opt/mira/landing_templates/custom")
@@ -589,15 +589,15 @@ def _ensure_schema():
         conn.execute(
             """INSERT INTO landing_templates
                (id, name, template_path, status, created_by)
-               VALUES (1, 'Mira 通用默认模板', ?, 'active', 'system')""",
+               VALUES (1, 'Default Template', ?, 'active', 'system')""",
             (str(DEFAULT_TEMPLATE_DIR),),
         )
     else:
         conn.execute(
-            "UPDATE landing_templates SET name='Mira 通用默认模板' WHERE id=1 AND COALESCE(created_by,'system')='system'"
+            "UPDATE landing_templates SET name='Default Template' WHERE id=1 AND COALESCE(created_by,'system')='system'"
         )
     conn.execute(
-        "UPDATE landing_templates SET name='Mira 通用默认模板' WHERE id=1 AND COALESCE(created_by,'system')='system'"
+        "UPDATE landing_templates SET name='Default Template' WHERE id=1 AND COALESCE(created_by,'system')='system'"
     )
     try:
         _cleanup_landing_tracking(conn, force=True)
@@ -684,26 +684,27 @@ def _landing_template_candidate_prefix(names: list[str]) -> tuple[str, str]:
 
 def _validate_landing_template_html(html: str) -> tuple[list[str], list[str]]:
     errors, warnings = [], []
-    if not re.search(r"\bvar\s+MIRA_PIXEL_ID\s*=", html):
-        errors.append("缺少变量：var MIRA_PIXEL_ID = \"\";")
-    if not re.search(r"\bvar\s+MIRA_TARGET_URL\s*=", html):
-        errors.append("缺少变量：var MIRA_TARGET_URL = \"\";")
-    if "MIRA_TARGET_URL" not in html:
-        errors.append("按钮或表单没有接入 MIRA_TARGET_URL")
+    if not re.search(r"\bvar\s+LP_PIXEL_ID\s*=", html):
+        errors.append('Missing variable: var LP_PIXEL_ID = "";')
+    if not re.search(r"\bvar\s+LP_TARGET_URL\s*=", html):
+        errors.append('Missing variable: var LP_TARGET_URL = "";')
+    if "LP_TARGET_URL" not in html:
+        errors.append("CTA links or forms must use LP_TARGET_URL")
     hard_jump = re.search(
-        r"""(?:href|action)\s*=\s*['"]https?://(?:api\.whatsapp\.com|wa\.me|t\.me|line\.me|m\.me|messenger\.com|facebook\.com/messages|chat\.whatsapp\.com)""",
+        r"""(?:href|action)\s*=\s*['\"]https?://(?:api\.whatsapp\.com|wa\.me|t\.me|line\.me|m\.me|messenger\.com|facebook\.com/messages|chat\.whatsapp\.com)""",
         html,
         re.I,
     )
     if hard_jump:
-        errors.append("检测到硬编码咨询/跳转链接，请改为使用 MIRA_TARGET_URL")
+        errors.append("Do not hard-code chat or redirect links; use LP_TARGET_URL")
     if re.search(r"\b(fbq\(['\"]init['\"]\s*,\s*['\"]\d{8,}['\"])", html, re.I):
-        errors.append("检测到硬编码 Pixel ID，请改为使用 MIRA_PIXEL_ID")
-    if re.search(r"""(?:href|action|location\.href|location\.replace|window\.open)\s*(?:=|\()\s*['"]https?://""", html, re.I):
-        warnings.append("检测到外部链接调用；请确认最终投放跳转没有绕过 MIRA_TARGET_URL")
-    if "data-mira-cta" not in html and "MIRA_TARGET_URL" in html:
-        warnings.append("未发现 data-mira-cta 标记；可以发布，但请确认按钮点击会使用 MIRA_TARGET_URL")
+        errors.append("Do not hard-code Pixel ID; use LP_PIXEL_ID")
+    if re.search(r"""(?:href|action|location\.href|location\.replace|window\.open)\s*(?:=|\()\s*['\"]https?://""", html, re.I):
+        warnings.append("Fixed external links detected; confirm all campaign redirects are controlled by LP_TARGET_URL")
+    if "data-lp-cta" not in html and "LP_TARGET_URL" in html:
+        warnings.append("Add data-lp-cta to primary CTA elements for cleaner click attribution")
     return errors, warnings
+
 
 
 def _validate_landing_template_zip(zip_path: Path) -> dict:
@@ -728,7 +729,7 @@ def _validate_landing_template_zip(zip_path: Path) -> dict:
                 base = norm.rsplit("/", 1)[-1].lower()
                 suffix = Path(base).suffix.lower()
                 if base in LANDING_TEMPLATE_BLOCKED_NAMES:
-                    errors.append(f"禁止包含 {base}，该文件由 Mira 发布时生成")
+                    errors.append(f"Blocked file {base}: runtime files are generated during publish")
                 if suffix in LANDING_TEMPLATE_BLOCKED_SUFFIXES:
                     errors.append(f"禁止包含可执行/服务端文件：{norm}")
             if total_unpacked > LANDING_TEMPLATE_MAX_UNPACKED_BYTES:
@@ -1208,18 +1209,18 @@ def _domain_status_usable(domain_status: Any, last_error: Optional[str]) -> bool
 
 
 def _custom_domain_runtime_usable(custom_domain: str, worker_enabled: bool = False) -> bool:
-    """Treat a custom domain as usable when the live edge already serves Mira.
+    """Treat a custom domain as usable when the live edge runtime responds.
 
     Cloudflare Pages custom-domain status can remain "pending" for a short
     period even after DNS and Worker routing are already effective. We only use
-    this as a fallback when the host clearly responds through the Mira runtime.
+    this as a fallback when the host clearly responds through the edge runtime.
     """
     host = normalize_custom_domain(custom_domain) if custom_domain else ""
     if not host:
         return False
     urls = [f"https://{host}"]
     if worker_enabled:
-        urls.insert(0, f"https://{host}/__mira/redirect")
+        urls.insert(0, f"https://{host}/__edge/redirect")
     for url in urls:
         try:
             resp = requests.get(
@@ -1227,13 +1228,13 @@ def _custom_domain_runtime_usable(custom_domain: str, worker_enabled: bool = Fal
                 allow_redirects=False,
                 timeout=8,
                 headers={
-                    "User-Agent": "MiraDomainProbe/1.0",
+                    "User-Agent": "EdgeDomainProbe/1.0",
                     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
                 },
             )
         except Exception:
             continue
-        if resp.headers.get("x-mira-block-reason"):
+        if resp.headers.get("x-edge-block-reason"):
             return True
         content_type = (resp.headers.get("content-type") or "").lower()
         server = (resp.headers.get("server") or "").lower()
@@ -1569,7 +1570,7 @@ def _landing_slug_from_url(raw_url: str, known_slugs: set[str]) -> str:
         if len(parts) >= 2 and parts[0] == "a" and parts[1] in known_slugs:
             return parts[1]
         qs = parse_qs(parsed.query or "")
-        for key in ("mira_ad_slug", "ad_slug", "slug"):
+        for key in ("sid", "ad_slug", "slug"):
             for val in qs.get(key, []):
                 val = str(val or "").strip()
                 if val in known_slugs:
@@ -2297,7 +2298,7 @@ def _target_is_current_landing(target_url: str, page: dict) -> bool:
     target = _normalize_url_for_match(target_url)
     if not target:
         return True
-    if target.startswith("/__mira/"):
+    if target.startswith("/__edge/"):
         return True
     candidates = []
     for key in ("pages_url", "public_url"):
@@ -2308,7 +2309,7 @@ def _target_is_current_landing(target_url: str, page: dict) -> bool:
     if custom_domain:
         candidates.append(_normalize_url_for_match("https://" + custom_domain))
     for base in [c for c in candidates if c]:
-        if target == base or target.startswith(base + "/a/") or target.startswith(base + "/__mira/"):
+        if target == base or target.startswith(base + "/a/") or target.startswith(base + "/__edge/"):
             return True
     return False
 
@@ -2456,13 +2457,13 @@ def _stable_landing_health_checks(
             if not str(check.get("detail") or "").strip():
                 check["detail"] = "Public URL request failed"
         elif key == "runtime_worker_route":
-            check["label"] = "Worker route"
+            check["label"] = "Edge route"
             if state == "pass":
-                check["detail"] = "Edge Worker is active; /__mira/redirect is handled by Worker"
+                check["detail"] = "Edge runtime is active; /__edge/redirect is handled"
             elif state == "warn":
-                check["detail"] = "Worker route was blocked by current protection rules; this still proves Worker is active"
+                check["detail"] = "Edge route was blocked by current protection rules; this still proves Worker is active"
             else:
-                check["detail"] = str(check.get("detail") or "Worker route is not active; republish the page once")
+                check["detail"] = str(check.get("detail") or "Edge route is not active; republish the page once")
         out.append(check)
     return out
 
@@ -3467,7 +3468,7 @@ def diagnose_cf_token(token_id: int, user=Depends(get_current_user)):
                     "key": "usage",
                     "status": "pass",
                     "label": "发布资源概览",
-                    "detail": f"当前发布账号可读取 {len(projects)} 个 Pages 项目。Cloudflare API 未提供统一的免费额度剩余字段，Mira 只展示实际可读资源数量。",
+                    "detail": f"当前发布账号可读取 {len(projects)} 个 Pages 项目。发布 API 未提供统一的免费额度剩余字段，系统只展示实际可读资源数量。",
                 })
             except CloudflareError as exc:
                 checks.append({"key": "pages", "status": "fail", "label": "发布权限不可用", "detail": _public_provider_error(exc, user)})
@@ -3630,7 +3631,7 @@ def download_landing_template_reference(user=Depends(get_current_user)):
     return FileResponse(
         path,
         media_type="application/zip",
-        filename="mira-landing-template-reference.zip",
+        filename="landing-template-reference.zip",
     )
 
 
@@ -5275,7 +5276,7 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
             raise HTTPException(status_code=403, detail="invalid landing route secret")
         metadata = body.metadata or {}
         slug = _ad_slug_from_path(body.path or "") or str(metadata.get("ad_slug") or "").strip()
-        ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("mira_ad_id") or "")
+        ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("aid") or "")
         if slug:
             link = conn.execute(
                 """SELECT id, target_url, target_urls FROM landing_ad_links
@@ -5380,7 +5381,7 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
     ua_hash = hashlib.sha256(ua.encode("utf-8", "ignore")).hexdigest() if ua else ""
     metadata = body.metadata if isinstance(body.metadata, dict) else {}
     slug = _ad_slug_from_path(body.path or "") or str(metadata.get("ad_slug") or "").strip()
-    ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("mira_ad_id") or "")
+    ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("aid") or "")
     if slug and ad_id:
         try:
             conn.execute(
@@ -5517,7 +5518,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                 allow_redirects=False,
                 timeout=12,
                 headers={
-                    "User-Agent": "MiraHealthCheck/1.0",
+                    "User-Agent": "EdgeHealthCheck/1.0",
                     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
                 },
             )
@@ -5586,14 +5587,14 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
             })
 
     if public_url and item.get("worker_enabled"):
-        worker_probe_url = public_url.rstrip("/") + "/__mira/redirect"
+        worker_probe_url = public_url.rstrip("/") + "/__edge/redirect"
         try:
             worker_resp = requests.get(
                 worker_probe_url,
                 allow_redirects=False,
                 timeout=12,
                 headers={
-                    "User-Agent": "MiraWorkerProbe/1.0",
+                    "User-Agent": "EdgeWorkerProbe/1.0",
                     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
                 },
             )
@@ -5601,30 +5602,30 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                 checks.append({
                     "key": "runtime_worker_route",
                     "status": "pass",
-                    "label": "Worker route",
-                    "detail": "Worker route returned redirect",
+                    "label": "Edge route",
+                    "detail": "Edge route returned redirect",
                 })
             elif worker_resp.status_code == 403 and item.get("protection_enabled"):
                 checks.append({
                     "key": "runtime_worker_route",
                     "status": "warn",
-                    "label": "Worker route",
-                    "detail": "Worker route returned protection block",
+                    "label": "Edge route",
+                    "detail": "Edge route returned protection block",
                 })
             else:
                 ct = worker_resp.headers.get("content-type", "")
                 checks.append({
                     "key": "runtime_worker_route",
                     "status": "fail",
-                    "label": "Worker route",
-                    "detail": f"Worker route not active: /__mira/redirect returned HTTP {worker_resp.status_code}, Content-Type: {ct or '--'}. Republish this page once.",
+                    "label": "Edge route",
+                    "detail": f"Edge route not active: /__edge/redirect returned HTTP {worker_resp.status_code}, Content-Type: {ct or '--'}. Republish this page once.",
                 })
         except Exception as exc:
             checks.append({
                 "key": "runtime_worker_route",
                 "status": "fail",
-                "label": "Worker route",
-                "detail": f"Worker route probe failed: {exc}",
+                "label": "Edge route",
+                "detail": f"Edge route probe failed: {exc}",
             })
 
     if public_url:

@@ -1,39 +1,26 @@
-Protected Edge Worker Template - Production Version
+Landing Page Template Guide
 
-文件结构：
-_worker.js
-index.html      备用跳转页
-landing.html    真实落地页
-robots.txt
+This folder is a content template. The publishing system injects tracking,
+redirect rotation, access control, and edge runtime files during publish.
 
-部署方式：
-1. 直接把本 ZIP 上传到 Cloudflare Pages。
-2. ZIP 根目录必须直接包含 _worker.js、index.html、landing.html、robots.txt。
-3. 不要让这些文件再套一层文件夹。
+Required files:
+- landing.html: the real landing page.
+- index.html: fallback entry. It can redirect to Facebook or show a neutral fallback.
+- robots.txt: optional crawler instruction.
 
-正式版规则：
-- 手机端 + 目标国家：返回真实 landing.html
-- 电脑端：跳 FALLBACK_URL
-- 非目标国家：跳 FALLBACK_URL
-- 直接访问 /landing.html、/landing、/landing/：跳 FALLBACK_URL
-- 常见爬虫 / 自动化工具：跳 FALLBACK_URL
-- 已移除调试入口
+Required variables in landing.html:
+- LP_PIXEL_ID: filled during publish.
+- LP_TARGET_URL: filled during publish.
 
-后续换落地页：
-1. 把新的真实落地页命名为 landing.html。
-2. 替换本包里的 landing.html。
-3. 重新打 ZIP 上传 Cloudflare Pages。
+Rules:
+- Do not hard-code pixel IDs.
+- Do not hard-code final chat or redirect links.
+- Do not include server-side code, worker files, API keys, tokens, or platform-specific publish files.
+- Do not add analytics beacons that expose the publishing platform.
 
-后续改国家或开关：
-打开 _worker.js 顶部 CONFIG 修改：
-TARGET_COUNTRIES: ['US']       // 美国
-TARGET_COUNTRIES: ['SG']       // 新加坡
-TARGET_COUNTRIES: ['US','SG']  // 美国+新加坡
-
-MOBILE_ONLY: true              // 只允许移动端
-MOBILE_ONLY: false             // 电脑也允许
-
-STRICT_ASN_FILTER: false       // 宽松，减少误伤
-STRICT_ASN_FILTER: true        // 严格，拦截更多机房/VPN/代理
-
-FALLBACK_URL: 'https://www.facebook.com/'
+To create a new design:
+1. Keep landing.html as the entry page.
+2. Keep LP_PIXEL_ID and LP_TARGET_URL variable names.
+3. Connect all CTA buttons/forms to LP_TARGET_URL.
+4. Zip the template files with landing.html at the root.
+5. Upload the zip in the template manager and fix any validation errors before publishing.

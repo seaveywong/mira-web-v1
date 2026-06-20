@@ -3626,7 +3626,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
     <div class="landing-guide-step"><b>3</b><span>给广告用投放链接</span><small>在“广告链接”里复制推荐链接，带 <code>{{ad.id}}</code> 会自动绑定广告。</small></div>
     <div class="landing-guide-step"><b>4</b><span>看数据和回填结果</span><small>没回填时看 FB 成效；有回填时按真实进线算成本。</small></div>
    </div>
-   <div class="landing-guide-note"><b>推荐：</b><span>多条广告可以共用同一个短码，但投放时优先使用“复制投放链接”，格式是 <code>/a/短码?ad={{ad.id}}</code>。这样 Mira 能自动知道是哪条广告带来的访问和跳转。</span></div>
+   <div class="landing-guide-note"><b>推荐：</b><span>多条广告可以共用同一个短码，但投放时优先使用“复制投放链接”，格式是 <code>/a/短码?ad={{ad.id}}</code>。这样系统能自动知道是哪条广告带来的访问和跳转。</span></div>
    <div class="landing-quick-actions">
     <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布主链接</button>
     <button class="btn btn-g" onclick="showPage('landing_urls')">绑定到账户</button>
@@ -3653,7 +3653,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
  </div>
  <div class="landing-help landing-long-help" style="margin-bottom:14px">
   <b style="color:var(--t1)">投放链接口径：</b>
-  日常复制推荐链接 <code>/a/短码?ad={{ad.id}}</code> 到广告里。用户点击后，Mira 会按广告 ID 记录访问、跳转和 FB 消耗；真实进线可人工或 CSV 回填。没有回填时，系统仍按 FB 回传成效做监控判断，但不会把估算进线混进真实成本。
+  日常复制推荐链接 <code>/a/短码?ad={{ad.id}}</code> 到广告里。用户点击后，系统会按广告 ID 记录访问、跳转和 FB 消耗；真实进线可人工或 CSV 回填。没有回填时，系统仍按 FB 回传成效做监控判断，但不会把估算进线混进真实成本。
  </div>
  <div class="landing-ops-strip">
   <div class="landing-ops-card"><b>正式域名发布</b><span>投放链接应使用自定义域名；系统备用域只用于内部部署和健康检查。</span></div>
@@ -3740,7 +3740,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      <div class="fg"><label class="fl">自定义域名（建议填写）</label><div class="landing-domain-picker"><input class="fc" id="lpCustomDomain" list="landingDomainDatalist" placeholder="例如：go.example.com"><select class="fc" id="lpDomainSelect" onchange="applyLandingDomainFromSelect(this.value)"><option value="">从域名库选择</option></select><button class="btn btn-g btn-sm" type="button" onclick="generateLandingRandomSubdomain('lpCustomDomain')">随机子域名</button></div><datalist id="landingDomainDatalist"></datalist><div class="fh">优先使用子域名；根域名通常只作为生成子域名的来源。保存发布时仍会校验域名状态。</div></div>
      <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px"><select class="fc" id="lpTemplate"></select><button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="openLandingTemplateManager()">模板管理</button></div><div class="fh">模板决定页面内容；统计、跳转和访问控制由发布配置执行。已发布页面要换内容，需要重新发布一次。</div></div>
-     <div class="fg"><label class="fl">Pixel ID</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" placeholder="Facebook Pixel ID"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">支持多个 Pixel 资产分开维护；选择后只填入当前发布配置，不会影响其他落地页。</div></div>
+     <div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">支持多个 Pixel 资产分开维护；选择后只填入当前发布配置，不会影响其他落地页。</div></div>
      <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind" onchange="onLandingKindChanged()"><option value="landing">普通落地页：展示模板，按钮轮询跳转</option><option value="form">表单投放链接：访问即轮询跳转</option></select><div class="fh" id="lpKindHint">普通落地页会展示模板正文，按钮点击后按轮询策略跳转。</div></div>
     </div>
    </div>
@@ -3768,7 +3768,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
      <button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveCurrentRulesAsProtectionTemplate('lp')">当前规则存为模板</button>
      <div class="landing-template-tools-note">选择模板会把规则填入下方表单；发布前仍可修改。保存后，动态发布包约 30 秒内生效。</div>
     </div>
-    <div id="lpRotationHint" class="landing-help" style="margin-top:10px">顺序轮询由 Mira 服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。</div>
+    <div id="lpRotationHint" class="landing-help" style="margin-top:10px">顺序轮询由系统服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。</div>
     <div id="lpRulesBox" class="landing-rules-box" style="display:none">
      <div class="landing-section-head">
       <div><div class="landing-section-title">访问控制规则</div><div class="landing-section-desc">推荐先只配置国家和必要参数；设备、UA、来源规则只在明确需要时使用。</div></div>
@@ -4450,7 +4450,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
    <!-- 高级设置（折叠） -->
    <div style="margin-bottom:8px">
     <div style="display:flex;gap:6px;align-items:center">
-     <button class="btn btn-g" style="flex:1;font-size:12px;text-align:left;padding:8px 12px" onclick="toggleLaunchAdvanced()" id="btnLaunchAdvanced">高级设置（出价策略、主页/Pixel ID）▼
+     <button class="btn btn-g" style="flex:1;font-size:12px;text-align:left;padding:8px 12px" onclick="toggleLaunchAdvanced()" id="btnLaunchAdvanced">高级设置（出价策略、主页/Pixel 编号）▼
      </button>
      <button type="button" class="btn btn-g" style="font-size:11px;padding:6px 10px;white-space:nowrap" onclick="saveLaunchTemplate()" title="保存当前版位/语言/目标设置为模版">存模版</button>
      <button type="button" class="btn btn-g" style="font-size:11px;padding:6px 10px;white-space:nowrap" onclick="loadLaunchTemplate()" title="加载已保存的投放设置模版">模版</button>
@@ -12769,7 +12769,7 @@ async function onLaunchObjectiveChange() {
     var advBtn = document.getElementById('btnLaunchAdvanced');
     if (advPanel && advPanel.style.display === 'none') {
      advPanel.style.display = '';
-     if (advBtn) advBtn.textContent = ' 高级设置（出价策略、主页/Pixel ID）▲';
+     if (advBtn) advBtn.textContent = ' 高级设置（出价策略、主页/Pixel 编号）▲';
     }
    } else {
     msgTemplateRow.style.display = 'none';
@@ -13114,7 +13114,7 @@ async function onLaunchObjectiveChange() {
    addItem(pixelIdVal ? 'ok' : 'warn', 'Pixel', pixelIdVal ? '已配置 Pixel，有利于归因优化。' : '未配置 Pixel，后续归因和优化能力会变弱。');
   }
   if (meta.landingRequired) {
-   addItem(landingVal ? 'ok' : 'fail', '落地页', landingVal ? '已填写本次落地页；如果是 Mira 已发布主链，系统会为每条广告生成独立入口链接 /a/短码，也支持 /a?ad={{ad.id}} 归因。入口参数只用于统计，不会写入用户跳转链接或对话内容。' : '当前目标需要落地页或账户默认链接。');
+   addItem(landingVal ? 'ok' : 'fail', '落地页', landingVal ? '已填写本次落地页；如果是系统已发布主链，系统会为每条广告生成独立入口链接 /a/短码，也支持 /a?ad={{ad.id}} 归因。入口参数只用于统计，不会写入用户跳转链接或对话内容。' : '当前目标需要落地页或账户默认链接。');
   }
   if (meta.isMessage) {
    addItem('warn', '消息开关', '提交前会自动检查主页 Messenger / WhatsApp 是否开启。');
@@ -15307,7 +15307,7 @@ var SETTINGS_META = {
 
  default_landing_url: { label: '全局默认落地页链接', hint: '未设置账户或素材级链接时使用此默认链接', icon: '' },
  autopilot_fb_page_id: { label: '铺广告默认主页 ID', hint: '账户未绑定主页、铺广告弹窗也未选择主页时使用。不是 AI 托管开关。', icon: '' },
- autopilot_fb_pixel_id:{ label: '铺广告默认 Pixel ID', hint: '账户未绑定 Pixel、铺广告弹窗也未选择 Pixel 时使用。不是 AI 托管开关。', icon: '' },
+ autopilot_fb_pixel_id:{ label: '铺广告默认 Pixel 编号', hint: '账户未绑定 Pixel、铺广告弹窗也未选择 Pixel 时使用。不是 AI 托管开关。', icon: '' },
 
  // 止损规则
  default_bleed_amount: { label: '默认止血金额（USD）', hint: '广告无转化时，消耗达到此金额自动关闭，全局默认值', icon: '' },
@@ -17789,7 +17789,7 @@ function landingTemplateValidationHtml(v){
 }
 function landingTemplateManagerListHtml(){
  if(!(_lpTemplates||[]).length){
-  return '<div class="empty"><p>暂无模板。可以上传符合 Mira 规范的 zip 包。</p></div>';
+  return '<div class="empty"><p>暂无模板。可以上传符合系统规范的 zip 包。</p></div>';
  }
  return (_lpTemplates||[]).map(function(t){
   var source=t.source==='upload'?'上传包':'系统模板';
@@ -17826,7 +17826,7 @@ function openLandingTemplateManager(){
  mo.innerHTML='<div class="modal" style="max-width:920px">'+
   '<div class="mh"><h3>落地页模板管理</h3><button class="mc" onclick="closeModal(&quot;moLandingTemplateManager&quot;)">✕</button></div>'+
   '<div class="mb landing-asset-modal-shell">'+
-   '<div class="landing-asset-hero"><div><div class="landing-asset-hero-title">上传符合 Mira 规范的页面包</div><div class="landing-asset-hero-desc">模板只负责页面内容。Pixel、跳转链接、统计、防护规则由 Mira 发布时接管。</div></div><button class="btn btn-g btn-sm" onclick="downloadLandingTemplateReference()">下载规范包</button></div>'+
+   '<div class="landing-asset-hero"><div><div class="landing-asset-hero-title">上传符合系统规范的页面包</div><div class="landing-asset-hero-desc">模板只负责页面内容。Pixel、跳转链接、统计、防护规则由发布配置接管。</div></div><button class="btn btn-g btn-sm" onclick="downloadLandingTemplateReference()">下载规范包</button></div>'+
    '<div class="landing-asset-basic">'+
     '<div class="fg"><label class="fl">模板名称</label><input class="fc" id="ltUploadName" placeholder="例如：产品页模板 A"></div>'+
     '<div class="fg"><label class="fl">备注</label><input class="fc" id="ltUploadNote" placeholder="可选，说明适用素材、国家或页面版本"></div>'+
@@ -18386,7 +18386,7 @@ function _landingHealthText(text){
   'All checks passed':'所有检查通过',
   'Published':'已发布',
   'No reachable Pages or custom-domain URL':'没有可访问的备用域或自定义域链接',
-  'No custom domain configured; using the default Cloudflare Pages domain':'未配置自定义域名，当前使用系统备用域',
+  'No custom domain configured; using the default 系统备用域':'未配置自定义域名，当前使用系统备用域',
   'No redirect target configured':'没有配置跳转目标',
   'Root path redirects directly to the rotating target':'根路径访问会直接 302 到轮询目标',
   'Form direct-link mode requires Worker':'表单直跳必须启用 Worker',
@@ -18401,7 +18401,7 @@ function _landingHealthText(text){
  s=s.replace(/Current status:\s*/g,'当前状态：');
  s=s.replace(/https:\/\/([^ ]+) is the primary URL/g,'https://$1 已作为主链接');
  s=s.replace(/Domain is not active yet; currently using the Pages fallback URL\.\s*/g,'域名未激活，当前使用备用域。');
- s=s.replace(/Finish the CNAME record in Cloudflare DNS\./g,'请完成 DNS CNAME 指向。');
+ s=s.replace(/Finish the CNAME record in DNS\./g,'请完成 DNS CNAME 指向。');
  s=s.replace(/(\d+) target link\(s\) configured/g,'已配置 $1 个目标链接');
  s=s.replace(/Worker enabled; tracking on, protection on/g,'Worker 已启用；统计开，防护开');
  s=s.replace(/Worker enabled; tracking on, protection off/g,'Worker 已启用；统计开，防护关');
@@ -18475,7 +18475,7 @@ function _landingAttributionMode(item){
  var hasParam=hasAd&&!!String((item&&item.ad_param_url)||'').trim();
  if(hasParam)return {code:'ad_param',label:'子码+广告ID',cls:'bg-ac',hint:'推荐链接形态为 /a/短码?ad=广告ID。子码仍按一条广告入口管理；ad 参数用于首次点击自动绑定和校验。'};
  if(hasAd)return {code:'short_bound',label:'已绑定广告',cls:'bg-ok',hint:'该子码已绑定一条广告 ID，可读取对应广告消耗和成效。'};
- return {code:'short_reserved',label:'待自动绑定',cls:'bg-wa',hint:'复制“投放链接”到一条广告后，用户点击时 Meta 会展开 ad 参数，Mira 会把该子码绑定到这条广告。多条广告请生成多个子码。'};
+ return {code:'short_reserved',label:'待自动绑定',cls:'bg-wa',hint:'复制“投放链接”到一条广告后，用户点击时 Meta 会展开 ad 参数，系统会把该子码绑定到这条广告。多条广告请生成多个子码。'};
 }
 function _landingCopyBtn(label,url,cls){
  if(!url)return '';
@@ -18484,7 +18484,7 @@ function _landingCopyBtn(label,url,cls){
 function _landingAdMacroUrl(publicUrl){
  var url=String(publicUrl||'').trim();
  if(!url)return '';
- if(/[?&](ad|ad_id|mira_ad_id)=/.test(url))return url;
+ if(/[?&](ad|ad_id|ad_id)=/.test(url))return url;
  return url+(url.indexOf('?')>=0?'&':'?')+'ad={{ad.id}}';
 }
 function _landingAdBindCardHtml(item,attribution){
@@ -18869,7 +18869,7 @@ function renderLandingPages(){
    var ds=p.domain_status||{};
    var dsText=ds.status||ds.verified||ds.validation_status||ds.name||'已复检';
    if(domainRuntimeOk){
-    linkHtml+='<div style="font-size:11px;color:var(--ok);margin-top:3px">域名状态：公网可用'+(String(dsText).toLowerCase()==='active'?'':' <span style="color:var(--t3)">Cloudflare '+escHtml(String(dsText))+'</span>')+'</div>';
+    linkHtml+='<div style="font-size:11px;color:var(--ok);margin-top:3px">域名状态：公网可用'+(String(dsText).toLowerCase()==='active'?'':' <span style="color:var(--t3)">平台状态 '+escHtml(String(dsText))+'</span>')+'</div>';
    }else{
     linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">域名状态：'+escHtml(String(dsText))+'</div>';
    }
@@ -18959,7 +18959,7 @@ function _landingAdLinksHtml(page, links){
    '<td style="padding:8px 10px;text-align:right">'+_landingAdLinkActionHtml(x,stats,(x.ad_id?'改绑定':'绑定广告'),url,adParamUrl)+'</td>'+
   '</tr>';
  }).join('');
- if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。点“生成链接”后，复制“投放链接”放进 FB 广告；用户点击后 Mira 会自动识别广告 ID。</td></tr>';
+ if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。点“生成链接”后，复制“投放链接”放进 FB 广告；用户点击后系统会自动识别广告 ID。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
  '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">投放时复制“投放链接”到广告。绑定成功后，账户和广告信息会显示在“绑定对象”列。</div></div>'+
   '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成子码</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="autoBindLandingAdLinks('+((page&&page.id)||0)+')">自动匹配</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingBulkBindModal('+((page&&page.id)||0)+')">批量绑定</button><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+')">导出映射</button></div>'+
@@ -19143,7 +19143,7 @@ function openLandingBulkBindModal(pageId){
  mo.innerHTML='<div class="modal" style="max-width:760px">'+
   '<div class="mh"><h3>批量绑定广告</h3><button class="mc" onclick="closeModal(&quot;moLandingBulkBind&quot;)">✕</button></div>'+
   '<div class="mb">'+
-   '<div class="landing-result-context">按当前未绑定子码顺序绑定：第 1 行广告绑定第 1 个未绑定子码，第 2 行绑定第 2 个。每个子码只绑定一条广告。账户 ID 可选；不填时 Mira 会尝试从缓存匹配，匹配不到也会先保存广告 ID。</div>'+
+   '<div class="landing-result-context">按当前未绑定子码顺序绑定：第 1 行广告绑定第 1 个未绑定子码，第 2 行绑定第 2 个。每个子码只绑定一条广告。账户 ID 可选；不填时系统会尝试从缓存匹配，匹配不到也会先保存广告 ID。</div>'+
    '<div class="landing-help" id="landingBulkBindHint" style="margin:10px 0">当前可绑定子码 '+links.length+' 条。</div>'+
    '<textarea class="fc" id="landingBulkBindText" style="min-height:190px;font-family:Consolas,monospace" placeholder="每行一条：广告ID, 账户ID(可选), 广告名称(可选)\n例如：120245820014280302, 785770423307490, 测试广告1" oninput="_renderLandingBulkBindPreview()"></textarea>'+
    '<div id="landingBulkBindPreview" class="landing-bulk-preview"></div>'+
@@ -19419,7 +19419,7 @@ function renderLandingResultPreview(data, linkId){
  var spend=Number(stats.spend||0);
  var fbConv=Number(stats.fb_conversions||0);
  var adName=ad.ad_id?escHtml(ad.ad_name||ad.ad_id):'<span style="color:var(--wa)">未绑定广告 ID</span>';
- var adSub=ad.ad_id?('ID '+escHtml(ad.ad_id)):'需要先通过 Mira 铺广告或手动对齐短码';
+ var adSub=ad.ad_id?('ID '+escHtml(ad.ad_id)):'需要先通过铺广告或手动对齐短码';
  var acc=[displayAccountName(ad.account_name,ad.act_id,''),ad.act_id?displayActId(ad.act_id):''].filter(Boolean).join(' · ')||'未绑定账户';
  var source=_landingResultSourceLabel(stats.spend_source||((refresh&&refresh.source)||''));
  var refreshMsg='';
@@ -19699,7 +19699,7 @@ async function verifyCloudflareToken(id){
 async function renameCloudflareToken(id){
  var item=(_cfTokens||[]).find(function(t){return String(t.id)===String(id);});
  var oldName=(item&&item.name)||'';
- var name=await promptAsync('重命名 API 通道','输入新的显示名称。这里只修改 Mira 内部名称，不会改变 API Token。',oldName,'例如：主发布通道');
+ var name=await promptAsync('重命名 API 通道','输入新的显示名称。这里只修改系统内显示名称，不会改变 API Token。',oldName,'例如：主发布通道');
  if(name==null)return;
  name=String(name||'').trim();
  if(!name){toast('请填写 API 名称','wa');return;}
@@ -19714,7 +19714,7 @@ async function rotateCloudflareToken(id){
  var accountDefault=item.selected_account_id||item.cf_account_id||'';
  var accountId=await promptAsync('修正 API 密钥','Account ID（可留空；账号级 Token 建议填写，系统会按该账号验证 Pages 发布权限）',accountDefault,'例如：7a461cf8493abd25476d20eaa2bc5171');
  if(accountId==null)return;
- var apiToken=await promptTextareaAsync('重新录入 API Token','粘贴新的 Cloudflare Account API Token。保存后会立即验证，并刷新账号/域名缓存。','','cfat_xxx...');
+ var apiToken=await promptTextareaAsync('重新录入 API Token','粘贴新的 账号级 API Token。保存后会立即验证，并刷新账号/域名缓存。','','');
  if(apiToken==null)return;
  apiToken=String(apiToken||'').trim();
  if(!apiToken){toast('请粘贴新的 API Token','wa');return;}
@@ -20448,7 +20448,7 @@ function editLandingRuntimeConfig(pageId){
       '<div class="landing-runtime-section-desc" style="margin-bottom:10px">这些属于低频修改项。正式域名、Pixel 或页面模板变化后会自动重新发布，短码和统计保留。</div>'+
       '<div class="landing-form-grid">'+
        '<div class="fg"><label class="fl">正式域名</label><div class="landing-domain-picker"><input class="fc" id="rtCustomDomain" placeholder="go.example.com" value="'+escHtml(p.custom_domain||'')+'"><select class="fc" id="rtDomainSelect" onchange="applyRuntimeDomainFromSelect(this.value)"><option value="">从域名库选择</option>'+domainOptions+'</select><button class="btn btn-g btn-sm" type="button" onclick="generateLandingRandomSubdomain(&quot;rtCustomDomain&quot;)">随机子域名</button></div><div class="fh">清空后回退到备用域；新域名保存时会尝试绑定并重新发布。</div></div>'+
-       '<div class="fg"><label class="fl">Pixel ID</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="rtPixel" placeholder="Facebook Pixel ID" value="'+escHtml(p.pixel_id||'')+'"><select class="fc" id="rtPixelSelect" onchange="applyLandingPixelFromSelect(this.value,&quot;rtPixel&quot;)"><option value="">从像素库选择</option>'+pixelOptions+'</select></div><div class="fh">Pixel 写在页面 HTML 中，保存后会自动重新发布。</div></div>'+
+       '<div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="rtPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号" value="'+escHtml(p.pixel_id||'')+'"><select class="fc" id="rtPixelSelect" onchange="applyLandingPixelFromSelect(this.value,&quot;rtPixel&quot;)"><option value="">从像素库选择</option>'+pixelOptions+'</select></div><div class="fh">Pixel 写在页面 HTML 中，保存后会自动重新发布。</div></div>'+
        '<div class="fg"><label class="fl">页面模板</label><select class="fc" id="rtTemplate">'+templateOptions+'</select><div class="fh">更换模板会重新发布，短码和统计保留。</div></div>'+
       '</div>'+
      '</div></details>'+
@@ -20508,7 +20508,7 @@ function updateLandingRotationHint(){
  var prefix=kind==='form'
   ?'表单投放链接访问即跳转；'
   :'普通落地页会展示页面正文，按钮点击后跳转；';
- var detail='顺序轮询由 Mira 服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。';
+ var detail='顺序轮询由系统服务端维护全局游标，所有访问共享同一顺序，不依赖单个浏览器缓存。';
  if(mode==='random')detail='随机轮询会在每次访问时随机选择一个目标链接，适合均匀分散到多个咨询链接或外部链接。';
  if(mode==='first')detail='固定第一个只使用第一条目标链接，适合临时验证，不适合多链接分流。';
  el.textContent=prefix+detail;
@@ -20690,7 +20690,7 @@ function openLandingAssetBindingModal(editId){
     '<div class="landing-asset-module">'+
      '<div class="landing-asset-card-hd"><div><div class="landing-asset-module-title">像素资产</div><div class="landing-asset-module-desc">给 Pixel 加名称，后续更换或复用时不只看 ID。</div></div><span class="landing-asset-card-tag">可选</span></div>'+
      '<div class="fg"><label class="fl">Pixel 名称/备注</label><input class="fc" id="abPixelName" placeholder="例如：主像素 / 备用像素 / 某地区像素" value="'+escHtml((b&&b.pixel_name)||'')+'"></div>'+
-     '<div class="fg"><label class="fl">Pixel ID</label><input class="fc" id="abPixel" placeholder="Facebook Pixel ID" value="'+escHtml((b&&b.pixel_id)||'')+'"></div>'+
+     '<div class="fg"><label class="fl">Pixel 编号</label><input class="fc" id="abPixel" type="password" autocomplete="off" placeholder="Pixel 编号" value="'+escHtml((b&&b.pixel_id)||'')+'"></div>'+
     '</div>'+
     '<div class="landing-asset-module">'+
      '<div class="landing-asset-card-hd"><div><div class="landing-asset-module-title">页面与防护规则</div><div class="landing-asset-module-desc">把页面类型、轮询方式和防护规则模板保存成常用组合。</div></div><span class="landing-asset-card-tag">规则</span></div>'+

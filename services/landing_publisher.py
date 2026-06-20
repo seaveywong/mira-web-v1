@@ -28,20 +28,50 @@ def _headers(api_token: str) -> dict:
     return {"Authorization": f"Bearer {api_token}"}
 
 
-def _replace_js_var(html: str, names: list[str], value: str) -> tuple[str, int]:
+def _replace_js_var(html: str, names: list[str], value: str, canonical: str | None = None) -> tuple[str, int]:
     """Replace the first matching JS string variable assignment.
 
-    New templates should use MIRA_* variables. Legacy names are still accepted so
-    existing packages keep publishing while the template library is cleaned up.
+    New templates should use LP_* variables. Legacy names are accepted on input,
+    but the emitted public HTML is normalized to the canonical LP_* name.
     """
+    canonical = canonical or (names[0] if names else "")
     total = 0
     for name in names:
         pattern = rf'var\s+{re.escape(name)}\s*=\s*"[^"]*"\s*;'
-        html, count = re.subn(pattern, f"var {name} = {json.dumps(value or '')};", html, count=1)
+        html, count = re.subn(pattern, f"var {canonical} = {json.dumps(value or '')};", html, count=1)
         total += count
         if count:
             break
     return html, total
+
+
+def _normalize_template_markers(html: str) -> str:
+    """Remove legacy project/internal markers from public HTML before publish."""
+    replacements = {
+        "MIRA_PIXEL_ID": "LP_PIXEL_ID",
+        "RH_PIXEL_ID": "LP_PIXEL_ID",
+        "MIRA_TARGET_URLS": "LP_TARGET_URLS",
+        "RH_TARGET_URLS": "LP_TARGET_URLS",
+        "MIRA_TARGET_URL": "LP_TARGET_URL",
+        "RH_TARGET_URL": "LP_TARGET_URL",
+        "MIRA_ROTATION_MODE": "LP_ROTATION_MODE",
+        "RH_ROTATION_MODE": "LP_ROTATION_MODE",
+        "__mira": "__edge",
+        "x-mira": "x-edge",
+        "mira_ad_slug": "sid",
+        "mira_ad_id": "aid",
+        "mira_rt_idx": "lp_rt_idx",
+        "Mira landing page publish": "landing page publish",
+    }
+    for src, dst in replacements.items():
+        html = html.replace(src, dst)
+    html = re.sub(
+        r"<script[^>]+static\.cloudflareinsights\.com[^>]*>.*?</script>",
+        "",
+        html,
+        flags=re.I | re.S,
+    )
+    return html
 
 
 def cf_request(api_token: str, method: str, path: str, **kwargs) -> dict:
@@ -174,7 +204,7 @@ def ensure_pages_cname_dns_record(
     if conflicts and not cname_records:
         types = ", ".join(sorted({str(r.get("type") or "UNKNOWN").upper() for r in conflicts}))
         raise CloudflareError(
-            f"DNS record {domain} already exists as {types}. Remove it or choose a subdomain before Mira can create CNAME."
+            f"DNS record {domain} already exists as {types}. Remove it or choose a subdomain before CNAME automation can continue."
         )
 
     payload = {"type": "CNAME", "name": domain, "content": target, "ttl": 1, "proxied": bool(proxied)}
@@ -465,7 +495,7 @@ def prepare_template(
     urls = [u.strip() for u in target_urls or [] if u and u.strip()]
     if not urls:
         raise ValueError("At least one target URL is required")
-    work = Path(tempfile.mkdtemp(prefix="mira_landing_"))
+    work = Path(tempfile.mkdtemp(prefix="landing_page_"))
     redirect_only = (link_kind or "landing").strip().lower() == "form"
     if not redirect_only:
         shutil.copytree(src, work, dirs_exist_ok=True)
@@ -474,15 +504,16 @@ def prepare_template(
         raise ValueError("Template missing landing.html")
 
     if worker_enabled:
-        primary = "/__mira/redirect"
+        primary = "/__edge/redirect"
     else:
         primary = urls[0]
     if redirect_only:
         html = _form_redirect_html(primary)
     else:
         html = landing.read_text(encoding="utf-8", errors="ignore")
-        html, _ = _replace_js_var(html, ["MIRA_PIXEL_ID", "RH_PIXEL_ID"], pixel_id or "")
-        html, _ = _replace_js_var(html, ["MIRA_TARGET_URL", "RH_TARGET_URL"], primary)
+        html = _normalize_template_markers(html)
+        html, _ = _replace_js_var(html, ["LP_PIXEL_ID"], pixel_id or "", "LP_PIXEL_ID")
+        html, _ = _replace_js_var(html, ["LP_TARGET_URL"], primary, "LP_TARGET_URL")
     if worker_enabled:
         html = _inject_client_tracker(html, page_id or 0)
         (work / "_routes.json").write_text(
@@ -510,7 +541,7 @@ def prepare_template(
         if worker_file.exists():
             worker_file.unlink()
         rotation = _rotation_script(urls, rotation_mode)
-        if "var MIRA_TARGET_URLS" not in html and "var RH_TARGET_URLS" not in html:
+        if "var LP_TARGET_URLS" not in html:
             html = html.replace("</script>", rotation + "\n  </script>", 1)
 
     landing.write_text(html, encoding="utf-8")
@@ -539,7 +570,7 @@ def _form_redirect_html(target_url: str) -> str:
   <script>
   (function(){
     var target = __TARGET__;
-    if (target.indexOf('/__mira/redirect') === 0) {
+    if (target.indexOf('/__edge/redirect') === 0) {
       target += (location.search || '');
       if (location.hash) target += location.hash;
     }
@@ -548,7 +579,7 @@ def _form_redirect_html(target_url: str) -> str:
   })();
   </script>
 </body>
-</html>""".replace("__TARGET__", json.dumps(target_url or "/__mira/redirect"))
+</html>""".replace("__TARGET__", json.dumps(target_url or "/__edge/redirect"))
 
 
 def _inject_client_tracker(html: str, page_id: int) -> str:
@@ -563,7 +594,7 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
   function adId(){{
     try {{
       var qs = new URLSearchParams(location.search || '');
-      var raw = qs.get('ad') || qs.get('ad_id') || qs.get('mira_ad_id') || '';
+      var raw = qs.get('ad') || qs.get('ad_id') || qs.get('aid') || '';
       var m = String(raw || '').match(/\\d{{6,}}/g);
       return m && m.length ? m.sort(function(a,b){{return b.length-a.length;}})[0] : '';
     }} catch(e) {{
@@ -576,9 +607,9 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
     if ((!slug && !ad) || !url) return url || '';
     try {{
       var u = new URL(url, location.origin);
-      if (u.pathname !== '/__mira/redirect') return url;
-      if (slug && !u.searchParams.get('mira_ad_slug')) u.searchParams.set('mira_ad_slug', slug);
-      if (ad && !u.searchParams.get('mira_ad_id')) u.searchParams.set('mira_ad_id', ad);
+      if (u.pathname !== '/__edge/redirect') return url;
+      if (slug && !u.searchParams.get('sid')) u.searchParams.set('sid', slug);
+      if (ad && !u.searchParams.get('aid')) u.searchParams.set('aid', ad);
       return u.pathname + u.search + u.hash;
     }} catch(e) {{
       return url;
@@ -586,8 +617,7 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
   }}
   function preserveAdContext(){{
     try {{
-      if (typeof window.MIRA_TARGET_URL === 'string') window.MIRA_TARGET_URL = withAdContext(window.MIRA_TARGET_URL);
-      if (typeof window.RH_TARGET_URL === 'string') window.RH_TARGET_URL = withAdContext(window.RH_TARGET_URL);
+      if (typeof window.LP_TARGET_URL === 'string') window.LP_TARGET_URL = withAdContext(window.LP_TARGET_URL);
       document.querySelectorAll('a[href]').forEach(function(a){{
         var next = withAdContext(a.getAttribute('href') || '');
         if (next) a.setAttribute('href', next);
@@ -600,8 +630,8 @@ def _inject_client_tracker(html: str, page_id: int) -> str:
       var data = Object.assign(base, payload||{{}});
       data.metadata = Object.assign(base.metadata || {{}}, (payload && payload.metadata) || {{}});
       var blob = new Blob([JSON.stringify(data)], {{type:'application/json'}});
-      if (navigator.sendBeacon) navigator.sendBeacon('/__mira/event', blob);
-      else fetch('/__mira/event', {{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify(data),keepalive:true}}).catch(function(){{}});
+      if (navigator.sendBeacon) navigator.sendBeacon('/__edge/event', blob);
+      else fetch('/__edge/event', {{method:'POST',headers:{{'content-type':'application/json'}},body:JSON.stringify(data),keepalive:true}}).catch(function(){{}});
     }} catch(e) {{}}
   }}
   document.addEventListener('click', function(ev){{
@@ -645,28 +675,27 @@ def _rotation_script(urls: list[str], rotation_mode: str) -> str:
     if mode not in {"sequential", "random", "first"}:
         mode = "sequential"
     return (
-        "\n    var MIRA_TARGET_URLS = "
+        "\n    var LP_TARGET_URLS = "
         + json.dumps(urls, ensure_ascii=False)
         + ";\n"
-        + f"    var MIRA_ROTATION_MODE = {json.dumps(mode)};\n"
+        + f"    var LP_ROTATION_MODE = {json.dumps(mode)};\n"
         + "    (function(){\n"
-        + "      if (!MIRA_TARGET_URLS || !MIRA_TARGET_URLS.length) return;\n"
+        + "      if (!LP_TARGET_URLS || !LP_TARGET_URLS.length) return;\n"
         + "      var idx = 0;\n"
-        + "      if (MIRA_ROTATION_MODE === 'random') idx = Math.floor(Math.random() * MIRA_TARGET_URLS.length);\n"
-        + "      else if (MIRA_ROTATION_MODE === 'sequential') {\n"
-        + "        var key = 'mira_target_idx_' + location.hostname + location.pathname;\n"
+        + "      if (LP_ROTATION_MODE === 'random') idx = Math.floor(Math.random() * LP_TARGET_URLS.length);\n"
+        + "      else if (LP_ROTATION_MODE === 'sequential') {\n"
+        + "        var key = 'lp_target_idx_' + location.hostname + location.pathname;\n"
         + "        idx = parseInt(localStorage.getItem(key) || '0', 10) || 0;\n"
-        + "        localStorage.setItem(key, String((idx + 1) % MIRA_TARGET_URLS.length));\n"
+        + "        localStorage.setItem(key, String((idx + 1) % LP_TARGET_URLS.length));\n"
         + "      }\n"
-        + "      MIRA_TARGET_URL = MIRA_TARGET_URLS[idx % MIRA_TARGET_URLS.length] || MIRA_TARGET_URL;\n"
-        + "      if (typeof RH_TARGET_URL === 'string') RH_TARGET_URL = MIRA_TARGET_URL;\n"
+        + "      LP_TARGET_URL = LP_TARGET_URLS[idx % LP_TARGET_URLS.length] || LP_TARGET_URL;\n"
         + "    })();"
     )
 
 
 def _write_worker(path: Path, config: dict[str, Any]) -> None:
     path.write_text(
-        "const MIRA_CONFIG = "
+        "const EDGE_CONFIG = "
         + json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         + ";\n"
         + WORKER_SOURCE,
@@ -675,8 +704,8 @@ def _write_worker(path: Path, config: dict[str, Any]) -> None:
 
 
 WORKER_SOURCE = r"""
-let MIRA_RUNTIME_CONFIG = null;
-let MIRA_RUNTIME_CONFIG_EXPIRES = 0;
+let EDGE_RUNTIME_CONFIG = null;
+let EDGE_RUNTIME_CONFIG_EXPIRES = 0;
 
 function lowerList(v) {
   return Array.isArray(v) ? v.map(x => String(x || '').toLowerCase()).filter(Boolean) : [];
@@ -700,30 +729,30 @@ function mergeConfig(base, live) {
 
 async function runtimeConfig() {
   const now = Date.now();
-  if (MIRA_RUNTIME_CONFIG && now < MIRA_RUNTIME_CONFIG_EXPIRES) return MIRA_RUNTIME_CONFIG;
-  if (!MIRA_CONFIG.config_url) {
-    MIRA_RUNTIME_CONFIG = MIRA_CONFIG;
-    MIRA_RUNTIME_CONFIG_EXPIRES = now + 60000;
-    return MIRA_RUNTIME_CONFIG;
+  if (EDGE_RUNTIME_CONFIG && now < EDGE_RUNTIME_CONFIG_EXPIRES) return EDGE_RUNTIME_CONFIG;
+  if (!EDGE_CONFIG.config_url) {
+    EDGE_RUNTIME_CONFIG = EDGE_CONFIG;
+    EDGE_RUNTIME_CONFIG_EXPIRES = now + 60000;
+    return EDGE_RUNTIME_CONFIG;
   }
   try {
-    const resp = await fetch(MIRA_CONFIG.config_url, {
+    const resp = await fetch(EDGE_CONFIG.config_url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
-      body: JSON.stringify({ page_id: MIRA_CONFIG.page_id, secret: MIRA_CONFIG.secret })
+      headers: { 'content-type': 'application/json', 'x-edge-runtime': 'site-worker' },
+      body: JSON.stringify({ page_id: EDGE_CONFIG.page_id, secret: EDGE_CONFIG.secret })
     });
     if (resp.ok) {
       const data = await resp.json();
       const live = data && data.config ? data.config : data;
-      MIRA_RUNTIME_CONFIG = mergeConfig(MIRA_CONFIG, live);
+      EDGE_RUNTIME_CONFIG = mergeConfig(EDGE_CONFIG, live);
       const ttl = Math.max(5, Math.min(parseInt((data && data.cache_seconds) || '30', 10) || 30, 300));
-      MIRA_RUNTIME_CONFIG_EXPIRES = now + ttl * 1000;
-      return MIRA_RUNTIME_CONFIG;
+      EDGE_RUNTIME_CONFIG_EXPIRES = now + ttl * 1000;
+      return EDGE_RUNTIME_CONFIG;
     }
   } catch (e) {}
-  MIRA_RUNTIME_CONFIG = MIRA_CONFIG;
-  MIRA_RUNTIME_CONFIG_EXPIRES = now + 15000;
-  return MIRA_RUNTIME_CONFIG;
+  EDGE_RUNTIME_CONFIG = EDGE_CONFIG;
+  EDGE_RUNTIME_CONFIG_EXPIRES = now + 15000;
+  return EDGE_RUNTIME_CONFIG;
 }
 
 function parseCookie(header) {
@@ -776,7 +805,7 @@ function listHit(list, value) {
 }
 
 function evaluate(request, cfg) {
-  cfg = cfg || MIRA_CONFIG;
+  cfg = cfg || EDGE_CONFIG;
   if (!cfg.protection_enabled) return { pass: true, reason: '' };
   const rules = cfg.protection_rules || {};
   const url = new URL(request.url);
@@ -826,7 +855,7 @@ function adSlugFromRequest(request) {
     const url = new URL(request.url);
     const fromPath = adSlugFromPath(url.pathname);
     if (fromPath) return fromPath;
-    const fromQuery = url.searchParams.get('mira_ad_slug') || url.searchParams.get('ad_slug') || '';
+    const fromQuery = url.searchParams.get('sid') || url.searchParams.get('ad_slug') || '';
     if (/^[A-Za-z0-9_-]{4,64}$/.test(fromQuery)) return fromQuery;
     const ref = request.headers.get('referer') || request.headers.get('referrer') || '';
     if (ref) {
@@ -845,19 +874,19 @@ function adIdFromRequest(request) {
   }
   try {
     const url = new URL(request.url);
-    const direct = clean(url.searchParams.get('ad') || url.searchParams.get('ad_id') || url.searchParams.get('mira_ad_id') || url.searchParams.get('fb_ad_id') || '');
+    const direct = clean(url.searchParams.get('ad') || url.searchParams.get('ad_id') || url.searchParams.get('aid') || url.searchParams.get('fb_ad_id') || '');
     if (direct) return direct;
     const ref = request.headers.get('referer') || request.headers.get('referrer') || '';
     if (ref) {
       const refUrl = new URL(ref);
-      return clean(refUrl.searchParams.get('ad') || refUrl.searchParams.get('ad_id') || refUrl.searchParams.get('mira_ad_id') || refUrl.searchParams.get('fb_ad_id') || '');
+      return clean(refUrl.searchParams.get('ad') || refUrl.searchParams.get('ad_id') || refUrl.searchParams.get('aid') || refUrl.searchParams.get('fb_ad_id') || '');
     }
   } catch (e) {}
   return '';
 }
 
 async function nextTargetFromServer(request, cfg) {
-  cfg = cfg || MIRA_CONFIG;
+  cfg = cfg || EDGE_CONFIG;
   if (!cfg.route_url) return '';
   try {
     const url = new URL(request.url);
@@ -865,7 +894,7 @@ async function nextTargetFromServer(request, cfg) {
     const adId = adIdFromRequest(request);
     const resp = await fetch(cfg.route_url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
+      headers: { 'content-type': 'application/json', 'x-edge-runtime': 'site-worker' },
       body: JSON.stringify({
         page_id: cfg.page_id,
         secret: cfg.secret,
@@ -888,7 +917,7 @@ async function nextTargetFromServer(request, cfg) {
 }
 
 async function selectTarget(request, cfg) {
-  cfg = cfg || MIRA_CONFIG;
+  cfg = cfg || EDGE_CONFIG;
   const urls = Array.isArray(cfg.target_urls) ? cfg.target_urls.filter(Boolean) : [];
   const serverTarget = await nextTargetFromServer(request, cfg);
   if (serverTarget) return serverTarget;
@@ -897,21 +926,21 @@ async function selectTarget(request, cfg) {
   if (mode === 'first') return urls[0];
   if (mode === 'random') return urls[Math.floor(Math.random() * urls.length)];
   const cookies = parseCookie(request.headers.get('cookie') || '');
-  const current = Math.max(parseInt(cookies.mira_rt_idx || '0', 10) || 0, 0);
+  const current = Math.max(parseInt(cookies.lp_rt_idx || '0', 10) || 0, 0);
   return urls[current % urls.length];
 }
 
 function nextCookie(request, cfg) {
-  cfg = cfg || MIRA_CONFIG;
+  cfg = cfg || EDGE_CONFIG;
   const urls = Array.isArray(cfg.target_urls) ? cfg.target_urls.filter(Boolean) : [];
-  if (!urls.length) return 'mira_rt_idx=0; Path=/; Max-Age=86400; SameSite=Lax';
+  if (!urls.length) return 'lp_rt_idx=0; Path=/; Max-Age=86400; SameSite=Lax';
   const cookies = parseCookie(request.headers.get('cookie') || '');
-  const current = Math.max(parseInt(cookies.mira_rt_idx || '0', 10) || 0, 0);
-  return 'mira_rt_idx=' + ((current + 1) % urls.length) + '; Path=/; Max-Age=86400; SameSite=Lax';
+  const current = Math.max(parseInt(cookies.lp_rt_idx || '0', 10) || 0, 0);
+  return 'lp_rt_idx=' + ((current + 1) % urls.length) + '; Path=/; Max-Age=86400; SameSite=Lax';
 }
 
 async function sendEvent(request, event, cfg) {
-  cfg = cfg || MIRA_CONFIG;
+  cfg = cfg || EDGE_CONFIG;
   if (!cfg.tracking_enabled && event.event_type !== 'block') return;
   try {
     const cf = request.cf || {};
@@ -936,7 +965,7 @@ async function sendEvent(request, event, cfg) {
     payload.metadata = Object.assign(sourceMeta, (event && event.metadata) || {}, payload.metadata || {});
     await fetch(cfg.ingest_url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-mira-edge': 'cloudflare-pages' },
+      headers: { 'content-type': 'application/json', 'x-edge-runtime': 'site-worker' },
       body: JSON.stringify(payload)
     });
   } catch (e) {}
@@ -945,7 +974,7 @@ async function sendEvent(request, event, cfg) {
 function blockedResponse(reason) {
   return new Response('', {
     status: 302,
-    headers: { location: 'https://www.facebook.com/', 'cache-control': 'no-store', 'x-mira-block-reason': reason || 'blocked' }
+    headers: { location: 'https://www.facebook.com/', 'cache-control': 'no-store', 'x-edge-block-reason': reason || 'blocked' }
   });
 }
 
@@ -955,7 +984,13 @@ export default {
     const url = new URL(request.url);
     const adSlug = adSlugFromRequest(request);
     const adId = adIdFromRequest(request);
-    if (url.pathname === '/__mira/event' && request.method === 'POST') {
+    if (url.pathname === '/_worker.js' || url.pathname === '/_routes.json') {
+      return new Response('', { status: 404, headers: { 'cache-control': 'no-store' } });
+    }
+    if (url.pathname === '/__mira' || url.pathname.startsWith('/__mira/')) {
+      return blockedResponse('legacy_route');
+    }
+    if (url.pathname === '/__edge/event' && request.method === 'POST') {
       let body = {};
       try { body = await request.json(); } catch (e) {}
       ctx.waitUntil(sendEvent(request, Object.assign({}, body, { secret: undefined }), cfg));
@@ -964,7 +999,7 @@ export default {
     const directFormRedirect = String(cfg.link_kind || '').toLowerCase() === 'form'
       && isReadRequest(request)
       && (url.pathname === '/' || url.pathname === '/index.html' || !!adSlug || (url.pathname === '/a' && !!adId));
-    if (url.pathname === '/__mira/redirect' || directFormRedirect) {
+    if (url.pathname === '/__edge/redirect' || directFormRedirect) {
       const decision = evaluate(request, cfg);
       if (!decision.pass) {
         ctx.waitUntil(sendEvent(request, { event_type: 'block', decision: 'block', reason: decision.reason, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
@@ -1034,7 +1069,7 @@ def _file_map(directory: str) -> dict[str, dict[str, Any]]:
 
 
 def _worker_bundle_bytes(worker_path: Path) -> bytes:
-    boundary = "----mira-worker-bundle-" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:24]
+    boundary = "----edge-worker-bundle-" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:24]
     metadata = json.dumps({"main_module": worker_path.name}, separators=(",", ":"))
     worker_source = worker_path.read_text(encoding="utf-8")
     parts = [
@@ -1094,7 +1129,7 @@ def deploy_pages_static(api_token: str, account_id: str, project_name: str, dire
     multipart = {
         "manifest": (None, json.dumps(manifest, separators=(",", ":"))),
         "branch": (None, "main"),
-        "commit_message": (None, "Mira landing page publish"),
+        "commit_message": (None, "landing page publish"),
         "commit_dirty": (None, "true"),
     }
     worker_file = Path(directory) / "_worker.js"
