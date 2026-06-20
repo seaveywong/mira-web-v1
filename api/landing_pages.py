@@ -969,12 +969,12 @@ def _assert_token_access(conn, token_id: int, user) -> dict:
 def _assert_template_access(conn, template_id: int, user) -> dict:
     row = conn.execute("SELECT * FROM landing_templates WHERE id=? AND status='active'", (template_id,)).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Landing template not found")
+        raise HTTPException(status_code=404, detail="落地页模板不存在")
     if is_superadmin(user) or row["team_id"] is None:
         return dict(row)
     tid = team_id_for_create(user)
     if row["team_id"] != tid:
-        raise HTTPException(status_code=403, detail="Landing template belongs to another team")
+        raise HTTPException(status_code=403, detail="这个落地页模板属于其他团队")
     return dict(row)
 
 
@@ -1044,27 +1044,27 @@ def _assert_protection_template_access(conn, template_id: int, user) -> dict:
 def _assert_page_access(conn, page_id: int, user) -> dict:
     row = conn.execute("SELECT * FROM landing_pages WHERE id=?", (page_id,)).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Landing page not found")
+        raise HTTPException(status_code=404, detail="落地页不存在")
     item = dict(row)
     if is_superadmin(user):
         return item
     tid = team_id_for_create(user)
     if item.get("team_id") != tid:
-        raise HTTPException(status_code=403, detail="Landing page belongs to another team")
+        raise HTTPException(status_code=403, detail="这个落地页属于其他团队")
     if is_operator_user(user) and item.get("owner_user_id") not in (None, user_id(user)):
-        raise HTTPException(status_code=403, detail="Landing page belongs to another operator")
+        raise HTTPException(status_code=403, detail="这个落地页属于其他运营")
     return item
 
 
 def _bind_page_to_accounts(conn, act_ids: list[str], bind_target: str, url: str, user) -> dict:
     bind_target = (bind_target or "none").strip().lower()
     if bind_target not in {"landing", "form", "both", "none"}:
-        raise HTTPException(status_code=400, detail="bind_target must be landing, form, both, or none")
+        raise HTTPException(status_code=400, detail="绑定位置只能是落地页链接、表单链接、两者都绑定或不绑定")
     clean_ids = _clean_act_ids(act_ids)
     if bind_target == "none" or not clean_ids:
         return {"requested": clean_ids, "bound": [], "skipped": [], "target": bind_target}
     if not url:
-        raise HTTPException(status_code=400, detail="No published URL available for account binding")
+        raise HTTPException(status_code=400, detail="当前没有可用于账户绑定的已发布链接")
     bound, skipped = [], []
     for act_id in clean_ids:
         row = conn.execute("SELECT id, act_id, name FROM accounts WHERE act_id=?", (act_id,)).fetchone()
@@ -1492,10 +1492,10 @@ def _asset_binding_values(body: LandingAssetBindingReq, conn, user) -> dict:
         raise HTTPException(status_code=400, detail="目标链接必须以 http:// 或 https:// 开头")
     rotation_mode = (body.rotation_mode or ((page or {}).get("rotation_mode") or "sequential")).strip().lower()
     if rotation_mode not in {"sequential", "random", "first"}:
-        raise HTTPException(status_code=400, detail="rotation_mode must be sequential, random, or first")
+        raise HTTPException(status_code=400, detail="跳转方式只能是顺序轮询、随机轮询或固定第一个")
     link_kind = (body.link_kind or ((page or {}).get("link_kind") or "landing")).strip().lower()
     if link_kind not in {"landing", "form"}:
-        raise HTTPException(status_code=400, detail="link_kind must be landing or form")
+        raise HTTPException(status_code=400, detail="链接类型只能是落地页展示或表单直跳")
     return {
         "name": name[:120],
         "custom_domain": custom_domain,
@@ -2888,7 +2888,7 @@ def _delete_landing_page_local_rows(conn, page_id: int) -> dict:
 def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
     custom_domain = (page.get("custom_domain") or "").strip()
     if not custom_domain:
-        raise HTTPException(status_code=400, detail="This landing page has no custom domain")
+        raise HTTPException(status_code=400, detail="这个落地页没有配置自定义域名")
     token_id = page.get("cf_token_id")
     if not token_id:
         raise HTTPException(status_code=400, detail="这个落地页没有可用发布通道")
@@ -3393,7 +3393,7 @@ def verify_cf_token(token_id: int, user=Depends(get_current_user)):
 def set_cf_token_account(token_id: int, body: CloudflareTokenAccountPatch, user=Depends(get_current_user)):
     account_id = (body.account_id or "").strip()
     if not account_id:
-        raise HTTPException(status_code=400, detail="account_id is required")
+        raise HTTPException(status_code=400, detail="请先选择或填写发布账号 ID")
     conn = get_conn()
     row = _assert_token_access(conn, token_id, user)
     accounts = _public_accounts(row.get("cf_accounts_json"))
@@ -4077,12 +4077,12 @@ def landing_edge_runtime_config(body: LandingRuntimeConfigReq):
     try:
         row = conn.execute("SELECT * FROM landing_pages WHERE id=?", (body.page_id,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Landing page not found")
+            raise HTTPException(status_code=404, detail="落地页不存在")
         page = dict(row)
         if not secrets.compare_digest(str(page.get("ingest_secret") or ""), str(body.secret or "")):
-            raise HTTPException(status_code=403, detail="invalid landing config secret")
+            raise HTTPException(status_code=403, detail="动态配置校验失败")
         if str(page.get("status") or "").lower() == "archived":
-            raise HTTPException(status_code=410, detail="landing page archived")
+            raise HTTPException(status_code=410, detail="这个落地页已归档")
         return {"success": True, "cache_seconds": 30, "config": _landing_runtime_config(page)}
     finally:
         conn.close()
@@ -4092,12 +4092,12 @@ def landing_edge_runtime_config(body: LandingRuntimeConfigReq):
 def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch, request: Request, user=Depends(get_current_user)):
     urls = [u.strip() for u in body.target_urls if isinstance(u, str) and u.strip()]
     if not urls:
-        raise HTTPException(status_code=400, detail="At least one target URL is required")
+        raise HTTPException(status_code=400, detail="请至少配置一个跳转链接")
     if any(not (u.startswith("http://") or u.startswith("https://")) for u in urls):
-        raise HTTPException(status_code=400, detail="Target URLs must start with http:// or https://")
+        raise HTTPException(status_code=400, detail="跳转链接必须以 http:// 或 https:// 开头")
     rotation_mode = (body.rotation_mode or "sequential").strip().lower()
     if rotation_mode not in {"sequential", "random", "first"}:
-        raise HTTPException(status_code=400, detail="rotation_mode must be sequential, random, or first")
+        raise HTTPException(status_code=400, detail="跳转方式只能是顺序轮询、随机轮询或固定第一个")
     rules = _safe_rules(body.protection_rules)
     conn = get_conn()
     should_republish = False
@@ -4411,7 +4411,7 @@ def create_landing_ad_links(page_id: int, body: LandingAdLinkCreate, user=Depend
         if not target_urls and body.target_url and str(body.target_url).strip():
             target_urls = [str(body.target_url).strip()]
         if any(not (u.startswith("http://") or u.startswith("https://")) for u in target_urls):
-            raise HTTPException(status_code=400, detail="target_urls must be http(s) URLs")
+            raise HTTPException(status_code=400, detail="跳转链接必须是 http(s) URL")
         count = _landing_ad_link_create_count(body.count, target_urls)
         act_id = (_clean_act_ids([body.act_id or ""]) or [""])[0]
         team_id = page.get("team_id")
@@ -4487,7 +4487,7 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
         if body.target_urls is not None:
             target_urls = [u.strip() for u in (body.target_urls or []) if isinstance(u, str) and u.strip()][:200]
             if any(not (u.startswith("http://") or u.startswith("https://")) for u in target_urls):
-                raise HTTPException(status_code=400, detail="target_urls must be http(s) URLs")
+                raise HTTPException(status_code=400, detail="跳转链接必须是 http(s) URL")
             mapping["target_urls"] = json.dumps(target_urls, ensure_ascii=False)
             mapping["target_url"] = _truncate(target_urls[0] if target_urls else "", 1000)
         if body.act_id is not None:
@@ -4746,19 +4746,19 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
     title = (body.title or "").strip()
     urls = [u.strip() for u in body.target_urls if u and u.strip()]
     if not title:
-        raise HTTPException(status_code=400, detail="Title is required")
+        raise HTTPException(status_code=400, detail="请填写落地页名称")
     if not urls:
-        raise HTTPException(status_code=400, detail="At least one target URL is required")
+        raise HTTPException(status_code=400, detail="请至少配置一个跳转链接")
     if any(not (u.startswith("http://") or u.startswith("https://")) for u in urls):
-        raise HTTPException(status_code=400, detail="Target URLs must start with http:// or https://")
+        raise HTTPException(status_code=400, detail="跳转链接必须以 http:// 或 https:// 开头")
     link_kind = (body.link_kind or "landing").strip().lower()
     if link_kind not in ("landing", "form"):
-        raise HTTPException(status_code=400, detail="link_kind must be landing or form")
+        raise HTTPException(status_code=400, detail="链接类型只能是落地页展示或表单直跳")
     bind_target = (body.bind_target or "none").strip().lower()
     if link_kind == "form" and bind_target in {"landing", "both"}:
         raise HTTPException(
             status_code=400,
-            detail="Form redirect links can only bind to account form_link or no account field; do not write them to landing_url",
+            detail="表单直跳链接只能绑定到账户表单链接或不绑定，不能写到账户落地页链接",
         )
     try:
         custom_domain = normalize_custom_domain(body.custom_domain)
@@ -5317,7 +5317,7 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
             or str(page["status"] or "").lower() == "archived"
         ):
             conn.rollback()
-            raise HTTPException(status_code=403, detail="invalid landing route secret")
+            raise HTTPException(status_code=403, detail="跳转配置校验失败")
         metadata = body.metadata or {}
         slug = _ad_slug_from_path(body.path or "") or str(metadata.get("ad_slug") or "").strip()
         ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("aid") or "")
@@ -5376,7 +5376,7 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
         urls = [u for u in _json_loads(page["target_urls"], []) if isinstance(u, str) and u.strip()]
         if not urls:
             conn.rollback()
-            raise HTTPException(status_code=404, detail="no target urls configured")
+            raise HTTPException(status_code=404, detail="没有配置可用跳转链接")
         mode = str(page["rotation_mode"] or "sequential").strip().lower()
         if mode == "first":
             idx = 0
@@ -5414,7 +5414,7 @@ def next_landing_route_target(body: LandingRouteNextReq, request: Request):
             conn.rollback()
         except Exception:
             pass
-        raise HTTPException(status_code=500, detail="route target failed") from exc
+        raise HTTPException(status_code=500, detail="获取跳转链接失败") from exc
     finally:
         conn.close()
 
@@ -5424,12 +5424,12 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
     allowed_events = {"visit", "pass", "block", "click", "redirect", "submit", "error"}
     event_type = (body.event_type or "").strip().lower()
     if event_type not in allowed_events:
-        raise HTTPException(status_code=400, detail="invalid event_type")
+        raise HTTPException(status_code=400, detail="访问事件类型不正确")
     conn = get_conn()
     page = conn.execute("SELECT id, ingest_secret, status FROM landing_pages WHERE id=?", (body.page_id,)).fetchone()
     if not page or not page["ingest_secret"] or not secrets.compare_digest(str(page["ingest_secret"]), str(body.secret or "")):
         conn.close()
-        raise HTTPException(status_code=403, detail="invalid landing event secret")
+        raise HTTPException(status_code=403, detail="访问日志校验失败")
     ua = _truncate(body.user_agent or request.headers.get("user-agent") or "", 500)
     ua_hash = hashlib.sha256(ua.encode("utf-8", "ignore")).hexdigest() if ua else ""
     metadata = body.metadata if isinstance(body.metadata, dict) else {}
