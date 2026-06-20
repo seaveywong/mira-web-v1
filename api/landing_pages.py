@@ -5745,14 +5745,48 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
             params,
         ).fetchall()
     ]
-    recent = [
+    by_reason = [
         dict(r)
         for r in conn.execute(
-            """SELECT event_type, decision, reason, path, target_url, referrer, country, device_type, platform, created_at
-               FROM landing_events WHERE page_id=? AND created_at>=?
-               ORDER BY id DESC LIMIT 60""",
+            """SELECT COALESCE(NULLIF(reason,''),'--') AS reason, COUNT(*) AS cnt
+               FROM landing_events
+               WHERE page_id=? AND created_at>=? AND event_type='block'
+               GROUP BY reason
+               ORDER BY cnt DESC LIMIT 20""",
             params,
         ).fetchall()
+    ]
+    raw_events = [
+        dict(r)
+        for r in conn.execute(
+            """SELECT event_type, decision, reason, path, target_url, referrer,
+                      country, region, city, colo, asn, platform, device_type,
+                      browser, os, metadata, created_at
+               FROM landing_events WHERE page_id=? AND created_at>=?
+               ORDER BY id DESC LIMIT 5000""",
+            params,
+        ).fetchall()
+    ]
+    source_counter: dict[str, int] = {}
+    recent = []
+    for idx, event in enumerate(raw_events):
+        metadata = _json_loads(event.get("metadata"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        source_platform = str(metadata.get("source_platform") or "").strip()
+        if not source_platform:
+            source_platform = str(event.get("platform") or "").strip()
+        source_platform = source_platform or "Unknown"
+        source_counter[source_platform] = source_counter.get(source_platform, 0) + 1
+        if idx < 80:
+            event.pop("metadata", None)
+            event["source_platform"] = source_platform
+            event["ad_slug"] = str(metadata.get("ad_slug") or "").strip()
+            event["ad_id"] = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("aid") or "")
+            recent.append(event)
+    by_source = [
+        {"source": key, "cnt": value}
+        for key, value in sorted(source_counter.items(), key=lambda item: item[1], reverse=True)[:20]
     ]
     conn.close()
     return {
@@ -5772,5 +5806,7 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
         "by_day": by_day,
         "by_hour": by_hour,
         "by_target": by_target,
+        "by_reason": by_reason,
+        "by_source": by_source,
         "recent": recent,
     }

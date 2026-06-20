@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.20</title>
+<title>Mira · 广告投放管理系统 v3.11.21</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -2873,7 +2873,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.20</p>
+<p id="loginVer">广告投放管理系统 v3.11.21</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -2892,7 +2892,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.20</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.21</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5153,7 +5153,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.20';
+var APP_VERSION='v3.11.21';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -21058,22 +21058,33 @@ async function showLandingStats(id){
   }
   var countries=(r.by_country||[]).slice(0,8).map(function(x){return '<span class="badge bg-mu">'+escHtml(x.country||'未知')+' '+(x.cnt||0)+'</span>';}).join(' ');
   var devices=(r.by_device||[]).slice(0,8).map(function(x){return '<span class="badge bg-ac">'+escHtml(x.device_type||'未知')+' '+(x.cnt||0)+'</span>';}).join(' ');
+  var sources=(r.by_source||[]).slice(0,8).map(function(x){return '<span class="badge bg-mu">'+escHtml(x.source||'Unknown')+' '+(x.cnt||0)+'</span>';}).join(' ');
+  var reasons=(r.by_reason||[]).slice(0,8).map(function(x){return '<span class="badge bg-wa" title="'+escHtml(x.reason||'')+'">'+escHtml(x.reason||'--')+' '+(x.cnt||0)+'</span>';}).join(' ');
   var targetRows=(r.by_target||[]).slice(0,10).map(function(x){
    return '<tr><td style="padding:7px;border-top:1px solid var(--bd);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(x.target_url||'')+'">'+escHtml(x.target_url||'--')+'</td><td style="padding:7px;border-top:1px solid var(--bd)">'+escHtml(x.event_type||'')+'</td><td style="padding:7px;text-align:right;border-top:1px solid var(--bd)">'+(x.cnt||0)+'</td></tr>';
   }).join('');
-  var recent=(r.recent||[]).slice(0,20).map(function(x){
+  function eventName(t){
+   return {visit:'访问',click:'点击',redirect:'跳转',block:'拦截',submit:'提交',error:'错误',pass:'通过'}[String(t||'').toLowerCase()]||String(t||'--');
+  }
+  var recent=(r.recent||[]).slice(0,24).map(function(x){
    var pass=String(x.decision||'').toLowerCase()==='block'?'拒绝':'通过';
+   var passClass=pass==='拒绝'?'bg-er':'bg-ok';
    var reason=x.reason||x.target_url||'';
    var ref=String(x.referrer||'').replace(/^https?:\/\//,'').replace(/\/$/,'');
-   var source=(x.platform||'--')+(ref?' · '+ref.slice(0,90):'');
-   return '<tr>'+
-    '<td style="padding:8px;border-top:1px solid var(--bd);white-space:nowrap">'+escHtml(x.created_at||'')+'</td>'+
-    '<td style="padding:8px;border-top:1px solid var(--bd)"><b>'+escHtml(x.event_type||'')+'</b><div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(pass)+'</div></td>'+
-    '<td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.country||'--')+'</td>'+
-    '<td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.device_type||'--')+'</td>'+
-    '<td style="padding:8px;border-top:1px solid var(--bd);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(source)+'">'+escHtml(source)+'</td>'+
-    '<td style="padding:8px;border-top:1px solid var(--bd);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(reason)+'">'+escHtml(reason||'--')+'</td>'+
-   '</tr>';
+   var source=(x.source_platform||x.platform||'--')+(ref?' · '+ref.slice(0,90):'');
+   var place=[x.country||'',x.region||'',x.city||''].filter(Boolean).join(' / ')||'--';
+   var device=[x.device_type||'',x.os||'',x.browser||''].filter(Boolean).join(' · ')||'--';
+   var adInfo=(x.ad_id||x.ad_slug)?('<span>广告 '+escHtml(x.ad_id||'--')+(x.ad_slug?' · 子码 '+escHtml(x.ad_slug):'')+'</span>'):'<span>未识别广告</span>';
+   return '<div style="border:1px solid var(--bd);border-radius:10px;background:#fff;padding:10px 12px;display:grid;gap:7px">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>'+escHtml(eventName(x.event_type))+'</b> <span class="badge '+passClass+'">'+escHtml(pass)+'</span></div><span style="color:var(--t3);font-size:12px">'+escHtml(x.created_at||'')+'</span></div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:12px;color:var(--t2)">'+
+     '<div><span style="color:var(--t3)">地区</span><br><b style="color:var(--t1)">'+escHtml(place)+'</b></div>'+
+     '<div><span style="color:var(--t3)">设备</span><br><b style="color:var(--t1)">'+escHtml(device)+'</b></div>'+
+     '<div><span style="color:var(--t3)">来源</span><br><b style="color:var(--t1)">'+escHtml(source)+'</b></div>'+
+     '<div><span style="color:var(--t3)">归因</span><br><b style="color:var(--t1)">'+adInfo+'</b></div>'+
+    '</div>'+
+    '<div style="font-size:12px;color:var(--t3);word-break:break-all"><b style="color:var(--t1)">原因 / 目标：</b>'+escHtml(reason||'--')+'</div>'+
+   '</div>';
   }).join('');
   var metricCards=[
    {label:'访问',value:visits},
@@ -21105,8 +21116,13 @@ async function showLandingStats(id){
    '</div>'+
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0"><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 24 小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 7 天趋势</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
    '<div style="margin:10px 0;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-weight:800;font-size:13px;margin-bottom:8px">跳转目标分布</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">目标链接</th><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">事件</th><th style="text-align:right;padding:7px;border-bottom:1px solid var(--bd)">次数</th></tr></thead><tbody>'+(targetRows||'<tr><td colspan="3" style="padding:12px;color:var(--t3)">暂无跳转目标数据</td></tr>')+'</tbody></table></div>'+
-   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px"><div><b>国家</b><div style="margin-top:6px">'+(countries||'<span style="color:var(--t3)">暂无</span>')+'</div></div><div><b>设备</b><div style="margin-top:6px">'+(devices||'<span style="color:var(--t3)">暂无</span>')+'</div></div></div>'+
-   '<div class="table-wrap"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">时间</th><th style="text-align:left;padding:8px">动作</th><th style="text-align:left;padding:8px">国家</th><th style="text-align:left;padding:8px">设备</th><th style="text-align:left;padding:8px">来源</th><th style="text-align:left;padding:8px">原因 / 目标</th></tr></thead><tbody>'+(recent||'<tr><td colspan="6" style="padding:14px;color:var(--t3)">暂无事件</td></tr>')+'</tbody></table></div>';
+   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px">'+
+    '<div><b>国家</b><div style="margin-top:6px">'+(countries||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+    '<div><b>设备</b><div style="margin-top:6px">'+(devices||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+    '<div><b>来源平台</b><div style="margin-top:6px">'+(sources||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+    '<div><b>拦截原因</b><div style="margin-top:6px">'+(reasons||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+
+   '</div>'+
+   '<div style="margin-top:10px"><div style="font-weight:800;font-size:13px;margin-bottom:8px">最近访问日志</div><div style="display:grid;gap:8px">'+(recent||'<div style="padding:14px;color:var(--t3);border:1px solid var(--bd);border-radius:10px;background:#fff">暂无事件</div>')+'</div></div>';
  }catch(e){
   if(panel)panel.innerHTML='<div class="card-title">访问统计与日志</div><div style="color:var(--er);font-size:13px">加载失败：'+escHtml(e.message||e)+'</div>';
  }
