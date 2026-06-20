@@ -1002,15 +1002,15 @@ def _public_protection_template(row) -> dict:
 def _assert_protection_template_access(conn, template_id: int, user) -> dict:
     row = conn.execute("SELECT * FROM landing_protection_templates WHERE id=? AND status='active'", (template_id,)).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="访问控制模板不存在")
+        raise HTTPException(status_code=404, detail="防护规则模板不存在")
     item = dict(row)
     if is_superadmin(user):
         return item
     tid = team_id_for_create(user)
     if item.get("team_id") != tid:
-        raise HTTPException(status_code=403, detail="访问控制模板属于其他团队")
+        raise HTTPException(status_code=403, detail="防护规则模板属于其他团队")
     if is_operator_user(user) and item.get("owner_user_id") not in (None, user_id(user)):
-        raise HTTPException(status_code=403, detail="访问控制模板属于其他运营")
+        raise HTTPException(status_code=403, detail="防护规则模板属于其他运营")
     return item
 
 
@@ -2959,82 +2959,6 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         "country_allow",
         "country_block",
-        "platform_block",
-        "device_block",
-        "ua_block",
-        "referer_block",
-        "query_block",
-        "required_query",
-    }
-    clean: dict[str, Any] = {}
-    for key in allowed:
-        value = rules.get(key)
-        if value is None:
-            continue
-        if isinstance(value, str):
-            parts = [x.strip()[:80] for x in re.split(r"[\s,，;；]+", value) if x.strip()]
-        elif isinstance(value, list):
-            parts = [str(x).strip()[:80] for x in value if str(x).strip()]
-        else:
-            continue
-        clean[key] = parts[:80]
-    return clean
-
-
-def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(rules, dict):
-        return {}
-    allowed = {
-        "country_allow",
-        "country_block",
-        "source_allow",
-        "source_block",
-        "platform_block",
-        "device_block",
-        "ua_block",
-        "referer_block",
-        "query_block",
-        "required_query",
-    }
-    source_alias = {
-        "fb": "facebook",
-        "facebook": "facebook",
-        "ig": "instagram",
-        "instagram": "instagram",
-        "tk": "tiktok",
-        "tt": "tiktok",
-        "tiktok": "tiktok",
-        "google": "google",
-        "gg": "google",
-        "bing": "bing",
-        "wa": "whatsapp",
-        "whatsapp": "whatsapp",
-        "tg": "telegram",
-        "telegram": "telegram",
-        "unknown": "unknown",
-    }
-    clean: dict[str, Any] = {}
-    for key in allowed:
-        value = rules.get(key)
-        if value is None:
-            continue
-        if isinstance(value, str):
-            parts = [x.strip()[:80] for x in re.split(r"[\s,，;；]+", value) if x.strip()]
-        elif isinstance(value, list):
-            parts = [str(x).strip()[:80] for x in value if str(x).strip()]
-        else:
-            continue
-        if key in {"source_allow", "source_block"}:
-            parts = [source_alias.get(p.lower(), p.lower()) for p in parts]
-        clean[key] = parts[:80]
-    return clean
-
-def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(rules, dict):
-        return {}
-    allowed = {
-        "country_allow",
-        "country_block",
         "source_allow",
         "source_block",
         "platform_block",
@@ -3661,7 +3585,7 @@ def create_landing_protection_template(body: LandingProtectionTemplateReq, user=
         raise HTTPException(status_code=400, detail="请填写模板名称")
     rules = _safe_rules(body.rules)
     if not rules:
-        raise HTTPException(status_code=400, detail="请至少配置一条访问控制规则")
+        raise HTTPException(status_code=400, detail="请至少配置一条防护规则")
     team_id, owner_id = _stamp(user, body.team_id)
     conn = get_conn()
     try:
@@ -3702,7 +3626,7 @@ def update_landing_protection_template(template_id: int, body: LandingProtection
         raise HTTPException(status_code=400, detail="请填写模板名称")
     rules = _safe_rules(body.rules)
     if not rules:
-        raise HTTPException(status_code=400, detail="请至少配置一条访问控制规则")
+        raise HTTPException(status_code=400, detail="请至少配置一条防护规则")
     conn = get_conn()
     try:
         _assert_protection_template_access(conn, template_id, user)
