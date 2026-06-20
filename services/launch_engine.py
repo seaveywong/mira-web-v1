@@ -611,6 +611,16 @@ class AutoPilotEngine:
     def _setting_enabled(self, key: str, default: str = "1") -> bool:
         return str(self._get_setting(key, default)).strip().lower() in ("1", "true", "yes", "on")
 
+    def _campaign_bool(self, campaign: dict, key: str, default: bool) -> bool:
+        if not campaign or key not in campaign or campaign.get(key) is None:
+            return bool(default)
+        raw = campaign.get(key)
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, (int, float)):
+            return int(raw) != 0
+        return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
     def _launch_ad_variant_count(self, headlines: list, bodies: list, budget_usd: float, one_ad_per_adset: bool) -> int:
         count = min(len(headlines), len(bodies), 3)
         if count <= 0:
@@ -1151,7 +1161,11 @@ class AutoPilotEngine:
             ad_language = campaign.get("ad_language") or "en"
             # 出价策略
             bid_strategy = campaign.get("bid_strategy") or "LOWEST_COST_WITHOUT_CAP"
-            one_ad_per_adset = self._setting_enabled("autopilot_one_ad_per_adset", "1")
+            one_ad_per_adset = self._campaign_bool(
+                campaign,
+                "one_ad_per_adset",
+                self._setting_enabled("autopilot_one_ad_per_adset", "1"),
+            )
 
             # 落地页链接：三层优先级
             # 层內1：铺广告弹窗手动填写

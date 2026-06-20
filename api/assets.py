@@ -1724,6 +1724,7 @@ class LaunchCampaignBody(BaseModel):
     placements: Optional[dict] = None
     bid_strategy: str = "LOWEST_COST_WITHOUT_CAP"
     max_adsets: int = 5
+    one_ad_per_adset: bool = True
     page_id: Optional[str] = None
     pixel_id: Optional[str] = None
     conversion_event: Optional[str] = None
@@ -1796,6 +1797,11 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
         body.bid_strategy = "LOWEST_COST_WITHOUT_CAP"
     if body.bid_strategy in {"COST_CAP", "BID_CAP"} and not body.target_cpa:
         body.bid_strategy = "LOWEST_COST_WITHOUT_CAP"
+    try:
+        body.max_adsets = max(1, min(int(body.max_adsets or 5), 20))
+    except Exception:
+        body.max_adsets = 5
+    body.one_ad_per_adset = bool(body.one_ad_per_adset)
 
 
 def _launch_act_ids(body: LaunchCampaignBody) -> list[str]:
@@ -1843,6 +1849,9 @@ def _ensure_launch_campaign_columns(conn) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(auto_campaigns)").fetchall()}
     if "form_link" not in cols:
         conn.execute("ALTER TABLE auto_campaigns ADD COLUMN form_link TEXT")
+        conn.commit()
+    if "one_ad_per_adset" not in cols:
+        conn.execute("ALTER TABLE auto_campaigns ADD COLUMN one_ad_per_adset INTEGER DEFAULT 1")
         conn.commit()
 
 
@@ -2120,17 +2129,18 @@ def _insert_launch_campaign(conn, asset: dict, act_id: str, body: LaunchCampaign
            (act_id, asset_id, name, objective, target_countries,
             target_cpa, daily_budget,
             age_min, age_max, gender, placements, bid_strategy, max_adsets,
-            page_id_override, pixel_id_override, landing_url, form_link,
+            one_ad_per_adset, page_id_override, pixel_id_override, landing_url, form_link,
             device_platforms, ad_language, conversion_event,
             tw_page_id, conversion_goal, message_template, lead_form_id,
             cta_type, copy_mode, custom_copy, status, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
         (
             act_id, asset["id"], campaign_name, body.objective,
             json.dumps(body.target_countries or ["US"]), body.target_cpa, body.daily_budget,
             body.age_min, body.age_max, body.gender,
             json.dumps(body.placements) if body.placements else None,
             body.bid_strategy, body.max_adsets,
+            1 if body.one_ad_per_adset else 0,
             body.page_id, body.pixel_id, body.landing_url, body.form_link,
             body.device_platforms or "all", body.ad_language or "en",
             body.conversion_event or "PURCHASE",
@@ -2263,7 +2273,17 @@ def get_launch_campaign_status(asset_id: int, campaign_id: int, user=Depends(get
     if not row:
         raise HTTPException(404, "任务不存在")
     r = dict(row)
-    r["ad_links"] = [dict(x) for x in link_rows]
+    ad_links = []
+    for x in link_rows:
+        item = dict(x)
+        public_url = str(item.get("public_url") or "").strip()
+        ad_id = str(item.get("ad_id") or "").strip()
+        if public_url and ad_id and "ad=" not in public_url:
+            item["ad_param_url"] = public_url + ("&" if "?" in public_url else "?") + "ad=" + ad_id
+        else:
+            item["ad_param_url"] = public_url if ad_id else ""
+        ad_links.append(item)
+    r["ad_links"] = ad_links
     step = r.get("progress_step") or ""
     step_map = {"init": 5, "token": 10, "asset": 20, "upload": 35, "campaign": 50, "adset_1": 60, "adset_2": 70, "adset_3": 80, "adset_4": 85, "adset_5": 88, "done": 100}
     if r["status"] == "error":
