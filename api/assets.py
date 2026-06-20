@@ -1728,6 +1728,7 @@ class LaunchCampaignBody(BaseModel):
     pixel_id: Optional[str] = None
     conversion_event: Optional[str] = None
     landing_url: Optional[str] = None
+    form_link: Optional[str] = None
     device_platforms: str = "all"
     ad_language: str = "en"
     tw_advertiser_id: Optional[int] = None
@@ -1772,6 +1773,7 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
     body.page_id = (body.page_id or "").strip() or None
     body.pixel_id = (body.pixel_id or "").strip() or None
     body.landing_url = (body.landing_url or "").strip() or None
+    body.form_link = (body.form_link or "").strip() or None
     body.tw_page_id = (body.tw_page_id or "").strip() or None
 
 
@@ -1813,6 +1815,13 @@ def _account_landing_or_default(conn, act_id: str) -> str:
 def _get_setting_value(conn, key: str, default: str = "") -> str:
     row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     return (row["value"] if row and row["value"] is not None else default) or default
+
+
+def _ensure_launch_campaign_columns(conn) -> None:
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(auto_campaigns)").fetchall()}
+    if "form_link" not in cols:
+        conn.execute("ALTER TABLE auto_campaigns ADD COLUMN form_link TEXT")
+        conn.commit()
 
 
 def _normalize_account_status(raw):
@@ -1903,7 +1912,7 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
             apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=False)
             apply_account_owner_scope(account_where, account_params, user, "owner_user_id")
         rows = conn.execute(
-            f"SELECT act_id,name,enabled,account_status,page_id,pixel_id,landing_url FROM accounts WHERE {' AND '.join(account_where)}",
+            f"SELECT act_id,name,enabled,account_status,page_id,pixel_id,landing_url,form_link FROM accounts WHERE {' AND '.join(account_where)}",
             account_params,
         ).fetchall()
         account_map = {r["act_id"]: dict(r) for r in rows}
@@ -1996,6 +2005,22 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 items.append({"key": "landing_url", "label": "落地页链接", "status": "pass", "msg": "已配置落地页"})
             else:
                 items.append({"key": "landing_url", "label": "落地页链接", "status": "fail", "msg": "以下账户缺少落地页链接：" + ", ".join(landing_missing[:5])})
+        elif meta["is_lead"] and not body.lead_form_id:
+            form_missing = [
+                (account_map.get(act_id, {}) or {}).get("name") or act_id
+                for act_id in act_ids
+                if not (
+                    body.form_link
+                    or body.landing_url
+                    or ((account_map.get(act_id, {}) or {}).get("form_link") or "").strip()
+                    or ((account_map.get(act_id, {}) or {}).get("landing_url") or "").strip()
+                    or default_landing_url
+                )
+            ]
+            if not form_missing:
+                items.append({"key": "form_link", "label": "表单回跳链接", "status": "pass", "msg": "已配置 Lead 表单回跳/隐私链接"})
+            else:
+                items.append({"key": "form_link", "label": "表单回跳链接", "status": "warn", "msg": "以下账户缺少表单回跳链接，自动建表单时会尝试使用系统兜底：" + ", ".join(form_missing[:5])})
 
         regulated = [c for c in (body.target_countries or []) if c in _REGULATED_IDENTITY_COUNTRIES]
         if regulated:
@@ -2065,6 +2090,7 @@ def _launch_campaign_name(asset: dict, body: LaunchCampaignBody) -> str:
 
 
 def _insert_launch_campaign(conn, asset: dict, act_id: str, body: LaunchCampaignBody) -> int:
+    _ensure_launch_campaign_columns(conn)
     now = _launch_now()
     campaign_name = _launch_campaign_name(asset, body)
     cur = conn.execute(
@@ -2072,18 +2098,18 @@ def _insert_launch_campaign(conn, asset: dict, act_id: str, body: LaunchCampaign
            (act_id, asset_id, name, objective, target_countries,
             target_cpa, daily_budget,
             age_min, age_max, gender, placements, bid_strategy, max_adsets,
-            page_id_override, pixel_id_override, landing_url,
+            page_id_override, pixel_id_override, landing_url, form_link,
             device_platforms, ad_language, conversion_event,
             tw_page_id, conversion_goal, message_template, lead_form_id,
             cta_type, copy_mode, custom_copy, status, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
         (
             act_id, asset["id"], campaign_name, body.objective,
             json.dumps(body.target_countries or ["US"]), body.target_cpa, body.daily_budget,
             body.age_min, body.age_max, body.gender,
             json.dumps(body.placements) if body.placements else None,
             body.bid_strategy, body.max_adsets,
-            body.page_id, body.pixel_id, body.landing_url,
+            body.page_id, body.pixel_id, body.landing_url, body.form_link,
             body.device_platforms or "all", body.ad_language or "en",
             body.conversion_event or "PURCHASE",
             body.tw_page_id,

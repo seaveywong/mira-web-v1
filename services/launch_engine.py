@@ -2613,17 +2613,20 @@ class AutoPilotEngine:
         _landing_link_reserved = None
         _link_cache = None
         _link_cache_key = ""
-        if landing_url:
+        _goal_lower_for_link = (conversion_goal or "").lower().strip()
+        _is_lead_ad_type = _goal_lower_for_link == "lead_generation"
+        _tracking_base_url = landing_url or (form_link if _is_lead_ad_type else "")
+        if _tracking_base_url:
             try:
                 if isinstance(asset_info, dict):
                     _link_cache = asset_info.setdefault("_mira_landing_link_cache", {})
-                    _link_cache_key = "|".join([str(act_id or ""), str(adset_id or ""), str(name or ""), str(landing_url or "")])
+                    _link_cache_key = "|".join([str(act_id or ""), str(adset_id or ""), str(name or ""), str(_tracking_base_url or "")])
                     _landing_link_reserved = _link_cache.get(_link_cache_key)
                 _acc_for_link = self._load_account(act_id) or {}
                 _account_name_for_link = (_acc_for_link.get("name") or act_id or "").strip()
                 if not _landing_link_reserved:
                     _landing_link_reserved = self._reserve_landing_ad_link(
-                        landing_url,
+                        _tracking_base_url,
                         act_id,
                         _account_name_for_link,
                         fb_campaign_id or "",
@@ -2637,9 +2640,10 @@ class AutoPilotEngine:
                         _link_cache[_link_cache_key] = _landing_link_reserved
                 if _landing_link_reserved and _landing_link_reserved.get("public_url"):
                     _tracked_landing_url = str(_landing_link_reserved["public_url"]).strip()
-                    if not form_link or self._landing_link_base(form_link) == self._landing_link_base(landing_url):
+                    if not form_link or self._landing_link_base(form_link) == self._landing_link_base(_tracking_base_url):
                         form_link = _tracked_landing_url
-                    landing_url = _tracked_landing_url
+                    if not landing_url or self._landing_link_base(landing_url) == self._landing_link_base(_tracking_base_url):
+                        landing_url = _tracked_landing_url
             except Exception as _link_err:
                 logger.warning("[AutoPilot] landing ad link auto-bind skipped: %s", _link_err)
 
@@ -2650,7 +2654,6 @@ class AutoPilotEngine:
         # 表单广告：如果没有 form_id，用 AI 根据素材内容自动生成并在主页上创建 Lead Form
         _lead_form_resolved = lead_form_id
         _lead_form_error = ""
-        _is_lead_ad_type = (conversion_goal or "").lower().strip() == "lead_generation"
         if _is_lead_ad_type:
             if lead_form_id and lead_form_id.strip().isdigit():
                 # 传入的是模板 ID，尝试从模板创建
