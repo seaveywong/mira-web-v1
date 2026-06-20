@@ -304,6 +304,21 @@ def _index_response():
     )
 
 
+def _json_not_found():
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+
+def _looks_like_static_file(path: str) -> bool:
+    name = os.path.basename(path or "")
+    if not name:
+        return False
+    if ".bak" in name.lower() or name.lower().endswith((".old", ".orig", ".backup")):
+        return True
+    _, ext = os.path.splitext(name)
+    return bool(ext)
+
+
 @app.get("/")
 async def root():
     return _index_response()
@@ -323,8 +338,7 @@ async def favicon():
 async def catch_all(path: str):
     # API 路径不应该到达这里，但以防万一返回 404 而不是 HTML
     if path.startswith("api/") or path.startswith("api"):
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"detail": "Not Found"}, status_code=404)
+        return _json_not_found()
     fp = os.path.join(FRONTEND, path)
     fp = os.path.realpath(fp)
     if not fp.startswith(os.path.realpath(FRONTEND) + os.sep):
@@ -332,4 +346,6 @@ async def catch_all(path: str):
         return JSONResponse({"detail": "Forbidden"}, status_code=403)
     if os.path.exists(fp) and os.path.isfile(fp):
         return FileResponse(fp)
+    if _looks_like_static_file(path):
+        return _json_not_found()
     return _index_response()

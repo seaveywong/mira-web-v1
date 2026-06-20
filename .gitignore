@@ -65,5 +65,9 @@ temp/
 data/local_token_nodes.json
 *.tmp
 *.pid
+*.orig
+*.old
 _archive/
 remote_full_current/
+.wrangler/
+tools/
