@@ -4004,7 +4004,7 @@ def _landing_runtime_config(page: dict) -> dict[str, Any]:
     rotation_mode = (page.get("rotation_mode") or "sequential").strip().lower()
     if rotation_mode not in {"sequential", "random", "first"}:
         rotation_mode = "sequential"
-    return {
+    config = {
         "link_kind": link_kind,
         "target_urls": [u for u in _json_loads(page.get("target_urls"), []) if isinstance(u, str) and u.strip()],
         "rotation_mode": rotation_mode,
@@ -4012,6 +4012,16 @@ def _landing_runtime_config(page: dict) -> dict[str, Any]:
         "protection_enabled": bool(page.get("protection_enabled")),
         "protection_rules": _safe_rules(_json_loads(page.get("protection_rules"), {})),
     }
+    updated_at = str(page.get("updated_at") or "").strip()
+    version_payload = json.dumps(
+        {**config, "updated_at": updated_at},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    config["config_updated_at"] = updated_at
+    config["config_version"] = hashlib.sha256(version_payload.encode("utf-8", "ignore")).hexdigest()[:16]
+    return config
 
 
 @router.post("/edge/config")

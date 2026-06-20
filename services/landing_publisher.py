@@ -720,7 +720,9 @@ function mergeConfig(base, live) {
     'rotation_mode',
     'tracking_enabled',
     'protection_enabled',
-    'protection_rules'
+    'protection_rules',
+    'config_updated_at',
+    'config_version'
   ].forEach(k => {
     if (Object.prototype.hasOwnProperty.call(live, k)) out[k] = live[k];
   });
