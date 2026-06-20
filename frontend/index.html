@@ -18790,7 +18790,7 @@ function _landingRowActionsHtml(p, link, usageTotal){
  if(p.custom_domain_dns_hint)more.push(_landingActionButton('复制 DNS',"copyText('"+encodeURIComponent(p.custom_domain_dns_hint)+"')",'btn-g','复制自定义域 DNS 配置'));
  more.push(_landingActionButton('重新发布','republishLandingPage('+id+')','btn-g role-hide-viewer','更新线上 HTML/Worker，保留原链接和短码'));
  more.push(_landingActionButton('自检','checkLandingHealth('+id+')','btn-g','检查线上访问、直跳和域名状态'));
- more.push(_landingActionButton('统计','showLandingStats('+id+')','btn-g','查看访问、点击、跳转和拦截'));
+ more.push(_landingActionButton('统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
  if(usageTotal>0)more.push(_landingActionButton('使用详情','showLandingUsage('+id+')','btn-g','查看哪些账户、任务或广告入口仍在使用该链接'));
  if(p.custom_domain)more.push(_landingActionButton('补齐域名','repairLandingDomain('+id+')','btn-g role-hide-viewer','补齐 DNS、绑定自定义域并在可用后回绑账户'));
  more.push(_landingActionButton('账户投放链接',"showPage('landing_urls')",'btn-g','查看或维护账户绑定的落地页/表单链接'));
@@ -20852,7 +20852,7 @@ async function archiveLandingPage(id,cleanup){
 }
 async function showLandingStats(id){
  var panel=document.getElementById('landingStatsPanel');
- if(panel){panel.style.display='block';panel.innerHTML='<div class="card-title">落地页统计</div><div style="color:var(--t3);font-size:13px">加载中...</div>';}
+ if(panel){panel.style.display='block';panel.innerHTML='<div class="card-title">访问统计与日志</div><div style="color:var(--t3);font-size:13px">加载中...</div>';}
  try{
  var r=await api('GET','/landing-pages/pages/'+id+'/stats?days=7');
  var s=r.summary||{};
@@ -20888,8 +20888,17 @@ async function showLandingStats(id){
   var targetRows=(r.by_target||[]).slice(0,10).map(function(x){
    return '<tr><td style="padding:7px;border-top:1px solid var(--bd);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(x.target_url||'')+'">'+escHtml(x.target_url||'--')+'</td><td style="padding:7px;border-top:1px solid var(--bd)">'+escHtml(x.event_type||'')+'</td><td style="padding:7px;text-align:right;border-top:1px solid var(--bd)">'+(x.cnt||0)+'</td></tr>';
   }).join('');
-  var recent=(r.recent||[]).slice(0,12).map(function(x){
-   return '<tr><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.created_at||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.event_type||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.country||'')+'</td><td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.reason||x.target_url||'')+'</td></tr>';
+  var recent=(r.recent||[]).slice(0,20).map(function(x){
+   var pass=String(x.decision||'').toLowerCase()==='block'?'拒绝':'通过';
+   var reason=x.reason||x.target_url||'';
+   return '<tr>'+
+    '<td style="padding:8px;border-top:1px solid var(--bd);white-space:nowrap">'+escHtml(x.created_at||'')+'</td>'+
+    '<td style="padding:8px;border-top:1px solid var(--bd)"><b>'+escHtml(x.event_type||'')+'</b><div style="font-size:11px;color:var(--t3);margin-top:2px">'+escHtml(pass)+'</div></td>'+
+    '<td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.country||'--')+'</td>'+
+    '<td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.device_type||'--')+'</td>'+
+    '<td style="padding:8px;border-top:1px solid var(--bd)">'+escHtml(x.platform||'--')+'</td>'+
+    '<td style="padding:8px;border-top:1px solid var(--bd);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(reason)+'">'+escHtml(reason||'--')+'</td>'+
+   '</tr>';
   }).join('');
   var metricCards=[
    {label:'访问',value:visits},
@@ -20910,7 +20919,7 @@ async function showLandingStats(id){
   var bindMap={none:'未自动绑定',landing:'账户落地页',form:'账户表单链接',both:'落地页 + 表单链接'};
   var bindText=bindMap[page.bind_target]||(page.bind_target||'未自动绑定');
   if(panel)panel.innerHTML=
-   '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div class="card-title">落地页统计 · '+escHtml((r.page||{}).title||'')+'</div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
+   '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div class="card-title">访问统计与日志 · '+escHtml((r.page||{}).title||'')+'</div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px">'+
     '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div>'+pageKind+'</div><div style="font-size:12px;color:var(--t3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(pageUrl)+'">主链接：'+(pageUrl?escHtml(pageUrl):'--')+'</div></div>'+
     '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-size:12px;color:var(--t3)">账户绑定字段</div><div style="font-size:16px;font-weight:800;margin-top:4px">'+escHtml(bindText)+'</div></div>'+
@@ -20922,9 +20931,9 @@ async function showLandingStats(id){
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0"><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 24 小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);min-width:0"><div style="font-weight:800;font-size:13px;margin-bottom:8px">近 7 天趋势</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
    '<div style="margin:10px 0;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2)"><div style="font-weight:800;font-size:13px;margin-bottom:8px">跳转目标分布</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">目标链接</th><th style="text-align:left;padding:7px;border-bottom:1px solid var(--bd)">事件</th><th style="text-align:right;padding:7px;border-bottom:1px solid var(--bd)">次数</th></tr></thead><tbody>'+(targetRows||'<tr><td colspan="3" style="padding:12px;color:var(--t3)">暂无跳转目标数据</td></tr>')+'</tbody></table></div>'+
    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px"><div><b>国家</b><div style="margin-top:6px">'+(countries||'<span style="color:var(--t3)">暂无</span>')+'</div></div><div><b>设备</b><div style="margin-top:6px">'+(devices||'<span style="color:var(--t3)">暂无</span>')+'</div></div></div>'+
-   '<div class="table-wrap"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">时间</th><th style="text-align:left;padding:8px">事件</th><th style="text-align:left;padding:8px">国家</th><th style="text-align:left;padding:8px">说明</th></tr></thead><tbody>'+(recent||'<tr><td colspan="4" style="padding:14px;color:var(--t3)">暂无事件</td></tr>')+'</tbody></table></div>';
+   '<div class="table-wrap"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">时间</th><th style="text-align:left;padding:8px">动作</th><th style="text-align:left;padding:8px">国家</th><th style="text-align:left;padding:8px">设备</th><th style="text-align:left;padding:8px">来源</th><th style="text-align:left;padding:8px">原因 / 目标</th></tr></thead><tbody>'+(recent||'<tr><td colspan="6" style="padding:14px;color:var(--t3)">暂无事件</td></tr>')+'</tbody></table></div>';
  }catch(e){
-  if(panel)panel.innerHTML='<div class="card-title">落地页统计</div><div style="color:var(--er);font-size:13px">加载失败：'+escHtml(e.message||e)+'</div>';
+  if(panel)panel.innerHTML='<div class="card-title">访问统计与日志</div><div style="color:var(--er);font-size:13px">加载失败：'+escHtml(e.message||e)+'</div>';
  }
 }
 function hideLandingStats(){
