@@ -1314,9 +1314,15 @@ def _setup_custom_domain_automation(
         )
         action = (dns_result or {}).get("action") or "checked"
         target = (dns_result or {}).get("target") or pages_cname_target(project_name, pages_url)
-        notices.append(f"DNS {action}: CNAME {custom_domain} -> {target}")
+        action_text = {
+            "created": "已创建",
+            "updated": "已更新",
+            "checked": "已检查",
+            "unchanged": "已确认",
+        }.get(str(action), str(action))
+        notices.append(f"DNS {action_text}: CNAME {custom_domain} -> {target}")
     except CloudflareError as exc:
-        errors.append(f"DNS automation failed: {_public_provider_error(exc, user)}")
+        errors.append(f"域名自动解析失败：{_public_provider_error(exc, user)}")
 
     try:
         domain_result = add_pages_custom_domain(raw_token, cf_account_id, project_name, custom_domain)
@@ -1332,11 +1338,11 @@ def _setup_custom_domain_automation(
                 pass
         status_text = _domain_status_text(domain_result) or "pending"
         if _domain_status_usable(domain_result, None):
-            notices.append(f"Custom domain active: {custom_domain}")
+            notices.append(f"自定义域名已可用：{custom_domain}")
         else:
-            notices.append(f"Custom domain {custom_domain} is {status_text}; fallback URL is used until it becomes active.")
+            notices.append(f"自定义域名 {custom_domain} 当前状态为 {status_text}；生效前会继续使用备用域。")
     except CloudflareError as exc:
-        errors.append(f"Custom domain binding failed: {_public_provider_error(exc, user)}")
+        errors.append(f"自定义域名绑定失败：{_public_provider_error(exc, user)}")
 
     return dns_result, domain_result, "\n".join(errors), "\n".join(notices)
 
@@ -2453,77 +2459,77 @@ def _stable_landing_health_checks(
         key = str(check.get("key") or "")
         state = str(check.get("status") or "")
         if key == "status":
-            check["label"] = "Publish status"
-            check["detail"] = "Published" if status_raw == "published" else f"Current status: {status_raw or 'unknown'}"
+            check["label"] = "发布状态"
+            check["detail"] = "已发布" if status_raw == "published" else f"当前状态：{status_raw or '未知'}"
         elif key == "public_url":
-            check["label"] = "Public URL"
-            check["detail"] = public_url or "No reachable fallback or custom-domain URL"
+            check["label"] = "公开链接"
+            check["detail"] = public_url or "没有可访问的备用域或自定义域链接"
         elif key == "custom_domain":
-            check["label"] = "Custom domain"
+            check["label"] = "自定义域名"
             if custom_domain:
                 check["detail"] = (
-                    f"https://{custom_domain} is the primary URL"
+                    f"https://{custom_domain} 已作为主链接"
                     if item.get("custom_domain_usable")
-                    else f"Domain is not active yet; currently using the fallback URL. {item.get('custom_domain_dns_hint') or 'Finish the CNAME record in DNS.'}"
+                    else f"域名还未确认可用，当前使用备用域。{item.get('custom_domain_dns_hint') or '请完成 DNS CNAME 指向。'}"
                 )
             elif pages_url:
-                check["detail"] = "No custom domain configured; using the default fallback domain"
+                check["detail"] = "未配置自定义域名，当前使用备用域"
         elif key == "targets":
-            check["label"] = "Redirect targets"
-            check["detail"] = f"{target_count} target link(s) configured" if target_count else "No redirect target configured"
+            check["label"] = "跳转目标"
+            check["detail"] = f"已配置 {target_count} 个目标链接" if target_count else "没有配置跳转目标"
         elif key == "form_mode":
-            check["label"] = "Form direct-link mode"
-            check["detail"] = "Root path redirects directly to the rotating target" if item.get("worker_enabled") else "Form direct-link mode requires dynamic routing"
+            check["label"] = "表单直跳模式"
+            check["detail"] = "根路径会直接跳转到轮询目标" if item.get("worker_enabled") else "表单直跳必须启用动态路由"
         elif key == "landing_mode":
-            check["label"] = "Landing-page mode"
-            check["detail"] = "Root path returns HTML; button clicks redirect to rotating targets"
+            check["label"] = "落地页展示模式"
+            check["detail"] = "根路径返回 HTML 页面，按钮点击后跳转到轮询目标"
         elif key == "worker":
-            check["label"] = "Runtime config / tracking / protection"
+            check["label"] = "动态配置 / 统计 / 防护"
             if item.get("worker_enabled"):
-                check["detail"] = f"Runtime config enabled; tracking {'on' if item.get('tracking_enabled') else 'off'}, protection {'on' if item.get('protection_enabled') else 'off'}"
+                check["detail"] = f"动态配置已启用；统计{'开' if item.get('tracking_enabled') else '关'}，防护{'开' if item.get('protection_enabled') else '关'}"
             else:
-                check["detail"] = "Dynamic routing is disabled; tracking, protection and server-side rotation are unavailable"
+                check["detail"] = "未启用动态路由，无法使用统计、防护和服务端轮询"
         elif key == "runtime_redirect":
-            check["label"] = "Live redirect"
+            check["label"] = "线上跳转"
             if protection_block_ok:
                 check["status"] = "pass"
-                check["detail"] = "Protection rules are active; this probe was redirected to the fallback URL"
+                check["detail"] = "防护规则已生效，本次自检环境已返回 Facebook"
             elif state == "pass":
-                check["detail"] = f"Root path returned HTTP {http_code} and redirected to a configured target"
+                check["detail"] = f"根路径返回 HTTP {http_code}，并已跳转到配置的目标链接"
             elif state == "warn" and blocked_by_protection:
-                check["detail"] = "The request was blocked by protection rules; test again from an allowed environment"
+                check["detail"] = "请求被防护规则拦截；请使用符合规则的访问环境复测"
             elif state == "warn" and http_code in {301, 302, 303, 307, 308}:
-                check["detail"] = f"Root path redirected, but Location is not in the current target list: {location[:180]}"
+                check["detail"] = f"根路径已跳转，但 Location 未命中当前目标列表：{location[:180]}"
             elif state == "warn":
-                check["detail"] = "The request was blocked by protection rules; test again from an allowed environment"
+                check["detail"] = "请求被防护规则拦截；请使用符合规则的访问环境复测"
             else:
-                check["detail"] = f"Form direct-link mode expects a 302 redirect; got HTTP {http_code or '--'}"
+                check["detail"] = f"表单直跳模式预期返回 302，实际 HTTP {http_code or '--'}"
         elif key == "runtime_page":
-            check["label"] = "Live page"
+            check["label"] = "线上页面"
             if protection_block_ok:
                 check["status"] = "pass"
-                check["detail"] = "Protection rules are active; this probe was redirected to the fallback URL"
+                check["detail"] = "防护规则已生效，本次自检环境已返回 Facebook"
             elif state == "pass":
-                check["detail"] = "Public URL returns HTML and the landing page is reachable"
+                check["detail"] = "公开链接返回 HTML，落地页可访问"
             elif state == "warn" and (http_code == 403 or blocked_by_protection):
-                check["detail"] = "The request was blocked by protection rules; the page may still be healthy"
+                check["detail"] = "请求被防护规则拦截；页面可能正常，但当前自检环境不在允许范围内"
             else:
-                check["detail"] = f"Public URL returned HTTP {http_code or '--'}, Content-Type: {content_type or '--'}"
+                check["detail"] = f"公开链接返回 HTTP {http_code or '--'}，Content-Type: {content_type or '--'}"
         elif key == "runtime_http":
-            check["label"] = "Live access"
+            check["label"] = "线上访问"
             if not str(check.get("detail") or "").strip():
-                check["detail"] = "Public URL request failed"
+                check["detail"] = "请求公开链接失败"
         elif key == "runtime_worker_route":
-            check["label"] = "Edge route"
+            check["label"] = "动态路由"
             if state == "pass":
-                check["detail"] = "Edge runtime is active; /__edge/redirect is handled"
+                check["detail"] = "动态路由已生效，跳转请求可被处理"
             elif state == "warn" and "protection" in str(check.get("detail") or "").lower():
                 check["status"] = "pass"
-                check["detail"] = "Edge runtime is active; protection rules intercepted this probe"
+                check["detail"] = "动态路由已生效；本次自检被防护规则拦截"
             elif state == "warn":
-                check["detail"] = "Runtime route was blocked by current protection rules; this still proves dynamic routing is active"
+                check["detail"] = "动态路由被当前防护规则拦截；这仍能证明动态路由已生效"
             else:
-                check["detail"] = str(check.get("detail") or "Edge route is not active; republish the page once")
+                check["detail"] = str(check.get("detail") or "动态路由未生效，请重新发布一次")
         out.append(check)
     return out
 
@@ -2924,7 +2930,7 @@ def _refresh_landing_domain_record(conn, page: dict, user) -> dict:
                 "runtime_usable": True,
                 "provider_status": _domain_status_text(status) or "unknown",
                 "checked_at": raw_payload["custom_domain_runtime_checked_at"],
-                "message": "Public runtime is reachable, while provider domain status is not active yet.",
+                "message": "公网访问已经可用，但发布平台的域名状态尚未同步为可用。",
             }
         else:
             raw_payload.pop("custom_domain_status_mismatch", None)
@@ -5507,7 +5513,7 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                     "runtime_usable": True,
                     "provider_status": _domain_status_text(domain_status) or "unknown",
                     "checked_at": runtime_checked_at,
-                    "message": "Public runtime is reachable, while provider domain status is not active yet.",
+                    "message": "公网访问已经可用，但发布平台的域名状态尚未同步为可用。",
                 }
             else:
                 raw_payload.pop("custom_domain_status_mismatch", None)
@@ -5698,30 +5704,30 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
                 checks.append({
                     "key": "runtime_worker_route",
                     "status": "pass",
-                    "label": "Edge route",
-                    "detail": "Edge route returned redirect",
+                    "label": "动态路由",
+                    "detail": "动态路由已返回跳转",
                 })
             elif worker_resp.status_code == 403 and item.get("protection_enabled"):
                 checks.append({
                     "key": "runtime_worker_route",
                     "status": "warn",
-                    "label": "Edge route",
-                    "detail": "Edge route returned protection block",
+                    "label": "动态路由",
+                    "detail": "动态路由已返回防护拦截",
                 })
             else:
                 ct = worker_resp.headers.get("content-type", "")
                 checks.append({
                     "key": "runtime_worker_route",
                     "status": "fail",
-                    "label": "Edge route",
-                    "detail": f"Edge route not active: /__edge/redirect returned HTTP {worker_resp.status_code}, Content-Type: {ct or '--'}. Republish this page once.",
+                    "label": "动态路由",
+                    "detail": f"动态路由未生效：跳转探测返回 HTTP {worker_resp.status_code}，Content-Type: {ct or '--'}。请重新发布一次。",
                 })
         except Exception as exc:
             checks.append({
                 "key": "runtime_worker_route",
                 "status": "fail",
-                "label": "Edge route",
-                "detail": f"Edge route probe failed: {exc}",
+                "label": "动态路由",
+                "detail": f"动态路由探测失败：{_public_error(exc, user, '请求失败')}",
             })
 
     if public_url:
