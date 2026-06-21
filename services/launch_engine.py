@@ -2721,7 +2721,7 @@ class AutoPilotEngine:
                     if _link_cache is not None and _landing_link_reserved:
                         _link_cache[_link_cache_key] = _landing_link_reserved
                 if _landing_link_reserved and _landing_link_reserved.get("public_url"):
-                    _tracked_landing_url = str(_landing_link_reserved["public_url"]).strip()
+                    _tracked_landing_url = self._landing_ad_click_url(_landing_link_reserved.get("public_url"))
                     if not form_link or self._landing_link_base(form_link) == self._landing_link_base(_tracking_base_url):
                         form_link = _tracked_landing_url
                     if not landing_url or self._landing_link_base(landing_url) == self._landing_link_base(_tracking_base_url):
@@ -3222,6 +3222,15 @@ class AutoPilotEngine:
             return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
         except Exception:
             return raw.rstrip("/").lower()
+
+    def _landing_ad_click_url(self, public_url: Optional[str]) -> str:
+        raw = str(public_url or "").strip()
+        if not raw:
+            return ""
+        if "ad={{ad.id}}" in raw or "ad=%7B%7Bad.id%7D%7D" in raw:
+            return raw
+        separator = "&" if "?" in raw else "?"
+        return f"{raw}{separator}ad={{{{ad.id}}}}"
 
     def _landing_domain_status_usable(self, item: dict) -> bool:
         domain = str(item.get("custom_domain") or "").strip()

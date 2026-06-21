@@ -4710,6 +4710,10 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
       <input class="fc" id="launchLandingUrl" type="url" placeholder="输入链接或搜索账户绑定的链接..." autocomplete="off" oninput="filterLandingUrlSuggestions(this.value);_validateLandingUrl(this)" onfocus="filterLandingUrlSuggestions(this.value)" onblur="setTimeout(function(){var d=document.getElementById('landingUrlDropdown');if(d)d.style.display='none'},200);_validateLandingUrl(this)"><div id="landingUrlValidMsg" style="font-size:11px;margin-top:3px;display:none"></div>
       <div id="landingUrlDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;z-index:999;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.3)"></div>
      </div>
+     <label id="launchBindLandingLinkRow" style="display:flex;align-items:flex-start;gap:6px;margin-top:6px;font-size:11px;color:var(--t2);line-height:1.5">
+      <input id="launchBindLandingLink" type="checkbox" checked style="width:auto;margin-top:2px">
+      <span id="launchBindLandingLinkText">同步保存为所选账户主链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。</span>
+     </label>
      <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：此处填写 &gt; 素材级绑定 &gt; 账户主链接/已绑定主链接 &gt; 系统全局默认；系统主链接会为每条广告自动生成广告入口并回绑广告。</div>
     </div>
     <!-- 消息模版：选择消息类转化目的时显示 -->
@@ -5230,7 +5234,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.54';
+var APP_VERSION='v3.11.60';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -13546,6 +13550,16 @@ async function onLaunchObjectiveChange() {
 
   var landingUrlRow = document.getElementById('launchLandingUrl');
   var landingUrlLabel = landingUrlRow && landingUrlRow.closest('.fg') && landingUrlRow.closest('.fg').querySelector('label');
+  var bindLaunchLinkRow = document.getElementById('launchBindLandingLinkRow');
+  var bindLaunchLink = document.getElementById('launchBindLandingLink');
+  var bindLaunchLinkText = document.getElementById('launchBindLandingLinkText');
+  if (bindLaunchLinkRow) bindLaunchLinkRow.style.display = meta.isMessage ? 'none' : 'flex';
+  if (bindLaunchLink) bindLaunchLink.disabled = !!meta.isMessage;
+  if (bindLaunchLinkText) {
+   bindLaunchLinkText.textContent = meta.isLead
+    ? '同步保存为所选账户表单链接；Lead 表单回跳使用该链接。'
+    : '同步保存为所选账户主链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。';
+  }
   if (landingUrlRow && landingUrlRow.parentElement) {
    landingUrlRow.parentElement.style.opacity = meta.isMessage ? '0.4' : '1';
    if (meta.isMessage) {
@@ -13631,6 +13645,7 @@ async function onLaunchObjectiveChange() {
    var launchLinkPayload=meta.isLead
     ? {form_link:launchLinkValue||null, landing_url:null}
     : {landing_url:launchLinkValue||null, form_link:null};
+   var bindLaunchLink=!!((document.getElementById('launchBindLandingLink')||{}).checked);
    if(btn){btn.disabled=true;btn.textContent='检测中...';}
    var precheck=await api('POST','/assets/precheck-launch',{
     act_id:actId,
@@ -13639,11 +13654,12 @@ async function onLaunchObjectiveChange() {
    conversion_goal:convGoal||null,
    target_countries:countries,
    page_id:pageId||null,
-   pixel_id:pixelId||null,
-   one_ad_per_adset:oneAdPerAdset,
-   landing_url:launchLinkPayload.landing_url,
-    form_link:launchLinkPayload.form_link,
-    message_template:((document.getElementById('launchMsgTemplate')||{}).value||'').trim()||null,
+    pixel_id:pixelId||null,
+    one_ad_per_adset:oneAdPerAdset,
+    landing_url:launchLinkPayload.landing_url,
+     form_link:launchLinkPayload.form_link,
+     bind_launch_link:bindLaunchLink&&!!launchLinkValue,
+     message_template:((document.getElementById('launchMsgTemplate')||{}).value||'').trim()||null,
    lead_form_id:((document.getElementById('launchLeadFormId')||{}).value||'').trim()||null,
    cta_type:(document.getElementById('launchCtaType')||{}).value||null,
    tw_page_id:((document.getElementById('launchTwAdvId')||{}).value||'').trim()||null
@@ -13684,6 +13700,7 @@ async function onLaunchObjectiveChange() {
   if(pixelId)payload.pixel_id=pixelId;
   if(launchLinkPayload.landing_url)payload.landing_url=launchLinkPayload.landing_url;
   if(launchLinkPayload.form_link)payload.form_link=launchLinkPayload.form_link;
+  if(bindLaunchLink&&launchLinkValue)payload.bind_launch_link=true;
   var twAdvEl=document.getElementById('launchTwAdvId');
   if(twAdvEl&&twAdvEl.value)payload.tw_page_id=twAdvEl.value.trim();
   var convEvEl=document.getElementById('launchConvEvent');
@@ -13703,6 +13720,7 @@ async function onLaunchObjectiveChange() {
   if(selectedActIds.length>1){
    payload.act_ids=selectedActIds;
    r=await api('POST','/assets/'+assetId+'/batch-launch',payload);
+   if(r&&r.bound_links)_syncLaunchBoundLinks(r.bound_links);
    var successCount=r.success||0;
    var failCount=r.failed||0;
    toast(' 已为 '+successCount+' 个账户创建铺广告任务'+(failCount?'，'+failCount+' 个失败':''),'ok');
@@ -13713,6 +13731,7 @@ async function onLaunchObjectiveChange() {
    }
   }else{
    r=await api('POST','/assets/'+assetId+'/launch',payload);
+   if(r&&r.bound_links)_syncLaunchBoundLinks(r.bound_links);
    toast(' 广告任务已提交，正在执行...','ok');
    var oneCampaign=((r.results||[])[0])||r||{};
    if(oneCampaign.campaign_id){
@@ -17825,6 +17844,31 @@ function _accountLandingUrl(a){
 }
 function _accountFormLink(a){
  return String((a && (a.form_link || a.form_link_effective)) || '').trim();
+}
+function _syncLaunchBoundLinks(boundLinks){
+ var links = (boundLinks || []).filter(function(x){ return x && x.act_id && x.field && x.value; });
+ if (!links.length) return;
+ function updateList(list, link){
+  (list || []).forEach(function(a){
+   if (!a || String(a.act_id) !== String(link.act_id)) return;
+   a[link.field] = link.value;
+   a[link.field + '_effective'] = link.value;
+  });
+ }
+ links.forEach(function(link){
+  updateList(window._launchAllAccounts || [], link);
+  updateList(_landingUrlAccs || [], link);
+ });
+ var source = (window._launchAllAccounts && window._launchAllAccounts.length) ? window._launchAllAccounts : (_landingUrlAccs || []);
+ if (source && source.length) {
+  window._allLandingUrlOptions = source
+   .map(function(a) { var url = _accountLandingUrl(a); return url ? { label: _buildLaunchLinkOptionLabel(a, url), url: url, act_id: String(a.act_id) } : null; })
+   .filter(Boolean);
+  window._allFormLinkOptions = source
+   .map(function(a) { var url = _accountFormLink(a); return url ? { label: _buildLaunchLinkOptionLabel(a, url), url: url, act_id: String(a.act_id) } : null; })
+   .filter(Boolean);
+  if (typeof _refreshLandingUrlOptions === 'function') _refreshLandingUrlOptions();
+ }
 }
 function _prefillLaunchLandingUrl(actId, mode, nextUrl){
  var input = document.getElementById('launchLandingUrl');

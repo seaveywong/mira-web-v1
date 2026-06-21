@@ -1749,6 +1749,8 @@ class LaunchCampaignBody(BaseModel):
     copy_mode: Optional[str] = "ai"
     custom_headline: Optional[str] = None
     custom_body: Optional[str] = None
+    bind_launch_link: bool = False
+    bind_launch_landing_url: bool = False
 
 
 class PreCheckBody(LaunchCampaignBody):
@@ -1793,6 +1795,8 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
     body.pixel_id = (body.pixel_id or "").strip() or None
     body.landing_url = (body.landing_url or "").strip() or None
     body.form_link = (body.form_link or "").strip() or None
+    body.bind_launch_link = bool(getattr(body, "bind_launch_link", False) or getattr(body, "bind_launch_landing_url", False))
+    body.bind_launch_landing_url = bool(getattr(body, "bind_launch_landing_url", False))
     body.tw_page_id = (body.tw_page_id or "").strip() or None
     try:
         if body.target_cpa is not None and float(body.target_cpa) <= 0:
@@ -2167,6 +2171,43 @@ def _insert_launch_campaign(conn, asset: dict, act_id: str, body: LaunchCampaign
     return int(cur.lastrowid)
 
 
+def _bind_launch_link_to_accounts(conn, act_ids: list[str], body: LaunchCampaignBody, user) -> list[dict]:
+    if not (getattr(body, "bind_launch_link", False) or getattr(body, "bind_launch_landing_url", False)):
+        return []
+    meta = _launch_goal_meta(body)
+    if meta.get("is_message"):
+        return []
+    if meta.get("is_lead"):
+        field = "form_link"
+        value = (body.form_link or body.landing_url or "").strip()
+    else:
+        field = "landing_url"
+        value = (body.landing_url or "").strip()
+    if not value:
+        return []
+
+    results = []
+    for raw_act_id in act_ids:
+        act_id = _normalize_launch_act_id(raw_act_id)
+        if not act_id:
+            continue
+        row = conn.execute(
+            "SELECT id, act_id, landing_url, form_link FROM accounts WHERE act_id=?",
+            (act_id,),
+        ).fetchone()
+        if not row:
+            continue
+        assert_row_access(conn, "accounts", int(row["id"]), user, allow_unassigned=False)
+        old_value = str(row[field] or "").strip()
+        if old_value != value:
+            conn.execute(
+                f"UPDATE accounts SET {field}=?, updated_at=datetime('now') WHERE id=?",
+                (value, int(row["id"])),
+            )
+        results.append({"act_id": act_id, "field": field, "value": value})
+    return results
+
+
 def _trigger_manual_launch(campaign_id: int) -> None:
     import traceback as _tb
     try:
@@ -2220,6 +2261,13 @@ def launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_cu
         if not body.custom_headline or not body.custom_body:
             conn.close()
             raise HTTPException(400, "自定义模式需要在素材详情中填写自定义标题和正文")
+    try:
+        bound_links = _bind_launch_link_to_accounts(conn, act_ids, body, user)
+        if bound_links:
+            conn.commit()
+    except Exception:
+        conn.close()
+        raise
     results = []
     for act_id in act_ids:
         try:
@@ -2231,7 +2279,7 @@ def launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_cu
             results.append({"act_id": act_id, "asset_id": asset_id, "campaign_id": None, "status": "error", "message": str(e)})
     conn.close()
     success = sum(1 for r in results if r["status"] == "pending")
-    resp = {"total": len(act_ids), "success": success, "failed": len(act_ids) - success, "results": results}
+    resp = {"total": len(act_ids), "success": success, "failed": len(act_ids) - success, "results": results, "bound_links": bound_links}
     if len(results) == 1:
         resp.update(results[0])
     return resp
