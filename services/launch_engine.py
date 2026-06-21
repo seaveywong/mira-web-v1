@@ -475,6 +475,39 @@ class AutoPilotEngine:
             f"原始错误：{err_msg}"
         )
 
+    def _delete_fb_campaign_best_effort(self, fb_campaign_id: str, token: str, candidate: dict | None = None) -> bool:
+        fb_campaign_id = str(fb_campaign_id or "").strip()
+        if not fb_campaign_id:
+            return False
+        prev_candidate = self._active_exec_candidate
+        try:
+            if self._is_local_candidate(candidate):
+                self._active_exec_candidate = candidate
+                data = self._run_local_graph_task(
+                    "graph_delete",
+                    fb_campaign_id,
+                    {"_timeout_sec": 30},
+                    timeout_seconds=30,
+                )
+                ok = "error" not in data and data.get("success") is not False
+                if not ok:
+                    logger.warning("[AutoPilot] 删除 FB Campaign 失败: %s", json.dumps(data, ensure_ascii=False)[:300])
+                return bool(ok)
+            import requests as _req
+            resp = _req.delete(
+                f"{FB_API_BASE}/{fb_campaign_id}",
+                params={"access_token": token},
+                timeout=10,
+            )
+            if not resp.ok:
+                logger.warning("[AutoPilot] 删除 FB Campaign 失败: %s", resp.text[:300])
+            return bool(resp.ok)
+        except Exception as exc:
+            logger.warning("[AutoPilot] 删除 FB Campaign 异常: %s", exc)
+            return False
+        finally:
+            self._active_exec_candidate = prev_candidate
+
     def _run_with_token_fallback(self, token_candidates: list[dict], preferred_token: str, op_name: str, fn):
         if not token_candidates:
             raise Exception("当前账户没有可用的操作号 Token")
@@ -964,6 +997,7 @@ class AutoPilotEngine:
             logger.info(f"[AutoPilot] campaign_id={campaign_id} 状态为 {campaign['status']}，跳过")
             return
 
+        stale_empty_fb_campaign_id = ""
         existing_fb_campaign_id = str(campaign.get("fb_campaign_id") or "").strip()
         if existing_fb_campaign_id:
             conn = get_conn()
@@ -988,11 +1022,27 @@ class AutoPilotEngine:
                 if campaign["status"] == "pending":
                     self._update_campaign_status(campaign_id, "done")
                 return
-            logger.warning(
-                f"[AutoPilot] campaign_id={campaign_id} 已有 fb_campaign_id={existing_fb_campaign_id} "
-                f"但没有成功广告记录，将复用该 Campaign 继续创建 AdSet/Ad（existing_rows={total_rows}）"
-            )
-
+            if campaign.get("status") == "error" and total_rows > 0 and done_ads == 0:
+                stale_empty_fb_campaign_id = existing_fb_campaign_id
+                existing_fb_campaign_id = ""
+                conn = get_conn()
+                try:
+                    conn.execute("UPDATE auto_campaigns SET fb_campaign_id=NULL, updated_at=? WHERE id=?", (
+                        datetime.now(tz=timezone(timedelta(hours=8))).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
+                        campaign_id,
+                    ))
+                    conn.commit()
+                finally:
+                    conn.close()
+                logger.warning(
+                    f"[AutoPilot] campaign_id={campaign_id} 上次失败且没有成功广告，"
+                    f"本次不复用旧 Campaign: {stale_empty_fb_campaign_id}"
+                )
+            else:
+                logger.warning(
+                    f"[AutoPilot] campaign_id={campaign_id} 已有 fb_campaign_id={existing_fb_campaign_id} "
+                    f"但没有成功广告记录，将复用该 Campaign 继续创建 AdSet/Ad（existing_rows={total_rows}）"
+                )
         act_id = campaign["act_id"]
         self._active_act_id = act_id
         account = self._load_account(act_id)
@@ -1239,6 +1289,9 @@ class AutoPilotEngine:
                 f"[AutoPilot] 主页权限预检通过: page_id={page_id}, "
                 f"可用 CREATE Token={len(_token_candidates)}"
             )
+            if stale_empty_fb_campaign_id:
+                if self._delete_fb_campaign_best_effort(stale_empty_fb_campaign_id, token, _token_candidates[0]):
+                    logger.info("[AutoPilot] 已清理上次失败残留 Campaign: %s", stale_empty_fb_campaign_id)
             # 落地页检测：流量/转化/互动广告必须有落地页链接
             goal_meta = _get_campaign_goal_meta(
                 campaign.get("objective", ""),
@@ -1262,6 +1315,8 @@ class AutoPilotEngine:
                     f"2. 「投放链接管理」页面为账户 {act_id} 配置专属落地页\n"
                     f"3. 系统设置中的「全局默认落地页」（default_landing_url）"
                 )
+            if goal_meta["landing_required"]:
+                self._validate_managed_landing_ready_for_launch(landing_url, "落地页链接")
             self._update_progress(campaign_id, "upload", "上传素材到 Facebook...")
             # 4. 上传素材到 FB（获取 image_hash 或 video_id）
             fb_asset_ref, _asset_token_candidate = self._run_with_token_fallback(
@@ -1814,41 +1869,9 @@ class AutoPilotEngine:
             if total_ads == 0:
                 # 广告全部失败：自动删除 FB Campaign，不留空 Campaign/AdSet 垃圾对象
                 if fb_campaign_id:
-                    try:
-                        if self._is_local_candidate():
-                            class _LocalDeleteClient:
-                                def __init__(_self, engine):
-                                    _self.engine = engine
-
-                                def delete(_self, url, params=None, timeout=10):
-                                    object_id = str(url or "").rstrip("/").rsplit("/", 1)[-1]
-                                    data = _self.engine._run_local_graph_task(
-                                        "graph_delete",
-                                        object_id,
-                                        {"_timeout_sec": max(10, int(timeout or 10))},
-                                        timeout_seconds=max(10, int(timeout or 10)),
-                                    )
-
-                                    class _Resp:
-                                        ok = "error" not in data and data.get("success") is not False
-                                        text = json.dumps(data, ensure_ascii=False)
-
-                                    return _Resp()
-                            _req = _LocalDeleteClient(self)
-                        else:
-                            import requests as _req
-                        _del_resp = _req.delete(
-                            f"{FB_API_BASE}/{fb_campaign_id}",
-                            params={"access_token": token},
-                            timeout=10
-                        )
-                        if _del_resp.ok:
-                            logger.info(f"[AutoPilot] 已删除失败的 FB Campaign: {fb_campaign_id}")
-                            _cleanup_note = "\n已自动删除失败 Campaign，避免保留空 AdSet。"
-                        else:
-                            logger.warning(f"[AutoPilot] 删除 FB Campaign 失败: {_del_resp.text[:200]}")
-                    except Exception as _del_err:
-                        logger.warning(f"[AutoPilot] 删除 FB Campaign 异常: {_del_err}")
+                    if self._delete_fb_campaign_best_effort(fb_campaign_id, token):
+                        logger.info(f"[AutoPilot] 已删除失败的 FB Campaign: {fb_campaign_id}")
+                        _cleanup_note = "\n已自动删除失败 Campaign，避免保留空 AdSet。"
                     # 清除数据库中的 fb_campaign_id
                     try:
                         _cc = get_conn()
@@ -3384,17 +3407,18 @@ class AutoPilotEngine:
             values.append(str(status).strip().lower())
         return any(value in {"active", "success", "verified", "ready", "ok"} for value in values)
 
-    def _match_managed_landing_page_for_url(self, landing_url: Optional[str]) -> Optional[dict]:
+    def _match_managed_landing_page_for_url(self, landing_url: Optional[str], published_only: bool = True) -> Optional[dict]:
         target = self._landing_link_base(landing_url)
         if not target:
             return None
         conn = get_conn()
         try:
+            status_clause = "WHERE status='published'" if published_only else "WHERE 1=1"
             rows = conn.execute(
-                """SELECT id, pages_url, custom_domain, target_urls, team_id, owner_user_id,
-                          raw_response, last_error
+                f"""SELECT id, status, pages_url, custom_domain, target_urls, team_id, owner_user_id,
+                          raw_response, last_error, worker_enabled, edge_runtime_version, link_kind
                    FROM landing_pages
-                   WHERE status='published'
+                   {status_clause}
                      AND (COALESCE(pages_url,'')!='' OR COALESCE(custom_domain,'')!='')
                    ORDER BY id DESC LIMIT 500"""
             ).fetchall()
@@ -3421,6 +3445,25 @@ class AutoPilotEngine:
         finally:
             conn.close()
         return None
+
+    def _validate_managed_landing_ready_for_launch(self, landing_url: Optional[str], label: str = "落地页链接") -> None:
+        raw = str(landing_url or "").strip()
+        if not raw:
+            return
+        page = self._match_managed_landing_page_for_url(raw, published_only=False)
+        if not page:
+            return
+        page_id = page.get("id")
+        status = str(page.get("status") or "").strip()
+        if status != "published":
+            raise Exception(f"{label} 指向 Mira 托管落地页 #{page_id}，但当前状态不是 published，请先发布后再投放。")
+        if not bool(page.get("worker_enabled")):
+            raise Exception(f"{label} 指向 Mira 托管落地页 #{page_id}，但动态路由未启用；请重新发布一次落地页后再投放。")
+        if not str(page.get("public_url") or "").strip():
+            custom_domain = str(page.get("custom_domain") or "").strip()
+            if custom_domain:
+                raise Exception(f"{label} 指向 Mira 托管落地页 #{page_id}，但正式域名 {custom_domain} 尚未就绪，请等待域名复检或重新发布后再投放。")
+            raise Exception(f"{label} 指向 Mira 托管落地页 #{page_id}，但当前没有可投放 public_url，请重新发布后再投放。")
 
     def _find_published_landing_page_for_url(self, landing_url: Optional[str]) -> Optional[dict]:
         page = self._match_managed_landing_page_for_url(landing_url)

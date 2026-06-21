@@ -1875,6 +1875,86 @@ def _account_landing_or_default(conn, act_id: str) -> str:
     return resolve_account_landing_link(conn, act_id, dict(account_row) if account_row else {}, default_landing_url)
 
 
+def _launch_landing_link_base(value: Optional[str]) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "https://" + raw
+    try:
+        parsed = urlparse(raw)
+        if not parsed.netloc:
+            return raw.rstrip("/").lower()
+        path = (parsed.path or "").rstrip("/")
+        if path.startswith("/a/"):
+            return ""
+        if path not in ("", "/"):
+            return raw.rstrip("/").lower()
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    except Exception:
+        return raw.rstrip("/").lower()
+
+
+def _launch_domain_status_usable(raw_response, last_error: str = "") -> bool:
+    try:
+        raw = raw_response if isinstance(raw_response, dict) else json.loads(raw_response or "{}")
+    except Exception:
+        raw = {}
+    if isinstance(raw, dict) and raw.get("custom_domain_runtime_usable"):
+        return True
+    err = str(last_error or "").strip().lower()
+    if any(token in err for token in ("authentication", "permission", "not authorized", "forbidden", "failed")):
+        return False
+    domain_status = {}
+    if isinstance(raw, dict):
+        domain_status = raw.get("domain_status") or raw.get("custom_domain_result") or {}
+    values = []
+    if isinstance(domain_status, dict):
+        for key in ("status", "verified", "validation_status", "verification_status", "ssl_status"):
+            if domain_status.get(key) is not None:
+                values.append(str(domain_status.get(key)).strip().lower())
+    elif domain_status is not None:
+        values.append(str(domain_status).strip().lower())
+    return any(value in {"active", "success", "verified", "ready", "ok", "true"} for value in values)
+
+
+def _managed_landing_launch_issue(conn, landing_url: str, label: str = "落地页链接") -> str:
+    target = _launch_landing_link_base(landing_url)
+    if not target:
+        return ""
+    try:
+        rows = conn.execute(
+            """SELECT id, title, status, pages_url, custom_domain, raw_response,
+                      last_error, worker_enabled
+               FROM landing_pages
+               WHERE COALESCE(pages_url,'')!='' OR COALESCE(custom_domain,'')!=''
+               ORDER BY id DESC LIMIT 500"""
+        ).fetchall()
+    except Exception:
+        return ""
+    for row in rows:
+        item = dict(row)
+        pages_url = str(item.get("pages_url") or "").strip().rstrip("/")
+        custom_domain = str(item.get("custom_domain") or "").strip().rstrip("/")
+        custom_url = f"https://{custom_domain}" if custom_domain else ""
+        if not (
+            pages_url and _launch_landing_link_base(pages_url) == target
+            or custom_url and _launch_landing_link_base(custom_url) == target
+        ):
+            continue
+        page_name = item.get("title") or f"#{item.get('id')}"
+        if str(item.get("status") or "").strip() != "published":
+            return f"{label} 指向托管落地页 {page_name}，但还未发布，请先发布后再投放"
+        if not bool(item.get("worker_enabled")):
+            return f"{label} 指向托管落地页 {page_name}，但动态路由未启用，请重新发布一次后再投放"
+        if custom_domain and not _launch_domain_status_usable(item.get("raw_response"), item.get("last_error") or ""):
+            return f"{label} 指向托管落地页 {page_name}，但正式域名 {custom_domain} 尚未就绪，请等待复检或重新发布后再投放"
+        if not custom_domain and not pages_url:
+            return f"{label} 指向托管落地页 {page_name}，但没有可投放 public_url，请重新发布后再投放"
+        return ""
+    return ""
+
+
 def _get_setting_value(conn, key: str, default: str = "") -> str:
     row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     return (row["value"] if row and row["value"] is not None else default) or default
@@ -2084,7 +2164,17 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 )
             ]
             if not landing_missing:
-                items.append({"key": "landing_url", "label": "落地页链接", "status": "pass", "msg": "已配置落地页；系统投放时会自动生成广告入口短码并回绑广告"})
+                landing_issues = []
+                for act_id in act_ids:
+                    acc = account_map.get(act_id, {}) or {}
+                    candidate_url = (body.landing_url or acc.get("landing_url_effective") or "").strip()
+                    issue = _managed_landing_launch_issue(conn, candidate_url, (acc.get("name") or act_id))
+                    if issue:
+                        landing_issues.append(issue)
+                if landing_issues:
+                    items.append({"key": "landing_url_ready", "label": "落地页发布状态", "status": "fail", "msg": "；".join(landing_issues[:5])})
+                else:
+                    items.append({"key": "landing_url", "label": "落地页链接", "status": "pass", "msg": "已配置落地页；系统投放时会自动生成广告入口短码并回绑广告"})
             else:
                 items.append({"key": "landing_url", "label": "落地页链接", "status": "fail", "msg": "以下账户缺少落地页链接：" + ", ".join(landing_missing[:5])})
         elif meta["is_lead"] and not body.lead_form_id:

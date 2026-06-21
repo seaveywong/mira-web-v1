@@ -268,8 +268,23 @@ def get_account_token_summary(
             if t.get("type") == "operate"
             and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in WRITABLE_OPERATION_SOURCES
         ]
+        bound_writable_total = sum(
+            1 for t in linked_tokens
+            if t.get("type") == "operate"
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in WRITABLE_OPERATION_SOURCES
+        )
+        live_write_candidates = []
+        try:
+            live_write_candidates = get_exec_token_candidates(
+                act_id,
+                ACTION_CREATE,
+                notify_exhausted=False,
+                reserve=False,
+            )
+        except Exception as exc:
+            logger.warning("[TokenManager] write candidate probe failed for %s: %s", act_id, exc)
         manage_token_ok = any(t.get("type") == "manage" for t in active_linked_tokens)
-        write_token_ok = bool(writable_tokens)
+        write_token_ok = bool(live_write_candidates)
         read_token_ok = (
             manage_token_ok
             or any(t.get("type") in ("manage", "operate", "user") for t in active_linked_tokens)
@@ -289,7 +304,10 @@ def get_account_token_summary(
         elif not read_token_ok:
             token_issue_reasons.append("没有可读取账户信息或关停兜底的活动 Token")
         if read_token_ok and not write_token_ok:
-            token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 或 Meta 官方授权操作号")
+            if bound_writable_total:
+                token_issue_reasons.append("已绑定可写操作号，但当前心跳不可用；请检查 OAuth App 是否已 Live、Token 是否过期或重新授权")
+            else:
+                token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 或 Meta 官方授权操作号")
 
         legacy_operate_token_total = sum(
             1 for t in linked_tokens
