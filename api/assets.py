@@ -2458,10 +2458,32 @@ def search_accounts(
         params + [limit]
     ).fetchall()
     items = []
+    try:
+        from services.token_manager import ACTION_CREATE, get_exec_token_candidates
+    except Exception:
+        ACTION_CREATE = None
+        get_exec_token_candidates = None
     for r in rows:
         d = dict(r)
         d["status"] = d.get("account_status")
         d["linked_matrix_ids"] = _matrix_ids_for_act(conn, d.get("act_id"))
+        create_ok = True
+        if get_exec_token_candidates and ACTION_CREATE:
+            try:
+                create_ok = bool(
+                    get_exec_token_candidates(
+                        d.get("act_id"),
+                        ACTION_CREATE,
+                        notify_exhausted=False,
+                        reserve=False,
+                    )
+                )
+            except Exception:
+                create_ok = False
+        d["create_token_ok"] = create_ok
+        d["write_token_ok"] = create_ok
+        if not create_ok:
+            d["token_issue_reasons"] = ["缺少可用于自动铺广告的可写操作号"]
         items.append(d)
     conn.close()
     return items

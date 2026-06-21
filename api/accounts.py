@@ -2694,26 +2694,36 @@ def list_accounts(user=Depends(get_current_user)):
     except Exception as exc:
         logger.warning("[Accounts] recent spend API supplement failed: %s", exc)
     all_tokens_map = {}
-    token_where, token_params = ["1=1"], []
-    apply_team_scope(token_where, token_params, user, "t.team_id", include_unassigned=False)
-    _apply_account_owner_scope(token_where, token_params, user, "acc")
-    all_token_rows = conn.execute(f"""
-        SELECT aot.act_id, t.id as token_id, t.token_alias, t.token_type, t.token_source,
-               t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
-        FROM account_op_tokens aot
-        JOIN fb_tokens t ON t.id = aot.token_id
-        JOIN accounts acc ON acc.act_id = aot.act_id
-        WHERE {' AND '.join(token_where)}
-          AND (
-            (acc.team_id IS NULL AND t.team_id IS NULL)
-            OR (acc.team_id IS NOT NULL AND t.team_id=acc.team_id)
-          )
-        ORDER BY
-            CASE WHEN aot.status = 'active' AND t.status = 'active' THEN 0 ELSE 1 END,
-            CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
-            aot.priority DESC,
-            t.token_alias
-    """, token_params).fetchall()
+    visible_act_ids = [str(r["act_id"] or "").strip() for r in rows if str(r["act_id"] or "").strip()]
+    all_token_rows = []
+    if visible_act_ids:
+        placeholders = ",".join("?" for _ in visible_act_ids)
+        all_token_rows = conn.execute(
+            f"""
+            SELECT aot.act_id, t.id as token_id, t.token_alias, t.token_type, t.token_source,
+                   t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
+            FROM account_op_tokens aot
+            JOIN fb_tokens t ON t.id = aot.token_id
+            JOIN accounts acc ON acc.act_id = aot.act_id
+            WHERE aot.act_id IN ({placeholders})
+              AND (
+                (acc.team_id IS NULL AND t.team_id IS NULL)
+                OR (
+                    acc.team_id IS NOT NULL
+                    AND (
+                        t.team_id = acc.team_id
+                        OR (t.team_id IS NULL AND t.token_type='operate' AND t.token_source=?)
+                    )
+                )
+              )
+            ORDER BY
+                CASE WHEN aot.status = 'active' AND t.status = 'active' THEN 0 ELSE 1 END,
+                CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
+                aot.priority DESC,
+                t.token_alias
+            """,
+            visible_act_ids + [TOKEN_SOURCE_OAUTH_USER],
+        ).fetchall()
     for lr in all_token_rows:
         act_id_key = lr["act_id"]
         if act_id_key not in all_tokens_map:
