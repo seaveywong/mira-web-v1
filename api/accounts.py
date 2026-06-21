@@ -853,8 +853,12 @@ def _auto_link_tokens_for_accounts(
         ]
         token_params = [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER]
         if team_id is not None:
-            token_where.append("team_id=?")
-            token_params.append(team_id)
+            if is_superadmin(user):
+                token_where.append("(team_id=? OR (team_id IS NULL AND token_type='operate' AND token_source=?))")
+                token_params.extend([team_id, TOKEN_SOURCE_OAUTH_USER])
+            else:
+                token_where.append("team_id=?")
+                token_params.append(team_id)
         elif not normalize_user_claims(user).get("is_superadmin"):
             user_team_id = team_id_for_create(user)
             token_where.append("team_id=?")

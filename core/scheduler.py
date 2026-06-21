@@ -8,7 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from core.database import get_conn
-from services.token_manager import TOKEN_SOURCE_SYSTEM_USER, ensure_token_source_columns
+from services.token_manager import TOKEN_SOURCE_OAUTH_USER, TOKEN_SOURCE_SYSTEM_USER, ensure_token_source_columns
 from services.notifier import notify_account
 
 logger = logging.getLogger("mira.scheduler")
@@ -369,7 +369,22 @@ def run_token_account_discovery():
     try:
         c = get_conn()
         ensure_token_source_columns(c)
-        # 获取所有活跃 Token；操作号仅允许 system user 参与自动发现
+        if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='meta_oauth_states'").fetchone():
+            c.execute(
+                """
+                UPDATE fb_tokens
+                SET token_source=?
+                WHERE id IN (
+                    SELECT token_id FROM meta_oauth_states
+                    WHERE token_id IS NOT NULL
+                )
+                  AND token_type='operate'
+                  AND COALESCE(token_source, '') != ?
+                """,
+                (TOKEN_SOURCE_OAUTH_USER, TOKEN_SOURCE_OAUTH_USER),
+            )
+            c.commit()
+        # 获取所有活跃 Token；操作号允许 system user 与官方 OAuth 参与自动发现
         all_tokens = c.execute(
             """
             SELECT id, token_alias, token_type, token_source, access_token_enc, team_id
@@ -377,10 +392,10 @@ def run_token_account_discovery():
             WHERE status='active'
               AND (
                 token_type != 'operate'
-                OR token_source = ?
+                OR token_source IN (?, ?)
               )
             """,
-            (TOKEN_SOURCE_SYSTEM_USER,),
+            (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER),
         ).fetchall()
         # 获取所有已导入账户
         all_accounts = c.execute("SELECT id, act_id, name, team_id FROM accounts").fetchall()
@@ -397,7 +412,19 @@ def run_token_account_discovery():
             token_id = tk["id"]
             token_alias = tk["token_alias"]
             token_team_id = _team_key(tk["team_id"])
-            candidate_act_ids = act_ids_by_team.get(token_team_id, set())
+            token_type = (tk["token_type"] or "").strip().lower()
+            token_source = (tk["token_source"] or "").strip().lower()
+            global_oauth_operate = (
+                token_team_id is None
+                and token_type == "operate"
+                and token_source == TOKEN_SOURCE_OAUTH_USER
+            )
+            if global_oauth_operate:
+                candidate_act_ids = set()
+                for ids in act_ids_by_team.values():
+                    candidate_act_ids.update(ids)
+            else:
+                candidate_act_ids = act_ids_by_team.get(token_team_id, set())
             if not candidate_act_ids:
                 continue
             try:
@@ -409,7 +436,10 @@ def run_token_account_discovery():
                 matched_act_ids = candidate_act_ids & fb_act_ids
                 c2 = get_conn()
                 try:
-                    account_team_sql, account_team_params = _account_team_filter("a", token_team_id)
+                    if global_oauth_operate:
+                        account_team_sql, account_team_params = "1=1", []
+                    else:
+                        account_team_sql, account_team_params = _account_team_filter("a", token_team_id)
                     # 获取该 Token 当前已关联的账户
                     existing_rows = c2.execute(
                         f"""SELECT aot.act_id, aot.status, aot.note

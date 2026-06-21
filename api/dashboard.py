@@ -16,7 +16,13 @@ import requests as req
 import time
 from api.accounts import _calc_available_balance
 from core.perf_history import ensure_perf_snapshot_history_schema
-from services.token_manager import ACTION_READ, TOKEN_SOURCE_SYSTEM_USER, get_exec_token, is_operate_token_eligible
+from services.token_manager import (
+    ACTION_READ,
+    TOKEN_SOURCE_OAUTH_USER,
+    TOKEN_SOURCE_SYSTEM_USER,
+    get_exec_token,
+    is_operate_token_eligible,
+)
 from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _get_setting, _local_per_usd_rate
 from api.landing_pages import _ad_link_stats
 
@@ -1316,8 +1322,14 @@ def get_ads_live(
                      AND (
                        (a.team_id IS NULL AND t.team_id IS NULL)
                        OR (a.team_id IS NOT NULL AND t.team_id=a.team_id)
+                       OR (
+                         a.team_id IS NOT NULL
+                         AND t.team_id IS NULL
+                         AND t.token_type='operate'
+                         AND COALESCE(t.token_source, '')=?
+                       )
                      )""",
-                act_ids,
+                act_ids + [TOKEN_SOURCE_OAUTH_USER],
             ).fetchall()
             for row in token_rows:
                 active = row["token_status"] == "active" and row["bind_status"] == "active"

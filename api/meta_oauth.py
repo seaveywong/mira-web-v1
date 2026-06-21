@@ -108,6 +108,22 @@ def _ensure_schema(conn) -> None:
     if "match_result_json" not in cols:
         conn.execute("ALTER TABLE meta_oauth_states ADD COLUMN match_result_json TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_meta_oauth_states_status ON meta_oauth_states(status, expires_at)")
+    try:
+        conn.execute(
+            """
+            UPDATE fb_tokens
+            SET token_source=?
+            WHERE id IN (
+                SELECT token_id FROM meta_oauth_states
+                WHERE token_id IS NOT NULL
+            )
+              AND token_type='operate'
+              AND COALESCE(token_source, '') != ?
+            """,
+            (TOKEN_SOURCE_OAUTH_USER, TOKEN_SOURCE_OAUTH_USER),
+        )
+    except Exception:
+        pass
     conn.commit()
 
 
@@ -301,11 +317,21 @@ def _limit_items(items: list[dict], limit: int = 30) -> list[dict]:
     return items[:limit]
 
 
-def _link_existing_accounts(conn, token_id: int, access_token: str, team_id: Optional[int], owner_user_id: Optional[int]) -> dict:
+def _link_existing_accounts(
+    conn,
+    token_id: int,
+    access_token: str,
+    team_id: Optional[int],
+    owner_user_id: Optional[int],
+    *,
+    allow_all_teams: bool = False,
+) -> dict:
     fb_accounts = _fetch_all_fb_adaccounts(access_token, ACCOUNT_DETAIL_FIELDS, timeout=30)
     where = []
     params = []
-    if team_id is None:
+    if allow_all_teams:
+        where.append("1=1")
+    elif team_id is None:
         where.append("team_id IS NULL")
     else:
         where.append("team_id=?")
@@ -904,7 +930,14 @@ def meta_oauth_callback(
         token_id = cursor.lastrowid
         match_result = {}
         if token_type in ("operate", "manage"):
-            match_result = _link_existing_accounts(conn, token_id, access_token, st["team_id"], st["owner_user_id"])
+            match_result = _link_existing_accounts(
+                conn,
+                token_id,
+                access_token,
+                st["team_id"],
+                st["owner_user_id"],
+                allow_all_teams=bool(st["team_id"] is None and st["owner_user_id"] is None),
+            )
         conn.execute(
             f"UPDATE meta_oauth_states SET status='completed', token_id=?, match_result_json=?, completed_at={_now_cst_expr()} WHERE state=?",
             (token_id, json.dumps(match_result, ensure_ascii=False), state),
