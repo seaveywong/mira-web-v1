@@ -442,6 +442,8 @@ class AutoPilotEngine:
 
     def _should_try_next_token(self, err_msg: str) -> bool:
         lower = str(err_msg or "").lower()
+        if self._is_app_development_mode_error(err_msg):
+            return True
         if any(
             token in lower
             for token in (
@@ -455,6 +457,23 @@ class AutoPilotEngine:
         ):
             return True
         return False
+
+    def _is_app_development_mode_error(self, err_msg: str) -> bool:
+        raw = str(err_msg or "")
+        lower = raw.lower()
+        return (
+            "1885183" in raw
+            or ("ads creative post" in lower and "development mode" in lower)
+            or ("meta app" in lower and "development mode" in lower)
+        )
+
+    def _format_app_development_mode_error(self, err_msg: str) -> str:
+        return (
+            "Meta App 仍处于 Development mode，Facebook 不允许用该 App 创建可投放广告。"
+            "这不是受众、预算或落地页问题；必须在 Meta for Developers 将当前 OAuth App 切到 Live/Public，"
+            "或在 Mira 重新配置一个已 Live 的 Meta App 并重新授权操作号后再投放。"
+            f"原始错误：{err_msg}"
+        )
 
     def _run_with_token_fallback(self, token_candidates: list[dict], preferred_token: str, op_name: str, fn):
         if not token_candidates:
@@ -1318,8 +1337,11 @@ class AutoPilotEngine:
             # 7. 逐组创建 AdSet + Ad
             total_adsets = 0
             total_ads = 0
+            fatal_launch_error = ""
 
             for group_idx, audience in enumerate(audience_groups):
+                if fatal_launch_error:
+                    break
                 try:
                     if not token:
                         logger.warning(f"[AutoPilot] AdSet {group_idx+1}: 无可用操作号 Token，跳过")
@@ -1501,15 +1523,19 @@ class AutoPilotEngine:
                                 logger.info(f"[AutoPilot] ✅ Ad {group_idx+1}-{ad_idx+1} 创建成功: {fb_ad_id}")
                                 time.sleep(0.1)
                             except Exception as ad_err:
-                                logger.error(f"[AutoPilot] Ad {group_idx+1}-{ad_idx+1} 创建失败: {ad_err}")
+                                _ad_err_msg = str(ad_err)
+                                logger.error(f"[AutoPilot] Ad {group_idx+1}-{ad_idx+1} 创建失败: {_ad_err_msg}")
                                 self._insert_campaign_ad(
                                     campaign_id, act_id, campaign["asset_id"],
                                     headline, body,
                                     json.dumps(variant_audience, ensure_ascii=False),
                                     fb_adset_id, None,
-                                    status="error", error_msg=str(ad_err),
+                                    status="error", error_msg=_ad_err_msg,
                                     adset_name=variant_adset_name, ad_name=ad_name
                                 )
+                                if self._is_app_development_mode_error(_ad_err_msg):
+                                    fatal_launch_error = _ad_err_msg
+                                    break
                         time.sleep(0.1)
                         continue
                     fb_adset_id, _adset_token_candidate = self._run_with_token_fallback(
@@ -1598,15 +1624,19 @@ class AutoPilotEngine:
                             time.sleep(0.1)  # 轻量错峰，主要限流已交给 token_manager
 
                         except Exception as ad_err:
-                            logger.error(f"[AutoPilot] Ad {ad_idx+1} 创建失败: {ad_err}")
+                            _ad_err_msg = str(ad_err)
+                            logger.error(f"[AutoPilot] Ad {ad_idx+1} 创建失败: {_ad_err_msg}")
                             self._insert_campaign_ad(
                                 campaign_id, act_id, campaign["asset_id"],
                                 headline, body,
                                 json.dumps(audience, ensure_ascii=False),
                                 fb_adset_id, None,
-                                status="error", error_msg=str(ad_err),
+                                status="error", error_msg=_ad_err_msg,
                                 adset_name=adset_name, ad_name=ad_name
                             )
+                            if self._is_app_development_mode_error(_ad_err_msg):
+                                fatal_launch_error = _ad_err_msg
+                                break
 
                     time.sleep(0.1)
 
@@ -1693,16 +1723,20 @@ class AutoPilotEngine:
                                     logger.info(f"[AutoPilot] ✅ Ad {ad_idx+1}（降级）创建成功: {fb_ad_id}")
                                     time.sleep(0.1)
                                 except Exception as ad_err2:
-                                    logger.error(f"[AutoPilot] Ad {ad_idx+1}（降级）创建失败: {ad_err2}")
+                                    _ad_err_msg2 = str(ad_err2)
+                                    logger.error(f"[AutoPilot] Ad {ad_idx+1}（降级）创建失败: {_ad_err_msg2}")
                                     self._insert_campaign_ad(
                                         campaign_id, act_id, campaign["asset_id"],
                                         headlines[ad_idx] if ad_idx < len(headlines) else "",
                                         bodies[ad_idx] if ad_idx < len(bodies) else "",
                                         json.dumps(fallback_audience, ensure_ascii=False),
                                         fb_adset_id, None,
-                                        status="error", error_msg=str(ad_err2),
+                                        status="error", error_msg=_ad_err_msg2,
                                         adset_name=adset_name, ad_name=ad_name
                                     )
+                                    if self._is_app_development_mode_error(_ad_err_msg2):
+                                        fatal_launch_error = _ad_err_msg2
+                                        break
                         except Exception as fallback_err:
                             logger.error(f"[AutoPilot] AdSet {group_idx+1} 降级宽泛受众也失败: {fallback_err}")
                             self._insert_campaign_ad(
@@ -1770,14 +1804,15 @@ class AutoPilotEngine:
                 _ec.close()
                 _err_parts = []
                 for _row in _err_rows:
-                    _msg = _row["error_msg"][:100] + "..." if len(_row["error_msg"]) > 100 else _row["error_msg"]
+                    _msg = _row["error_msg"][:260] + "..." if len(_row["error_msg"]) > 260 else _row["error_msg"]
                     _err_parts.append(f"×{_row['cnt']} {_msg}")
                 _err_summary = "\n".join(_err_parts) if _err_parts else ""
             except Exception:
                 _err_summary = ""
 
-            if total_adsets == 0:
-                # 全部失败：自动删除 FB Campaign，不留垃圾对象
+            _cleanup_note = ""
+            if total_ads == 0:
+                # 广告全部失败：自动删除 FB Campaign，不留空 Campaign/AdSet 垃圾对象
                 if fb_campaign_id:
                     try:
                         if self._is_local_candidate():
@@ -1809,6 +1844,7 @@ class AutoPilotEngine:
                         )
                         if _del_resp.ok:
                             logger.info(f"[AutoPilot] 已删除失败的 FB Campaign: {fb_campaign_id}")
+                            _cleanup_note = "\n已自动删除失败 Campaign，避免保留空 AdSet。"
                         else:
                             logger.warning(f"[AutoPilot] 删除 FB Campaign 失败: {_del_resp.text[:200]}")
                     except Exception as _del_err:
@@ -1821,17 +1857,20 @@ class AutoPilotEngine:
                         _cc.close()
                     except Exception:
                         pass
+            if total_adsets == 0:
                 _done_msg = f"全部失败！共创建 0 个 AdSet，0 条广告"
                 if _err_summary:
                     _done_msg += f"\n⚠️ 失败原因：\n{_err_summary}"
                 else:
                     _done_msg += "（请查看日志了解详情）"
+                _done_msg += _cleanup_note
                 # 全部失败时改为 error 状态
                 self._update_progress(campaign_id, "error", _done_msg)
             elif total_ads == 0:
                 _done_msg = f"AdSet 已创建但广告全部失败！共 {total_adsets} 个 AdSet，0 条广告"
                 if _err_summary:
                     _done_msg += f"\n⚠️ 失败原因：\n{_err_summary}"
+                _done_msg += _cleanup_note
                 # 广告全部失败时也改为 error
                 self._update_progress(campaign_id, "error", _done_msg)
             else:
@@ -3111,8 +3150,11 @@ class AutoPilotEngine:
                 _link_cache.pop(_link_cache_key, None)
             return ad_id
         except Exception as _ad_create_err:
+            _ad_create_msg = str(_ad_create_err)
+            if self._is_app_development_mode_error(_ad_create_msg):
+                _ad_create_err = Exception(self._format_app_development_mode_error(_ad_create_msg))
             self._mark_landing_ad_link(_landing_link_reserved, "failed", error_msg=str(_ad_create_err))
-            raise
+            raise _ad_create_err
 
     # ── 兴趣词解析 ───────────────────────────────────────────────────────────
     def _resolve_interests(self, interest_names: list, token: str) -> list:
