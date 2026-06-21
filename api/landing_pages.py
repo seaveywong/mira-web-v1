@@ -4214,7 +4214,8 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
             _assert_template_access(conn, new_template_id, user)
             should_republish = should_republish or new_template_id != template_id
             template_id = new_template_id
-        worker_enabled = bool(page.get("worker_enabled") or tracking_enabled or protection_enabled or (page.get("link_kind") or "landing") == "form")
+        worker_enabled = True
+        should_republish = should_republish or not bool(page.get("worker_enabled"))
         conn.execute(
             """UPDATE landing_pages
                SET target_urls=?, rotation_mode=?, tracking_enabled=?, protection_enabled=?,
@@ -4877,7 +4878,7 @@ def publish_landing_page(body: LandingPublishReq, request: Request, user=Depends
             team_id = token_row.get("team_id")
     project_name = sanitize_project_name(body.project_name or title)
     protection_rules = _safe_rules(body.protection_rules)
-    worker_enabled = bool(body.tracking_enabled or body.protection_enabled or link_kind == "form")
+    worker_enabled = True
     ingest_secret = secrets.token_urlsafe(32)
     work_dir = None
     page_id = None
@@ -5117,7 +5118,7 @@ def republish_landing_page(page_id: int, request: Request, user=Depends(get_curr
     protection_rules = _safe_rules(_json_loads(page.get("protection_rules"), {}))
     tracking_enabled = bool(page.get("tracking_enabled"))
     protection_enabled = bool(page.get("protection_enabled"))
-    worker_enabled = bool(tracking_enabled or protection_enabled or link_kind == "form")
+    worker_enabled = True
     ingest_secret = (page.get("ingest_secret") or "").strip() or secrets.token_urlsafe(32)
     bind_target = _effective_bind_target_for_link_kind(link_kind, page.get("bind_target") or "none")
     bound_act_ids = _clean_act_ids(_json_loads(page.get("bound_act_ids"), []))
