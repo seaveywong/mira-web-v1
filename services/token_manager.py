@@ -253,12 +253,17 @@ def _get_manage_token(act_id: str):  # returns (token_id, token_plain) or None
     ensure_token_source_columns(conn)
     account_team_id = _account_team_id(conn, act_id)
     token_team_sql, token_team_params = _token_team_clause(account_team_id, "t")
+    candidates = _act_id_variants(act_id)
+    if not candidates:
+        conn.close()
+        return None
+    placeholders = ",".join("?" for _ in candidates)
     row = conn.execute(
         f"""
         SELECT t.id, t.access_token_enc, t.status, aot.status as bind_status
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id = ?
+        WHERE aot.act_id IN ({placeholders})
           AND t.status = 'active'
           AND t.token_type = 'manage'
           {token_team_sql}
@@ -266,15 +271,15 @@ def _get_manage_token(act_id: str):  # returns (token_id, token_plain) or None
                  aot.priority ASC, aot.id ASC
         LIMIT 1
         """,
-        [act_id] + token_team_params,
+        candidates + token_team_params,
     ).fetchone()
     if not row:
         row = conn.execute(
-            """
+            f"""
             SELECT t.id, t.access_token_enc, t.status
             FROM accounts a
             JOIN fb_tokens t ON t.id = a.token_id
-            WHERE a.act_id = ?
+            WHERE a.act_id IN ({placeholders})
               AND t.status = 'active'
               AND (
                 (a.team_id IS NULL AND t.team_id IS NULL)
@@ -282,7 +287,7 @@ def _get_manage_token(act_id: str):  # returns (token_id, token_plain) or None
               )
             LIMIT 1
             """,
-            (act_id,),
+            candidates,
         ).fetchone()
     if not row:
         fallback_team_sql, fallback_team_params = _token_team_clause(account_team_id, "fb_tokens")
@@ -317,20 +322,25 @@ def _get_op_tokens(act_id: str) -> list[dict]:
     ensure_token_source_columns(conn)
     account_team_id = _account_team_id(conn, act_id)
     token_team_sql, token_team_params = _operation_token_team_clause(account_team_id, "t")
+    candidates = _act_id_variants(act_id)
+    if not candidates:
+        conn.close()
+        return []
+    placeholders = ",".join("?" for _ in candidates)
     rows = conn.execute(f"""
         SELECT t.id as token_id, t.access_token_enc, t.status as token_status,
                aot.status as bind_status, aot.priority,
                t.token_alias, t.matrix_id, t.token_source
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id = ?
+        WHERE aot.act_id IN ({placeholders})
           AND aot.status = 'active'
           AND t.status = 'active'
           AND t.token_type = 'operate'
           AND t.token_source IN (?, ?)
           {token_team_sql}
         ORDER BY aot.priority DESC, t.id ASC
-    """, [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
+    """, candidates + [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
     conn.close()
 
     result = []
@@ -697,6 +707,24 @@ def get_op_token_status(act_id: str) -> dict:
     ensure_token_source_columns(conn)
     account_team_id = _account_team_id(conn, act_id)
     token_team_sql, token_team_params = _operation_token_team_clause(account_team_id, "t")
+    candidates = _act_id_variants(act_id)
+    if not candidates:
+        conn.close()
+        return {
+            "total": 0,
+            "active": 0,
+            "invalid": 0,
+            "using_fallback": False,
+            "operate_total": 0,
+            "operate_active": 0,
+            "operate_invalid": 0,
+            "manage_total": 0,
+            "manage_active": 0,
+            "manage_invalid": 0,
+            "legacy_operate_total": 0,
+            "legacy_operate_active": 0,
+        }
+    placeholders = ",".join("?" for _ in candidates)
 
     # 1. 操作号：来自 account_op_tokens 表手动绑定的 Token
     op_rows = conn.execute(f"""
@@ -704,24 +732,24 @@ def get_op_token_status(act_id: str) -> dict:
                aot.status as bind_status, aot.priority, t.token_source
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id = ?
+        WHERE aot.act_id IN ({placeholders})
           AND t.token_type = 'operate'
           AND t.token_source IN (?, ?)
           {token_team_sql}
         ORDER BY aot.priority DESC
-    """, [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
+    """, candidates + [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
 
     legacy_rows = conn.execute(f"""
         SELECT t.id as token_id, t.status as token_status,
                aot.status as bind_status, aot.priority, t.token_source
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id = ?
+        WHERE aot.act_id IN ({placeholders})
           AND t.token_type = 'operate'
           AND COALESCE(t.token_source, '') NOT IN (?, ?)
           {token_team_sql}
         ORDER BY aot.priority DESC
-    """, [act_id, TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
+    """, candidates + [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
 
     # 2. 管理号：从 account_op_tokens 查（按 token_type=manage 过滤，与动态发现机制一致）
     manage_team_sql, manage_team_params = _token_team_clause(account_team_id, "t")
@@ -730,10 +758,10 @@ def get_op_token_status(act_id: str) -> dict:
                aot.status as bind_status, aot.priority, t.token_alias
         FROM account_op_tokens aot
         JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id = ? AND t.token_type = 'manage'
+        WHERE aot.act_id IN ({placeholders}) AND t.token_type = 'manage'
           {manage_team_sql}
         ORDER BY aot.priority DESC
-    """, [act_id] + manage_team_params).fetchall()
+    """, candidates + manage_team_params).fetchall()
     conn.close()
 
     def _count_rows(rows, has_bind_status=True):

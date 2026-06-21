@@ -282,6 +282,13 @@ def _act_id_variants(act_id: str) -> list[str]:
     return variants
 
 
+def _normalize_launch_act_id(act_id: str) -> str:
+    raw = str(act_id or "").strip()
+    if not raw:
+        return ""
+    return raw if raw.startswith("act_") else f"act_{raw}"
+
+
 def _matrix_ids_for_act(conn, act_id: str) -> list[int]:
     candidates = _act_id_variants(act_id)
     if not candidates:
@@ -1810,7 +1817,7 @@ def _launch_act_ids(body: LaunchCampaignBody) -> list[str]:
         ids.insert(0, body.act_id)
     seen, out = set(), []
     for act_id in ids:
-        act_id = str(act_id or "").strip()
+        act_id = _normalize_launch_act_id(act_id)
         if act_id and act_id not in seen:
             seen.add(act_id)
             out.append(act_id)
