@@ -34,6 +34,7 @@ from services.token_manager import (
     TOKEN_SOURCE_SYSTEM_USER,
     default_token_source_for_type,
     ensure_token_source_columns,
+    get_account_token_summary,
     is_operate_token_eligible,
     normalize_token_source,
 )
@@ -2693,51 +2694,6 @@ def list_accounts(user=Depends(get_current_user)):
                 recent_spend_error_map[act_id] = api_spend.get("error") or "FB API 拉取失败"
     except Exception as exc:
         logger.warning("[Accounts] recent spend API supplement failed: %s", exc)
-    all_tokens_map = {}
-    visible_act_ids = [str(r["act_id"] or "").strip() for r in rows if str(r["act_id"] or "").strip()]
-    all_token_rows = []
-    if visible_act_ids:
-        placeholders = ",".join("?" for _ in visible_act_ids)
-        all_token_rows = conn.execute(
-            f"""
-            SELECT aot.act_id, t.id as token_id, t.token_alias, t.token_type, t.token_source,
-                   t.matrix_id, t.status as token_status, aot.status as bind_status, aot.priority
-            FROM account_op_tokens aot
-            JOIN fb_tokens t ON t.id = aot.token_id
-            JOIN accounts acc ON acc.act_id = aot.act_id
-            WHERE aot.act_id IN ({placeholders})
-              AND (
-                (acc.team_id IS NULL AND t.team_id IS NULL)
-                OR (
-                    acc.team_id IS NOT NULL
-                    AND (
-                        t.team_id = acc.team_id
-                        OR (t.team_id IS NULL AND t.token_type='operate' AND t.token_source=?)
-                    )
-                )
-              )
-            ORDER BY
-                CASE WHEN aot.status = 'active' AND t.status = 'active' THEN 0 ELSE 1 END,
-                CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
-                aot.priority DESC,
-                t.token_alias
-            """,
-            visible_act_ids + [TOKEN_SOURCE_OAUTH_USER],
-        ).fetchall()
-    for lr in all_token_rows:
-        act_id_key = lr["act_id"]
-        if act_id_key not in all_tokens_map:
-            all_tokens_map[act_id_key] = []
-        all_tokens_map[act_id_key].append({
-            "token_id": lr["token_id"],
-            "alias": lr["token_alias"],
-            "type": lr["token_type"],
-            "source": lr["token_source"],
-            "matrix_id": lr["matrix_id"],
-            "token_status": lr["token_status"],
-            "bind_status": lr["bind_status"],
-            "active": lr["token_status"] == "active" and lr["bind_status"] == "active",
-        })
     conn.close()
     try:
         from services.local_token_bridge import get_local_token_candidates_for_account
@@ -2806,76 +2762,21 @@ def list_accounts(user=Depends(get_current_user)):
                     "local_token": True,
                     "node_id": cand.get("node_id"),
                 })
-        d['linked_tokens'] = all_tokens_map.get(d.get('act_id'), []) + local_write_tokens
-        active_linked_tokens = [
-            t for t in d['linked_tokens']
-            if t.get("active") or (
-                t.get("bind_status") == "active" and t.get("token_status") == "active"
-            )
-        ]
-        writable_sources = (TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER, "local_token")
-        writable_tokens = [
-            t for t in active_linked_tokens
-            if t.get("type") == "operate"
-            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in writable_sources
-        ]
-        d['manage_token_ok'] = any(t.get("type") == "manage" for t in active_linked_tokens)
-        d['write_token_ok'] = bool(writable_tokens)
-        d['operate_token_ok'] = d['write_token_ok']
-        d['operate_token_total'] = sum(1 for t in d['linked_tokens'] if t.get("type") == "operate")
-        d['write_token_total'] = sum(
-            1 for t in d['linked_tokens']
-            if t.get("type") == "operate"
-            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in writable_sources
-        )
-        d['legacy_operate_token_total'] = sum(
-            1 for t in d['linked_tokens']
-            if t.get("type") == "operate"
-            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) not in writable_sources
-        )
         d['primary_token_invalid'] = bool(
             d.get("token_alias") and d.get("token_status") and d.get("token_status") != "active"
         )
         primary_token_active = bool(d.get("token_alias") and d.get("token_status") == "active")
         read_permission_status = d.get("read_permission_status") or ""
-        read_permission_blocked = is_read_blocking_status(read_permission_status)
-        d['read_token_ok'] = d['manage_token_ok'] or any(
-            t.get("type") in ("manage", "operate", "user") for t in active_linked_tokens
-        ) or primary_token_active
-        if read_permission_blocked:
-            d['read_token_ok'] = False
-        d['pause_token_ok'] = d['write_token_ok'] or d['manage_token_ok']
-        if read_permission_blocked and not d['write_token_ok']:
-            d['pause_token_ok'] = False
-        d['create_token_ok'] = d['write_token_ok']
-        d['update_token_ok'] = d['write_token_ok']
-        token_issue_reasons = []
-        if read_permission_blocked:
-            err = d.get("read_permission_error") or "管理号/读取 Token 对该广告账户没有 ads_read 或 ads_management 访问权限"
-            checked_at = d.get("read_permission_checked_at") or ""
-            suffix = f"（检测时间 {checked_at}）" if checked_at else ""
-            token_issue_reasons.append(f"读权限不可用：{err}{suffix}")
-        elif not d['read_token_ok']:
-            token_issue_reasons.append("没有可读取账户信息或关停兜底的活动 Token")
-        if d['read_token_ok'] and not d['write_token_ok']:
-            token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 或 Meta 官方授权操作号")
-        if d['legacy_operate_token_total']:
-            token_issue_reasons.append("旧版个人操作号只参与读取展示，不参与写操作")
-        d['token_issue_reasons'] = token_issue_reasons
-        if read_permission_blocked:
-            d['token_health'] = read_permission_status
-        elif not d['read_token_ok']:
-            d['token_health'] = "unreadable"
-        elif not d['write_token_ok']:
-            d['token_health'] = "write_unavailable"
-        else:
-            d['token_health'] = "ok"
-        d['linked_matrix_ids'] = sorted(
-            {
-                int(t["matrix_id"])
-                for t in d['linked_tokens']
-                if t.get("matrix_id") not in (None, "", 0)
-            }
+        d.update(
+            get_account_token_summary(
+                d.get('act_id'),
+                local_write_tokens=local_write_tokens,
+                primary_token_active=primary_token_active,
+                read_permission_blocked=is_read_blocking_status(read_permission_status),
+                read_permission_status=read_permission_status,
+                read_permission_error=d.get("read_permission_error") or "",
+                read_permission_checked_at=d.get("read_permission_checked_at") or "",
+            )
         )
         result.append(d)
     return result

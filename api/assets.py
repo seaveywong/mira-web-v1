@@ -2459,31 +2459,28 @@ def search_accounts(
     ).fetchall()
     items = []
     try:
-        from services.token_manager import ACTION_CREATE, get_exec_token_candidates
+        from services.token_manager import get_account_token_summary
     except Exception:
-        ACTION_CREATE = None
-        get_exec_token_candidates = None
+        get_account_token_summary = None
     for r in rows:
         d = dict(r)
         d["status"] = d.get("account_status")
-        d["linked_matrix_ids"] = _matrix_ids_for_act(conn, d.get("act_id"))
-        create_ok = True
-        if get_exec_token_candidates and ACTION_CREATE:
+        summary = None
+        if get_account_token_summary:
             try:
-                create_ok = bool(
-                    get_exec_token_candidates(
-                        d.get("act_id"),
-                        ACTION_CREATE,
-                        notify_exhausted=False,
-                        reserve=False,
-                    )
-                )
+                summary = get_account_token_summary(d.get("act_id"), conn=conn)
             except Exception:
-                create_ok = False
-        d["create_token_ok"] = create_ok
-        d["write_token_ok"] = create_ok
-        if not create_ok:
-            d["token_issue_reasons"] = ["缺少可用于自动铺广告的可写操作号"]
+                summary = None
+        if summary:
+            d["linked_matrix_ids"] = summary.get("linked_matrix_ids") or _matrix_ids_for_act(conn, d.get("act_id"))
+            d["create_token_ok"] = bool(summary.get("create_token_ok"))
+            d["write_token_ok"] = bool(summary.get("write_token_ok"))
+            if summary.get("token_issue_reasons"):
+                d["token_issue_reasons"] = summary.get("token_issue_reasons")
+        else:
+            d["linked_matrix_ids"] = _matrix_ids_for_act(conn, d.get("act_id"))
+            d["create_token_ok"] = True
+            d["write_token_ok"] = True
         items.append(d)
     conn.close()
     return items

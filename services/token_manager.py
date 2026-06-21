@@ -167,6 +167,176 @@ def _operation_token_team_clause(account_team_id: Optional[int], alias: str = "t
         [account_team_id, TOKEN_SOURCE_OAUTH_USER],
     )
 
+
+WRITABLE_OPERATION_SOURCES = {TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER, "local_token"}
+
+
+def _token_allowed_for_account(token_type: str, token_source: str, token_team_id, account_team_id: Optional[int]) -> bool:
+    if account_team_id is None:
+        return token_team_id is None
+    if token_team_id == account_team_id:
+        return True
+    return (
+        token_team_id is None
+        and str(token_type or "").strip().lower() == "operate"
+        and normalize_token_source(token_source, default_token_source_for_type(token_type)) == TOKEN_SOURCE_OAUTH_USER
+    )
+
+
+def _linked_token_item(row) -> dict:
+    token_type = str(row["token_type"] or "").strip().lower()
+    token_source = normalize_token_source(
+        row["token_source"],
+        default_token_source_for_type(token_type),
+    )
+    bind_status = row["bind_status"] or "active"
+    token_status = row["token_status"] or "unknown"
+    return {
+        "token_id": row["token_id"],
+        "alias": row["token_alias"],
+        "type": token_type,
+        "source": token_source,
+        "matrix_id": row["matrix_id"],
+        "token_status": token_status,
+        "bind_status": bind_status,
+        "priority": row["priority"],
+        "active": token_status == "active" and bind_status == "active",
+    }
+
+
+def get_account_token_summary(
+    act_id: str,
+    conn=None,
+    *,
+    local_write_tokens: Optional[list[dict]] = None,
+    primary_token_active: bool = False,
+    read_permission_blocked: bool = False,
+    read_permission_status: str = "",
+    read_permission_error: str = "",
+    read_permission_checked_at: str = "",
+) -> dict:
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        ensure_token_source_columns(conn)
+        account_team_id = _account_team_id(conn, act_id)
+        candidates = _act_id_variants(act_id)
+        linked_tokens = []
+        if candidates:
+            placeholders = ",".join("?" for _ in candidates)
+            rows = conn.execute(
+                f"""
+                SELECT aot.act_id, aot.status AS bind_status, aot.priority,
+                       t.id AS token_id, t.token_alias, t.token_type, t.token_source,
+                       t.status AS token_status, t.matrix_id, t.team_id
+                FROM account_op_tokens aot
+                JOIN fb_tokens t ON t.id = aot.token_id
+                WHERE aot.act_id IN ({placeholders})
+                ORDER BY
+                    CASE WHEN aot.status = 'active' AND t.status = 'active' THEN 0 ELSE 1 END,
+                    CASE t.token_type WHEN 'manage' THEN 0 WHEN 'operate' THEN 1 ELSE 2 END,
+                    aot.priority DESC,
+                    t.token_alias
+                """,
+                candidates,
+            ).fetchall()
+            seen = set()
+            for row in rows:
+                token_type = str(row["token_type"] or "").strip().lower()
+                token_source = normalize_token_source(
+                    row["token_source"],
+                    default_token_source_for_type(token_type),
+                )
+                if not _token_allowed_for_account(token_type, token_source, row["team_id"], account_team_id):
+                    continue
+                key = (row["token_id"], token_type)
+                if key in seen:
+                    continue
+                seen.add(key)
+                linked_tokens.append(_linked_token_item(row))
+
+        linked_tokens.extend(local_write_tokens or [])
+        active_linked_tokens = [
+            t for t in linked_tokens
+            if t.get("active") or (
+                t.get("bind_status") == "active" and t.get("token_status") == "active"
+            )
+        ]
+        writable_tokens = [
+            t for t in active_linked_tokens
+            if t.get("type") == "operate"
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in WRITABLE_OPERATION_SOURCES
+        ]
+        manage_token_ok = any(t.get("type") == "manage" for t in active_linked_tokens)
+        write_token_ok = bool(writable_tokens)
+        read_token_ok = (
+            manage_token_ok
+            or any(t.get("type") in ("manage", "operate", "user") for t in active_linked_tokens)
+            or bool(primary_token_active)
+        )
+        if read_permission_blocked:
+            read_token_ok = False
+        pause_token_ok = write_token_ok or manage_token_ok
+        if read_permission_blocked and not write_token_ok:
+            pause_token_ok = False
+
+        token_issue_reasons = []
+        if read_permission_blocked:
+            err = read_permission_error or "管理号/读取 Token 对该广告账户没有 ads_read 或 ads_management 访问权限"
+            suffix = f"（检测时间 {read_permission_checked_at}）" if read_permission_checked_at else ""
+            token_issue_reasons.append(f"读权限不可用：{err}{suffix}")
+        elif not read_token_ok:
+            token_issue_reasons.append("没有可读取账户信息或关停兜底的活动 Token")
+        if read_token_ok and not write_token_ok:
+            token_issue_reasons.append("创建广告、改预算、设限额需要有效的 System User 或 Meta 官方授权操作号")
+
+        legacy_operate_token_total = sum(
+            1 for t in linked_tokens
+            if t.get("type") == "operate"
+            and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) not in WRITABLE_OPERATION_SOURCES
+        )
+        if legacy_operate_token_total:
+            token_issue_reasons.append("旧版个人操作号只参与读取展示，不参与写操作")
+
+        if read_permission_blocked:
+            token_health = read_permission_status or "permission_error"
+        elif not read_token_ok:
+            token_health = "unreadable"
+        elif not write_token_ok:
+            token_health = "write_unavailable"
+        else:
+            token_health = "ok"
+
+        linked_matrix_ids = sorted({
+            int(t["matrix_id"])
+            for t in linked_tokens
+            if t.get("matrix_id") not in (None, "", 0)
+        })
+        return {
+            "linked_tokens": linked_tokens,
+            "manage_token_ok": manage_token_ok,
+            "write_token_ok": write_token_ok,
+            "operate_token_ok": write_token_ok,
+            "operate_token_total": sum(1 for t in linked_tokens if t.get("type") == "operate"),
+            "write_token_total": sum(
+                1 for t in linked_tokens
+                if t.get("type") == "operate"
+                and (t.get("source") or TOKEN_SOURCE_SYSTEM_USER) in WRITABLE_OPERATION_SOURCES
+            ),
+            "legacy_operate_token_total": legacy_operate_token_total,
+            "read_token_ok": read_token_ok,
+            "pause_token_ok": pause_token_ok,
+            "create_token_ok": write_token_ok,
+            "update_token_ok": write_token_ok,
+            "token_issue_reasons": token_issue_reasons,
+            "token_health": token_health,
+            "linked_matrix_ids": linked_matrix_ids,
+        }
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
 # ── 操作类型常量 ──────────────────────────────────────────────────────────────
 ACTION_PAUSE  = "PAUSE"   # 关闭广告（管理号可兜底）
 ACTION_CREATE = "CREATE"  # 新建广告（仅操作号）
@@ -703,91 +873,37 @@ def get_op_token_status(act_id: str) -> dict:
               operate_total, operate_active, operate_invalid,
               manage_total, manage_active, manage_invalid}
     """
-    conn = get_conn()
-    ensure_token_source_columns(conn)
-    account_team_id = _account_team_id(conn, act_id)
-    token_team_sql, token_team_params = _operation_token_team_clause(account_team_id, "t")
-    candidates = _act_id_variants(act_id)
-    if not candidates:
-        conn.close()
-        return {
-            "total": 0,
-            "active": 0,
-            "invalid": 0,
-            "using_fallback": False,
-            "operate_total": 0,
-            "operate_active": 0,
-            "operate_invalid": 0,
-            "manage_total": 0,
-            "manage_active": 0,
-            "manage_invalid": 0,
-            "legacy_operate_total": 0,
-            "legacy_operate_active": 0,
-        }
-    placeholders = ",".join("?" for _ in candidates)
+    summary = get_account_token_summary(act_id)
+    linked_tokens = summary.get("linked_tokens") or []
+    op_rows = [
+        row for row in linked_tokens
+        if row.get("type") == "operate"
+        and (row.get("source") or TOKEN_SOURCE_SYSTEM_USER) in WRITABLE_OPERATION_SOURCES
+    ]
+    legacy_rows = [
+        row for row in linked_tokens
+        if row.get("type") == "operate"
+        and (row.get("source") or TOKEN_SOURCE_SYSTEM_USER) not in WRITABLE_OPERATION_SOURCES
+    ]
+    mg_rows = [row for row in linked_tokens if row.get("type") == "manage"]
 
-    # 1. 操作号：来自 account_op_tokens 表手动绑定的 Token
-    op_rows = conn.execute(f"""
-        SELECT t.id as token_id, t.access_token_enc, t.status as token_status,
-               aot.status as bind_status, aot.priority, t.token_source
-        FROM account_op_tokens aot
-        JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id IN ({placeholders})
-          AND t.token_type = 'operate'
-          AND t.token_source IN (?, ?)
-          {token_team_sql}
-        ORDER BY aot.priority DESC
-    """, candidates + [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
-
-    legacy_rows = conn.execute(f"""
-        SELECT t.id as token_id, t.status as token_status,
-               aot.status as bind_status, aot.priority, t.token_source
-        FROM account_op_tokens aot
-        JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id IN ({placeholders})
-          AND t.token_type = 'operate'
-          AND COALESCE(t.token_source, '') NOT IN (?, ?)
-          {token_team_sql}
-        ORDER BY aot.priority DESC
-    """, candidates + [TOKEN_SOURCE_SYSTEM_USER, TOKEN_SOURCE_OAUTH_USER] + token_team_params).fetchall()
-
-    # 2. 管理号：从 account_op_tokens 查（按 token_type=manage 过滤，与动态发现机制一致）
-    manage_team_sql, manage_team_params = _token_team_clause(account_team_id, "t")
-    mg_rows = conn.execute(f"""
-        SELECT t.id as token_id, t.access_token_enc, t.status as token_status,
-               aot.status as bind_status, aot.priority, t.token_alias
-        FROM account_op_tokens aot
-        JOIN fb_tokens t ON t.id = aot.token_id
-        WHERE aot.act_id IN ({placeholders}) AND t.token_type = 'manage'
-          {manage_team_sql}
-        ORDER BY aot.priority DESC
-    """, candidates + manage_team_params).fetchall()
-    conn.close()
-
-    def _count_rows(rows, has_bind_status=True):
+    def _count_rows(rows):
         total = len(rows)
         active_cnt = 0
         invalid_cnt = 0
         for row in rows:
-            ts = row["token_status"]
-            bs = row["bind_status"] if has_bind_status else "active"
-            if bs == "active" and ts == "active":
-                plain = decrypt_token(row["access_token_enc"])
-                if plain:
-                    cached = _heartbeat_cache.get(row["token_id"])
-                    # 心跳缓存存在且明确失效才计入 invalid
-                    if cached and not cached[0]:
-                        invalid_cnt += 1
-                    else:
-                        active_cnt += 1  # 未检测过的默认视为 active
-                else:
+            if row.get("active"):
+                cached = _heartbeat_cache.get(row.get("token_id"))
+                if cached and not cached[0]:
                     invalid_cnt += 1
+                else:
+                    active_cnt += 1
             else:
                 invalid_cnt += 1
         return total, active_cnt, invalid_cnt
 
-    op_total, op_active, op_invalid = _count_rows(op_rows, has_bind_status=True)
-    mg_total, mg_active, mg_invalid = _count_rows(mg_rows, has_bind_status=True)
+    op_total, op_active, op_invalid = _count_rows(op_rows)
+    mg_total, mg_active, mg_invalid = _count_rows(mg_rows)
 
     # 兼容旧字段： total/active/invalid 指操作号
     return {
@@ -804,7 +920,7 @@ def get_op_token_status(act_id: str) -> dict:
         "legacy_operate_total": len(legacy_rows),
         "legacy_operate_active": sum(
             1 for row in legacy_rows
-            if row["token_status"] == "active" and row["bind_status"] == "active"
+            if row.get("active")
         ),
     }
 
