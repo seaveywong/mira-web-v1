@@ -38,6 +38,7 @@ from services.token_manager import (
     is_operate_token_eligible,
     normalize_token_source,
 )
+from services.landing_link_resolver import resolve_account_form_link, resolve_account_landing_link
 from services.notifier import ensure_notification_schema
 from services.guard_engine import _local_per_usd_rate, _to_usd_guard
 
@@ -2694,6 +2695,23 @@ def list_accounts(user=Depends(get_current_user)):
                 recent_spend_error_map[act_id] = api_spend.get("error") or "FB API 拉取失败"
     except Exception as exc:
         logger.warning("[Accounts] recent spend API supplement failed: %s", exc)
+    effective_account_links = {}
+    for acc_row in rows:
+        try:
+            acc_dict = dict(acc_row)
+            landing_url_effective = resolve_account_landing_link(conn, acc_dict.get("act_id"), acc_dict)
+            form_link_effective = resolve_account_form_link(
+                conn,
+                acc_dict.get("act_id"),
+                acc_dict,
+                landing_url_effective,
+            )
+            effective_account_links[acc_dict.get("act_id")] = {
+                "landing_url_effective": landing_url_effective,
+                "form_link_effective": form_link_effective,
+            }
+        except Exception as exc:
+            logger.warning("[Accounts] effective landing link lookup failed for %s: %s", acc_row["act_id"], exc)
     conn.close()
     try:
         from services.local_token_bridge import get_local_token_candidates_for_account
@@ -2702,6 +2720,7 @@ def list_accounts(user=Depends(get_current_user)):
     result = []
     for r in rows:
         d = dict(r)
+        d.update(effective_account_links.get(d.get("act_id"), {}))
         cur = (d.get('currency') or 'USD').upper()
         bal = d.get('balance')
         amount_spent = d.get('amount_spent')

@@ -39,6 +39,7 @@ from services.token_manager import (
     suspend_token_by_plain,
     wait_for_token_slot_by_plain,
 )
+from services.landing_link_resolver import resolve_account_form_link, resolve_account_landing_link
 from services.local_executor import run_local_graph_task
 
 logger = logging.getLogger("mira.autopilot")
@@ -1167,16 +1168,27 @@ class AutoPilotEngine:
                 self._setting_enabled("autopilot_one_ad_per_adset", "1"),
             )
 
-            # 落地页链接：三层优先级
+            # 落地页链接：弹窗输入 > 素材绑定 > 账户主链接/已绑定主链接 > 全局默认
             # 层內1：铺广告弹窗手动填写
             # 层內2：素材级绑定的链接
             # 层內3：系统全局默认链接
+            default_landing_url = self._get_setting("default_landing_url", "")
+            _link_conn = get_conn()
+            try:
+                account_landing_url = resolve_account_landing_link(
+                    _link_conn,
+                    act_id,
+                    _acc or {},
+                    default_landing_url,
+                )
+                _acc_form_link = resolve_account_form_link(_link_conn, act_id, _acc or {}, account_landing_url)
+            finally:
+                _link_conn.close()
             landing_url = (campaign.get("landing_url") or
                            asset.get("landing_url") or
-                           (_acc.get("landing_url") if _acc else None) or
-                           self._get_setting("default_landing_url", ""))
+                           account_landing_url or
+                           default_landing_url)
             # 表单链接：潜在客户广告（lead_generation）时使用
-            _acc_form_link = (_acc.get("form_link") if _acc else None) or ""
             form_link = campaign.get("form_link") or _acc_form_link or landing_url
             landing_url = self._normalize_managed_landing_url_for_launch(landing_url)
             form_link = self._normalize_managed_landing_url_for_launch(form_link)
@@ -2694,6 +2706,7 @@ class AutoPilotEngine:
                 _acc_for_link = self._load_account(act_id) or {}
                 _account_name_for_link = (_acc_for_link.get("name") or act_id or "").strip()
                 if not _landing_link_reserved:
+                    _reserve_target_url = form_link if _is_lead_ad_type else ""
                     _landing_link_reserved = self._reserve_landing_ad_link(
                         _tracking_base_url,
                         act_id,
@@ -2703,7 +2716,7 @@ class AutoPilotEngine:
                         adset_id,
                         adset_name or "",
                         name,
-                        target_url=form_link or landing_url,
+                        target_url=_reserve_target_url,
                     )
                     if _link_cache is not None and _landing_link_reserved:
                         _link_cache[_link_cache_key] = _landing_link_reserved
@@ -3256,8 +3269,10 @@ class AutoPilotEngine:
                 custom_match = bool(custom_url and self._landing_link_base(custom_url) == target)
                 if not pages_match and not custom_match:
                     continue
-                if self._landing_domain_status_usable(item):
+                if custom_domain and self._landing_domain_status_usable(item):
                     item["public_url"] = custom_url.rstrip("/")
+                elif not custom_domain and pages_url:
+                    item["public_url"] = pages_url.rstrip("/")
                 else:
                     item["public_url"] = ""
                 item["matched_pages_fallback"] = pages_match

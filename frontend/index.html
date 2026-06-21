@@ -4710,7 +4710,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
       <input class="fc" id="launchLandingUrl" type="url" placeholder="输入链接或搜索账户绑定的链接..." autocomplete="off" oninput="filterLandingUrlSuggestions(this.value);_validateLandingUrl(this)" onfocus="filterLandingUrlSuggestions(this.value)" onblur="setTimeout(function(){var d=document.getElementById('landingUrlDropdown');if(d)d.style.display='none'},200);_validateLandingUrl(this)"><div id="landingUrlValidMsg" style="font-size:11px;margin-top:3px;display:none"></div>
       <div id="landingUrlDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;z-index:999;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.3)"></div>
      </div>
-     <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：此处填写 &gt; 素材级绑定 &gt; 系统全局默认（系统设置可配）</div>
+     <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：此处填写 &gt; 素材级绑定 &gt; 账户主链接/已绑定主链接 &gt; 系统全局默认；系统主链接会为每条广告自动生成广告入口并回绑广告。</div>
     </div>
     <!-- 消息模版：选择消息类转化目的时显示 -->
     <div class="fg" id="launchMsgTemplateRow" style="margin-bottom:12px;display:none">
@@ -13563,12 +13563,12 @@ async function onLaunchObjectiveChange() {
      }
      if (actId && window._launchAllAccounts) {
       var acc = window._launchAllAccounts.find(function(a){ return a.act_id === actId || String(a.id) === String(actId); });
-      _prefillLaunchLandingUrl(actId, 'form', acc && acc.form_link ? acc.form_link : '');
+      _prefillLaunchLandingUrl(actId, 'form', _accountFormLink(acc));
      }
      _renderLaunchChecklist(meta);
     }, 100);
    } else {
-    landingUrlRow.placeholder = '留空=使用素材绑定链接或全局默认';
+    landingUrlRow.placeholder = '留空=使用账户主链接/素材绑定/全局默认，自动生成广告入口';
     if(landingUrlLabel)landingUrlLabel.innerHTML=' 落地页链接（本次投放）';
     setTimeout(function() {
      var selIds = window._launchSelectedIds ? Array.from(window._launchSelectedIds) : [];
@@ -13579,7 +13579,7 @@ async function onLaunchObjectiveChange() {
      }
      if (actId && window._launchAllAccounts) {
       var acc = window._launchAllAccounts.find(function(a){ return a.act_id === actId || String(a.id) === String(actId); });
-      _prefillLaunchLandingUrl(actId, 'landing', acc && acc.landing_url ? acc.landing_url : '');
+      _prefillLaunchLandingUrl(actId, 'landing', _accountLandingUrl(acc));
      }
     }, 100);
    }
@@ -17820,6 +17820,12 @@ function getAccountMatrixBadgeHtml(a){
 function _buildLaunchLinkOptionLabel(a, url){
  return '[' + getAccountMatrixLabel(a) + '] ' + displayAccountName(a.name,a.act_id) + ' → ' + url;
 }
+function _accountLandingUrl(a){
+ return String((a && (a.landing_url || a.landing_url_effective)) || '').trim();
+}
+function _accountFormLink(a){
+ return String((a && (a.form_link || a.form_link_effective)) || '').trim();
+}
 function _prefillLaunchLandingUrl(actId, mode, nextUrl){
  var input = document.getElementById('launchLandingUrl');
  if (!input || !actId) return;
@@ -17832,8 +17838,8 @@ function _prefillLaunchLandingUrl(actId, mode, nextUrl){
  var acc = accList.find(function(item){
   return item && (String(item.act_id) === String(actId) || String(item.id) === String(actId));
  });
- var fallbackLanding = acc && acc.landing_url ? String(acc.landing_url).trim() : '';
- var fallbackForm = acc && acc.form_link ? String(acc.form_link).trim() : '';
+ var fallbackLanding = _accountLandingUrl(acc);
+ var fallbackForm = _accountFormLink(acc);
  var autoMeta = _launchLandingUrlAutoMeta || {};
  var canReplace = !currentValue
   || (autoMeta.actId === String(actId) && autoMeta.value === currentValue)
@@ -21375,11 +21381,11 @@ async function loadLandingUrlOptions() {
   var accs = await api('GET', '/accounts?limit=2000&enabled=all') || [];
   // 全量缓存（所有账户）
   window._allLandingUrlOptions = accs
-   .filter(function(a) { return a.landing_url; })
-   .map(function(a) { return { label: _buildLaunchLinkOptionLabel(a, a.landing_url), url: a.landing_url, act_id: String(a.act_id) }; });
+   .map(function(a) { var url = _accountLandingUrl(a); return url ? { label: _buildLaunchLinkOptionLabel(a, url), url: url, act_id: String(a.act_id) } : null; })
+   .filter(Boolean);
   window._allFormLinkOptions = accs
-   .filter(function(a) { return a.form_link; })
-   .map(function(a) { return { label: _buildLaunchLinkOptionLabel(a, a.form_link), url: a.form_link, act_id: String(a.act_id) }; });
+   .map(function(a) { var url = _accountFormLink(a); return url ? { label: _buildLaunchLinkOptionLabel(a, url), url: url, act_id: String(a.act_id) } : null; })
+   .filter(Boolean);
   // 根据当前选中账户过滤
   _refreshLandingUrlOptions();
  } catch(e) {}

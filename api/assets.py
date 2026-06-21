@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from core.auth import get_current_user
 from core.database import get_conn
 from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row_access, team_id_for_create
+from services.landing_link_resolver import resolve_account_form_link, resolve_account_landing_link
 
 
 # ── Facebook 广告合规要求(所有目的通用)──
@@ -1840,11 +1841,10 @@ def _launch_goal_meta(body: LaunchCampaignBody) -> dict:
 
 
 def _account_landing_or_default(conn, act_id: str) -> str:
-    row = conn.execute("SELECT landing_url FROM accounts WHERE act_id=?", (act_id,)).fetchone()
-    if row and (row["landing_url"] or "").strip():
-        return row["landing_url"].strip()
-    row = conn.execute("SELECT value FROM settings WHERE key='default_landing_url'").fetchone()
-    return (row["value"] if row else "") or ""
+    account_row = conn.execute("SELECT landing_url FROM accounts WHERE act_id=?", (act_id,)).fetchone()
+    setting_row = conn.execute("SELECT value FROM settings WHERE key='default_landing_url'").fetchone()
+    default_landing_url = ((setting_row["value"] if setting_row else "") or "").strip()
+    return resolve_account_landing_link(conn, act_id, dict(account_row) if account_row else {}, default_landing_url)
 
 
 def _get_setting_value(conn, key: str, default: str = "") -> str:
@@ -1957,6 +1957,11 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
         default_page_id = _get_setting_value(conn, "autopilot_fb_page_id", "").strip()
         default_pixel_id = _get_setting_value(conn, "autopilot_fb_pixel_id", "").strip()
         default_landing_url = _get_setting_value(conn, "default_landing_url", "").strip()
+        for act_id, acc in account_map.items():
+            effective_landing_url = resolve_account_landing_link(conn, act_id, acc, default_landing_url)
+            effective_form_link = resolve_account_form_link(conn, act_id, acc, effective_landing_url)
+            acc["landing_url_effective"] = effective_landing_url
+            acc["form_link_effective"] = effective_form_link
         for act_id in act_ids:
             acc = account_map.get(act_id)
             if not acc:
@@ -2035,12 +2040,11 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 for act_id in act_ids
                 if not (
                     body.landing_url
-                    or ((account_map.get(act_id, {}) or {}).get("landing_url") or "").strip()
-                    or default_landing_url
+                    or ((account_map.get(act_id, {}) or {}).get("landing_url_effective") or "").strip()
                 )
             ]
             if not landing_missing:
-                items.append({"key": "landing_url", "label": "落地页链接", "status": "pass", "msg": "已配置落地页"})
+                items.append({"key": "landing_url", "label": "落地页链接", "status": "pass", "msg": "已配置落地页；系统投放时会自动生成广告入口短码并回绑广告"})
             else:
                 items.append({"key": "landing_url", "label": "落地页链接", "status": "fail", "msg": "以下账户缺少落地页链接：" + ", ".join(landing_missing[:5])})
         elif meta["is_lead"] and not body.lead_form_id:
@@ -2050,9 +2054,8 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 if not (
                     body.form_link
                     or body.landing_url
-                    or ((account_map.get(act_id, {}) or {}).get("form_link") or "").strip()
-                    or ((account_map.get(act_id, {}) or {}).get("landing_url") or "").strip()
-                    or default_landing_url
+                    or ((account_map.get(act_id, {}) or {}).get("form_link_effective") or "").strip()
+                    or ((account_map.get(act_id, {}) or {}).get("landing_url_effective") or "").strip()
                 )
             ]
             if not form_missing:
@@ -2450,7 +2453,8 @@ def search_accounts(
     apply_team_scope(where, params, user, "team_id", include_unassigned=False)
     apply_account_owner_scope(where, params, user, "owner_user_id")
     rows = conn.execute(
-        f"""SELECT act_id, name, currency, account_status, balance, timezone
+        f"""SELECT act_id, name, currency, account_status, balance, timezone,
+                  landing_url, form_link
            FROM accounts
            WHERE {' AND '.join(where)}
            ORDER BY name ASC
@@ -2465,6 +2469,10 @@ def search_accounts(
     for r in rows:
         d = dict(r)
         d["status"] = d.get("account_status")
+        effective_landing_url = resolve_account_landing_link(conn, d.get("act_id"), d)
+        effective_form_link = resolve_account_form_link(conn, d.get("act_id"), d, effective_landing_url)
+        d["landing_url_effective"] = effective_landing_url
+        d["form_link_effective"] = effective_form_link
         summary = None
         if get_account_token_summary:
             try:
