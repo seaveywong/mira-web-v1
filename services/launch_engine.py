@@ -119,7 +119,7 @@ def _tw_page_block_reason(row) -> str:
     if status in {"restricted", "unpublished"}:
         reasons.append(str(row["page_status_hint"] or "").strip() or f"状态={status}")
     return " / ".join(dict.fromkeys([r for r in reasons if r]))
-LANDING_REQUIRED_OBJECTIVES = {"OUTCOME_TRAFFIC", "OUTCOME_SALES", "OUTCOME_ENGAGEMENT"}
+LANDING_REQUIRED_OBJECTIVES = {"OUTCOME_TRAFFIC", "OUTCOME_SALES", "OUTCOME_ENGAGEMENT", "OUTCOME_LEADS"}
 REGULATED_IDENTITY_COUNTRIES = {"TW", "HK", "SG"}
 
 # 语言代码 → Facebook Locale ID (用于 AdSet 语言定向)

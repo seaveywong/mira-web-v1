@@ -3826,10 +3826,10 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <div class="landing-guide-steps">
     <div class="landing-guide-step"><b>1</b><span>先发布一个主链接</span><small>选择域名、模板、跳转链接和统计规则。</small></div>
     <div class="landing-guide-step"><b>2</b><span>把链接绑定到账户</span><small>铺广告时会自动带入，不用每次手填。</small></div>
-    <div class="landing-guide-step"><b>3</b><span>给广告用投放链接</span><small>在“广告入口”里复制推荐链接，带 <code>{{ad.id}}</code> 会自动绑定广告。</small></div>
+    <div class="landing-guide-step"><b>3</b><span>给广告用投放链接</span><small>一键铺广告会自动生成入口；手工投放才在“广告入口”复制推荐链接。</small></div>
     <div class="landing-guide-step"><b>4</b><span>看数据和回填结果</span><small>没回填时看 FB 成效；有回填时按真实进线算成本。</small></div>
    </div>
-   <div class="landing-guide-note"><b>推荐：</b><span>多条广告可以共用同一个主链接，但投放时优先使用“复制投放链接”，格式是 <code>/a/入口码?ad={{ad.id}}</code>。这样系统能自动知道是哪条广告带来的访问和跳转。</span></div>
+   <div class="landing-guide-note"><b>推荐：</b><span>铺广告弹窗会自动用账户主链接生成 <code>/a/入口码?ad={{ad.id}}</code> 并回绑广告；只有手工建广告时，才需要在“广告入口”里复制投放链接。</span></div>
    <div class="landing-quick-actions">
     <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布主链接</button>
     <button class="btn btn-g" onclick="showPage('landing_urls')">绑定到账户</button>
@@ -3951,8 +3951,8 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
     <div class="landing-section-title">跳转与绑定</div>
     <div class="fg"><label class="fl" id="lpTargetsLabel">按钮跳转链接</label><textarea class="fc" id="lpTargets" placeholder="每行一个咨询链接 / 外部跳转链接；发布后页面按轮询策略跳转"></textarea></div>
     <div class="landing-form-grid">
-     <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select><div class="fh" id="lpBindHint">普通落地页通常绑定到账户落地页；表单直跳链接建议绑定到账户表单链接。</div></div>
-     <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，支持带前缀或纯数字"></textarea></div>
+     <div class="fg"><label class="fl">发布后绑定</label><select class="fc" id="lpBindTarget" onchange="onLandingBindTargetChange()"><option value="none">不自动绑定</option><option value="landing">绑定到账户落地页</option><option value="form">绑定到账户表单链接</option><option value="both">同时绑定两种链接</option></select><div class="fh" id="lpBindHint">普通落地页通常绑定到账户落地页；表单直跳链接建议绑定到账户表单链接。</div></div>
+     <div class="fg"><label class="fl">账户 ID</label><textarea class="fc" id="lpBindActIds" placeholder="每行一个广告账户 ID，支持带前缀或纯数字" oninput="suggestLandingBindTarget()"></textarea></div>
     </div>
    </div>
    <div class="landing-form-section">
@@ -5275,7 +5275,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.64';
+var APP_VERSION='v3.11.65';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -12705,6 +12705,90 @@ function _getSelectedActIds(){
  if(!window._launchSelectedIds)window._launchSelectedIds=new Set();
  return Array.from(window._launchSelectedIds);
 }
+function _getLaunchAccountById(actId){
+ var id=String(actId||'').trim();
+ if(!id)return null;
+ return (window._launchAllAccounts||[]).find(function(account){
+  return account&&(String(account.act_id||'')===id||String(account.id||'')===id);
+ })||null;
+}
+function _getLaunchSelectedAccounts(){
+ return _getSelectedActIds().map(function(actId){return _getLaunchAccountById(actId);}).filter(Boolean);
+}
+function _launchAccountDisplayName(account, fallback){
+ return displayAccountName((account&&account.name)||'',(account&&account.act_id)||fallback||'');
+}
+function _clearLaunchAutoPrefillIfSafe(){
+ var input=document.getElementById('launchLandingUrl');
+ var meta=_launchLandingUrlAutoMeta||{};
+ if(input&&meta.value&&String(input.value||'').trim()===String(meta.value||'').trim())input.value='';
+ _launchLandingUrlAutoMeta={actId:'',mode:'',value:''};
+}
+function _ensureLaunchSelectControl(controlId){
+ var current=document.getElementById(controlId);
+ if(!current)return null;
+ if(current.tagName==='SELECT')return current;
+ var replacement=document.createElement('select');
+ replacement.className='fc';
+ replacement.id=controlId;
+ current.parentNode.replaceChild(replacement,current);
+ if(typeof _bindLaunchChecklistInputs==='function')_bindLaunchChecklistInputs();
+ return replacement;
+}
+function _setLaunchBatchAccountMode(selectedIds){
+ selectedIds=(selectedIds||_getSelectedActIds()).map(function(actId){return String(actId||'').trim();}).filter(Boolean);
+ var pageSel=_ensureLaunchSelectControl('launchPageId');
+ var pixelSel=_ensureLaunchSelectControl('launchPixelId');
+ var pageHint=document.getElementById('launchPageHint');
+ var pixelHint=document.getElementById('launchPixelHint');
+ if(selectedIds.length===1){
+  if(pageSel)pageSel.disabled=false;
+  if(pixelSel)pixelSel.disabled=false;
+  return;
+ }
+ _clearLaunchAutoPrefillIfSafe();
+ window._launchPageMeta={};
+ if(pageSel){
+  pageSel.disabled=selectedIds.length>1;
+  pageSel.innerHTML=selectedIds.length>1
+   ? '<option value="">— 批量模式：按各账户绑定主页 / 全局主页 —</option>'
+   : '<option value="">— 请先选择账户 —</option>';
+  pageSel.value='';
+ }
+ if(pixelSel){
+  pixelSel.disabled=selectedIds.length>1;
+  pixelSel.innerHTML=selectedIds.length>1
+   ? '<option value="">— 批量模式：按各账户绑定 Pixel / 全局 Pixel —</option>'
+   : '<option value="">— 不使用像素 —</option>';
+  pixelSel.value='';
+ }
+ if(pageHint)pageHint.textContent=selectedIds.length>1
+  ? '批量投放不会共用一个下拉主页；服务端会按每个账户的绑定主页或全局主页逐个预检。'
+  : '选择账户后自动加载可用主页';
+ if(pixelHint)pixelHint.textContent=selectedIds.length>1
+  ? '批量投放不会共用一个下拉 Pixel；网站转化目标会按账户/全局 Pixel 逐个预检。'
+  : '选择账户后自动加载可用像素';
+ if(selectedIds.length>1){
+  var budgetHint=document.getElementById('budgetConvertHint');
+  if(budgetHint){
+   budgetHint.style.display='block';
+   budgetHint.textContent='批量账户可能包含不同币种；日预算按 USD 输入，后端会分别换算到账户币种。';
+  }
+ }else{
+  _launchActCurrency='USD';
+  updateBudgetConvert();
+ }
+}
+function _effectiveLaunchLinkForAccount(account, meta){
+ if(!account)return '';
+ if(meta&&meta.isLead)return _accountFormLink(account)||_accountLandingUrl(account);
+ return _accountLandingUrl(account);
+}
+function _launchMissingEffectiveLinks(meta){
+ return _getLaunchSelectedAccounts().filter(function(account){
+  return !_effectiveLaunchLinkForAccount(account,meta);
+ });
+}
 // 账户勾选变化时更新持久化Set和计数
 function _onLaunchActCbChange(actId, checked){
  if(!window._launchSelectedIds)window._launchSelectedIds=new Set();
@@ -12715,25 +12799,35 @@ function _onLaunchActCbChange(actId, checked){
  // 兼容旧版：单选时更新隐藏字段
  var hiddenEl=document.getElementById('launchActId');
  if(hiddenEl)hiddenEl.value=ids.length===1?ids[0]:'';
+ _setLaunchBatchAccountMode(ids);
  // 触发账户变更事件（加载主页/像素等）
  if(ids.length===1)onLaunchActChange(ids[0]);
  // 不自动收起，让用户可以继续勾选多个账户
  // 刷新落地页/表单链接候选（只显示已选账户的链接）
  if (typeof _refreshLandingUrlOptions === 'function') _refreshLandingUrlOptions();
+ _renderLaunchChecklist();
 }
 function onLaunchActChange(actId){
  if(!actId)return;
- api('GET','/accounts').then(function(accs){
-  var acc=(accs||[]).find(function(a){return a.act_id===actId;});
-  if(acc){
-   _launchActCurrency=(acc.currency||'USD').toUpperCase();
-   updateBudgetConvert();
-  }
- }).catch(function(){});
+ var cachedAccount=_getLaunchAccountById(actId);
+ if(cachedAccount){
+  _launchActCurrency=(cachedAccount.currency||'USD').toUpperCase();
+  updateBudgetConvert();
+ }else{
+  api('GET','/accounts').then(function(accs){
+   var account=(accs||[]).find(function(item){return item.act_id===actId;});
+   if(account){
+    _launchActCurrency=(account.currency||'USD').toUpperCase();
+    updateBudgetConvert();
+   }
+  }).catch(function(){});
+ }
 
- var pageSel=document.getElementById('launchPageId');
+ var pageSel=_ensureLaunchSelectControl('launchPageId');
  var pageHint=document.getElementById('launchPageHint');
  window._launchPageMeta = {};
+ if(!pageSel)return;
+ pageSel.disabled=false;
  pageSel.innerHTML='<option value="">加载中...</option>';
  if(pageHint)pageHint.textContent='正在从 Facebook 拉取自动铺广告操作号可投主页...';
  api('GET','/accounts/'+actId+'/fb-pages').then(function(r){
@@ -12769,11 +12863,14 @@ function onLaunchActChange(actId){
   input.className='fc';input.id='launchPageId';input.placeholder='请输入主页 ID';
   pageSel.parentNode.replaceChild(input,pageSel);
   if(pageHint)pageHint.textContent=' 无法拉取自动铺广告操作号可投主页（'+e.message+'），请手动输入';
+  if(typeof _bindLaunchChecklistInputs==='function')_bindLaunchChecklistInputs();
   _renderLaunchChecklist();
  });
 
- var pixelSel=document.getElementById('launchPixelId');
+ var pixelSel=_ensureLaunchSelectControl('launchPixelId');
  var pixelHint=document.getElementById('launchPixelHint');
+ if(!pixelSel)return;
+ pixelSel.disabled=false;
  pixelSel.innerHTML='<option value="">加载中...</option>';
  api('GET','/accounts/'+actId+'/fb-pixels').then(function(r){
   var pixels=r.pixels||[];
@@ -12851,6 +12948,11 @@ async function openLaunchModal(assetId){
  window._launchSelectedIds = new Set(); // 每次打开弹窗重置选中状态
  window._launchFilteredAccounts = null;
  window._launchAccPage = 0;
+ var _landingInput=document.getElementById('launchLandingUrl');
+ if(_landingInput)_landingInput.value='';
+ var _landingValidMsg=document.getElementById('landingUrlValidMsg');
+ if(_landingValidMsg){_landingValidMsg.style.display='none';_landingValidMsg.textContent='';}
+ _setLaunchBatchAccountMode([]);
  // 清空搜索框
  var _searchEl = document.getElementById('launchActSearch');
  if(_searchEl) _searchEl.value = '';
@@ -13299,7 +13401,7 @@ async function onLaunchObjectiveChange() {
    pageRequired: true,
    pixelRequired: ['offsite_conversions','value'].includes(convGoal),
    showEvent: ['offsite_conversions','value'].includes(convGoal) || (['OUTCOME_SALES','OUTCOME_LEADS'].includes(objective) && !isLead),
-   landingRequired: ['OUTCOME_TRAFFIC','OUTCOME_SALES','OUTCOME_ENGAGEMENT'].includes(objective) && !isMessage && !isLead && convGoal !== 'page_likes'
+   landingRequired: ['OUTCOME_TRAFFIC','OUTCOME_SALES','OUTCOME_ENGAGEMENT','OUTCOME_LEADS'].includes(objective) && !isMessage && !isLead && convGoal !== 'page_likes'
   };
  }
 
@@ -13452,6 +13554,8 @@ async function onLaunchObjectiveChange() {
   var ctaVal = ctaEl ? (ctaEl.value || '').trim() : '';
   var pageMeta = _getLaunchPageMeta(pageIdVal);
   var selectedIds = typeof _getSelectedActIds === 'function' ? (_getSelectedActIds() || []) : [];
+  var selectedAccounts = typeof _getLaunchSelectedAccounts === 'function' ? _getLaunchSelectedAccounts() : [];
+  var batchMode = selectedIds.length > 1;
   var complianceCountries = _getLaunchComplianceCountries();
   var twAdvEl = document.getElementById('launchTwAdvId');
   var twAdvVal = twAdvEl ? (twAdvEl.value || '').trim() : '';
@@ -13475,7 +13579,12 @@ async function onLaunchObjectiveChange() {
    );
   }
 
-  addItem(pageIdVal ? 'ok' : 'fail', '主页', pageIdVal ? '已选择主页，提交时仍会继续检查账号与权限。' : '缺少主页 ID，当前投放无法启动。');
+  var accountPageCount = selectedAccounts.filter(function(account){return !!String((account&&account.page_id)||'').trim();}).length;
+  if (batchMode && !pageIdVal) {
+   addItem('ok', '主页', '批量模式不共用单个下拉主页；提交时按各账户绑定主页或全局主页逐个预检。已绑定主页账户 ' + accountPageCount + '/' + selectedIds.length + '。');
+  } else {
+   addItem((pageIdVal || accountPageCount) ? 'ok' : 'fail', '主页', pageIdVal ? '已选择主页，提交时仍会继续检查账号与权限。' : (accountPageCount ? '将使用账户已绑定主页，服务端提交前仍会复核权限。' : '缺少主页 ID，当前投放无法启动。'));
+  }
   if (complianceCountries.length) {
    var ccText = complianceCountries.join('/');
    if (twAdvVal) {
@@ -13484,18 +13593,34 @@ async function onLaunchObjectiveChange() {
     addItem('warn', '认证主页 / Verified ID', '当前目标国家包含 ' + ccText + '，系统会优先自动匹配同矩阵且已填写 Verified ID 的主页；如果矩阵内没有可用记录，提交时会被拦截。');
    }
   }
+  var accountPixelCount = selectedAccounts.filter(function(account){return !!String((account&&account.pixel_id)||'').trim();}).length;
   if (meta.pixelRequired) {
-   addItem(pixelIdVal ? 'ok' : 'fail', 'Pixel', pixelIdVal ? '已配置 Pixel。' : '当前转化目标必须配置 Pixel。');
+   if (batchMode && !pixelIdVal) {
+    addItem(accountPixelCount===selectedIds.length ? 'ok' : 'warn', 'Pixel', '批量模式按各账户绑定 Pixel 或全局 Pixel 逐个预检；当前账户绑定 Pixel ' + accountPixelCount + '/' + selectedIds.length + '。');
+   } else {
+    addItem((pixelIdVal || accountPixelCount) ? 'ok' : 'fail', 'Pixel', pixelIdVal ? '已配置 Pixel。' : (accountPixelCount ? '将使用账户已绑定 Pixel。' : '当前转化目标必须配置 Pixel。'));
+   }
   } else if (['OUTCOME_SALES','OUTCOME_LEADS'].includes(meta.objective)) {
-   addItem(pixelIdVal ? 'ok' : 'warn', 'Pixel', pixelIdVal ? '已配置 Pixel，有利于归因优化。' : '未配置 Pixel，后续归因和优化能力会变弱。');
+   addItem((pixelIdVal || accountPixelCount) ? 'ok' : 'warn', 'Pixel', (pixelIdVal || accountPixelCount) ? '已配置 Pixel，有利于归因优化。' : '未配置 Pixel，后续归因和优化能力会变弱。');
   }
   if (meta.landingRequired) {
-   addItem(landingVal ? 'ok' : 'fail', '落地页', landingVal ? '已填写本次落地页；如果是系统已发布主链，系统会为每条广告生成独立入口链接 /a/入口码，也支持 /a?ad={{ad.id}} 归因。入口参数只用于统计，不会写入用户跳转链接或对话内容。' : '当前目标需要落地页或账户默认链接。');
+   var missingLandingAccounts = typeof _launchMissingEffectiveLinks === 'function' ? _launchMissingEffectiveLinks(meta) : [];
+   if (landingVal) {
+    addItem('ok', '落地页', '已填写本次落地页；如果是系统已发布主链，系统会为每条广告生成独立入口链接 /a/入口码，并追加 ad={{ad.id}} 动态宏。');
+   } else if (selectedIds.length && !missingLandingAccounts.length) {
+    addItem('ok', '落地页', '未手填链接；本次会按账户已绑定主链接生成广告入口，不会复用上一次单账户输入。');
+   } else if (selectedIds.length) {
+    var missingNames = missingLandingAccounts.slice(0,3).map(function(account){return _launchAccountDisplayName(account,account&&account.act_id);}).join('、');
+    addItem('fail', '落地页', '当前目标需要落地页；以下账户缺少账户主链接：' + missingNames + (missingLandingAccounts.length>3?' 等':''));
+   } else {
+    addItem('warn', '落地页', '当前目标需要落地页；选账户后会检查本次输入、账户主链接和系统默认链接。');
+   }
   }
   if (meta.isMessage) {
    addItem('warn', '消息开关', '提交前会自动检查主页 Messenger / WhatsApp 是否开启。');
   }
   if (meta.isLead) {
+   var missingLeadAccounts = typeof _launchMissingEffectiveLinks === 'function' ? _launchMissingEffectiveLinks(meta) : [];
    if (leadFormVal) {
     addItem('ok', 'Lead 表单', '已选择现成表单模板。');
    } else if (blockedLeadHost) {
@@ -13508,8 +13633,10 @@ async function onLaunchObjectiveChange() {
     addItem('warn', 'Lead 表单权限', pageMeta.lead_form_hint || '暂时无法确认 Lead 表单权限，提交前系统仍会做一次服务端预检。');
    } else if (landingVal) {
     addItem('warn', 'Lead 表单', '未选现成表单，将尝试自动创建表单并使用当前链接回跳。');
+   } else if (selectedIds.length && !missingLeadAccounts.length) {
+    addItem('ok', 'Lead 表单', '未手填表单链接；将按账户表单链接/主链接作为自动建表单的回跳链接。');
    } else {
-    addItem('warn', 'Lead 表单', '未选现成表单，提交前会检查自动创建条件与隐私链接。');
+    addItem(selectedIds.length ? 'warn' : 'warn', 'Lead 表单', selectedIds.length ? '部分账户没有表单链接或主链接；提交前服务端会继续检查自动创建条件与兜底链接。' : '未选现成表单，提交前会检查自动创建条件与隐私链接。');
    }
   }
   if (ctaVal) {
@@ -13746,6 +13873,11 @@ async function onLaunchObjectiveChange() {
  var convGoal=((document.getElementById('launchConvGoal')||{}).value||'');
  var meta=_getLaunchGoalMeta(objective,convGoal);
  if(meta.isMessage&&!convGoal)convGoal='CONVERSATIONS';
+ if(meta.isMessage)landingUrl='';
+ if(selectedActIds.length>1){
+  pageId='';
+  pixelId='';
+ }
  if(!countries.length){toast('请输入目标国家','er');return;}
  if(ageMin>ageMax){toast('最小年龄不能大于最大年龄','er');return;}
 
@@ -18948,7 +19080,7 @@ function _landingCopyBtn(label,url,cls){
 function _landingAdMacroUrl(publicUrl){
  var url=String(publicUrl||'').trim();
  if(!url)return '';
- if(/[?&](ad|ad_id|ad_id)=/.test(url))return url;
+ if(/[?&](ad|ad_id)=/.test(url))return url;
  return url+(url.indexOf('?')>=0?'&':'?')+'ad={{ad.id}}';
 }
 function _landingAdBindCardHtml(item,attribution){
@@ -19138,6 +19270,9 @@ function openLandingPublishDrawer(){
  document.body.classList.remove('landing-api-open');
  document.body.classList.remove('landing-protection-open');
  document.body.classList.add('landing-publish-open');
+ var bind=document.getElementById('lpBindTarget');
+ if(bind)bind.dataset.manual='';
+ suggestLandingBindTarget();
  setTimeout(function(){
   var el=document.getElementById('lpTitle');
   if(el&&el.focus)el.focus();
@@ -19246,7 +19381,7 @@ function _landingRowActionsHtml(p, link, usageTotal){
   var id=parseInt(p.id||0,10)||0;
   var canSeeFallback=isSuperadminRole();
   var parts=[];
-  if(link)parts.push(_landingActionButton('复制链接',"copyText('"+encodeURIComponent(link)+"')",'btn-p','复制当前主链接'));
+  if(link)parts.push(_landingActionButton('复制主链接',"copyText('"+encodeURIComponent(link)+"')",'btn-p','复制当前落地页主链接；铺广告会自动生成广告入口链接'));
   else parts.push('<button class="btn btn-g btn-sm" disabled>无链接</button>');
  parts.push(_landingActionButton('配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
  parts.push(_landingActionButton('广告入口','showLandingAdLinks('+id+')','btn-g','查看该主链接下的广告入口、绑定关系和跳转池'));
@@ -19431,9 +19566,9 @@ function _landingAdLinksHtml(page, links){
    '<td style="padding:8px 10px;text-align:right">'+_landingAdLinkActionHtml(x,stats,(x.ad_id?'改绑定':'绑定广告'),url,adParamUrl)+'</td>'+
   '</tr>';
  }).join('');
- if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。点“生成广告入口”后，复制“投放链接”放进 FB 广告；用户点击后系统会自动识别广告 ID。</td></tr>';
+ if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。一键铺广告会自动生成并绑定；如果是手工建广告，再点“生成广告入口”并复制“投放链接”到 FB 广告。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
- '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">投放时复制“投放链接”到广告。绑定成功后，账户和广告信息会显示在“绑定对象”列。</div></div>'+
+ '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">一键铺广告会自动生成入口并回绑；手工广告才复制“投放链接”。绑定成功后，账户和广告信息会显示在“绑定对象”列。</div></div>'+
   '<div class="landing-ad-link-top-actions"><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成广告入口</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="autoBindLandingAdLinks('+((page&&page.id)||0)+')">自动匹配</button><details class="landing-ad-more"><summary>更多</summary><div class="landing-ad-more-menu"><button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingBulkBindModal('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">批量绑定</button><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">导出映射</button></div></details></div>'+
  '</div>'+
  '<div class="landing-ad-link-workflow">'+
@@ -20372,6 +20507,22 @@ function _landingTargetLines(){
 function _landingBindActIds(){
  return ((document.getElementById('lpBindActIds')||{}).value||'').split(/[\n,，\s]+/).map(function(s){return s.trim();}).filter(Boolean);
 }
+function onLandingBindTargetChange(){
+ var bind=document.getElementById('lpBindTarget');
+ if(bind)bind.dataset.manual='1';
+}
+function suggestLandingBindTarget(){
+ var bind=document.getElementById('lpBindTarget');
+ if(!bind||bind.dataset.manual==='1')return;
+ var hasAccounts=_landingBindActIds().length>0;
+ if(!hasAccounts)return;
+ var kind=(document.getElementById('lpKind')||{}).value||'landing';
+ if(kind==='form'){
+  bind.value='form';
+ }else if(bind.value==='none'||bind.value==='form'){
+  bind.value='landing';
+ }
+}
 function _lpCsvValue(value){
  return String(value||'').split(/[\n,，;；\s]+/).map(function(s){return s.trim();}).filter(Boolean);
 }
@@ -21043,9 +21194,10 @@ function onLandingKindChanged(){
   if(formFlag){formFlag.disabled=false;if(formFlag.dataset.autoForm==='1'){formFlag.checked=false;formFlag.dataset.autoForm='';}}
   if(kindHint)kindHint.textContent='普通落地页会展示模板正文，按钮点击后由 Worker 按轮询策略跳转。';
   if(bindHint)bindHint.textContent='普通落地页通常绑定到账户落地页；表单直跳链接建议绑定到账户表单链接。';
-  if(targetLabel)targetLabel.textContent='按钮跳转链接';
+ if(targetLabel)targetLabel.textContent='按钮跳转链接';
   if(targets)targets.placeholder='每行一个咨询链接 / 外部跳转链接；发布后按钮点击由服务端按策略选择目标';
  }
+ suggestLandingBindTarget();
  updateLandingRotationHint();
 }
 function normalizeLandingBindTargetForKind(kind, target){
