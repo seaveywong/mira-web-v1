@@ -71,6 +71,10 @@ function _captureLaunchSettings() {
   bid_strategy: (document.getElementById('launchBidStrategy')||{}).value || '',
   max_adsets: (document.getElementById('launchMaxAdsets')||{}).value || '',
   one_ad_per_adset: (document.getElementById('launchOneAdPerAdset')||{}).value || '1',
+  budget_mode: (document.getElementById('launchBudgetMode')||{}).value || 'ABO',
+  budget_amount_mode: (document.getElementById('launchBudgetAmountMode')||{}).value || 'per_adset',
+  audience_strategy: (document.getElementById('launchAudienceStrategy')||{}).value || 'broad_interest',
+  audience_interest_chunk_size: (document.getElementById('launchAudienceChunkSize')||{}).value || '2',
   landing_url: (document.getElementById('launchLandingUrl')||{}).value || ''
  };
  return obj;
@@ -94,11 +98,16 @@ function _applyLaunchSettings(obj) {
  if(obj.language){ var el=document.getElementById('launchAdLanguage'); if(el)el.value=obj.language; }
  if(obj.objective){ var el=document.getElementById('launchObjective'); if(el){el.value=_normalizeLaunchObjectiveValue(obj.objective);onLaunchObjectiveChange();} }
  if(obj.conversion_event){ setTimeout(function(){ var el=document.getElementById('launchConvEvent'); if(el)el.value=obj.conversion_event; },300); }
- if(obj.bid_strategy){ var el=document.getElementById('launchBidStrategy'); if(el)el.value=obj.bid_strategy; }
- if(obj.max_adsets){ var el=document.getElementById('launchMaxAdsets'); if(el)el.value=obj.max_adsets; }
- if(obj.one_ad_per_adset!==undefined){ var el=document.getElementById('launchOneAdPerAdset'); if(el)el.value=String(obj.one_ad_per_adset)==='0'?'0':'1'; }
- if(obj.landing_url){ var el=document.getElementById('launchLandingUrl'); if(el)el.value=obj.landing_url; }
- if(typeof updateLaunchStructurePreview==='function')updateLaunchStructurePreview();
+  if(obj.bid_strategy){ var el=document.getElementById('launchBidStrategy'); if(el)el.value=obj.bid_strategy; }
+  if(obj.max_adsets){ var el=document.getElementById('launchMaxAdsets'); if(el)el.value=obj.max_adsets; }
+  if(obj.one_ad_per_adset!==undefined){ var el=document.getElementById('launchOneAdPerAdset'); if(el)el.value=String(obj.one_ad_per_adset)==='0'?'0':'1'; }
+  if(obj.budget_mode){ var el=document.getElementById('launchBudgetMode'); if(el)el.value=String(obj.budget_mode).toUpperCase()==='CBO'?'CBO':'ABO'; }
+  if(obj.budget_amount_mode){ var el=document.getElementById('launchBudgetAmountMode'); if(el)el.value=String(obj.budget_amount_mode).toLowerCase()==='total'?'total':'per_adset'; }
+  if(obj.audience_strategy){ var el=document.getElementById('launchAudienceStrategy'); if(el)el.value=obj.audience_strategy; }
+  if(obj.audience_interest_chunk_size){ var el=document.getElementById('launchAudienceChunkSize'); if(el)el.value=obj.audience_interest_chunk_size; }
+  if(obj.landing_url){ var el=document.getElementById('launchLandingUrl'); if(el)el.value=obj.landing_url; }
+  if(typeof onLaunchBudgetModeChange==='function')onLaunchBudgetModeChange();
+  if(typeof updateLaunchStructurePreview==='function')updateLaunchStructurePreview();
 }
 async function saveLaunchTemplate() {
  var name = await promptAsync(' 保存投放设置模版', '请输入模版名称', '', '例如：标准投放配置、仅动态版位');
@@ -4543,6 +4552,24 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
      <div class="fh">当前版本写入广告组日预算。多受众组投放时，总预算会随受众组数量放大；下方会按当前素材估算结构。</div>
      <div id="budgetConvertHint" style="font-size:11px;color:#f59e0b;margin-top:4px;display:none"></div>
     </div>
+    <div class="fr" style="margin-bottom:12px">
+     <div class="fg">
+      <label class="fl">预算模式</label>
+      <select class="fc" id="launchBudgetMode" onchange="onLaunchBudgetModeChange()">
+       <option value="ABO">ABO 广告组预算（默认）</option>
+       <option value="CBO">CBO 系列预算</option>
+      </select>
+      <div id="launchBudgetModeHint" class="fh">默认沿用广告组日预算；多受众时每个受众组都会写入同样预算。</div>
+     </div>
+     <div class="fg">
+      <label class="fl">预算口径</label>
+      <select class="fc" id="launchBudgetAmountMode" onchange="onLaunchBudgetModeChange()">
+       <option value="per_adset">每个受众/广告组预算（默认）</option>
+       <option value="total">总预算自动拆分</option>
+      </select>
+      <div id="launchBudgetAmountHint" class="fh">ABO 默认按每个受众组预算；选总预算时后端按实际受众组数均分。</div>
+     </div>
+    </div>
     <div class="fg">
      <label class="fl">目标 CPA (USD)</label>
      <input class="fc" id="launchTargetCpa" type="number" placeholder="留空=最低成本" oninput="onBidStrategyChange()">
@@ -4675,12 +4702,26 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
       <div id="bidStrategyHint" style="font-size:11px;color:#f59e0b;margin-top:4px;display:none">填写了目标CPA时，系统会自动切换为「目标成本上限」策略</div>
      </div>
      <div class="fg">
-     <label class="fl">最大受众组数</label>
-      <input class="fc" id="launchMaxAdsets" type="number" value="5" min="1" max="20" placeholder="5" oninput="updateLaunchStructurePreview()">
-      <div style="font-size:11px;color:var(--t3);margin-top:3px">控制生成多少组受众，不等同于最终广告组数量。</div>
-     </div>
-     <div class="fg">
-      <label class="fl">广告结构</label>
+      <label class="fl">最大受众组数</label>
+       <input class="fc" id="launchMaxAdsets" type="number" value="5" min="1" max="20" placeholder="5" oninput="updateLaunchStructurePreview()">
+       <div style="font-size:11px;color:var(--t3);margin-top:3px">控制生成多少组受众，不等同于最终广告组数量。</div>
+      </div>
+      <div class="fg">
+       <label class="fl">受众生成策略</label>
+       <select class="fc" id="launchAudienceStrategy" onchange="updateLaunchStructurePreview()">
+        <option value="broad_interest">宽泛 + 兴趣分组（默认）</option>
+        <option value="broad_only">仅宽泛</option>
+        <option value="interest_only">仅兴趣（无有效兴趣自动兜底宽泛）</option>
+       </select>
+       <div style="font-size:11px;color:var(--t3);margin-top:3px">默认保留宽泛兜底；兴趣会先去重并按当前操作号解析 Meta ID。</div>
+      </div>
+      <div class="fg">
+       <label class="fl">每组兴趣数</label>
+       <input class="fc" id="launchAudienceChunkSize" type="number" value="2" min="1" max="5" placeholder="2" oninput="updateLaunchStructurePreview()">
+       <div style="font-size:11px;color:var(--t3);margin-top:3px">影响兴趣受众拆组密度；后端限制 1-5，默认每 2 个兴趣一组。</div>
+      </div>
+      <div class="fg">
+       <label class="fl">广告结构</label>
       <select class="fc" id="launchOneAdPerAdset" onchange="updateLaunchStructurePreview()">
        <option value="1">一条广告一个广告组（推荐，便于精细止损）</option>
        <option value="0">多条广告放同一个广告组（更少广告组）</option>
@@ -5234,7 +5275,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.60';
+var APP_VERSION='v3.11.62';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -12538,6 +12579,38 @@ function updateBudgetConvert(){
   hint.style.display='none';
  }
 }
+function _getLaunchBudgetMode(){
+ var budgetMode=((document.getElementById('launchBudgetMode')||{}).value||'ABO').toUpperCase();
+ if(budgetMode!=='CBO')budgetMode='ABO';
+ var amountMode=((document.getElementById('launchBudgetAmountMode')||{}).value||'per_adset').toLowerCase();
+ if(amountMode!=='total')amountMode='per_adset';
+ if(budgetMode==='CBO')amountMode='total';
+ return {budgetMode:budgetMode,amountMode:amountMode};
+}
+function onLaunchBudgetModeChange(){
+ var m=_getLaunchBudgetMode();
+ var amountEl=document.getElementById('launchBudgetAmountMode');
+ var modeHint=document.getElementById('launchBudgetModeHint');
+ var amountHint=document.getElementById('launchBudgetAmountHint');
+ if(amountEl){
+  if(m.budgetMode==='CBO'){amountEl.value='total';amountEl.disabled=true;}
+  else{amountEl.disabled=false;}
+ }
+ if(modeHint){
+  modeHint.textContent=m.budgetMode==='CBO'
+   ? 'CBO 会把日预算写入 Campaign；AdSet 不再写 daily_budget，由 Meta 在系列内分配。'
+   : 'ABO 会把日预算写入 AdSet；默认保持每个受众/广告组预算，兼容旧投放。';
+ }
+ if(amountHint){
+  amountHint.textContent=m.budgetMode==='CBO'
+   ? 'CBO 固定使用系列总预算；多受众不会放大预算。'
+   : (m.amountMode==='total'
+     ? 'ABO 总预算会按实际受众组数均分到每个受众，再按广告结构拆到 AdSet。'
+     : 'ABO 默认每个受众组写入同样预算；多受众时总预算会随受众组数放大。');
+ }
+ updateBudgetConvert();
+ updateLaunchStructurePreview();
+}
 // 渲染账户多选列表（统一入口，支持分页）
 function _renderLaunchAccountList(accs){
  window._launchAllAccounts=accs||[];
@@ -12797,11 +12870,20 @@ async function openLaunchModal(assetId){
  document.getElementById('plc_auto').checked=true;
  onPlacementAutoChange(document.getElementById('plc_auto'));
  // 重置高级面板
- document.getElementById('launchAdvancedPanel').style.display='none';
- var _structureSel=document.getElementById('launchOneAdPerAdset');
- if(_structureSel)_structureSel.value='1';
- // 计算预览
- updateLaunchPreview(assetId);
+  document.getElementById('launchAdvancedPanel').style.display='none';
+  var _structureSel=document.getElementById('launchOneAdPerAdset');
+  if(_structureSel)_structureSel.value='1';
+  var _budgetModeSel=document.getElementById('launchBudgetMode');
+  if(_budgetModeSel)_budgetModeSel.value='ABO';
+  var _budgetAmountSel=document.getElementById('launchBudgetAmountMode');
+  if(_budgetAmountSel){_budgetAmountSel.value='per_adset';_budgetAmountSel.disabled=false;}
+  var _audienceStrategySel=document.getElementById('launchAudienceStrategy');
+  if(_audienceStrategySel)_audienceStrategySel.value='broad_interest';
+  var _audienceChunkInput=document.getElementById('launchAudienceChunkSize');
+  if(_audienceChunkInput)_audienceChunkInput.value='2';
+  onLaunchBudgetModeChange();
+  // 计算预览
+  updateLaunchPreview(assetId);
  // 加载广告目标下拉（DB驱动，FB API标准值）
  loadKpiObjectives();
  // 加载转化事件下拉（DB驱动）
@@ -12829,28 +12911,46 @@ function _getLaunchBudgetEstimate(){
  var plan=window._launchPreviewPlan||{};
  var budget=_numOrFallback((document.getElementById('launchBudget')||{}).value,20);
  var maxAdsets=_intBetween((document.getElementById('launchMaxAdsets')||{}).value,5,1,20);
- var audienceGroups=Math.max(0,Math.min(plan.rawAudienceGroups||0,maxAdsets));
+ var chunkSize=_intBetween((document.getElementById('launchAudienceChunkSize')||{}).value,2,1,5);
+ var audienceStrategy=((document.getElementById('launchAudienceStrategy')||{}).value||'broad_interest');
+ if(['broad_interest','broad_only','interest_only'].indexOf(audienceStrategy)<0)audienceStrategy='broad_interest';
+ var interestCount=Number.isFinite(plan.interestCount)?plan.interestCount:Math.max(0,(plan.rawAudienceGroups||1)-1)*2;
+ var interestGroups=Math.ceil(Math.max(0,interestCount)/chunkSize);
+ var rawAudienceGroups=1;
+ if(audienceStrategy==='broad_only')rawAudienceGroups=1;
+ else if(audienceStrategy==='interest_only')rawAudienceGroups=Math.max(1,interestGroups);
+ else rawAudienceGroups=1+interestGroups;
+ var audienceGroups=Math.max(0,Math.min(rawAudienceGroups,maxAdsets));
  var creativeVariants=Math.max(0,plan.creativeVariants||0);
  var oneAdPerAdset=((document.getElementById('launchOneAdPerAdset')||{}).value||'1')!=='0';
+ var budgetModeInfo=_getLaunchBudgetMode();
+ var budgetMode=budgetModeInfo.budgetMode;
+ var amountMode=budgetModeInfo.amountMode;
+ var audienceBudget=(amountMode==='total'&&audienceGroups>0)?budget/audienceGroups:budget;
  var minAdsetBudget=3;
  var effectiveVariants=creativeVariants;
- if(oneAdPerAdset&&creativeVariants>0&&budget>0){
-  var affordable=Math.floor(budget/minAdsetBudget);
+ if(oneAdPerAdset&&creativeVariants>0&&audienceBudget>0){
+  var affordable=Math.floor(audienceBudget/minAdsetBudget);
   effectiveVariants=Math.max(1,Math.min(creativeVariants,affordable||1));
  }
  var estimatedAdsets=oneAdPerAdset?audienceGroups*effectiveVariants:audienceGroups;
  var estimatedAds=audienceGroups*effectiveVariants;
- var perAdsetBudget=(oneAdPerAdset&&effectiveVariants>0)?budget/effectiveVariants:budget;
- var totalEnvelope=audienceGroups>0?budget*audienceGroups:0;
+ var perAdsetBudget=budgetMode==='CBO'?0:((oneAdPerAdset&&effectiveVariants>0)?audienceBudget/effectiveVariants:audienceBudget);
+ var totalEnvelope=budgetMode==='CBO'||amountMode==='total'?budget:(audienceGroups>0?budget*audienceGroups:0);
  return {
   budget:budget,
+  budgetMode:budgetMode,
+  amountMode:amountMode,
   maxAdsets:maxAdsets,
+  audienceStrategy:audienceStrategy,
+  chunkSize:chunkSize,
   audienceGroups:audienceGroups,
   creativeVariants:creativeVariants,
   effectiveVariants:effectiveVariants,
   oneAdPerAdset:oneAdPerAdset,
   estimatedAdsets:estimatedAdsets,
   estimatedAds:estimatedAds,
+  audienceBudget:audienceBudget,
   perAdsetBudget:perAdsetBudget,
   totalEnvelope:totalEnvelope
  };
@@ -12868,20 +12968,25 @@ function updateLaunchStructurePreview(){
   el.innerHTML='预计结构：<b id="launchPreviewCount">--</b> 个广告组 × <b id="launchPreviewAds">--</b> 条广告';
   return;
  }
- el.innerHTML=[
-  '<div class="launch-structure-line">',
-   '<span class="launch-structure-pill">受众组 <b id="launchPreviewCount">'+e.audienceGroups+'</b></span>',
-   '<span class="launch-structure-pill">实际广告组 <b id="launchPreviewAdsets">'+e.estimatedAdsets+'</b></span>',
-   '<span class="launch-structure-pill">广告 <b id="launchPreviewAds">'+e.estimatedAds+'</b></span>',
-  '</div>',
-  '<div class="launch-structure-grid">',
-   '<div class="launch-structure-cell">每个受众预算<b>$'+_fmtLaunchUsd(e.budget)+'</b></div>',
-   '<div class="launch-structure-cell">'+(e.oneAdPerAdset?'每组拆分预算':'广告组预算')+'<b>$'+_fmtLaunchUsd(e.perAdsetBudget)+'</b></div>',
-   '<div class="launch-structure-cell">预估总日预算<b>$'+_fmtLaunchUsd(e.totalEnvelope)+'</b></div>',
-   '<div class="launch-structure-cell">实际变体<b>'+e.effectiveVariants+(e.effectiveVariants<e.creativeVariants?' / '+e.creativeVariants:'')+'</b></div>',
-  '</div>',
-  '<div class="launch-budget-note">预算口径：系统只写广告组日预算。推荐结构会为每条广告单独建广告组，并把每个受众预算平均拆分；多广告同组则一个受众组下放多条广告。自动铺广告会为每条广告生成独立入口链接，不需要人工逐条绑定。</div>'
- ].join('');
+  el.innerHTML=[
+   '<div class="launch-structure-line">',
+    '<span class="launch-structure-pill">受众组 <b id="launchPreviewCount">'+e.audienceGroups+'</b></span>',
+    '<span class="launch-structure-pill">实际广告组 <b id="launchPreviewAdsets">'+e.estimatedAdsets+'</b></span>',
+    '<span class="launch-structure-pill">广告 <b id="launchPreviewAds">'+e.estimatedAds+'</b></span>',
+    '<span class="launch-structure-pill">预算 <b>'+e.budgetMode+'</b></span>',
+   '</div>',
+   '<div class="launch-structure-grid">',
+    '<div class="launch-structure-cell">'+(e.budgetMode==='CBO'?'系列日预算':'每个受众预算')+'<b>$'+_fmtLaunchUsd(e.budgetMode==='CBO'?e.budget:e.audienceBudget)+'</b></div>',
+    '<div class="launch-structure-cell">'+(e.budgetMode==='CBO'?'广告组预算':(e.oneAdPerAdset?'每组拆分预算':'广告组预算'))+'<b>'+(e.budgetMode==='CBO'?'由系列分配':'$'+_fmtLaunchUsd(e.perAdsetBudget))+'</b></div>',
+    '<div class="launch-structure-cell">预估总日预算<b>$'+_fmtLaunchUsd(e.totalEnvelope)+'</b></div>',
+    '<div class="launch-structure-cell">实际变体<b>'+e.effectiveVariants+(e.effectiveVariants<e.creativeVariants?' / '+e.creativeVariants:'')+'</b></div>',
+   '</div>',
+   '<div class="launch-budget-note">'+(e.budgetMode==='CBO'
+    ? '预算口径：系统写 Campaign daily_budget，不给 AdSet 写 daily_budget；Meta 在系列内自动分配预算。'
+    : (e.amountMode==='total'
+      ? '预算口径：系统写 AdSet daily_budget；当前总预算会先按受众组均分，再按广告结构拆分。'
+      : '预算口径：系统写 AdSet daily_budget；默认每个受众组使用相同预算，多受众时总预算会放大。'))+' 自动铺广告会为每条广告生成独立入口链接，不需要人工逐条绑定。</div>'
+  ].join('');
 }
 async function updateLaunchPreview(assetId){
  try{
@@ -12891,7 +12996,7 @@ async function updateLaunchPreview(assetId){
   var interests=Array.isArray(a.ai_interests)?a.ai_interests:[];
   var rawAudienceGroups=Math.ceil(interests.length/2)+1;
   var creativeVariants=Math.min(headlines.length,bodies.length,3);
-  window._launchPreviewPlan={loaded:true,rawAudienceGroups:rawAudienceGroups,creativeVariants:creativeVariants};
+  window._launchPreviewPlan={loaded:true,rawAudienceGroups:rawAudienceGroups,interestCount:interests.length,creativeVariants:creativeVariants};
   updateLaunchStructurePreview();
  }catch(e){
   window._launchPreviewPlan={loaded:false,rawAudienceGroups:0,creativeVariants:0};
@@ -13619,9 +13724,14 @@ async function onLaunchObjectiveChange() {
  if((bidStrategy==='COST_CAP'||bidStrategy==='BID_CAP')&&!cpa){
   bidStrategy='LOWEST_COST_WITHOUT_CAP';
  }
- var maxAdsets=parseInt((document.getElementById('launchMaxAdsets')||{}).value)||5;
- var oneAdPerAdset=((document.getElementById('launchOneAdPerAdset')||{}).value||'1')!=='0';
- var pageEl=document.getElementById('launchPageId');
+  var maxAdsets=parseInt((document.getElementById('launchMaxAdsets')||{}).value)||5;
+  var oneAdPerAdset=((document.getElementById('launchOneAdPerAdset')||{}).value||'1')!=='0';
+  var budgetModeInfo=_getLaunchBudgetMode();
+  var audienceStrategy=((document.getElementById('launchAudienceStrategy')||{}).value||'broad_interest');
+  if(['broad_interest','broad_only','interest_only'].indexOf(audienceStrategy)<0)audienceStrategy='broad_interest';
+  var audienceChunkSize=parseInt((document.getElementById('launchAudienceChunkSize')||{}).value,10)||2;
+  audienceChunkSize=Math.max(1,Math.min(audienceChunkSize,5));
+  var pageEl=document.getElementById('launchPageId');
  var pageId=pageEl?(pageEl.tagName==='SELECT'?pageEl.value:(pageEl.value||'').trim()):'';
  var pixelEl=document.getElementById('launchPixelId');
  var pixelId=pixelEl?(pixelEl.tagName==='SELECT'?pixelEl.value:(pixelEl.value||'').trim()):'';
@@ -13655,8 +13765,12 @@ async function onLaunchObjectiveChange() {
    target_countries:countries,
    page_id:pageId||null,
     pixel_id:pixelId||null,
-    one_ad_per_adset:oneAdPerAdset,
-    landing_url:launchLinkPayload.landing_url,
+     one_ad_per_adset:oneAdPerAdset,
+     budget_mode:budgetModeInfo.budgetMode,
+     budget_amount_mode:budgetModeInfo.amountMode,
+     audience_strategy:audienceStrategy,
+     audience_interest_chunk_size:audienceChunkSize,
+     landing_url:launchLinkPayload.landing_url,
      form_link:launchLinkPayload.form_link,
      bind_launch_link:bindLaunchLink&&!!launchLinkValue,
      message_template:((document.getElementById('launchMsgTemplate')||{}).value||'').trim()||null,
@@ -13688,11 +13802,15 @@ async function onLaunchObjectiveChange() {
    objective:objective,
    age_min:ageMin,
    age_max:ageMax,
-   gender:gender,
-   bid_strategy:bidStrategy,
-   max_adsets:maxAdsets,
-   one_ad_per_adset:oneAdPerAdset,
-   device_platforms:devicePlatforms,
+    gender:gender,
+    bid_strategy:bidStrategy,
+    max_adsets:maxAdsets,
+    one_ad_per_adset:oneAdPerAdset,
+    budget_mode:budgetModeInfo.budgetMode,
+    budget_amount_mode:budgetModeInfo.amountMode,
+    audience_strategy:audienceStrategy,
+    audience_interest_chunk_size:audienceChunkSize,
+    device_platforms:devicePlatforms,
    ad_language:adLanguage
   };
   if(placements&&placements.publisher_platforms)payload.placements=placements;

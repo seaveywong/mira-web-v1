@@ -1167,6 +1167,21 @@ class AutoPilotEngine:
                 "one_ad_per_adset",
                 self._setting_enabled("autopilot_one_ad_per_adset", "1"),
             )
+            budget_mode = str(campaign.get("budget_mode") or "ABO").strip().upper()
+            if budget_mode not in {"ABO", "CBO"}:
+                budget_mode = "ABO"
+            budget_amount_mode = str(campaign.get("budget_amount_mode") or "per_adset").strip().lower()
+            if budget_amount_mode not in {"per_adset", "total"}:
+                budget_amount_mode = "per_adset"
+            if budget_mode == "CBO":
+                budget_amount_mode = "total"
+            audience_strategy = str(campaign.get("audience_strategy") or "broad_interest").strip().lower()
+            if audience_strategy not in {"broad_interest", "broad_only", "interest_only"}:
+                audience_strategy = "broad_interest"
+            try:
+                audience_interest_chunk_size = max(1, min(int(campaign.get("audience_interest_chunk_size") or 2), 5))
+            except Exception:
+                audience_interest_chunk_size = 2
 
             # 落地页链接：弹窗输入 > 素材绑定 > 账户主链接/已绑定主链接 > 全局默认
             # 层內1：铺广告弹窗手动填写
@@ -1278,7 +1293,10 @@ class AutoPilotEngine:
                     token,
                     "创建 Campaign",
                     lambda try_token, _: self._create_campaign(
-                        act_id, _campaign_display_name, campaign["objective"], try_token
+                        act_id, _campaign_display_name, campaign["objective"], try_token,
+                        daily_budget=test_budget if budget_mode == "CBO" else None,
+                        currency=_acc_currency,
+                        budget_mode=budget_mode,
                     ),
                 )
                 token = self._candidate_token(_campaign_token_candidate, token)
@@ -1291,8 +1309,11 @@ class AutoPilotEngine:
                 interests, target_countries, max_adsets,
                 age_min=age_min, age_max=age_max, gender=gender,
                 token=token,
-                rotation_seed=f"{campaign_id}:{asset['id']}:{act_id}:{_mmdd}"
+                rotation_seed=f"{campaign_id}:{asset['id']}:{act_id}:{_mmdd}",
+                strategy=audience_strategy,
+                chunk_size=audience_interest_chunk_size,
             )
+            audience_group_count = max(len(audience_groups), 1)
 
             # 7. 逐组创建 AdSet + Ad
             total_adsets = 0
@@ -1306,7 +1327,7 @@ class AutoPilotEngine:
                     # 组名：{系列名}-{受众类型}-G{序号}
                     # 受众类型：BROAD=宽泛受众，INT=兴趣受众
                     _aud_name = audience.get("name", "")
-                    _aud_type = "BROAD" if "宽泛" in _aud_name else f"INT{group_idx+1}"
+                    _aud_type = "BROAD" if audience.get("type") == "broad" or "宽泛" in _aud_name else f"INT{group_idx+1}"
                     adset_name = f"{_campaign_display_name}-{_aud_type}-G{group_idx+1}"
                     # v4.0: 设备端版位覆盖
                     effective_placements = placements.copy() if placements else {}
@@ -1338,15 +1359,21 @@ class AutoPilotEngine:
                         # desktop 不支持 instagram，移除
                         effective_placements.pop("instagram_positions", None)
                     # all: 使用自动版位（不覆盖）
-                    ad_count = self._launch_ad_variant_count(headlines, bodies, budget_usd, one_ad_per_adset)
+                    audience_budget = test_budget
+                    audience_budget_usd = budget_usd
+                    if budget_amount_mode == "total":
+                        audience_budget = round(float(test_budget) / float(audience_group_count), 2)
+                        audience_budget_usd = round(float(budget_usd) / float(audience_group_count), 2)
+                    ad_count = self._launch_ad_variant_count(headlines, bodies, audience_budget_usd, one_ad_per_adset)
                     if ad_count <= 0:
                         logger.warning(f"[AutoPilot] AdSet {group_idx+1}: 文案不足，跳过")
                         continue
+                    adset_budget = None if budget_mode == "CBO" else audience_budget
                     if one_ad_per_adset:
-                        split_budget = self._split_adset_budget(test_budget, ad_count, True)
+                        split_budget = None if budget_mode == "CBO" else self._split_adset_budget(audience_budget, ad_count, True)
                         logger.info(
-                            "[AutoPilot] 一广告一组已启用: audience=%s, ads=%s, budget_per_adset=%s %s",
-                            group_idx + 1, ad_count, split_budget, _acc_currency
+                            "[AutoPilot] 一广告一组已启用: audience=%s, ads=%s, budget_mode=%s, budget_per_adset=%s %s",
+                            group_idx + 1, ad_count, budget_mode, split_budget if split_budget is not None else "campaign", _acc_currency
                         )
                         for ad_idx in range(ad_count):
                             headline = headlines[ad_idx]
@@ -1366,6 +1393,7 @@ class AutoPilotEngine:
                                         variant_audience, split_budget, campaign["target_cpa"],
                                         campaign["objective"], pixel_id, try_token,
                                         bid_strategy=bid_strategy,
+                                        budget_mode=budget_mode,
                                         placements=effective_placements if effective_placements else None,
                                         conversion_event=campaign.get("conversion_event") or "PURCHASE",
                                         beneficiary=beneficiary,
@@ -1401,6 +1429,7 @@ class AutoPilotEngine:
                                                 variant_audience, split_budget, campaign["target_cpa"],
                                                 campaign["objective"], pixel_id, try_token,
                                                 bid_strategy=bid_strategy,
+                                                budget_mode=budget_mode,
                                                 placements=effective_placements if effective_placements else None,
                                                 conversion_event=campaign.get("conversion_event") or "PURCHASE",
                                                 beneficiary=beneficiary,
@@ -1489,9 +1518,10 @@ class AutoPilotEngine:
                         f"创建 AdSet {group_idx + 1}",
                         lambda try_token, _: self._create_adset(
                             act_id, fb_campaign_id, adset_name,
-                            audience, test_budget, campaign["target_cpa"],
+                            audience, adset_budget, campaign["target_cpa"],
                             campaign["objective"], pixel_id, try_token,
                             bid_strategy=bid_strategy,
+                            budget_mode=budget_mode,
                             placements=effective_placements if effective_placements else None,
                             conversion_event=campaign.get("conversion_event") or "PURCHASE",
                             beneficiary=beneficiary,
@@ -1601,9 +1631,10 @@ class AutoPilotEngine:
                                 f"降级创建 AdSet {group_idx + 1}",
                                 lambda try_token, _: self._create_adset(
                                     act_id, fb_campaign_id, adset_name + "-FB",
-                                    fallback_audience, test_budget, campaign["target_cpa"],
+                                    fallback_audience, adset_budget, campaign["target_cpa"],
                                     campaign["objective"], pixel_id, try_token,
                                     bid_strategy=bid_strategy,
+                                    budget_mode=budget_mode,
                                     placements=effective_placements if effective_placements else None,
                                     conversion_event=campaign.get("conversion_event") or "PURCHASE",
                                     beneficiary=beneficiary,
@@ -2020,7 +2051,16 @@ class AutoPilotEngine:
 
     # ── Campaign 创建 ─────────────────────────────────────────────────────────
 
-    def _create_campaign(self, act_id: str, name: str, objective: str, token: str) -> str:
+    def _create_campaign(
+        self,
+        act_id: str,
+        name: str,
+        objective: str,
+        token: str,
+        daily_budget: Optional[float] = None,
+        currency: str = "USD",
+        budget_mode: str = "ABO",
+    ) -> str:
         """创建 Facebook Campaign"""
         act_id_num = act_id.replace("act_", "")
         # 将内部 objective 值映射为 FB API 接受的标准值
@@ -2039,7 +2079,14 @@ class AutoPilotEngine:
         }
         # 所有 OUTCOME_* 目标都使用 AUCTION 竞价
         payload["buying_type"] = "AUCTION"
-        payload["is_adset_budget_sharing_enabled"] = False
+        budget_mode = str(budget_mode or "ABO").strip().upper()
+        if budget_mode == "CBO":
+            campaign_budget_units = _fb_money_units(float(daily_budget or 0), (currency or "USD").upper())
+            if campaign_budget_units <= 0:
+                raise ValueError("CBO 模式必须配置大于 0 的系列日预算")
+            payload["daily_budget"] = campaign_budget_units
+        else:
+            payload["is_adset_budget_sharing_enabled"] = False
 
         data = self._fb_post(f"act_{act_id_num}/campaigns", token, payload)
         return data["id"]
@@ -2048,10 +2095,11 @@ class AutoPilotEngine:
 
     def _create_adset(
         self, act_id: str, campaign_id: str, name: str,
-        audience: dict, daily_budget: float,
+        audience: dict, daily_budget: Optional[float],
         target_cpa: Optional[float], objective: str,
         pixel_id: str, token: str,
         bid_strategy: str = "LOWEST_COST_WITHOUT_CAP",
+        budget_mode: str = "ABO",
         placements: Optional[dict] = None,
         conversion_event: str = "PURCHASE",
         beneficiary: str = "",
@@ -2074,7 +2122,13 @@ class AutoPilotEngine:
                 _budget_currency = _acc_row["currency"].upper()
         except Exception:
             pass  # 查询失败时默认为 USD
-        budget_cents = _fb_money_units(daily_budget, _budget_currency)
+        budget_mode = str(budget_mode or "ABO").strip().upper()
+        if budget_mode == "CBO":
+            budget_cents = None
+        else:
+            budget_cents = _fb_money_units(float(daily_budget or 0), _budget_currency)
+            if budget_cents <= 0:
+                raise ValueError("ABO 模式必须配置大于 0 的广告组日预算")
         # 规范化 objective：将旧版/前端传来的 MESSAGES 映射为 OUTCOME_ENGAGEMENT
         _OBJ_NORMALIZE = {
             "OUTCOME_MESSAGES":  "OUTCOME_ENGAGEMENT",
@@ -2121,13 +2175,14 @@ class AutoPilotEngine:
         payload = {
             "name": name,
             "campaign_id": campaign_id,
-            "daily_budget": budget_cents,
             "billing_event": "IMPRESSIONS",
             "optimization_goal": opt_goal,
             "targeting": targeting,
             "status": "ACTIVE",
             # 不传 start_time → FB 立即生效（避免时区错误导致排期）
         }
+        if budget_mode != "CBO":
+            payload["daily_budget"] = budget_cents
 
         # 根据目标类型 + 转化目的设置 promoted_object
         # 测试验证结论（2026-04）：
@@ -3094,16 +3149,29 @@ class AutoPilotEngine:
         self, interests: list, countries: list, max_adsets: int,
         age_min: int = 18, age_max: int = 65, gender: int = 0,
         token: str = None, rotation_seed: str = "",
-        lang_codes: list = None
+        lang_codes: list = None,
+        strategy: str = "broad_interest",
+        chunk_size: int = 2,
     ) -> list[dict]:
         """
         根据 AI 推荐的兴趣词，生成受众分组。
         策略：
-          - 每 2-3 个兴趣词为一组（窄受众）
-          - 最后加一个宽泛受众（无兴趣词限制）
+          - 默认宽泛 + 兴趣分组，保持原投放安全口径
+          - 可选仅宽泛/仅兴趣；仅兴趣无有效兴趣时自动兜底宽泛
           - 总组数不超过 max_adsets
         """
         groups = []
+        try:
+            max_adsets = max(1, min(int(max_adsets or 5), 20))
+        except Exception:
+            max_adsets = 5
+        try:
+            chunk_size = max(1, min(int(chunk_size or 2), 5))
+        except Exception:
+            chunk_size = 2
+        strategy = str(strategy or "broad_interest").strip().lower()
+        if strategy not in {"broad_interest", "broad_only", "interest_only"}:
+            strategy = "broad_interest"
         # 性别设置：0=不限, 1=男, 2=女
         genders = [gender] if gender in (1, 2) else []
 
@@ -3119,16 +3187,33 @@ class AutoPilotEngine:
                 t.update(extra)
             return t
 
-        # 宽泛受众（必有）
-        groups.append({
-            "name": "宽泛受众",
-            "targeting": _base_targeting()
-        })
+        def _append_broad(name: str = "宽泛受众") -> None:
+            if len(groups) < max_adsets:
+                groups.append({
+                    "name": name,
+                    "type": "broad",
+                    "targeting": _base_targeting()
+                })
+
+        # 宽泛受众（默认保留；仅兴趣策略不主动加入）
+        if strategy in {"broad_interest", "broad_only"}:
+            _append_broad()
+        if strategy == "broad_only":
+            return groups[:max_adsets]
 
         # 兴趣词分组（先解析兴趣词ID）
+        clean_interests = []
+        seen_interests = set()
+        for item in interests or []:
+            name = str(item or "").strip()
+            key = name.lower()
+            if not key or key in seen_interests:
+                continue
+            seen_interests.add(key)
+            clean_interests.append(name)
         resolved_interests = []
-        if interests and token:
-            resolved_interests = self._resolve_interests(interests, token)
+        if clean_interests and token:
+            resolved_interests = self._resolve_interests(clean_interests, token)
         if resolved_interests and rotation_seed:
             try:
                 import hashlib
@@ -3139,7 +3224,6 @@ class AutoPilotEngine:
         # 注意：不再退化为只传name，因为FB API要求interests必须有id字段
         # 如果没有token或解析失败，resolved_interests保持为空，只使用宽泛受众
 
-        chunk_size = 2
         for i in range(0, len(resolved_interests), chunk_size):
             if len(groups) >= max_adsets:
                 break
@@ -3147,9 +3231,12 @@ class AutoPilotEngine:
             interest_objs = chunk  # 已经是 {"id": ..., "name": ...} 格式
             groups.append({
                 "name": f"兴趣: {', '.join(item['name'] for item in chunk)}",
+                "type": "interest",
                 "targeting": _base_targeting({"flexible_spec": [{"interests": interest_objs}]})
             })
 
+        if not groups:
+            _append_broad("宽泛受众（兴趣兜底）")
         return groups[:max_adsets]
 
     # ── 数据库辅助 ────────────────────────────────────────────────────────────

@@ -1733,6 +1733,10 @@ class LaunchCampaignBody(BaseModel):
     bid_strategy: str = "LOWEST_COST_WITHOUT_CAP"
     max_adsets: int = 5
     one_ad_per_adset: bool = True
+    budget_mode: Optional[str] = "ABO"
+    budget_amount_mode: Optional[str] = "per_adset"
+    audience_strategy: Optional[str] = "broad_interest"
+    audience_interest_chunk_size: int = 2
     page_id: Optional[str] = None
     pixel_id: Optional[str] = None
     conversion_event: Optional[str] = None
@@ -1814,6 +1818,26 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
     except Exception:
         body.max_adsets = 5
     body.one_ad_per_adset = bool(body.one_ad_per_adset)
+    budget_mode = str(getattr(body, "budget_mode", "") or "ABO").strip().upper()
+    if budget_mode in {"CBO", "CAMPAIGN", "CAMPAIGN_BUDGET", "ADVANTAGE_CAMPAIGN_BUDGET"}:
+        body.budget_mode = "CBO"
+    else:
+        body.budget_mode = "ABO"
+    amount_mode = str(getattr(body, "budget_amount_mode", "") or "per_adset").strip().lower()
+    if amount_mode in {"total", "campaign_total", "total_budget"}:
+        body.budget_amount_mode = "total"
+    else:
+        body.budget_amount_mode = "per_adset"
+    if body.budget_mode == "CBO":
+        body.budget_amount_mode = "total"
+    audience_strategy = str(getattr(body, "audience_strategy", "") or "broad_interest").strip().lower()
+    if audience_strategy not in {"broad_interest", "broad_only", "interest_only"}:
+        audience_strategy = "broad_interest"
+    body.audience_strategy = audience_strategy
+    try:
+        body.audience_interest_chunk_size = max(1, min(int(getattr(body, "audience_interest_chunk_size", 2) or 2), 5))
+    except Exception:
+        body.audience_interest_chunk_size = 2
 
 
 def _launch_act_ids(body: LaunchCampaignBody) -> list[str]:
@@ -1863,6 +1887,18 @@ def _ensure_launch_campaign_columns(conn) -> None:
         conn.commit()
     if "one_ad_per_adset" not in cols:
         conn.execute("ALTER TABLE auto_campaigns ADD COLUMN one_ad_per_adset INTEGER DEFAULT 1")
+        conn.commit()
+    if "budget_mode" not in cols:
+        conn.execute("ALTER TABLE auto_campaigns ADD COLUMN budget_mode TEXT DEFAULT 'ABO'")
+        conn.commit()
+    if "budget_amount_mode" not in cols:
+        conn.execute("ALTER TABLE auto_campaigns ADD COLUMN budget_amount_mode TEXT DEFAULT 'per_adset'")
+        conn.commit()
+    if "audience_strategy" not in cols:
+        conn.execute("ALTER TABLE auto_campaigns ADD COLUMN audience_strategy TEXT DEFAULT 'broad_interest'")
+        conn.commit()
+    if "audience_interest_chunk_size" not in cols:
+        conn.execute("ALTER TABLE auto_campaigns ADD COLUMN audience_interest_chunk_size INTEGER DEFAULT 2")
         conn.commit()
 
 
@@ -2143,11 +2179,13 @@ def _insert_launch_campaign(conn, asset: dict, act_id: str, body: LaunchCampaign
            (act_id, asset_id, name, objective, target_countries,
             target_cpa, daily_budget,
             age_min, age_max, gender, placements, bid_strategy, max_adsets,
-            one_ad_per_adset, page_id_override, pixel_id_override, landing_url, form_link,
+            one_ad_per_adset, budget_mode, budget_amount_mode,
+            audience_strategy, audience_interest_chunk_size,
+            page_id_override, pixel_id_override, landing_url, form_link,
             device_platforms, ad_language, conversion_event,
             tw_page_id, conversion_goal, message_template, lead_form_id,
             cta_type, copy_mode, custom_copy, status, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)""",
         (
             act_id, asset["id"], campaign_name, body.objective,
             json.dumps(body.target_countries or ["US"]), body.target_cpa, body.daily_budget,
@@ -2155,6 +2193,10 @@ def _insert_launch_campaign(conn, asset: dict, act_id: str, body: LaunchCampaign
             json.dumps(body.placements) if body.placements else None,
             body.bid_strategy, body.max_adsets,
             1 if body.one_ad_per_adset else 0,
+            body.budget_mode or "ABO",
+            body.budget_amount_mode or "per_adset",
+            body.audience_strategy or "broad_interest",
+            body.audience_interest_chunk_size or 2,
             body.page_id, body.pixel_id, body.landing_url, body.form_link,
             body.device_platforms or "all", body.ad_language or "en",
             body.conversion_event or "PURCHASE",
