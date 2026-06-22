@@ -4352,6 +4352,11 @@ def _ensure_tw_page_status_columns(conn):
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(tw_certified_pages)").fetchall()}
     columns = {
         "page_category": "TEXT DEFAULT NULL",
+        "page_category_list": "TEXT DEFAULT NULL",
+        "page_fan_count": "INTEGER DEFAULT NULL",
+        "page_followers_count": "INTEGER DEFAULT NULL",
+        "page_metrics_status": "TEXT DEFAULT NULL",
+        "page_metrics_hint": "TEXT DEFAULT NULL",
         "page_is_published": "INTEGER DEFAULT NULL",
         "page_verification_status": "TEXT DEFAULT NULL",
         "page_tasks": "TEXT DEFAULT NULL",
@@ -4403,12 +4408,13 @@ def _probe_tw_page_lead_form_status(page_id: str, page_token: str):
 
 def _probe_tw_page_status(page_id: str, page_token: str, page_payload: dict = None) -> dict:
     payload = dict(page_payload or {})
+    metrics_error = ""
     if page_id and page_token:
         try:
             r = requests.get(
                 f"{FB_API_BASE}/{page_id}",
                 params={
-                    "fields": "id,name,category,is_published,tasks,verification_status",
+                    "fields": "id,name,category,category_list,fan_count,followers_count,is_published,tasks,verification_status",
                     "access_token": page_token,
                 },
                 timeout=10,
@@ -4416,8 +4422,20 @@ def _probe_tw_page_status(page_id: str, page_token: str, page_payload: dict = No
             d = r.json()
             if "error" not in d:
                 payload.update(d)
+            else:
+                metrics_error = str((d.get("error") or {}).get("message") or "主页规模字段权限不足")
+                fallback = requests.get(
+                    f"{FB_API_BASE}/{page_id}",
+                    params={
+                        "fields": "id,name,category,is_published,tasks,verification_status",
+                        "access_token": page_token,
+                    },
+                    timeout=10,
+                ).json()
+                if "error" not in fallback:
+                    payload.update(fallback)
         except Exception:
-            pass
+            metrics_error = "主页规模字段暂时无法读取"
 
     tasks = payload.get("tasks") or []
     if isinstance(tasks, str):
@@ -4461,8 +4479,24 @@ def _probe_tw_page_status(page_id: str, page_token: str, page_payload: dict = No
     else:
         page_status = "warn"
 
+    category_list = payload.get("category_list") or []
+    if not isinstance(category_list, list):
+        category_list = []
+    def optional_count(value):
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+    fan_count = optional_count(payload.get("fan_count"))
+    followers_count = optional_count(payload.get("followers_count"))
+    metrics_available = fan_count is not None or followers_count is not None
     return {
         "page_category": payload.get("category") or "",
+        "page_category_list": json.dumps(category_list, ensure_ascii=False),
+        "page_fan_count": fan_count,
+        "page_followers_count": followers_count,
+        "page_metrics_status": "ok" if metrics_available else "unavailable",
+        "page_metrics_hint": "" if metrics_available else (metrics_error or "当前 Token/App 缺少主页公开内容或互动读取权限"),
         "page_is_published": None if is_published is None else (1 if is_published else 0),
         "page_verification_status": payload.get("verification_status") or "",
         "page_tasks": json.dumps(tasks, ensure_ascii=False),
@@ -4644,7 +4678,9 @@ def list_tw_certified_pages(user=Depends(get_current_user)):
         f"""
         SELECT p.id, p.page_id, p.page_name, p.verified_identity_id, p.verified_source, p.note, p.created_at,
                p.matrix_id, p.token_id, p.team_id, tm.name AS team_name,
-               p.page_category, p.page_is_published, p.page_verification_status, p.page_tasks,
+               p.page_category, p.page_category_list, p.page_fan_count, p.page_followers_count,
+               p.page_metrics_status, p.page_metrics_hint,
+               p.page_is_published, p.page_verification_status, p.page_tasks,
                p.page_can_advertise, p.page_lead_form_status, p.page_status, p.page_status_hint,
                p.page_status_checked_at,
                ft.token_alias, ft.matrix_id AS token_matrix_id
@@ -4805,6 +4841,33 @@ def delete_tw_certified_page(page_db_id: int, user=Depends(get_current_user)):
     """删除台湾认证主页"""
     conn = get_conn()
     assert_row_access(conn, "tw_certified_pages", page_db_id, user, allow_unassigned=False)
+    page_row = conn.execute("SELECT page_id FROM tw_certified_pages WHERE id=?", (page_db_id,)).fetchone()
+    page_id = str(page_row["page_id"] or "").strip()
+    references = []
+    if page_id:
+        account_count = conn.execute(
+            "SELECT COUNT(*) FROM accounts WHERE page_id=? AND COALESCE(account_status,0) NOT IN (2,101)",
+            (page_id,),
+        ).fetchone()[0]
+        if account_count:
+            references.append(f"{account_count} 个可用广告账户")
+        table_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_campaigns'"
+        ).fetchone()
+        if table_exists:
+            campaign_columns = {row["name"] for row in conn.execute("PRAGMA table_info(auto_campaigns)").fetchall()}
+            page_columns = [name for name in ("page_id_override", "tw_page_id", "page_id") if name in campaign_columns]
+            for column in page_columns:
+                campaign_count = conn.execute(
+                    f"SELECT COUNT(*) FROM auto_campaigns WHERE {column}=?",
+                    (page_id,),
+                ).fetchone()[0]
+                if campaign_count:
+                    references.append(f"{campaign_count} 条投放配置")
+                    break
+    if references:
+        conn.close()
+        raise HTTPException(status_code=409, detail="主页仍被使用，不能删除：" + "、".join(references))
     conn.execute("DELETE FROM tw_certified_pages WHERE id=?", (page_db_id,))
     conn.commit()
     conn.close()
@@ -4896,7 +4959,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
         try:
             r = _req.get(
                 "https://graph.facebook.com/v25.0/me/accounts",
-                params={"fields": "id,name,access_token,category,is_published,tasks,verification_status", "access_token": t_info["plain"], "limit": 200},
+                params={"fields": "id,name,access_token,category,category_list,fan_count,followers_count,is_published,tasks,verification_status", "access_token": t_info["plain"], "limit": 200},
                 timeout=8
             )
             d = r.json()
@@ -4914,6 +4977,9 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         "page_name": pg["name"],
                         "page_token": pg.get("access_token"),
                         "category": pg.get("category"),
+                        "category_list": pg.get("category_list"),
+                        "fan_count": pg.get("fan_count"),
+                        "followers_count": pg.get("followers_count"),
                         "is_published": pg.get("is_published"),
                         "tasks": pg.get("tasks"),
                         "verification_status": pg.get("verification_status"),
@@ -4982,6 +5048,11 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
         except Exception as status_exc:
             pg.update({
                 "page_category": pg.get("category") or "",
+                "page_category_list": json.dumps(pg.get("category_list") or [], ensure_ascii=False),
+                "page_fan_count": None,
+                "page_followers_count": None,
+                "page_metrics_status": "unavailable",
+                "page_metrics_hint": "主页规模字段暂时无法读取",
                 "page_is_published": None,
                 "page_verification_status": pg.get("verification_status") or "",
                 "page_tasks": json.dumps(pg.get("tasks") or [], ensure_ascii=False),
@@ -5007,9 +5078,10 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                 conn2.execute(
                     "INSERT OR IGNORE INTO tw_certified_pages "
                     "(page_id, page_name, verified_identity_id, verified_source, note, matrix_id, token_id, "
-                    "page_category, page_is_published, page_verification_status, page_tasks, "
+                    "page_category, page_category_list, page_fan_count, page_followers_count, page_metrics_status, page_metrics_hint, "
+                    "page_is_published, page_verification_status, page_tasks, "
                     "page_can_advertise, page_lead_form_status, page_status, page_status_hint, page_status_checked_at, team_id) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         pg["page_id"],
                         pg["page_name"],
@@ -5019,6 +5091,11 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         pg.get("matrix_id") or None,
                         pg.get("token_id") or None,
                         pg.get("page_category") or None,
+                        pg.get("page_category_list") or None,
+                        pg.get("page_fan_count"),
+                        pg.get("page_followers_count"),
+                        pg.get("page_metrics_status") or None,
+                        pg.get("page_metrics_hint") or None,
                         pg.get("page_is_published"),
                         pg.get("page_verification_status") or None,
                         pg.get("page_tasks") or None,
@@ -5044,6 +5121,11 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         verified_identity_id=CASE WHEN verified_source='manual' THEN verified_identity_id ELSE COALESCE(?, verified_identity_id) END,
                         verified_source=CASE WHEN verified_source='manual' THEN verified_source ELSE COALESCE(?, verified_source) END,
                         page_category=?,
+                        page_category_list=?,
+                        page_fan_count=?,
+                        page_followers_count=?,
+                        page_metrics_status=?,
+                        page_metrics_hint=?,
                         page_is_published=?,
                         page_verification_status=?,
                         page_tasks=?,
@@ -5062,6 +5144,11 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                         pg.get("verified_candidate") or None,
                         pg.get("verified_source") or None,
                         pg.get("page_category") or None,
+                        pg.get("page_category_list") or None,
+                        pg.get("page_fan_count"),
+                        pg.get("page_followers_count"),
+                        pg.get("page_metrics_status") or None,
+                        pg.get("page_metrics_hint") or None,
                         pg.get("page_is_published"),
                         pg.get("page_verification_status") or None,
                         pg.get("page_tasks") or None,
@@ -5138,7 +5225,8 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
     certified_sql = """
         SELECT p.page_id, p.page_name, p.verified_identity_id, p.matrix_id, p.token_id, ft.token_alias,
                p.page_status, p.page_status_hint, p.page_is_published, p.page_can_advertise,
-               p.page_lead_form_status
+               p.page_lead_form_status, p.page_category, p.page_fan_count, p.page_followers_count,
+               p.page_metrics_status, p.page_metrics_hint
         FROM tw_certified_pages p
         LEFT JOIN fb_tokens ft ON ft.id = p.token_id
         WHERE p.verified_identity_id IS NOT NULL
@@ -5171,6 +5259,11 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
             "page_is_published": r["page_is_published"],
             "page_can_advertise": r["page_can_advertise"],
             "page_lead_form_status": r["page_lead_form_status"],
+            "page_category": r["page_category"],
+            "page_fan_count": r["page_fan_count"],
+            "page_followers_count": r["page_followers_count"],
+            "page_metrics_status": r["page_metrics_status"],
+            "page_metrics_hint": r["page_metrics_hint"],
         }
         for r in certified
     }
@@ -5246,6 +5339,11 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
                     "page_is_published": cert_info.get("page_is_published"),
                     "page_can_advertise": cert_info.get("page_can_advertise"),
                     "page_lead_form_status": cert_info.get("page_lead_form_status"),
+                    "page_category": cert_info.get("page_category"),
+                    "page_fan_count": cert_info.get("page_fan_count"),
+                    "page_followers_count": cert_info.get("page_followers_count"),
+                    "page_metrics_status": cert_info.get("page_metrics_status"),
+                    "page_metrics_hint": cert_info.get("page_metrics_hint"),
                     "fb_name": p.get("name", "")
                 })
     except Exception as e:
@@ -5269,6 +5367,11 @@ def get_tw_matched_pages(act_id: str, user=Depends(get_current_user)):
                 "page_is_published": v.get("page_is_published"),
                 "page_can_advertise": v.get("page_can_advertise"),
                 "page_lead_form_status": v.get("page_lead_form_status"),
+                "page_category": v.get("page_category"),
+                "page_fan_count": v.get("page_fan_count"),
+                "page_followers_count": v.get("page_followers_count"),
+                "page_metrics_status": v.get("page_metrics_status"),
+                "page_metrics_hint": v.get("page_metrics_hint"),
             }
             for k, v in certified_ids.items()
         ]

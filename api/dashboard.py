@@ -82,6 +82,7 @@ def _landing_ad_metrics_for_ads(
     try:
         rows = conn.execute(
             f"""SELECT l.*,
+                       b.ad_id AS binding_ad_id,
                        p.title AS page_title,
                        p.status AS landing_page_status,
                        p.pages_url AS landing_pages_url,
@@ -90,21 +91,29 @@ def _landing_ad_metrics_for_ads(
                        p.health_status AS landing_health_status,
                        p.health_summary AS landing_health_summary
                 FROM landing_ad_links l
+                LEFT JOIN landing_ad_link_bindings b ON b.link_id=l.id
                 LEFT JOIN landing_pages p ON p.id=l.page_id
-                WHERE l.ad_id IN ({placeholders})
+                WHERE (l.ad_id IN ({placeholders}) OR b.ad_id IN ({placeholders}))
                   AND COALESCE(l.status,'') NOT IN ('archived','failed','unused')
-                ORDER BY l.id DESC""",
-            clean,
+                ORDER BY l.id DESC, b.last_seen_at DESC""",
+            clean + clean,
         ).fetchall()
     except Exception:
         return {}
     out = {}
     for row in rows:
-        ad_id = row["ad_id"]
+        ad_id = row["binding_ad_id"] or row["ad_id"]
         if not ad_id or ad_id in out:
             continue
         try:
-            stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=date_from, date_to=date_to)
+            stats = _ad_link_stats(
+                conn,
+                int(row["page_id"]),
+                row["slug"],
+                ad_id=ad_id,
+                date_from=date_from,
+                date_to=date_to,
+            )
         except Exception:
             stats = {}
         final_true_contact = stats.get("final_true_contact", stats.get("effective_true_contact", stats.get("true_contact", 0))) or 0
@@ -138,6 +147,8 @@ def _landing_ad_metrics_for_ads(
             "status": row["status"] or "",
             "spend": row_spend if row_spend is not None else stats.get("spend", 0),
             "spend_source": "ads_live" if row_spend is not None else stats.get("spend_source", ""),
+            "attribution_ad_count": stats.get("attribution_ad_count", 0),
+            "attribution_mode": stats.get("attribution_mode", "ad"),
             "final_true_contact": final_true_contact,
             "final_metric_mode": stats.get("final_metric_mode", stats.get("metric_mode", "raw")),
             "cost_per_final_true_contact": cost_per_final,
@@ -187,8 +198,19 @@ def _page_brief_map(conn, page_ids: list[str]) -> dict[str, dict]:
     placeholders = ",".join("?" for _ in clean)
     out: dict[str, dict] = {}
     try:
+        page_columns = {r["name"] for r in conn.execute("PRAGMA table_info(tw_certified_pages)").fetchall()}
+        metric_selects = []
+        for column in (
+            "page_category",
+            "page_fan_count",
+            "page_followers_count",
+            "page_metrics_status",
+            "page_metrics_hint",
+        ):
+            metric_selects.append(column if column in page_columns else f"NULL AS {column}")
         rows = conn.execute(
             f"""SELECT page_id, page_name, verified_identity_id, page_status, page_status_hint,
+                       {', '.join(metric_selects)},
                        page_is_published, page_can_advertise, page_lead_form_status,
                        page_status_checked_at
                 FROM tw_certified_pages
@@ -207,6 +229,11 @@ def _page_brief_map(conn, page_ids: list[str]) -> dict[str, dict]:
                 "verified_identity_id": row["verified_identity_id"] or "",
                 "page_status": status or "unknown",
                 "page_status_hint": row["page_status_hint"] or "",
+                "page_category": row["page_category"] or "",
+                "page_fan_count": row["page_fan_count"],
+                "page_followers_count": row["page_followers_count"],
+                "page_metrics_status": row["page_metrics_status"] or "unavailable",
+                "page_metrics_hint": row["page_metrics_hint"] or "",
                 "page_is_published": row["page_is_published"],
                 "page_can_advertise": row["page_can_advertise"],
                 "page_lead_form_status": row["page_lead_form_status"] or "",
@@ -1478,7 +1505,7 @@ def get_ads_live(
         try:
             rich_fields = (
                 "id,name,status,effective_status,adset_id,campaign_id,"
-                "creative{id,name,object_story_spec},"
+                "creative{id,name,effective_object_story_id,object_story_id,object_story_spec},"
                 "adset{id,name,status,effective_status,daily_budget,lifetime_budget,"
                 "budget_remaining,bid_strategy,optimization_goal,campaign_id},"
                 "campaign{id,name,status,effective_status,daily_budget,lifetime_budget,"
@@ -1535,6 +1562,9 @@ def get_ads_live(
                 )
                 adset = ad.get("adset") if isinstance(ad.get("adset"), dict) else {}
                 campaign = ad.get("campaign") if isinstance(ad.get("campaign"), dict) else {}
+                creative = ad.get("creative") if isinstance(ad.get("creative"), dict) else {}
+                story_id = str(creative.get("effective_object_story_id") or creative.get("object_story_id") or "").strip()
+                post_id = story_id.split("_", 1)[1] if "_" in story_id else story_id
                 fb_page_id = _extract_ad_page_id(ad) or str(acc.get("page_id") or "").strip()
                 ad_status = ad.get("status", "")
                 effective_status = ad.get("effective_status", "")
@@ -1611,6 +1641,9 @@ def get_ads_live(
                     'campaign_budget_remaining': _minor_to_amount(campaign.get("budget_remaining"), currency),
                     'campaign_bid_strategy': campaign.get('bid_strategy', ''),
                     'campaign_objective': campaign.get('objective', ''),
+                    'creative_id': str(creative.get('id') or ''),
+                    'story_id': story_id,
+                    'post_id': post_id,
                     'fb_page_id': fb_page_id,
                     'account_page_id': str(acc.get('page_id') or '').strip(),
                     'target_cpa': kpi.get('target_cpa'),   # 已是USD

@@ -190,6 +190,8 @@ def get_logs(
     offset: int = 0,
     user=Depends(get_current_user)
 ):
+    limit = max(1, min(int(limit or 50), 500))
+    offset = max(0, int(offset or 0))
     conn = get_conn()
     where, params = ["1=1"], []
     if not is_superadmin(user):

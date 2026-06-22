@@ -1794,6 +1794,11 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-ops-card b{display:block;font-size:13px;color:#1d1d1f;margin-bottom:5px}
 .landing-ops-card span{display:block;font-size:12px;color:#6e6e73;line-height:1.45}
 .landing-simple-guide{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin:0 0 14px}
+.landing-guide-details{margin:0 0 14px;border:1px solid #e5e5ea;border-radius:10px;background:#fff;padding:10px 12px}
+.landing-guide-details>summary{cursor:pointer;font-size:12px;font-weight:760;color:#515154;list-style-position:inside}
+.landing-guide-details[open]>summary{margin-bottom:10px;color:#1d1d1f}
+.landing-guide-details .landing-simple-guide{margin:0}
+.landing-tech-details .landing-flow,.landing-tech-details .landing-long-help,.landing-tech-details .landing-ops-strip{margin-top:10px;margin-bottom:0}
 .landing-guide-card{border:1px solid #e5e5ea;border-radius:12px;background:#fff;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
 .landing-guide-title{font-size:14px;font-weight:850;color:#1d1d1f;margin-bottom:8px}
 .landing-guide-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
@@ -3003,7 +3008,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
     <div class="nav-item active" onclick="showPage('dashboard')"><span class="nav-icon"></span>数据看板</div>
-    <div class="nav-item" onclick="showPage('ads')"><span class="nav-icon"></span>广告列表</div>
+    <div class="nav-item" onclick="showPage('ads')"><span class="nav-icon"></span>投放中心</div>
     <div class="nav-item" onclick="showPage('logs')"><span class="nav-icon"></span>操作日志</div>
     <div class="nav-sec-title">账户管理</div>
     <div class="nav-item" onclick="showPage('tokens')"><span class="nav-icon"></span>Token 管理</div>
@@ -3290,8 +3295,15 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
     <!-- Ads -->
     <div class="page" id="page-ads">
      <div class="ph">
-      <div><h2>广告列表</h2><p>广告成效查询（默认近 7 天，广告暂停期间今日消耗为 $0.00 属正常）</p></div>
+      <div><h2>投放中心</h2><p>按账户查看广告、主页、预算、投放链接与真实结果</p></div>
       <button class="btn btn-g btn-sm" onclick="loadAds({force:true})">刷新</button>
+     </div>
+     <div class="fb" style="margin-bottom:10px;gap:6px">
+      <span style="font-size:12px;color:var(--t3);margin-right:2px">投放资产</span>
+      <button class="btn btn-g btn-sm" onclick="showPage('accounts')">账户与 Token</button>
+      <button class="btn btn-g btn-sm" onclick="showPage('landing_urls')">账户默认链接</button>
+      <button class="btn btn-g btn-sm" onclick="showPage('landing_center')">落地页与广告入口</button>
+      <button class="btn btn-g btn-sm" onclick="showPage('twpages')">主页资产</button>
      </div>
      <div class="fb" style="flex-wrap:wrap;gap:8px">
       <select class="fc" id="adsAct" onchange="loadAds()" style="min-width:160px"><option value="">全部账户</option></select>
@@ -3351,8 +3363,8 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
      <!-- 操作日志面板 -->
      <div id="logPanelOps">
       <div class="fb">
-       <select class="fc" id="logAct" onchange="loadLogs()"><option value="">全部账户</option></select>
-       <select class="fc" id="logType" onchange="loadLogs()">
+       <select class="fc" id="logAct" onchange="onLogFilterChanged()"><option value="">全部账户</option></select>
+       <select class="fc" id="logType" onchange="onLogFilterChanged()">
         <option value="">全部类型</option>
         <option value="pause">暂停广告</option>
         <option value="increase_budget">加量</option>
@@ -3361,14 +3373,24 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
         <option value="emergency">紧急暂停</option>
         <option value="escalate">升级关闭</option>
        </select>
-       <select class="fc" id="logStatus" onchange="loadLogs()">
+       <select class="fc" id="logStatus" onchange="onLogFilterChanged()">
         <option value="">全部状态</option>
         <option value="success">成功</option>
         <option value="failed">失败</option>
         <option value="escalated">升级关闭</option>
         <option value="dry_run">模拟</option>
        </select>
+       <input class="fc" type="date" id="logDateFrom" onchange="onLogFilterChanged()" title="开始日期">
+       <span style="font-size:12px;color:var(--t3)">至</span>
+       <input class="fc" type="date" id="logDateTo" onchange="onLogFilterChanged()" title="结束日期">
+       <div class="qdate-btns">
+        <button class="qdate-btn" onclick="setLogRange(1,0)">今日</button>
+        <button class="qdate-btn" onclick="setLogRange(1,1)">昨日</button>
+        <button class="qdate-btn" onclick="setLogRange(7,0)">近 7 天</button>
+       </div>
+       <input class="fc" id="logKeyword" placeholder="搜索对象、原因或账户 ID" onkeydown="if(event.key==='Enter')onLogFilterChanged()" style="min-width:210px">
        <button class="btn btn-g btn-sm" onclick="loadLogs()">刷新</button>
+       <span id="logsCount" style="margin-left:auto;font-size:12px;color:var(--t3)"></span>
       </div>
       <div class="card" style="padding:0"><div class="table-wrap"><table>
        <thead><tr><th>时间</th><th>账户</th><th>对象</th><th>操作</th><th>触发原因</th><th>状态</th><th>层级</th></tr></thead>
@@ -3728,13 +3750,19 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
       </div>
      </div>
      <div class="ss" style="margin-bottom:14px">
-      <div class="ss-title">说明</div>
-      <div style="font-size:13px;color:var(--t2);line-height:1.7">对需要认证的地区，广告往往要提供<b>受益方（Beneficiary）</b>的实名认证编号。系统现在只负责同步主页、矩阵和对应 Token，扫描仅探测候选 Verified ID。<br>录入后，铺广告时系统会优先匹配当前账户矩阵里有权限的主页；如该主页已在广告后台完成认证，请手动把真实可用的 Verified ID 填进来。<br>
-       <span style="color:var(--wa)">请以 Facebook 广告后台实际显示并可投放通过的 Verified ID 为准，自动识别结果仅作为候选参考，请以 Facebook 广告后台实际显示为准确认。</span>
-      </div>
+      <details><summary style="cursor:pointer;font-weight:700">Verified ID 使用说明</summary>
+       <div style="font-size:13px;color:var(--t2);line-height:1.7;margin-top:10px">系统同步主页、类型、规模、矩阵和 Token，并探测候选 Verified ID。投放时优先匹配当前账户矩阵内有权限且状态正常的主页。<br><span style="color:var(--wa)">Verified ID 必须以 Facebook 广告后台实际可投放的值为准；自动识别仅作候选。</span></div>
+      </details>
      </div>
      <div class="ss">
       <div class="ss-title">主页列表</div>
+      <div id="twPagesSummary2" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px"></div>
+      <div class="fb" style="margin-bottom:10px">
+       <input class="fc" id="twPageSearch2" placeholder="搜索主页名称或 ID" oninput="loadTwCertPages2(false)" style="min-width:220px">
+       <select class="fc" id="twPageStatus2" onchange="loadTwCertPages2(false)">
+        <option value="all">全部状态</option><option value="ok">可投放</option><option value="warn">待确认</option><option value="restricted">受限/未发布</option><option value="metrics_missing">规模未读取</option>
+       </select>
+      </div>
       <div id="twPagesList2" style="margin-bottom:14px"><span class="spin"></span>加载中...</div>
       <div class="tw-add-panel">
       <div class="ss-title">添加主页</div>
@@ -3796,6 +3824,8 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <input type="file" id="importLandingCsv" accept=".csv" style="display:none" onchange="importLandingUrlsCsv(this)">
  </div>
  </div>
+ <details class="landing-guide-details">
+  <summary>查看投放链路说明与域名建议</summary>
  <div class="landing-simple-guide">
   <div class="landing-guide-card">
    <div class="landing-guide-title">这页只做一件事：给账户设置默认投放链接</div>
@@ -3815,6 +3845,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    </div>
   </div>
  </div>
+ </details>
  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
   <table style="width:100%;border-collapse:collapse">
    <thead>
@@ -3846,8 +3877,11 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
     <option value="1">今日真实效果</option>
     <option value="3">近 3 天</option>
    <option value="7" selected>近 7 天</option>
-   <option value="30">近 30 天</option>
   </select>
+   <input class="fc" id="landingPerfDateFrom" type="date" style="width:138px;height:36px" title="访问日志开始日期（仅保留最近 7 天）">
+   <span style="font-size:12px;color:var(--t3)">至</span>
+   <input class="fc" id="landingPerfDateTo" type="date" style="width:138px;height:36px" title="访问日志结束日期（仅保留最近 7 天）">
+   <button class="btn btn-g" onclick="applyLandingPerfDateRange()">按日期查看</button>
    <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:36px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
    <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
@@ -3860,8 +3894,10 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
   </div>
  </div>
  <div class="landing-path-strip">
-  <b>投放链路</b><span>发布链接</span><span>绑定账户</span><span>铺广告生成广告入口</span><span>回填真实进线</span>
+ <b>投放链路</b><span>发布链接</span><span>绑定账户</span><span>铺广告生成广告入口</span><span>回填真实进线</span>
  </div>
+ <details class="landing-guide-details">
+  <summary>查看投放链路说明与域名建议</summary>
  <div class="landing-simple-guide">
   <div class="landing-guide-card">
    <div class="landing-guide-title">日常投放照这 4 步走</div>
@@ -3889,7 +3925,10 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
    <div class="landing-guide-note"><b>绑定关系：</b><span>域名、像素、落地页和默认跳转链接可以保存成“资产预设”，下次发布直接套用，避免填错。</span></div>
   </div>
  </div>
+ </details>
  <div class="landing-mvp-panel" id="landingMvpPanel"></div>
+ <details class="landing-guide-details landing-tech-details">
+  <summary>查看运行口径与高级说明</summary>
  <div class="landing-flow">
   <div class="landing-flow-step"><b>1</b><span>保存发布通道 API</span></div>
   <div class="landing-flow-step"><b>2</b><span>选择模板并填写跳转链接</span></div>
@@ -3905,6 +3944,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
   <div class="landing-ops-card"><b>广告入口效果</b><span>入口码和广告 ID 参数负责归因；真实进线可单条或批量回填，未回填时参考 FB 成效。</span></div>
   <div class="landing-ops-card"><b>防护规则</b><span>按地区、设备、来源和 URL 参数做访问筛选，并在发布前预检。</span></div>
  </div>
+ </details>
  <div class="landing-center-grid">
   <div class="card landing-side-card" id="landingApiPanel">
    <div class="landing-card-head">
@@ -5317,7 +5357,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.71';
+var APP_VERSION='v3.11.72';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -7515,7 +7555,7 @@ function trimFutureHourlyTrend(labels,seriesList){
 
 // ── Page Navigation ──
 var APP_PAGES=['dashboard','ads','logs','tokens','accounts','assets','templates','landing_urls','landing_center','kpi','kpi_mapping','rules','twpages','team_admin','settings'];
-var pageTitles={dashboard:'数据看板',ads:'广告列表',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',kpi_mapping:'KPI 映射',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:'主页库',landing_urls:'账户投放链接',landing_center:'落地页工作台'};
+var pageTitles={dashboard:'数据看板',ads:'投放中心',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',kpi_mapping:'KPI 映射',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:'主页库',landing_urls:'账户投放链接',landing_center:'落地页工作台'};
 function pageFromHash(){
  var h=decodeURIComponent((location.hash||'').replace(/^#\/?/,'')).replace(/^page-/,'').trim();
  return APP_PAGES.indexOf(h)>=0?h:'';
@@ -7634,7 +7674,7 @@ function _val(id){var e=document.getElementById(id);return e?e.value||'':'';}
 function _pageAutoKey(name){
  if(name==='dashboard')return [_val('dashAct'),_val('dashKpi'),dashDateFrom||'',dashDateTo||''].join('|');
  if(name==='ads')return [_val('adsAct'),_val('adsDateFrom'),_val('adsDateTo')].join('|');
- if(name==='logs')return [_val('logAct'),_val('logType'),_val('logStatus'),logsPage].join('|');
+ if(name==='logs')return [_val('logAct'),_val('logType'),_val('logStatus'),_val('logDateFrom'),_val('logDateTo'),_val('logKeyword'),logsPage].join('|');
  if(name==='assets')return [_val('assetsActFilter'),_val('assetsMatrixFilter'),_val('assetsTypeFilter'),_val('assetsStatusFilter'),_val('assetsSearch'),_val('assetsFolderFilter'),_val('assetsBatchFilter'),_val('assetsPerfFilter'),_val('assetsSortBy'),(_assetsMeta&&_assetsMeta.page)||1].join('|');
  if(name==='kpi')return [_val('kpiAct'),_val('kpiLevel')].join('|');
  if(name==='rules')return [_val('rulesAct')].join('|');
@@ -8659,6 +8699,10 @@ function _adsLandingBriefHtml(a){
  var metricMode=l.final_metric_mode==='confirmed'?'确认口径':(l.final_metric_mode==='unique'?'唯一口径':'原始口径');
  var landingTitle=l.slug?((l.page_title||'落地页')+' / '+l.slug):'未绑定广告入口';
  var landingSub=l.landing_health_summary||l.landing_health_status||l.landing_page_status||'';
+ var pageScale=(p.page_followers_count!==null&&p.page_followers_count!==undefined)?_twPageScaleText(p):((p.page_fan_count!==null&&p.page_fan_count!==undefined)?_twPageScaleText(p):'规模未读取');
+ var pageSub=[p.page_category||'',pageScale,p.page_status_hint||p.page_status||'未检查'].filter(Boolean).join(' · ');
+ var postValue=a.post_id||a.story_id||'未返回帖子 ID';
+ var postSub=a.creative_id?('创意 '+a.creative_id+(a.story_id?' · Story '+a.story_id:'')):'动态创意或权限限制时可能无帖子 ID';
  var targetHtml=targets.length?targets.map(function(x){return escHtml(x);}).join('<br>'):'未配置专属跳转，当前走主链接默认跳转';
  var kpiLabel=a.kpi_label||(a.kpi_field?a.kpi_field.split('.').pop():'未配置 KPI');
  var hero='<div class="ads-brief-hero">'+
@@ -8667,7 +8711,8 @@ function _adsLandingBriefHtml(a){
  '</div>';
  var grid='<div class="ads-brief-grid">'+
   _adsBriefCard('广告账户',_adsBriefText(displayAccountName(a.account_name,a.act_id)),displayActId(a.act_id),'',false)+
-  _adsBriefCard('主页',_adsBriefText(pageName),p.page_status_hint||p.page_status||'未检查',p.page_status==='ok'?'ok':(p.page_status?'warn':''),false)+
+  _adsBriefCard('主页',_adsBriefText(pageName),pageSub,p.page_status==='ok'?'ok':(p.page_status?'warn':''),false)+
+  _adsBriefCard('帖子 / 创意',_adsBriefText(postValue),postSub,a.post_id?'ok':'warn',false)+
   _adsBriefCard('预算',_adsBriefText(budget),a.adset_daily_budget!=null?'广告组预算':(a.campaign_daily_budget!=null?'系列预算':'未读取到预算'),'',false)+
   _adsBriefCard('KPI 回传',_adsBriefText(String(a.conversions||0)+' / '+kpiLabel),a.target_cpa?('目标 CPA $'+Number(a.target_cpa).toFixed(2)):'未设目标 CPA',a.kpi_field?'ok':'warn',false)+
   _adsBriefCard('落地页入口',_adsBriefText(landingTitle),landingSub,l.slug?'ok':'warn',false)+
@@ -9241,30 +9286,49 @@ function quickKpi(adId,actId,adName){
 }
 
 // ── Logs ──
+function _logLocalDate(offsetDays){
+ var d=new Date();
+ d.setHours(12,0,0,0);
+ d.setDate(d.getDate()-(offsetDays||0));
+ var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
+ return y+'-'+m+'-'+day;
+}
+function setLogRange(days,offsetDays){
+ days=Math.max(1,parseInt(days||1,10));
+ offsetDays=Math.max(0,parseInt(offsetDays||0,10));
+ var from=_logLocalDate(offsetDays+days-1),to=_logLocalDate(offsetDays);
+ var fromEl=document.getElementById('logDateFrom'),toEl=document.getElementById('logDateTo');
+ if(fromEl)fromEl.value=from;if(toEl)toEl.value=to;
+ onLogFilterChanged();
+}
+function onLogFilterChanged(){logsPage=1;loadLogs();}
 async function loadLogs(){
  try{
   var a=document.getElementById('logAct')&&document.getElementById('logAct').value||'';
   var t=document.getElementById('logType')&&document.getElementById('logType').value||'';
   var st=document.getElementById('logStatus')&&document.getElementById('logStatus').value||'';
-  var url='/logs?limit=200&offset=0';
+  var fromEl=document.getElementById('logDateFrom'),toEl=document.getElementById('logDateTo');
+  if(fromEl&&!fromEl.value)fromEl.value=_logLocalDate(0);
+  if(toEl&&!toEl.value)toEl.value=_logLocalDate(0);
+  var df=fromEl&&fromEl.value||'',dt=toEl&&toEl.value||'';
+  var kw=document.getElementById('logKeyword')&&document.getElementById('logKeyword').value.trim()||'';
+  var pageSize=50,offset=(Math.max(1,logsPage)-1)*pageSize;
+  var url='/logs?limit='+pageSize+'&offset='+offset;
   if(a)url+='&act_id='+encodeURIComponent(a);
   if(t)url+='&action_type='+encodeURIComponent(t);
   if(st)url+='&status='+encodeURIComponent(st);
+  if(df)url+='&date_from='+encodeURIComponent(df);
+  if(dt)url+='&date_to='+encodeURIComponent(dt);
+  if(kw)url+='&keyword='+encodeURIComponent(kw);
   var d=await api('GET',url)||{};
   var logs=d.items||[];
-  var total=logs.length;
+  var total=Number(d.total||0);
   var tb=document.getElementById('logsBody');
   var sb={success:'bg-ok',failed:'bg-er',escalated:'bg-wa',skipped:'bg-mu',dry_run:'bg-cy'};
   var sl={success:'成功',failed:'失败',escalated:'升级关闭',skipped:'跳过',dry_run:'模拟'};
   var al={pause:'暂停广告',manual_pause:'手动暂停',manual_resume:'手动开启',manual_budget:'手动调预算',increase_budget:'加量',alert:'预警',kpi_scan:'KPI扫描',emergency:'紧急暂停',reduce_budget:'降预算',escalate:'升级关闭'};
-  if(!logs.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:30px">暂无日志</td></tr>';return}
-  // 前端分页
-  var pageSize=50;
-  var totalPages=Math.ceil(logs.length/pageSize);
-  if(logsPage>totalPages)logsPage=1;
-  var pageStart=(logsPage-1)*pageSize;
-  var pageLogs=logs.slice(pageStart,pageStart+pageSize);
-  tb.innerHTML=pageLogs.map(function(l){
+  if(!logs.length)tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:30px">该日期和筛选条件下暂无日志</td></tr>';
+  else tb.innerHTML=logs.map(function(l){
    var detail=l.trigger_detail||l.trigger_reason||'--';
    // 账户名：优先显示 account_name，如无则去掉 act_ 前缀
    var accName=displayAccountName(l.account_name,l.act_id);
@@ -9277,17 +9341,21 @@ async function loadLogs(){
     +'<td style="font-size:12px;color:var(--t3)">'+(l.level||'--')+'</td></tr>';
   }).join('');
   var pg=document.getElementById('logsPag');pg.innerHTML='';
-  // 分页按钮
-  var _lpTotal=Math.ceil(logs.length/50);
-  if(_lpTotal>1){for(var i=1;i<=Math.min(_lpTotal,10);i++){
-   var b=document.createElement('button');b.className='pb'+(i===logsPage?' active':'');b.textContent=i;
-   (function(pi){b.onclick=function(){logsPage=pi;loadLogs()}})(i);
-   pg.appendChild(b);
-  }}
-  // 显示总条数
+  var totalPages=Math.max(1,Math.ceil(total/pageSize));
+  if(logsPage>totalPages){logsPage=totalPages;return loadLogs();}
+  function addPage(label,page,disabled,active){
+   var b=document.createElement('button');b.className='pb'+(active?' active':'');b.textContent=label;b.disabled=!!disabled;
+   b.onclick=function(){if(!disabled&&page!==logsPage){logsPage=page;loadLogs();}};pg.appendChild(b);
+  }
+  if(totalPages>1){
+   addPage('‹',logsPage-1,logsPage<=1,false);
+   var start=Math.max(1,logsPage-3),end=Math.min(totalPages,start+6);start=Math.max(1,end-6);
+   for(var i=start;i<=end;i++)addPage(String(i),i,false,i===logsPage);
+   addPage('›',logsPage+1,logsPage>=totalPages,false);
+  }
   var logCountEl=document.getElementById('logsCount');
-  if(logCountEl)logCountEl.textContent='共 '+logs.length+' 条';
- }catch(e){}
+  if(logCountEl)logCountEl.textContent=(df===dt?df:(df+' 至 '+dt))+' · 共 '+total+' 条';
+ }catch(e){toast('日志加载失败：'+(e.message||e),'er');}
 }
 
 // ── Tokens ──
@@ -16824,11 +16892,19 @@ async function scanTwCertPages() {
   if (btn) { btn.disabled = false; btn.textContent = ' 自动扫描所有 Token 主页'; }
  }
 }
-async function loadTwCertPages2() {
+var _twPagesData2=null,_twTokensLoaded2=false;
+function _twPageScaleText(p){
+ var followers=p&&p.page_followers_count, fans=p&&p.page_fan_count;
+ function compact(v){v=Number(v||0);return v>=1000000?(v/1000000).toFixed(1)+'M':(v>=1000?(v/1000).toFixed(1)+'K':String(v));}
+ if(followers!==null&&followers!==undefined)return compact(followers)+' 关注者';
+ if(fans!==null&&fans!==undefined)return compact(fans)+' 粉丝';
+ return '规模未读取';
+}
+async function loadTwCertPages2(force) {
  var el = document.getElementById('twPagesList2');
  if (!el) return;
  // 同时加载 Token 下拉列表
- try {
+ if(force!==false||!_twTokensLoaded2)try {
   var tr = await api('GET', '/accounts/tokens');
   var tokens = Array.isArray(tr) ? tr : (tr.tokens || tr.data || []);
   var sel = document.getElementById('twNewToken2');
@@ -16836,14 +16912,35 @@ async function loadTwCertPages2() {
    sel.innerHTML = '<option value="">— 选择 Token —</option>' +
     tokens.filter(function(t){ return t.status === 'active'; }).map(function(t){
      return '<option value="' + t.id + '">[' + (t.matrix_id ? '矩阵' + t.matrix_id : '主号') + '] ' + t.token_alias + '</option>';
-    }).join('');
+   }).join('');
   }
+  _twTokensLoaded2=true;
  } catch(e) {}
  try {
-  var r = await api('GET', '/accounts/tw-certified-pages');
-  var pages = r.pages || [];
+  if(force!==false||!Array.isArray(_twPagesData2)){
+   var r = await api('GET', '/accounts/tw-certified-pages');
+   _twPagesData2=(r&&r.pages)||[];
+  }
+  var allPages=(_twPagesData2||[]).slice();
+  var summary=document.getElementById('twPagesSummary2');
+  if(summary){
+   var okCount=allPages.filter(function(p){return String(p.page_status||'')==='ok';}).length;
+   var restrictedCount=allPages.filter(function(p){return ['restricted','unpublished'].indexOf(String(p.page_status||''))>=0||p.page_is_published===0||p.page_can_advertise===0;}).length;
+   var missingCount=allPages.filter(function(p){return String(p.page_metrics_status||'')!=='ok';}).length;
+   summary.innerHTML=[['主页总数',allPages.length,'已接入资产'],['可投放',okCount,'状态与权限正常'],['受限',restrictedCount,'需先处理状态'],['规模未读取',missingCount,'通常为 App 权限不足']].map(function(x){return '<div style="border:1px solid var(--bd);border-radius:8px;padding:10px 12px;background:var(--bg2)"><div style="font-size:11px;color:var(--t3)">'+x[0]+'</div><div style="font-size:20px;font-weight:820;margin-top:2px">'+x[1]+'</div><div style="font-size:10px;color:var(--t3)">'+x[2]+'</div></div>';}).join('');
+  }
+  var q=((document.getElementById('twPageSearch2')||{}).value||'').trim().toLowerCase();
+  var status=((document.getElementById('twPageStatus2')||{}).value||'all');
+  var pages=allPages.filter(function(p){
+   if(q&&String((p.page_name||'')+' '+(p.page_id||'')).toLowerCase().indexOf(q)<0)return false;
+   if(status==='ok'&&String(p.page_status||'')!=='ok')return false;
+   if(status==='warn'&&['warn','unknown',''].indexOf(String(p.page_status||''))<0)return false;
+   if(status==='restricted'&&!(p.page_is_published===0||p.page_can_advertise===0||['restricted','unpublished'].indexOf(String(p.page_status||''))>=0))return false;
+   if(status==='metrics_missing'&&String(p.page_metrics_status||'')==='ok')return false;
+   return true;
+  });
   if (pages.length === 0) {
-   el.innerHTML = '<div style="color:var(--t3);font-size:13px;padding:12px">暂无主页，请在下方添加</div>';
+   el.innerHTML = '<div style="color:var(--t3);font-size:13px;padding:12px">没有符合当前筛选的主页</div>';
   } else {
    // 按矩阵分组
    var _twMColors=['#6366f1','#10b981','#8b5cf6','#ec4899','#f59e0b'];
@@ -16874,7 +16971,7 @@ async function loadTwCertPages2() {
     _twHtml+='<thead><tr style="border-bottom:1px solid var(--bd)">';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页 ID</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页名称</th>';
-    _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">主页状态</th>';
+    _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">状态 / 类型 / 规模</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">团队</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">归属矩阵</th>';
     _twHtml+='<th style="text-align:left;padding:6px 8px;color:var(--t2)">对应 Token</th>';
@@ -16902,10 +16999,13 @@ async function loadTwCertPages2() {
      var tokenBadge = p.token_alias
       ? '<span style="font-size:11px;color:var(--t2)">' + p.token_alias + '</span>'
       : '<span style="color:var(--t3);font-size:11px">未绑定</span>';
+     var category=p.page_category||'类型未读取';
+     var scale=_twPageScaleText(p);
+     var metricsTitle=p.page_metrics_hint||'';
      return '<tr style="border-bottom:1px solid var(--bd)">' +
       '<td style="padding:6px 8px;font-family:monospace;font-size:11px">' + p.page_id + '</td>' +
      '<td style="padding:6px 8px;font-weight:600">' + p.page_name + '</td>' +
-     '<td style="padding:6px 8px">' + renderTwPageStatus(p) + '</td>' +
+     '<td style="padding:6px 8px">' + renderTwPageStatus(p) + '<div style="font-size:11px;color:var(--t2);margin-top:4px">'+escHtml(category)+'</div><div style="font-size:10px;color:var(--t3);margin-top:2px" title="'+escHtml(metricsTitle)+'">'+escHtml(scale)+'</div></td>' +
      '<td style="padding:6px 8px">' + (resourceTeamBadge(p) || '<span style="color:var(--t3);font-size:11px">未分配</span>') + '</td>' +
      '<td style="padding:6px 8px">' + matrixBadge + '</td>' +
       '<td style="padding:6px 8px">' + tokenBadge + '</td>' +
@@ -18531,11 +18631,34 @@ async function importLandingUrlsCsv(input) {
 }
 
 // ── 落地页发布中心 ──
-var _cfTokens=[], _lpTemplates=[], _lpProtectionTemplates=[], _lpAssetBindings=[], _landingDomains=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7;
+var _cfTokens=[], _lpTemplates=[], _lpProtectionTemplates=[], _lpAssetBindings=[], _landingDomains=[], _landingPages=[], _landingAdPerf=null, _landingPerfDays=7, _landingPerfDateFrom='', _landingPerfDateTo='';
 var _landingTrueCostTarget=parseFloat(localStorage.getItem('landing_true_cost_target_usd')||'')||0;
+function _landingDateValue(offset){
+ var d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-(offset||0));
+ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function _setLandingDateInputs(){
+ var from=document.getElementById('landingPerfDateFrom'),to=document.getElementById('landingPerfDateTo');
+ if(from)from.value=_landingPerfDateFrom;if(to)to.value=_landingPerfDateTo;
+}
 function setLandingPerfDays(v){
  _landingPerfDays=Math.max(1,Math.min(7,parseInt(v||'7',10)||7));
+ _landingPerfDateFrom=_landingDateValue(_landingPerfDays-1);
+ _landingPerfDateTo=_landingDateValue(0);
+ _setLandingDateInputs();
  loadLandingCenter(true);
+}
+function applyLandingPerfDateRange(){
+ var from=(document.getElementById('landingPerfDateFrom')||{}).value||'',to=(document.getElementById('landingPerfDateTo')||{}).value||'';
+ if(!from||!to){toast('请选择开始和结束日期','wa');return;}
+ if(from>to){var swap=from;from=to;to=swap;}
+ var start=new Date(from+'T12:00:00'),end=new Date(to+'T12:00:00');
+ var days=Math.round((end-start)/86400000)+1;
+ var earliest=_landingDateValue(6),today=_landingDateValue(0);
+ if(days>7||from<earliest||to>today){toast('访问事件只保留最近 7 天，请选择 '+earliest+' 至 '+today+' 内的日期','wa');return;}
+ _landingPerfDateFrom=from;_landingPerfDateTo=to;_landingPerfDays=days;
+ var sel=document.getElementById('landingPerfDays');if(sel&&['1','3','7'].indexOf(String(days))>=0)sel.value=String(days);
+ _setLandingDateInputs();loadLandingCenter(true);
 }
 function setLandingTrueCostTarget(v){
  var n=parseFloat(v||'')||0;
@@ -18703,6 +18826,11 @@ async function deleteLandingTemplate(id){
 }
 async function loadLandingCenter(force){
  try{
+  if(!_landingPerfDateFrom||!_landingPerfDateTo){
+   _landingPerfDateFrom=_landingDateValue(_landingPerfDays-1);
+   _landingPerfDateTo=_landingDateValue(0);
+  }
+  _setLandingDateInputs();
   var daysSel=document.getElementById('landingPerfDays');
   if(daysSel){
    var parsedDays=parseInt(daysSel.value||_landingPerfDays||7,10)||7;
@@ -18718,7 +18846,7 @@ async function loadLandingCenter(force){
     api('GET','/landing-pages/asset-bindings').catch(function(){return []}),
     api('GET','/landing-pages/domains').catch(function(){return {domains:[]}}),
     api('GET','/landing-pages/pages'),
-    api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&limit=500').catch(function(){return null;})
+    api('GET','/landing-pages/ad-links/performance?days='+encodeURIComponent(_landingPerfDays)+'&date_from='+encodeURIComponent(_landingPerfDateFrom)+'&date_to='+encodeURIComponent(_landingPerfDateTo)+'&limit=500').catch(function(){return null;})
    ]);
    _cfTokens=data[0]||[];
    _lpTemplates=data[1]||[];
@@ -21795,11 +21923,12 @@ async function archiveLandingPage(id,cleanup){
   await loadLandingCenter(true);
  }catch(e){toast((cleanup?'删除项目':'归档')+'失败：'+(e.message||e),'er')}
 }
-async function showLandingStats(id){
+async function showLandingStats(id,dateFrom,dateTo){
  var panel=document.getElementById('landingStatsPanel');
  if(panel){panel.style.display='block';panel.innerHTML='<div class="card-title">访问统计与日志</div><div style="color:var(--t3);font-size:13px">加载中...</div>';}
  try{
- var r=await api('GET','/landing-pages/pages/'+id+'/stats?days=7');
+ var df=dateFrom||_landingPerfDateFrom||_landingDateValue(6),dt=dateTo||_landingPerfDateTo||_landingDateValue(0);
+ var r=await api('GET','/landing-pages/pages/'+id+'/stats?date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt));
  var s=r.summary||{};
   var visits=Number(s.visits||0), clicks=Number(s.clicks||0), redirects=Number(s.redirects||0), blocks=Number(s.blocks||0), errors=Number(s.errors||0);
   var passDenom=(Number(s.redirects||0)+Number(s.blocks||0));
@@ -21925,17 +22054,19 @@ async function showLandingStats(id){
   var pageUrl=page.public_url||page.pages_url||'';
   var bindMap={none:'未自动绑定',landing:'账户落地页',form:'账户表单链接',both:'落地页 + 表单链接'};
   var bindText=bindMap[page.bind_target]||(page.bind_target||'未自动绑定');
+  var rangeText=(r.date_from===r.date_to?r.date_from:(r.date_from+' 至 '+r.date_to));
   if(panel)panel.innerHTML=
-   '<div class="landing-stats-head"><div><div class="landing-stats-title">访问统计与日志 · '+escHtml((r.page||{}).title||'')+'</div><div class="landing-stats-sub">仅展示近 7 天边缘事件；访问/跳转按北京时间记录，FB 消耗仍按广告账户本地日期读取。</div></div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
+   '<div class="landing-stats-head"><div><div class="landing-stats-title">访问统计与日志 · '+escHtml((r.page||{}).title||'')+'</div><div class="landing-stats-sub">访问/跳转按北京时间记录；事件保留 7 天，可精确查看其中任意一天。</div></div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
+   '<div class="fb" style="margin:10px 0 12px"><input class="fc" type="date" id="landingStatsFrom" value="'+escHtml(r.date_from||df)+'"><span style="font-size:12px;color:var(--t3)">至</span><input class="fc" type="date" id="landingStatsTo" value="'+escHtml(r.date_to||dt)+'"><button class="btn btn-p btn-sm" onclick="showLandingStats('+id+',document.getElementById(\'landingStatsFrom\').value,document.getElementById(\'landingStatsTo\').value)">查询</button><button class="btn btn-g btn-sm" onclick="showLandingStats('+id+',_landingDateValue(0),_landingDateValue(0))">今日</button><button class="btn btn-g btn-sm" onclick="showLandingStats('+id+',_landingDateValue(1),_landingDateValue(1))">昨日</button></div>'+
    '<div class="landing-stats-info-grid">'+
     '<div class="landing-stats-info-card"><div>'+pageKind+'</div><div class="landing-stats-link" title="'+escHtml(pageUrl)+'">主链接：'+(pageUrl?escHtml(pageUrl):'--')+'</div></div>'+
     '<div class="landing-stats-info-card"><div class="landing-metric-label">账户绑定字段</div><div style="font-size:16px;font-weight:800;margin-top:4px">'+escHtml(bindText)+'</div></div>'+
    '</div>'+
-   '<div class="landing-health-card"><div><div style="font-size:13px;font-weight:820;margin-bottom:4px">运行诊断 <span class="badge '+healthClass+'" style="margin-left:6px">'+health+'</span></div><div class="landing-health-text">'+healthDesc+'</div></div><div class="landing-health-window">统计周期：近 '+escHtml(String(r.days||7))+' 天</div></div>'+
+   '<div class="landing-health-card"><div><div style="font-size:13px;font-weight:820;margin-bottom:4px">运行诊断 <span class="badge '+healthClass+'" style="margin-left:6px">'+health+'</span></div><div class="landing-health-text">'+healthDesc+'</div></div><div class="landing-health-window">统计日期：'+escHtml(rangeText)+'</div></div>'+
    '<div class="landing-metric-grid">'+
     metricCards.map(function(m){return '<div class="landing-metric-card"><div class="landing-metric-label">'+escHtml(m.label)+'</div><div class="landing-metric-value">'+escHtml(String(m.value))+'</div></div>';}).join('')+
    '</div>'+
-   '<div class="landing-stat-grid"><div class="landing-stat-panel"><div class="landing-stat-panel-title">近 24 小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div class="landing-stat-panel"><div class="landing-stat-panel-title">近 7 天趋势</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
+   '<div class="landing-stat-grid"><div class="landing-stat-panel"><div class="landing-stat-panel-title">按小时</div>'+trendTable(r.by_hour||[],24,'小时')+'</div><div class="landing-stat-panel"><div class="landing-stat-panel-title">按日期</div>'+trendTable(r.by_day||[],7,'日期')+'</div></div>'+
    '<div class="landing-stat-panel" style="margin:10px 0"><div class="landing-stat-panel-title">跳转目标分布</div><table class="landing-stat-table"><thead><tr><th>目标链接</th><th>事件</th><th class="num">次数</th></tr></thead><tbody>'+(targetRows||'<tr><td colspan="3" style="padding:12px;color:var(--t3)">暂无跳转目标数据</td></tr>')+'</tbody></table></div>'+
    '<div class="landing-stats-pill-grid">'+
     '<div class="landing-stats-pill-card"><b>国家</b><div style="margin-top:6px">'+(countries||'<span style="color:var(--t3)">暂无</span>')+'</div></div>'+

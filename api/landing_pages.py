@@ -272,6 +272,31 @@ def _landing_tracking_cutoffs() -> tuple[str, str]:
     return keep_from.strftime("%Y-%m-%d 00:00:00"), keep_from.strftime("%Y-%m-%d")
 
 
+def _landing_tracking_date_range(
+    date_from: Optional[str],
+    date_to: Optional[str],
+    days: int = LANDING_TRACKING_RETENTION_DAYS,
+) -> tuple[str, str]:
+    today = datetime.now(CST).date()
+    earliest = today - timedelta(days=LANDING_TRACKING_RETENTION_DAYS - 1)
+    if not date_from and not date_to:
+        safe_days = max(1, min(int(days or LANDING_TRACKING_RETENTION_DAYS), LANDING_TRACKING_RETENTION_DAYS))
+        return (today - timedelta(days=safe_days - 1)).isoformat(), today.isoformat()
+    try:
+        start = datetime.fromisoformat(str(date_from or date_to)[:10]).date()
+        end = datetime.fromisoformat(str(date_to or date_from)[:10]).date()
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="date_from/date_to must be YYYY-MM-DD") from exc
+    if start > end:
+        start, end = end, start
+    if start < earliest or end > today:
+        raise HTTPException(
+            status_code=400,
+            detail=f"落地页访问日志仅保留最近 {LANDING_TRACKING_RETENTION_DAYS} 天，可查询 {earliest.isoformat()} 至 {today.isoformat()}",
+        )
+    return start.isoformat(), end.isoformat()
+
+
 def _cleanup_landing_tracking(conn, force: bool = False) -> None:
     global _landing_cleanup_last
     now = datetime.now(CST)
@@ -454,6 +479,19 @@ def _ensure_schema():
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_ad ON landing_ad_links(ad_id);
         CREATE INDEX IF NOT EXISTS idx_landing_ad_links_act ON landing_ad_links(act_id);
 
+        CREATE TABLE IF NOT EXISTS landing_ad_link_bindings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            link_id INTEGER NOT NULL,
+            ad_id TEXT NOT NULL,
+            act_id TEXT,
+            source TEXT DEFAULT 'event',
+            first_seen_at TEXT DEFAULT (datetime('now','+8 hours')),
+            last_seen_at TEXT DEFAULT (datetime('now','+8 hours')),
+            UNIQUE(link_id, ad_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_landing_ad_link_bindings_link ON landing_ad_link_bindings(link_id);
+        CREATE INDEX IF NOT EXISTS idx_landing_ad_link_bindings_ad ON landing_ad_link_bindings(ad_id);
+
         CREATE TABLE IF NOT EXISTS landing_ad_route_state (
             link_id INTEGER PRIMARY KEY,
             cursor INTEGER DEFAULT 0,
@@ -570,6 +608,81 @@ def _ensure_schema():
                 updated_at TEXT DEFAULT (datetime('now','+8 hours'))
             )"""
         )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS landing_ad_link_bindings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                link_id INTEGER NOT NULL,
+                ad_id TEXT NOT NULL,
+                act_id TEXT,
+                source TEXT DEFAULT 'event',
+                first_seen_at TEXT DEFAULT (datetime('now','+8 hours')),
+                last_seen_at TEXT DEFAULT (datetime('now','+8 hours')),
+                UNIQUE(link_id, ad_id)
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_landing_ad_link_bindings_link ON landing_ad_link_bindings(link_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_landing_ad_link_bindings_ad ON landing_ad_link_bindings(ad_id)")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS landing_schema_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT DEFAULT (datetime('now','+8 hours'))
+            )"""
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO landing_ad_link_bindings
+               (link_id, ad_id, act_id, source, first_seen_at, last_seen_at)
+               SELECT id, TRIM(ad_id), act_id, 'legacy', created_at, updated_at
+               FROM landing_ad_links
+               WHERE TRIM(COALESCE(ad_id,''))<>''"""
+        )
+        has_events = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='landing_events'"
+        ).fetchone()
+        bindings_backfilled = conn.execute(
+            "SELECT 1 FROM landing_schema_migrations WHERE name='ad_link_bindings_v1'"
+        ).fetchone()
+        if has_events and not bindings_backfilled:
+            event_rows = conn.execute(
+                """SELECT l.id AS link_id, l.act_id, e.metadata, MIN(e.created_at) AS first_seen_at,
+                          MAX(e.created_at) AS last_seen_at
+                   FROM landing_ad_links l
+                   JOIN landing_events e
+                     ON e.page_id=l.page_id
+                    AND (e.path='/a/' || l.slug OR COALESCE(e.metadata,'') LIKE '%' || l.slug || '%')
+                   GROUP BY l.id, l.act_id, e.metadata"""
+            ).fetchall()
+            for event_row in event_rows:
+                try:
+                    metadata = json.loads(event_row["metadata"] or "{}")
+                except Exception:
+                    metadata = {}
+                raw_event_ad_id = str(
+                    metadata.get("ad_id") or metadata.get("ad") or metadata.get("aid") or ""
+                ) if isinstance(metadata, dict) else ""
+                event_ad_id = re.sub(r"\D", "", raw_event_ad_id)
+                if len(event_ad_id) < 8:
+                    event_ad_id = ""
+                if not event_ad_id:
+                    continue
+                conn.execute(
+                    """INSERT INTO landing_ad_link_bindings
+                       (link_id, ad_id, act_id, source, first_seen_at, last_seen_at)
+                       VALUES (?,?,?,?,?,?)
+                       ON CONFLICT(link_id,ad_id) DO UPDATE SET
+                         act_id=COALESCE(NULLIF(excluded.act_id,''),landing_ad_link_bindings.act_id),
+                         last_seen_at=MAX(landing_ad_link_bindings.last_seen_at,excluded.last_seen_at)""",
+                    (
+                        int(event_row["link_id"]),
+                        event_ad_id,
+                        event_row["act_id"] or "",
+                        "event_backfill",
+                        event_row["first_seen_at"],
+                        event_row["last_seen_at"],
+                    ),
+                )
+            conn.execute(
+                "INSERT OR IGNORE INTO landing_schema_migrations(name) VALUES ('ad_link_bindings_v1')"
+            )
     except Exception:
         logger.exception("landing_ad_links schema patch failed")
     try:
@@ -1942,6 +2055,26 @@ def _ad_link_decision(stats: dict) -> dict:
     return {"state": "no_data", "label": "no_data", "reason": "no events or spend", "metric": metric}
 
 
+def _landing_link_attribution_ad_ids(conn, link_id: int, fallback_ad_id: str = "") -> list[str]:
+    values = []
+    seen = set()
+    try:
+        rows = conn.execute(
+            """SELECT ad_id FROM landing_ad_link_bindings
+               WHERE link_id=? AND TRIM(COALESCE(ad_id,''))<>''
+               ORDER BY last_seen_at DESC, id DESC""",
+            (int(link_id or 0),),
+        ).fetchall()
+    except Exception:
+        rows = []
+    for raw in [r["ad_id"] for r in rows] + [fallback_ad_id]:
+        ad_value = _normalize_ad_id(raw)
+        if ad_value and ad_value not in seen:
+            seen.add(ad_value)
+            values.append(ad_value)
+    return values
+
+
 def _ad_link_stats(
     conn,
     page_id: int,
@@ -1953,6 +2086,7 @@ def _ad_link_stats(
 ) -> dict:
     path = f"/a/{slug}"
     ad_id = _normalize_ad_id(ad_id)
+    requested_ad_id = ad_id
     date_params = []
     result_date_from = None
     result_date_to = None
@@ -1992,34 +2126,33 @@ def _ad_link_stats(
             result_date_from = None
             result_date_to = None
     where_extra = (" AND " + " AND ".join(where_parts)) if where_parts else ""
-    scope_parts = ["path=?"]
-    event_params = [
-        page_id,
-        path,
-    ]
+    slug_scope_parts = ["path=?"]
+    slug_params = [path]
     if slug:
-        scope_parts.extend([
+        slug_scope_parts.extend([
             "COALESCE(metadata,'') LIKE ?",
             "COALESCE(metadata,'') LIKE ?",
         ])
-        event_params.extend([
+        slug_params.extend([
             f'%"ad_slug":"{slug}"%',
             f'%"ad_slug": "{slug}"%',
         ])
+    event_scope = "page_id=? AND (" + " OR ".join(slug_scope_parts) + ")"
+    event_params = [page_id] + slug_params
     if ad_id:
-        scope_parts.extend([
+        ad_scope_parts = [
             "COALESCE(metadata,'') LIKE ?",
             "COALESCE(metadata,'') LIKE ?",
             "COALESCE(metadata,'') LIKE ?",
             "COALESCE(metadata,'') LIKE ?",
-        ])
+        ]
+        event_scope += " AND (" + " OR ".join(ad_scope_parts) + ")"
         event_params.extend([
             f'%"ad_id":"{ad_id}"%',
             f'%"ad_id": "{ad_id}"%',
             f'%"ad":"{ad_id}"%',
             f'%"ad": "{ad_id}"%',
         ])
-    event_scope = "page_id=? AND (" + " OR ".join(scope_parts) + ")"
     params = event_params + date_params
     rows = conn.execute(
         f"""SELECT event_type, COUNT(*) AS cnt
@@ -2152,22 +2285,37 @@ def _ad_link_stats(
     last_synced_at = None
     spend_source = ""
     link_row = None
+    attribution_ad_ids = []
     try:
         link_row = conn.execute(
-            """SELECT id, ad_id FROM landing_ad_links
-               WHERE page_id=?
-                 AND (slug=? OR (?<>'' AND ad_id=?))
-               ORDER BY CASE WHEN slug=? THEN 0 ELSE 1 END, id DESC
+            """SELECT DISTINCT l.id, l.ad_id, l.act_id FROM landing_ad_links l
+               LEFT JOIN landing_ad_link_bindings b ON b.link_id=l.id
+               WHERE l.page_id=?
+                 AND (l.slug=? OR (?<>'' AND (l.ad_id=? OR b.ad_id=?)))
+               ORDER BY CASE WHEN l.slug=? THEN 0 ELSE 1 END, l.id DESC
                LIMIT 1""",
-            (page_id, slug, ad_id, ad_id, slug),
+            (page_id, slug, ad_id, ad_id, ad_id, slug),
         ).fetchone()
-        ad_id = _normalize_ad_id((link_row["ad_id"] if link_row else "") or ad_id)
-        if ad_id:
+        if requested_ad_id:
+            attribution_ad_ids = [requested_ad_id]
+        elif link_row:
+            attribution_ad_ids = _landing_link_attribution_ad_ids(
+                conn,
+                int(link_row["id"]),
+                link_row["ad_id"] or "",
+            )
+        ad_id = requested_ad_id or (attribution_ad_ids[0] if attribution_ad_ids else "")
+        if attribution_ad_ids:
+            ad_placeholders = ",".join("?" for _ in attribution_ad_ids)
+            link_act_id = str((link_row["act_id"] if link_row else "") or "").replace("act_", "")
             if result_date_from or result_date_to:
                 try:
                     ensure_perf_snapshot_history_schema(conn)
-                    hist_where = ["ad_id=?", "COALESCE(ad_id,'')<>''"]
-                    hist_params = [ad_id]
+                    hist_where = [f"ad_id IN ({ad_placeholders})", "COALESCE(ad_id,'')<>''"]
+                    hist_params = list(attribution_ad_ids)
+                    if link_act_id:
+                        hist_where.append("REPLACE(COALESCE(act_id,''),'act_','')=?")
+                        hist_params.append(link_act_id)
                     if result_date_from:
                         hist_where.append("snapshot_date>=?")
                         hist_params.append(result_date_from)
@@ -2181,7 +2329,7 @@ def _ad_link_stats(
                                    SUM(day_impressions) AS impressions,
                                    MAX(day_synced_at) AS last_synced_at
                             FROM (
-                                SELECT snapshot_date,
+                                SELECT snapshot_date, ad_id,
                                        MAX(COALESCE(spend,0)) AS day_spend,
                                        MAX(COALESCE(conversions,0)) AS day_conversions,
                                        MAX(COALESCE(clicks,0)) AS day_clicks,
@@ -2189,7 +2337,7 @@ def _ad_link_stats(
                                        MAX(snapshot_at) AS day_synced_at
                                 FROM perf_snapshot_history
                                 WHERE {' AND '.join(hist_where)}
-                                GROUP BY snapshot_date
+                                GROUP BY snapshot_date, ad_id
                             )""",
                         hist_params,
                     ).fetchone()
@@ -2203,8 +2351,11 @@ def _ad_link_stats(
                 except Exception:
                     logger.exception("landing ad link history spend lookup failed: page_id=%s slug=%s", page_id, slug)
             if not spend_source:
-                snapshot_where = ["ad_id=?"]
-                snapshot_params = [ad_id]
+                snapshot_where = [f"ad_id IN ({ad_placeholders})"]
+                snapshot_params = list(attribution_ad_ids)
+                if link_act_id:
+                    snapshot_where.append("REPLACE(COALESCE(act_id,''),'act_','')=?")
+                    snapshot_params.append(link_act_id)
                 if result_date_from:
                     snapshot_where.append("snapshot_date>=?")
                     snapshot_params.append(result_date_from)
@@ -2217,7 +2368,7 @@ def _ad_link_stats(
                                    SUM(COALESCE(conversions,0)) AS conv,
                                    SUM(COALESCE(clicks,0)) AS clicks,
                                    SUM(COALESCE(impressions,0)) AS impressions,
-                                   MAX(COALESCE(snapshot_at, snapshot_date)) AS last_synced_at
+                                   MAX(COALESCE(created_at, snapshot_date)) AS last_synced_at
                             FROM perf_snapshots
                             WHERE {' AND '.join(snapshot_where)}""",
                         snapshot_params,
@@ -2233,14 +2384,14 @@ def _ad_link_stats(
                     pass
             if not spend_source:
                 spend_row = conn.execute(
-                    """SELECT SUM(COALESCE(spend,0)) AS spend,
+                    f"""SELECT SUM(COALESCE(spend,0)) AS spend,
                               SUM(COALESCE(conv,0)) AS conv,
                               SUM(COALESCE(clicks,0)) AS clicks,
                               SUM(COALESCE(impressions,0)) AS impressions,
                               MAX(last_synced_at) AS last_synced_at
                        FROM asset_spend_log
-                       WHERE fb_ad_id=?""",
-                    (ad_id,),
+                       WHERE fb_ad_id IN ({ad_placeholders})""",
+                    attribution_ad_ids,
                 ).fetchone()
                 if spend_row:
                     spend = float(spend_row["spend"] or 0)
@@ -2385,6 +2536,9 @@ def _ad_link_stats(
         "cost_per_final_true_contact": _cost(final_true_contact),
         "last_synced_at": last_synced_at,
         "spend_source": spend_source,
+        "attribution_ad_ids": attribution_ad_ids,
+        "attribution_ad_count": len(attribution_ad_ids),
+        "attribution_mode": "ad" if requested_ad_id else ("shared_link" if len(attribution_ad_ids) > 1 else "link"),
         "total": sum(out.values()),
     }
 
@@ -2916,6 +3070,7 @@ def _landing_page_usage(conn, item: dict, user) -> dict:
 def _delete_landing_page_local_rows(conn, page_id: int) -> dict:
     summary = {
         "ad_links": 0,
+        "ad_link_bindings": 0,
         "events": 0,
         "results": 0,
         "route_states": 0,
@@ -2935,6 +3090,9 @@ def _delete_landing_page_local_rows(conn, page_id: int) -> dict:
         if _has_table(conn, "landing_ad_route_state"):
             cur = conn.execute(f"DELETE FROM landing_ad_route_state WHERE link_id IN ({placeholders})", link_ids)
             summary["route_states"] += int(cur.rowcount or 0)
+        if _has_table(conn, "landing_ad_link_bindings"):
+            cur = conn.execute(f"DELETE FROM landing_ad_link_bindings WHERE link_id IN ({placeholders})", link_ids)
+            summary["ad_link_bindings"] += int(cur.rowcount or 0)
     if _has_table(conn, "landing_ad_links"):
         cur = conn.execute("DELETE FROM landing_ad_links WHERE page_id=?", (page_id,))
         summary["ad_links"] = int(cur.rowcount or 0)
@@ -4270,7 +4428,7 @@ def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
             (page_id,),
         ).fetchall()
         return [
-            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], ad_id=row["ad_id"], days=LANDING_TRACKING_RETENTION_DAYS), user)
+            _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], days=LANDING_TRACKING_RETENTION_DAYS), user)
             for row in rows
         ]
     finally:
@@ -4343,6 +4501,10 @@ def cleanup_unused_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq 
             reason = ""
             if str(row["ad_id"] or "").strip():
                 reason = "已绑定广告"
+            elif _has_table(conn, "landing_ad_link_bindings") and conn.execute(
+                "SELECT 1 FROM landing_ad_link_bindings WHERE link_id=? LIMIT 1", (link_id,)
+            ).fetchone():
+                reason = "已绑定广告"
             elif _landing_ad_link_event_count(conn, int(row["page_id"]), slug) > 0:
                 reason = "已有访问/点击/跳转数据"
             elif _landing_ad_link_result_count(conn, link_id) > 0:
@@ -4354,6 +4516,8 @@ def cleanup_unused_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq 
 
             if _has_table(conn, "landing_ad_route_state"):
                 conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (link_id,))
+            if _has_table(conn, "landing_ad_link_bindings"):
+                conn.execute("DELETE FROM landing_ad_link_bindings WHERE link_id=?", (link_id,))
             conn.execute("DELETE FROM landing_ad_links WHERE id=?", (link_id,))
             deleted.append({"id": link_id, "slug": slug})
         conn.commit()
@@ -4444,6 +4608,8 @@ def cleanup_safe_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq = 
                 continue
             if _has_table(conn, "landing_ad_route_state"):
                 conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (link_id,))
+            if _has_table(conn, "landing_ad_link_bindings"):
+                conn.execute("DELETE FROM landing_ad_link_bindings WHERE link_id=?", (link_id,))
             conn.execute("DELETE FROM landing_ad_links WHERE id=?", (link_id,))
         if not body.dry_run:
             conn.commit()
@@ -4465,8 +4631,15 @@ def cleanup_safe_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq = 
 
 
 @router.get("/ad-links/performance")
-def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(get_current_user)):
+def landing_ad_link_performance(
+    days: int = 7,
+    limit: int = 200,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     days = max(1, min(int(days or 7), LANDING_TRACKING_RETENTION_DAYS))
+    date_from, date_to = _landing_tracking_date_range(date_from, date_to, days)
     limit = max(20, min(int(limit or 200), 500))
     where, params = _scope_where(user, "p")
     sql = """SELECT l.*, p.title AS page_title, p.pages_url AS page_pages_url,
@@ -4522,7 +4695,13 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
                 },
                 user,
             )
-            stats = _ad_link_stats(conn, int(item["page_id"]), item.get("slug") or "", ad_id=item.get("ad_id") or "", days=days)
+            stats = _ad_link_stats(
+                conn,
+                int(item["page_id"]),
+                item.get("slug") or "",
+                date_from=date_from,
+                date_to=date_to,
+            )
             decision = _ad_link_decision(stats)
             public_link = _public_ad_link(row, page_public, stats, user)
             public_link["page_title"] = item.get("page_title") or ""
@@ -4572,7 +4751,15 @@ def landing_ad_link_performance(days: int = 7, limit: int = 200, user=Depends(ge
             summary["cost_per_confirmed_sale"] = round(summary["spend"] / summary["confirmed_sales"], 4)
         if summary["spend"] > 0 and summary["final_true_contact"] > 0:
             summary["cost_per_final_true_contact"] = round(summary["spend"] / summary["final_true_contact"], 4)
-        return {"success": True, "days": days, "limit": limit, "summary": summary, "items": items}
+        return {
+            "success": True,
+            "days": days,
+            "date_from": date_from,
+            "date_to": date_to,
+            "limit": limit,
+            "summary": summary,
+            "items": items,
+        }
     finally:
         conn.close()
 
@@ -4792,14 +4979,14 @@ def update_landing_ad_link(link_id: int, body: LandingAdLinkPatch, user=Depends(
                 params.append(value)
         if not updates:
             page_public = _public_page(page, user)
-            return {"success": True, "link": _public_ad_link(row, page_public, _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"]), user)}
+            return {"success": True, "link": _public_ad_link(row, page_public, _ad_link_stats(conn, int(row["page_id"]), row["slug"]), user)}
         updates.append("updated_at=datetime('now','+8 hours')")
         params.append(link_id)
         conn.execute(f"UPDATE landing_ad_links SET {', '.join(updates)} WHERE id=?", params)
         conn.commit()
         updated = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
         page_public = _public_page(page, user)
-        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"]), user)}
+        return {"success": True, "link": _public_ad_link(updated, page_public, _ad_link_stats(conn, int(updated["page_id"]), updated["slug"]), user)}
     finally:
         conn.close()
 
@@ -4860,6 +5047,8 @@ def delete_landing_ad_link(link_id: int, user=Depends(get_current_user)):
 
         if _has_table(conn, "landing_ad_route_state"):
             conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (link_id,))
+        if _has_table(conn, "landing_ad_link_bindings"):
+            conn.execute("DELETE FROM landing_ad_link_bindings WHERE link_id=?", (link_id,))
         cur = conn.execute("DELETE FROM landing_ad_links WHERE id=?", (link_id,))
         conn.commit()
         return {
@@ -4886,7 +5075,7 @@ def landing_ad_link_result_preview(
             raise HTTPException(status_code=404, detail="广告入口不存在")
         page = _assert_page_access(conn, int(row["page_id"]), user)
         result_day = _normalize_result_date(result_date)
-        stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"], date_from=result_day, date_to=result_day)
+        stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=result_day, date_to=result_day)
         live_refresh = {"ok": False, "skipped": True, "reason": "local_data_available"}
         needs_refresh = bool(refresh) or (
             row["ad_id"]
@@ -4897,7 +5086,7 @@ def landing_ad_link_result_preview(
         if needs_refresh:
             live_refresh = _refresh_landing_ad_link_spend(conn, row, result_day)
             row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
-            stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], ad_id=row["ad_id"], date_from=result_day, date_to=result_day)
+            stats = _ad_link_stats(conn, int(row["page_id"]), row["slug"], date_from=result_day, date_to=result_day)
         page_public = _public_page(page, user)
         return {
             "success": True,
@@ -4961,7 +5150,7 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
             "link": _public_ad_link(
                 updated,
                 page_public,
-                _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], ad_id=updated["ad_id"], date_from=result_date, date_to=result_date),
+                _ad_link_stats(conn, int(updated["page_id"]), updated["slug"], date_from=result_date, date_to=result_date),
                 user,
             ),
         }
@@ -5728,6 +5917,20 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
     ad_id = _normalize_ad_id(metadata.get("ad_id") or metadata.get("ad") or metadata.get("aid") or "")
     if slug and ad_id:
         try:
+            link_row = conn.execute(
+                "SELECT id, act_id FROM landing_ad_links WHERE page_id=? AND slug=? LIMIT 1",
+                (body.page_id, slug),
+            ).fetchone()
+            if link_row:
+                conn.execute(
+                    """INSERT INTO landing_ad_link_bindings
+                       (link_id, ad_id, act_id, source, first_seen_at, last_seen_at)
+                       VALUES (?,?,?,'event',datetime('now','+8 hours'),datetime('now','+8 hours'))
+                       ON CONFLICT(link_id,ad_id) DO UPDATE SET
+                         act_id=COALESCE(NULLIF(excluded.act_id,''),landing_ad_link_bindings.act_id),
+                         last_seen_at=datetime('now','+8 hours')""",
+                    (int(link_row["id"]), ad_id, link_row["act_id"] or ""),
+                )
             conn.execute(
                 """UPDATE landing_ad_links
                    SET ad_id=?,
@@ -6100,44 +6303,53 @@ def facebook_link_probe(body: LandingFacebookProbeReq, user=Depends(get_current_
 
 
 @router.get("/pages/{page_id}/stats")
-def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_user)):
+def landing_page_stats(
+    page_id: int,
+    days: int = 7,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     days = max(1, min(int(days or 7), LANDING_TRACKING_RETENTION_DAYS))
-    since = (datetime.now(CST) - timedelta(days=days - 1)).strftime("%Y-%m-%d 00:00:00")
+    date_from, date_to = _landing_tracking_date_range(date_from, date_to, days)
+    start_at = f"{date_from} 00:00:00"
+    end_at = (datetime.fromisoformat(date_to) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
     conn = get_conn()
     page = _assert_page_access(conn, page_id, user)
-    params = (page_id, since)
+    params = (page_id, start_at, end_at)
+    event_where = "page_id=? AND created_at>=? AND created_at<?"
     by_type = {
         r["event_type"]: int(r["cnt"] or 0)
         for r in conn.execute(
-            "SELECT event_type, COUNT(*) AS cnt FROM landing_events WHERE page_id=? AND created_at>=? GROUP BY event_type",
+            f"SELECT event_type, COUNT(*) AS cnt FROM landing_events WHERE {event_where} GROUP BY event_type",
             params,
         ).fetchall()
     }
     by_country = [
         dict(r)
         for r in conn.execute(
-            "SELECT COALESCE(country,'') AS country, COUNT(*) AS cnt FROM landing_events WHERE page_id=? AND created_at>=? GROUP BY country ORDER BY cnt DESC LIMIT 20",
+            f"SELECT COALESCE(country,'') AS country, COUNT(*) AS cnt FROM landing_events WHERE {event_where} GROUP BY country ORDER BY cnt DESC LIMIT 20",
             params,
         ).fetchall()
     ]
     by_device = [
         dict(r)
         for r in conn.execute(
-            "SELECT COALESCE(device_type,'') AS device_type, COUNT(*) AS cnt FROM landing_events WHERE page_id=? AND created_at>=? GROUP BY device_type ORDER BY cnt DESC LIMIT 20",
+            f"SELECT COALESCE(device_type,'') AS device_type, COUNT(*) AS cnt FROM landing_events WHERE {event_where} GROUP BY device_type ORDER BY cnt DESC LIMIT 20",
             params,
         ).fetchall()
     ]
     by_day = [
         dict(r)
         for r in conn.execute(
-            "SELECT substr(created_at,1,10) AS day, event_type, COUNT(*) AS cnt FROM landing_events WHERE page_id=? AND created_at>=? GROUP BY day,event_type ORDER BY day",
+            f"SELECT substr(created_at,1,10) AS day, event_type, COUNT(*) AS cnt FROM landing_events WHERE {event_where} GROUP BY day,event_type ORDER BY day",
             params,
         ).fetchall()
     ]
     by_hour = [
         dict(r)
         for r in conn.execute(
-            "SELECT substr(created_at,1,13) || ':00' AS hour, event_type, COUNT(*) AS cnt FROM landing_events WHERE page_id=? AND created_at>=? GROUP BY hour,event_type ORDER BY hour",
+            f"SELECT substr(created_at,1,13) || ':00' AS hour, event_type, COUNT(*) AS cnt FROM landing_events WHERE {event_where} GROUP BY hour,event_type ORDER BY hour",
             params,
         ).fetchall()
     ]
@@ -6146,7 +6358,7 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
         for r in conn.execute(
             """SELECT COALESCE(NULLIF(target_url,''),'--') AS target_url, event_type, COUNT(*) AS cnt
                FROM landing_events
-               WHERE page_id=? AND created_at>=? AND event_type IN ('redirect','click')
+               WHERE page_id=? AND created_at>=? AND created_at<? AND event_type IN ('redirect','click')
                GROUP BY target_url,event_type
                ORDER BY cnt DESC LIMIT 30""",
             params,
@@ -6157,7 +6369,7 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
         for r in conn.execute(
             """SELECT COALESCE(NULLIF(reason,''),'--') AS reason, COUNT(*) AS cnt
                FROM landing_events
-               WHERE page_id=? AND created_at>=? AND event_type='block'
+               WHERE page_id=? AND created_at>=? AND created_at<? AND event_type='block'
                GROUP BY reason
                ORDER BY cnt DESC LIMIT 20""",
             params,
@@ -6169,7 +6381,7 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
             """SELECT event_type, decision, reason, path, target_url, referrer,
                       country, region, city, colo, asn, platform, device_type,
                       browser, os, metadata, created_at
-               FROM landing_events WHERE page_id=? AND created_at>=?
+               FROM landing_events WHERE page_id=? AND created_at>=? AND created_at<?
                ORDER BY id DESC LIMIT 5000""",
             params,
         ).fetchall()
@@ -6200,6 +6412,8 @@ def landing_page_stats(page_id: int, days: int = 7, user=Depends(get_current_use
         "success": True,
         "page": _public_page(page, user),
         "days": days,
+        "date_from": date_from,
+        "date_to": date_to,
         "summary": {
             "visits": by_type.get("visit", 0),
             "blocks": by_type.get("block", 0),
