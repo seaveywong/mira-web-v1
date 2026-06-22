@@ -1771,6 +1771,27 @@ _MESSAGE_GOALS = {
 _LANDING_REQUIRED_OBJECTIVES = {"OUTCOME_TRAFFIC", "OUTCOME_SALES", "OUTCOME_ENGAGEMENT", "OUTCOME_LEADS"}
 _PIXEL_REQUIRED_GOALS = {"OFFSITE_CONVERSIONS", "VALUE"}
 _REGULATED_IDENTITY_COUNTRIES = {"TW", "HK", "SG"}
+_CONVERSION_EVENT_ALIASES = {
+    "purchase": "PURCHASE",
+    "offsite_conversion.fb_pixel_purchase": "PURCHASE",
+    "lead": "LEAD",
+    "offsite_conversion.fb_pixel_lead": "LEAD",
+    "contact": "CONTACT",
+    "offsite_conversion.fb_pixel_contact": "CONTACT",
+    "complete_registration": "COMPLETE_REGISTRATION",
+    "offsite_conversion.fb_pixel_complete_registration": "COMPLETE_REGISTRATION",
+    "add_to_cart": "ADD_TO_CART",
+    "offsite_conversion.fb_pixel_add_to_cart": "ADD_TO_CART",
+    "initiate_checkout": "INITIATED_CHECKOUT",
+    "initiated_checkout": "INITIATED_CHECKOUT",
+    "offsite_conversion.fb_pixel_initiate_checkout": "INITIATED_CHECKOUT",
+    "view_content": "CONTENT_VIEW",
+    "content_view": "CONTENT_VIEW",
+    "offsite_conversion.fb_pixel_view_content": "CONTENT_VIEW",
+    "search": "SEARCH",
+    "subscribe": "SUBSCRIBE",
+    "offsite_conversion.fb_pixel_subscribe": "SUBSCRIBE",
+}
 
 
 def _normalize_launch_goal(objective: str, conversion_goal: str = "") -> str:
@@ -1781,6 +1802,16 @@ def _normalize_launch_goal(objective: str, conversion_goal: str = "") -> str:
     if objective_norm == "OUTCOME_LEADS" and not goal:
         return "lead_generation"
     return goal
+
+
+def _normalize_conversion_event(value: str = "", objective: str = "", conversion_goal: str = "") -> str:
+    raw = str(value or "").strip()
+    objective_norm = str(objective or "").strip().upper()
+    goal_norm = str(conversion_goal or "").strip().lower()
+    if not raw:
+        return "LEAD" if objective_norm == "OUTCOME_LEADS" or "lead" in goal_norm else "PURCHASE"
+    key = raw.strip().lower().replace(" ", "_")
+    return _CONVERSION_EVENT_ALIASES.get(key, raw.upper())
 
 
 def _normalize_launch_body(body: LaunchCampaignBody) -> None:
@@ -1795,6 +1826,7 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
     body.act_id = str(body.act_id or "").strip() or None
     body.act_ids = [str(a).strip() for a in (body.act_ids or []) if str(a).strip()]
     body.conversion_goal = _normalize_launch_goal(body.objective, body.conversion_goal)
+    body.conversion_event = _normalize_conversion_event(body.conversion_event, body.objective, body.conversion_goal)
     body.page_id = (body.page_id or "").strip() or None
     body.pixel_id = (body.pixel_id or "").strip() or None
     body.landing_url = (body.landing_url or "").strip() or None

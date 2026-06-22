@@ -4584,9 +4584,9 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
      </div>
      <div id="launchConvEventRow" style="display:none;margin-top:10px">
       <label class="fl">转化事件 <span style="color:#f90;font-size:11px">（Pixel 追踪的具体目标）</span></label>
-      <select class="fc" id="launchConvEvent">
-       <option value="">加载中...</option>
-      </select>
+     <select class="fc" id="launchConvEvent" onchange="_onLaunchConvEventChange()">
+      <option value="">加载中...</option>
+     </select>
      </div>
     </div>
     <div class="fg">
@@ -5318,7 +5318,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.69';
+var APP_VERSION='v3.11.70';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -5374,16 +5374,81 @@ async function loadKpiOptions(force){
  }
 }
 
+var LAUNCH_CONV_EVENT_FALLBACK=[
+ {value:'PURCHASE',label:'购买 Purchase'},
+ {value:'LEAD',label:'线索 Lead'},
+ {value:'CONTACT',label:'联系 Contact'},
+ {value:'COMPLETE_REGISTRATION',label:'完成注册 Complete Registration'},
+ {value:'ADD_TO_CART',label:'加入购物车 Add To Cart'},
+ {value:'INITIATED_CHECKOUT',label:'发起结账 Initiated Checkout'},
+ {value:'CONTENT_VIEW',label:'浏览内容 Content View'},
+ {value:'SEARCH',label:'搜索 Search'},
+ {value:'SUBSCRIBE',label:'订阅 Subscribe'}
+];
+function _launchDefaultConvEvent(objective,goal){
+ objective=String(objective||'').toUpperCase();
+ goal=String(goal||'').toLowerCase();
+ if(objective==='OUTCOME_LEADS'||goal.indexOf('lead')>=0)return 'LEAD';
+ return 'PURCHASE';
+}
+function _normalizeLaunchConvEventValue(value){
+ var key=String(value||'').trim().toLowerCase().replace(/\s+/g,'_');
+ var map={
+  purchase:'PURCHASE','offsite_conversion.fb_pixel_purchase':'PURCHASE',
+  lead:'LEAD','offsite_conversion.fb_pixel_lead':'LEAD',
+  contact:'CONTACT','offsite_conversion.fb_pixel_contact':'CONTACT',
+  complete_registration:'COMPLETE_REGISTRATION','offsite_conversion.fb_pixel_complete_registration':'COMPLETE_REGISTRATION',
+  add_to_cart:'ADD_TO_CART','offsite_conversion.fb_pixel_add_to_cart':'ADD_TO_CART',
+  initiate_checkout:'INITIATED_CHECKOUT',initiated_checkout:'INITIATED_CHECKOUT','offsite_conversion.fb_pixel_initiate_checkout':'INITIATED_CHECKOUT',
+  view_content:'CONTENT_VIEW',content_view:'CONTENT_VIEW','offsite_conversion.fb_pixel_view_content':'CONTENT_VIEW',
+  search:'SEARCH',subscribe:'SUBSCRIBE','offsite_conversion.fb_pixel_subscribe':'SUBSCRIBE'
+ };
+ return map[key]||String(value||'').trim().toUpperCase();
+}
+function _onLaunchConvEventChange(){
+ var sel=document.getElementById('launchConvEvent');
+ if(sel)sel.dataset.autoDefault='0';
+ _updateKpiPreview();
+}
 async function populateLaunchConvEvents(){
  var sel=document.getElementById('launchConvEvent');
- if(!sel||sel.dataset.loaded)return;
- var opts=await loadKpiOptions();
- if(opts&&opts.custom_events&&opts.custom_events.length){
-  sel.innerHTML=opts.custom_events.map(function(o){
-   return '<option value="'+o.value+'">'+o.label+'</option>';
-  }).join('');
-  sel.dataset.loaded='1';
+ if(!sel)return;
+ if(sel.dataset.loading==='1')return;
+ var objective=(document.getElementById('launchObjective')||{}).value||'';
+ var goal=(document.getElementById('launchConvGoal')||{}).value||'';
+ if(sel.dataset.loaded){
+  if(!sel.value||sel.dataset.autoDefault==='1'){
+   sel.value=_launchDefaultConvEvent(objective,goal);
+   sel.dataset.autoDefault='1';
+  }
+  _updateKpiPreview();
+  return;
  }
+ sel.dataset.loading='1';
+ var previous=sel.value||'';
+ sel.innerHTML='<option value="">加载中...</option>';
+ var opts=await loadKpiOptions();
+ var events=(opts&&Array.isArray(opts.custom_events)?opts.custom_events:[]).filter(function(o){return o&&o.value;});
+ if(!events.length)events=LAUNCH_CONV_EVENT_FALLBACK.slice();
+ var seen={};
+ events=events.map(function(o){
+  var value=_normalizeLaunchConvEventValue(o.value);
+  return {value:value,label:o.label||value};
+ }).filter(function(o){
+  if(!o.value||seen[o.value])return false;
+  seen[o.value]=1;
+  return true;
+ });
+ sel.innerHTML=events.map(function(o){
+  return '<option value="'+escHtml(o.value)+'">'+escHtml(o.label||o.value)+'</option>';
+ }).join('');
+ var wanted=previous||_launchDefaultConvEvent(objective,goal);
+ if(events.some(function(o){return String(o.value)===wanted;}))sel.value=wanted;
+ else if(events.length)sel.value=events[0].value;
+ sel.dataset.autoDefault=previous?'0':'1';
+ sel.dataset.loaded='1';
+ delete sel.dataset.loading;
+ _updateKpiPreview();
 }
 
 async function loadKpiObjectives(){
@@ -13906,10 +13971,11 @@ async function onLaunchObjectiveChange() {
    if (pageSel) pageSel.style.borderColor = '#ef4444';
   }
 
-  var convEventRow = document.getElementById('launchConvEventRow');
-  if (convEventRow) {
-   convEventRow.style.display = meta.showEvent ? '' : 'none';
-  }
+ var convEventRow = document.getElementById('launchConvEventRow');
+ if (convEventRow) {
+  convEventRow.style.display = meta.showEvent ? '' : 'none';
+  if (meta.showEvent) populateLaunchConvEvents();
+ }
 
   var msgHintId = 'launchMsgHint';
   var existingHint = document.getElementById(msgHintId);

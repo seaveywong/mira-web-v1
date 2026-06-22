@@ -96,6 +96,27 @@ MESSAGE_GOALS = {
     "messaging_appointment_conversion",
     "messaging_leads",
 }
+CONVERSION_EVENT_ALIASES = {
+    "purchase": "PURCHASE",
+    "offsite_conversion.fb_pixel_purchase": "PURCHASE",
+    "lead": "LEAD",
+    "offsite_conversion.fb_pixel_lead": "LEAD",
+    "contact": "CONTACT",
+    "offsite_conversion.fb_pixel_contact": "CONTACT",
+    "complete_registration": "COMPLETE_REGISTRATION",
+    "offsite_conversion.fb_pixel_complete_registration": "COMPLETE_REGISTRATION",
+    "add_to_cart": "ADD_TO_CART",
+    "offsite_conversion.fb_pixel_add_to_cart": "ADD_TO_CART",
+    "initiate_checkout": "INITIATED_CHECKOUT",
+    "initiated_checkout": "INITIATED_CHECKOUT",
+    "offsite_conversion.fb_pixel_initiate_checkout": "INITIATED_CHECKOUT",
+    "view_content": "CONTENT_VIEW",
+    "content_view": "CONTENT_VIEW",
+    "offsite_conversion.fb_pixel_view_content": "CONTENT_VIEW",
+    "search": "SEARCH",
+    "subscribe": "SUBSCRIBE",
+    "offsite_conversion.fb_pixel_subscribe": "SUBSCRIBE",
+}
 
 
 def _tw_page_not_blocked_sql(alias: str = "") -> str:
@@ -105,6 +126,16 @@ def _tw_page_not_blocked_sql(alias: str = "") -> str:
         f"AND COALESCE({prefix}page_can_advertise, 1) != 0 "
         f"AND COALESCE({prefix}page_status, 'ok') NOT IN ('restricted', 'unpublished')"
     )
+
+
+def _normalize_conversion_event_type(value: str = "", objective: str = "", conversion_goal: str = "") -> str:
+    raw = str(value or "").strip()
+    objective_norm = str(objective or "").strip().upper()
+    goal_norm = str(conversion_goal or "").strip().lower()
+    if not raw:
+        return "LEAD" if objective_norm == "OUTCOME_LEADS" or "lead" in goal_norm else "PURCHASE"
+    key = raw.lower().replace(" ", "_")
+    return CONVERSION_EVENT_ALIASES.get(key, raw.upper())
 
 
 def _tw_page_block_reason(row) -> str:
@@ -2250,6 +2281,7 @@ class AutoPilotEngine:
 
         # 根据 conversion_goal 决定 optimization_goal
         opt_goal = self._get_optimization_goal(objective, conversion_goal)
+        conversion_event = _normalize_conversion_event_type(conversion_event, objective, conversion_goal)
 
         payload = {
             "name": name,

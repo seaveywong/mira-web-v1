@@ -70,6 +70,48 @@ KPI_FIELD_OPTIONS = [
     {"value": "omni_purchase",                                     "label": "全渠道购买",   "category": "转化"},
 ]
 
+CUSTOM_EVENT_OPTIONS = [
+    {"value": "PURCHASE", "label": "购买 Purchase"},
+    {"value": "LEAD", "label": "线索 Lead"},
+    {"value": "CONTACT", "label": "联系 Contact"},
+    {"value": "COMPLETE_REGISTRATION", "label": "完成注册 Complete Registration"},
+    {"value": "ADD_TO_CART", "label": "加入购物车 Add To Cart"},
+    {"value": "INITIATED_CHECKOUT", "label": "发起结账 Initiated Checkout"},
+    {"value": "CONTENT_VIEW", "label": "浏览内容 Content View"},
+    {"value": "SEARCH", "label": "搜索 Search"},
+    {"value": "SUBSCRIBE", "label": "订阅 Subscribe"},
+]
+
+_CUSTOM_EVENT_ALIASES = {
+    "purchase": "PURCHASE",
+    "offsite_conversion.fb_pixel_purchase": "PURCHASE",
+    "lead": "LEAD",
+    "offsite_conversion.fb_pixel_lead": "LEAD",
+    "contact": "CONTACT",
+    "offsite_conversion.fb_pixel_contact": "CONTACT",
+    "complete_registration": "COMPLETE_REGISTRATION",
+    "offsite_conversion.fb_pixel_complete_registration": "COMPLETE_REGISTRATION",
+    "add_to_cart": "ADD_TO_CART",
+    "offsite_conversion.fb_pixel_add_to_cart": "ADD_TO_CART",
+    "initiate_checkout": "INITIATED_CHECKOUT",
+    "initiated_checkout": "INITIATED_CHECKOUT",
+    "offsite_conversion.fb_pixel_initiate_checkout": "INITIATED_CHECKOUT",
+    "view_content": "CONTENT_VIEW",
+    "content_view": "CONTENT_VIEW",
+    "offsite_conversion.fb_pixel_view_content": "CONTENT_VIEW",
+    "search": "SEARCH",
+    "subscribe": "SUBSCRIBE",
+    "offsite_conversion.fb_pixel_subscribe": "SUBSCRIBE",
+}
+
+
+def _normalize_custom_event_option(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    key = raw.lower().replace(" ", "_")
+    return _CUSTOM_EVENT_ALIASES.get(key, raw.upper())
+
 
 class KpiConfigIn(BaseModel):
     act_id: str
@@ -190,6 +232,16 @@ def get_kpi_options(user=Depends(get_current_user)):
         conn.close()
     except Exception:
         pass
+    custom_events = []
+    seen_custom_events = set()
+    for row in (result.get("custom_events") or []) + CUSTOM_EVENT_OPTIONS:
+        value = _normalize_custom_event_option(row.get("value") if isinstance(row, dict) else "")
+        if not value or value in seen_custom_events:
+            continue
+        seen_custom_events.add(value)
+        label = row.get("label") if isinstance(row, dict) else value
+        custom_events.append({"value": value, "label": label or value})
+    result["custom_events"] = custom_events
     return result
 
 
