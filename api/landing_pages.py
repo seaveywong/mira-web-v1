@@ -210,6 +210,11 @@ class LandingAdAutoBindReq(BaseModel):
     limit_ads_per_account: int = Field(default=500, ge=1, le=2000)
 
 
+class LandingAdLinkCleanupReq(BaseModel):
+    limit: int = Field(default=500, ge=1, le=2000)
+    statuses: list[str] = Field(default_factory=lambda: ["reserved", "failed", "unused"])
+
+
 def _landing_ad_link_create_count(requested_count: int, target_urls: list[str]) -> int:
     """Return how many ad entry links to reserve.
 
@@ -4265,6 +4270,99 @@ def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
             _public_ad_link(row, page_public, _ad_link_stats(conn, page_id, row["slug"], ad_id=row["ad_id"], days=LANDING_TRACKING_RETENTION_DAYS), user)
             for row in rows
         ]
+    finally:
+        conn.close()
+
+
+def _landing_ad_link_event_count(conn, page_id: int, slug: str) -> int:
+    slug = str(slug or "").strip()
+    if not slug or not _has_table(conn, "landing_events"):
+        return 0
+    row = conn.execute(
+        """SELECT COUNT(*) AS cnt
+           FROM landing_events
+           WHERE page_id=?
+             AND (
+              path=?
+              OR COALESCE(metadata,'') LIKE ?
+              OR COALESCE(metadata,'') LIKE ?
+             )""",
+        (
+            int(page_id),
+            f"/a/{slug}",
+            f'%"ad_slug":"{slug}"%',
+            f'%"ad_slug": "{slug}"%',
+        ),
+    ).fetchone()
+    return int((row or {"cnt": 0})["cnt"] or 0)
+
+
+def _landing_ad_link_result_count(conn, link_id: int) -> int:
+    if not _has_table(conn, "landing_ad_link_results"):
+        return 0
+    row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM landing_ad_link_results WHERE link_id=?",
+        (int(link_id),),
+    ).fetchone()
+    return int((row or {"cnt": 0})["cnt"] or 0)
+
+
+@router.post("/pages/{page_id}/ad-links/cleanup-unused")
+def cleanup_unused_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq = LandingAdLinkCleanupReq(), user=Depends(get_current_user)):
+    allowed_status = {"reserved", "failed", "unused", "archived"}
+    statuses = []
+    for status in body.statuses or []:
+        clean = (status or "").strip().lower()
+        if clean in allowed_status and clean not in statuses:
+            statuses.append(clean)
+    if not statuses:
+        statuses = ["reserved", "failed", "unused"]
+
+    conn = get_conn()
+    try:
+        _assert_page_access(conn, page_id, user)
+        placeholders = ",".join("?" for _ in statuses)
+        rows = conn.execute(
+            f"""SELECT *
+                  FROM landing_ad_links
+                 WHERE page_id=?
+                   AND TRIM(COALESCE(ad_id,''))=''
+                   AND LOWER(COALESCE(status,'reserved')) IN ({placeholders})
+                 ORDER BY id ASC
+                 LIMIT ?""",
+            [page_id] + statuses + [int(body.limit or 500)],
+        ).fetchall()
+        deleted = []
+        skipped = []
+        for row in rows:
+            link_id = int(row["id"])
+            slug = str(row["slug"] or "").strip()
+            reason = ""
+            if str(row["ad_id"] or "").strip():
+                reason = "已绑定广告"
+            elif _landing_ad_link_event_count(conn, int(row["page_id"]), slug) > 0:
+                reason = "已有访问/点击/跳转数据"
+            elif _landing_ad_link_result_count(conn, link_id) > 0:
+                reason = "已有真实结果回填"
+
+            if reason:
+                skipped.append({"id": link_id, "slug": slug, "reason": reason})
+                continue
+
+            if _has_table(conn, "landing_ad_route_state"):
+                conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (link_id,))
+            conn.execute("DELETE FROM landing_ad_links WHERE id=?", (link_id,))
+            deleted.append({"id": link_id, "slug": slug})
+        conn.commit()
+        return {
+            "success": True,
+            "page_id": page_id,
+            "scanned": len(rows),
+            "deleted": len(deleted),
+            "deleted_links": deleted[:200],
+            "skipped": skipped[:200],
+            "statuses": statuses,
+        }
     finally:
         conn.close()
 

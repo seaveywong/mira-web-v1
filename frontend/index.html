@@ -5275,7 +5275,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.65';
+var APP_VERSION='v3.11.66';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -19116,6 +19116,11 @@ function _landingAdLinkCanDelete(item,stats){
  }
  return true;
 }
+function _landingAdLinkCanCleanup(item,stats){
+ if(!_landingAdLinkCanDelete(item,stats))return false;
+ var status=String((item&&item.status)||'reserved').toLowerCase();
+ return ['reserved','failed','unused',''].indexOf(status)>=0;
+}
 function _landingAdCodeCellHtml(item,attribution){
  item=item||{};
  var status=String(item.status||'reserved').toLowerCase();
@@ -19348,7 +19353,10 @@ function _landingRuntimeBadge(p){
  return '<span class="badge bg-mu" title="未启用统计、防护或直跳；普通静态页面无需动态配置">静态页面</span> ';
 }
 function _landingPageChildSummary(pageId){
- var items=((_landingAdPerf||{}).items||[]).filter(function(x){return String(x.page_id||'')===String(pageId||'');});
+ var items=((_landingAdPerf||{}).items||[]).filter(function(x){
+  var status=String(x.status||'reserved').toLowerCase();
+  return String(x.page_id||'')===String(pageId||'')&&['archived','unused','failed'].indexOf(status)<0;
+ });
  var targetCounts=_landingTargetCounts(items);
  var summary={total:items.length,bound:0,reserved:0,unique:0,reused:0,global:0};
  items.forEach(function(x){
@@ -19529,6 +19537,7 @@ function _landingAdLinksHtml(page, links){
  var boundCount=links.filter(function(x){return !!String(x.ad_id||'').trim();}).length;
  var unboundCount=links.length-boundCount;
  var dedicatedCount=0,reusedCount=0,globalCount=0;
+ var cleanupCount=links.filter(function(x){return _landingAdLinkCanCleanup(x,x.stats||{});}).length;
  links.forEach(function(x){
   var code=_landingTargetBindingStatus(x,targetCounts).code;
   if(code==='dedicated_unique'||code==='dedicated_rotation')dedicatedCount++;
@@ -19550,8 +19559,9 @@ function _landingAdLinksHtml(page, links){
   var binding=_landingTargetBindingStatus(x,targetCounts);
   var attribution=_landingAttributionMode(x);
   var bindCard=_landingAdBindCardHtml(x,attribution);
+  var canCleanup=_landingAdLinkCanCleanup(x,stats);
   var rowSearch=[x.slug,x.ad_id,x.ad_name,x.act_id,x.account_name,x.campaign_name,x.adset_name,target,(x.target_urls||[]).join(' ')].join(' ').toLowerCase();
-  return '<tr data-link-status="'+escHtml(status)+'" data-search="'+escHtml(rowSearch)+'">'+
+  return '<tr data-link-status="'+escHtml(status)+'" data-can-delete="'+(canCleanup?'1':'0')+'" data-search="'+escHtml(rowSearch)+'">'+
    '<td style="padding:8px 10px">'+_landingAdCodeCellHtml(x,attribution)+'</td>'+
    '<td style="padding:8px 10px">'+bindCard+'</td>'+
    '<td style="padding:8px 10px;max-width:320px;overflow:hidden;text-overflow:ellipsis">'+_landingAdLinkUrlCell(url,adParamUrl,target,binding,x)+'</td>'+
@@ -19569,7 +19579,7 @@ function _landingAdLinksHtml(page, links){
  if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。一键铺广告会自动生成并绑定；如果是手工建广告，再点“生成广告入口”并复制“投放链接”到 FB 广告。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
  '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">一键铺广告会自动生成入口并回绑；手工广告才复制“投放链接”。绑定成功后，账户和广告信息会显示在“绑定对象”列。</div></div>'+
-  '<div class="landing-ad-link-top-actions"><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成广告入口</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="autoBindLandingAdLinks('+((page&&page.id)||0)+')">自动匹配</button><details class="landing-ad-more"><summary>更多</summary><div class="landing-ad-more-menu"><button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingBulkBindModal('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">批量绑定</button><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">导出映射</button></div></details></div>'+
+  '<div class="landing-ad-link-top-actions"><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成广告入口</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="autoBindLandingAdLinks('+((page&&page.id)||0)+')">自动匹配</button>'+(cleanupCount?'<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="cleanupLandingUnusedAdLinks('+((page&&page.id)||0)+','+cleanupCount+')">清理未使用</button>':'')+'<details class="landing-ad-more"><summary>更多</summary><div class="landing-ad-more-menu"><button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingBulkBindModal('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">批量绑定</button><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">导出映射</button></div></details></div>'+
  '</div>'+
  '<div class="landing-ad-link-workflow">'+
   '<div class="landing-ad-link-step"><b>1. 生成广告入口</b><span>一个入口对应一条广告；入口里会自动包含入口码。</span></div>'+
@@ -19577,8 +19587,8 @@ function _landingAdLinksHtml(page, links){
   '<div class="landing-ad-link-step"><b>3. 看绑定结果</b><span>点击“自动匹配”或等待真实点击后，在绑定对象列查看账户和广告。</span></div>'+
  '</div>'+
  '<div class="landing-ad-link-toolbar">'+
-  '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="fc" id="landingAdLinksSearch" placeholder="搜索入口码 / 广告ID / 账户 / 跳转链接" oninput="filterLandingAdLinkRows()"><select class="fc" id="landingAdLinksStatus" onchange="filterLandingAdLinkRows()"><option value="all">全部状态</option><option value="reserved">待自动绑定</option><option value="active">已绑定广告</option><option value="paused">已暂停</option><option value="archived">已归档</option></select></div>'+
-  '<div class="landing-ad-link-summary"><span id="landingAdLinksVisibleCount">'+links.length+'</span> / '+links.length+' 条 · 已绑定 '+boundCount+' · 待绑定 '+unboundCount+' · 专属 '+dedicatedCount+' · 重复 '+reusedCount+' · 全局 '+globalCount+'</div>'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="fc" id="landingAdLinksSearch" placeholder="搜索入口码 / 广告ID / 账户 / 跳转链接" oninput="filterLandingAdLinkRows()"><select class="fc" id="landingAdLinksStatus" onchange="filterLandingAdLinkRows()"><option value="all">全部状态</option><option value="cleanup">可清理未使用</option><option value="reserved">待自动绑定</option><option value="active">已绑定广告</option><option value="failed">失败</option><option value="unused">未使用</option><option value="paused">已暂停</option><option value="archived">已归档</option></select></div>'+
+  '<div class="landing-ad-link-summary"><span id="landingAdLinksVisibleCount">'+links.length+'</span> / '+links.length+' 条 · 已绑定 '+boundCount+' · 待绑定 '+unboundCount+' · 可清理 '+cleanupCount+' · 专属 '+dedicatedCount+' · 重复 '+reusedCount+' · 全局 '+globalCount+'</div>'+
  '</div>'+
  '<div class="table-wrap" style="max-height:420px;overflow-y:auto;overflow-x:hidden"><table class="landing-ad-link-table">'+
 '<thead><tr><th style="text-align:left;padding:8px 10px;width:124px">广告入口</th><th style="text-align:left;padding:8px 10px;width:232px">绑定对象</th><th style="text-align:left;padding:8px 10px">投放链接</th><th style="text-align:left;padding:8px 10px;width:170px">数据</th><th style="text-align:right;padding:8px 10px;width:138px">操作</th></tr></thead>'+
@@ -19589,7 +19599,9 @@ function filterLandingAdLinkRows(){
  var st=String((document.getElementById('landingAdLinksStatus')||{}).value||'all');
  var count=0;
  document.querySelectorAll('.landing-ad-link-table tbody tr[data-search]').forEach(function(tr){
-  var ok=(!q||String(tr.getAttribute('data-search')||'').indexOf(q)>=0)&&(st==='all'||String(tr.getAttribute('data-link-status')||'')===st);
+  var status=String(tr.getAttribute('data-link-status')||'');
+  var statusOk=st==='all'||(st==='cleanup'?String(tr.getAttribute('data-can-delete')||'')==='1':status===st);
+  var ok=(!q||String(tr.getAttribute('data-search')||'').indexOf(q)>=0)&&statusOk;
   tr.style.display=ok?'':'none';
   if(ok)count++;
  });
@@ -19660,6 +19672,28 @@ async function deleteLandingAdLink(linkId,encodedSlug){
   if(pageId)await showLandingAdLinks(pageId);
  }catch(e){
   toast('删除失败：'+(e.message||e),'er');
+ }
+}
+async function cleanupLandingUnusedAdLinks(pageId,estimatedCount){
+ var count=Number(estimatedCount||0);
+ var ok=await confirmAsync(
+  '<div style="text-align:left;line-height:1.7">确认清理当前落地页未使用广告入口？<br>只会删除<strong>未绑定广告、没有访问/点击/跳转、没有真实结果回填</strong>的入口。'+
+  (count?'<br>当前页面前端估算可清理 <b>'+count+'</b> 条；后端会重新按全量数据复核。':'')+
+  '<br><span style="color:var(--t3)">已绑定广告或已有任何数据的入口不会删除，避免影响投放追溯。</span></div>',
+  '清理未使用',
+  '取消',
+  '清理未使用广告入口'
+ );
+ if(!ok)return;
+ try{
+  var res=await api('POST','/landing-pages/pages/'+pageId+'/ad-links/cleanup-unused',{limit:2000});
+  var deleted=Number((res&&res.deleted)||0);
+  var skipped=(res&&res.skipped&&res.skipped.length)||0;
+  toast('已清理 '+deleted+' 条未使用入口'+(skipped?'，跳过 '+skipped+' 条有数据入口':''),deleted?'ok':'wa');
+  await loadLandingCenter(true);
+  await showLandingAdLinks(pageId);
+ }catch(e){
+  toast('清理失败：'+(e.message||e),'er');
  }
 }
 function _landingUnboundAdLinks(){
