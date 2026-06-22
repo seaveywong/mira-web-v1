@@ -36,7 +36,6 @@ from services.token_manager import (
     cooldown_token_by_plain,
     get_exec_token_candidates,
     get_matrix_id_for_account,
-    suspend_token_by_plain,
     wait_for_token_slot_by_plain,
 )
 from services.landing_link_resolver import resolve_account_form_link, resolve_account_landing_link
@@ -892,13 +891,8 @@ class AutoPilotEngine:
             logger.error(f"[AutoPilot] FB API Error on {path}: {err} | payload={debug_payload}")
             note_write_failure(token, data, operation=f"launch:{path}")
 
-            # 自动检测并暂停需要认证的 Token（error_subcode=2859002）
-            if err.get("error_subcode") == 2859002 or "certification" in str(err.get("error_user_title", "")).lower():
-                logger.warning(f"[AutoPilot] 检测到 Token 需要 Facebook 非歧视政策认证，自动暂停该 Token")
-                try:
-                    suspend_token_by_plain(token, reason="certification_required")
-                except Exception as se:
-                    logger.error(f"[AutoPilot] 自动暂停 Token 失败: {se}")
+            if err.get("error_subcode") == 2859002:
+                logger.warning("[AutoPilot] 账户合规认证未完成，保留当前 Token 状态，仅阻断本次广告创建")
 
             err_code = err.get("code")
             message_lower = f"{err.get('message', '')} {err.get('error_user_msg', '')}".lower()
