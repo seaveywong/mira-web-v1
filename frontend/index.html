@@ -4529,7 +4529,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
        <option value="OUTCOME_MESSAGES">消息互动（Messaging）</option>
       </optgroup>
       <optgroup label=" 应用类">
-       <option value="OUTCOME_APP_PROMOTION">应用推广（App Promotion）</option>
+       <option value="OUTCOME_APP_PROMOTION" disabled>应用推广（暂未接入 App ID）</option>
       </optgroup>
      </select>
      <!-- 转化目的：根据广告目标动态显示可选项 -->
@@ -5275,7 +5275,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.66';
+var APP_VERSION='v3.11.67';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -13154,7 +13154,8 @@ async function onLaunchObjectiveChange() {
   }
   var convEventRow = document.getElementById('launchConvEventRow');
   if (convEventRow) {
-   var showConvEvent = ['OUTCOME_SALES','OUTCOME_LEADS'].includes(obj);
+   var currentGoal = String((document.getElementById('launchConvGoal') || {}).value || '').toLowerCase();
+   var showConvEvent = ['offsite_conversions','value'].includes(currentGoal);
    convEventRow.style.display = showConvEvent ? '' : 'none';
    if(showConvEvent) populateLaunchConvEvents();
   }
@@ -13393,16 +13394,40 @@ async function onLaunchObjectiveChange() {
   if (objective === 'OUTCOME_MESSAGES' && !convGoal) convGoal = 'conversations';
   var isMessage = objective === 'OUTCOME_MESSAGES' || objective === 'OUTCOME_MESSAGING' || objective === 'MESSAGES' || msgGoals.includes(convGoal);
   var isLead = convGoal === 'lead_generation';
-  return {
+ return {
    objective: objective,
    goal: convGoal,
    isMessage: isMessage,
    isLead: isLead,
    pageRequired: true,
    pixelRequired: ['offsite_conversions','value'].includes(convGoal),
-   showEvent: ['offsite_conversions','value'].includes(convGoal) || (['OUTCOME_SALES','OUTCOME_LEADS'].includes(objective) && !isLead),
+   showEvent: ['offsite_conversions','value'].includes(convGoal),
    landingRequired: ['OUTCOME_TRAFFIC','OUTCOME_SALES','OUTCOME_ENGAGEMENT','OUTCOME_LEADS'].includes(objective) && !isMessage && !isLead && convGoal !== 'page_likes'
   };
+ }
+
+ function _getLaunchAssetForModal() {
+  var assetId = parseInt((document.getElementById('launchAssetId') || {}).value || '0', 10) || 0;
+  if (!assetId) return null;
+  return (_assetsData || []).find(function(asset){ return parseInt(asset.id || 0, 10) === assetId; }) || null;
+ }
+
+ function _isLaunchVideoGoal(objective, goal) {
+  var obj = _normalizeLaunchObjectiveValue(objective || (document.getElementById('launchObjective') || {}).value || '');
+  var convGoal = String(goal || (document.getElementById('launchConvGoal') || {}).value || '').toLowerCase();
+  return obj === 'OUTCOME_VIDEO_VIEWS' || obj === 'VIDEO_VIEWS' || convGoal === 'video_views' || convGoal === 'thruplay';
+ }
+
+ function _getLaunchAssetGoalIssue(objective, goal) {
+  var obj = _normalizeLaunchObjectiveValue(objective || (document.getElementById('launchObjective') || {}).value || '');
+  if (obj === 'OUTCOME_APP_PROMOTION') return '应用推广暂未接入 App ID / 应用事件配置，不能自动铺广告。';
+  if (_isLaunchVideoGoal(obj, goal)) {
+   var asset = _getLaunchAssetForModal();
+   if (asset && String(asset.file_type || '').toLowerCase() !== 'video') {
+    return '视频观看 / ThruPlay 目标必须使用视频素材；当前素材不是视频。';
+   }
+  }
+  return '';
  }
 
  function _updateLaunchCtaOptions(meta) {
@@ -13559,6 +13584,7 @@ async function onLaunchObjectiveChange() {
   var complianceCountries = _getLaunchComplianceCountries();
   var twAdvEl = document.getElementById('launchTwAdvId');
   var twAdvVal = twAdvEl ? (twAdvEl.value || '').trim() : '';
+  var assetGoalIssue = _getLaunchAssetGoalIssue(meta.objective, meta.goal);
   var itemHtml = [];
 
   function addItem(state, label, desc) {
@@ -13651,8 +13677,11 @@ async function onLaunchObjectiveChange() {
    }
    if (meta.isLead) {
     addItem(leadFormVal ? 'ok' : 'warn', 'Lead 表单', leadFormVal ? '已选择现成表单模板。' : '如未选择现成表单，提交前会检查自动创建条件与权限。');
-   }
-   if (meta.pixelRequired) {
+  }
+  if (assetGoalIssue) {
+   addItem('fail', '素材 / 转化目标', assetGoalIssue);
+  }
+  if (meta.pixelRequired) {
     addItem(pixelIdVal ? 'ok' : 'warn', 'Pixel', pixelIdVal ? '已配置 Pixel。' : '请在选定账户后确认该目标所需的 Pixel。');
    }
    if (meta.landingRequired) {
@@ -14047,8 +14076,18 @@ confirmLaunchCampaign = async function(){
  var actId=(document.getElementById('launchActId')||{}).value||'';
  var selectedActIds = _getSelectedActIds ? _getSelectedActIds() : (actId ? [actId] : []);
  var meta=_getLaunchGoalMeta(objective, convGoal);
+ var assetGoalIssue=_getLaunchAssetGoalIssue(objective, convGoal);
  var blockedLeadHost=meta.isLead&&!leadFormId?_getBlockedLeadFormHost(landingUrl):'';
  var pageMeta=selectedActIds.length===1?_getLaunchPageMeta(pageIdVal):null;
+ if(assetGoalIssue){
+  await confirmAsync(
+   '<div style="text-align:left"><div style="padding:10px;border-radius:8px;background:var(--erg);color:var(--er);font-size:13px;line-height:1.7">'+
+   _launchEsc(assetGoalIssue)+
+   '<br>请更换素材或转化目标后再继续。</div></div>',
+   '返回修改','关闭',' 转化目标与素材不兼容'
+  );
+  return;
+ }
  if(meta.isLead&&!leadFormId&&blockedLeadHost){
   await confirmAsync(
    '<div style="text-align:left"><div style="padding:10px;border-radius:8px;background:var(--erg);color:var(--er);font-size:13px;line-height:1.7">当前表单链接使用了高风险短链域名 <code>'+_launchEsc(blockedLeadHost)+'</code>。<br>Facebook 会直接拒绝创建 Lead Form，请改成真实直链后再继续。</div></div>',

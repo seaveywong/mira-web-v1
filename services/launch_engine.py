@@ -739,6 +739,16 @@ class AutoPilotEngine:
         status_label = ACCOUNT_STATUS_LABELS.get(account_status, f"status_{account_status}")
         return f"Account status is {status_label}; AutoPilot launch blocked"
 
+    def _get_asset_goal_block_reason(self, asset: Optional[dict], objective: str = "", conversion_goal: str = "") -> str:
+        objective_norm, goal_norm = _normalize_campaign_goal_fields(objective, conversion_goal)
+        file_type = str((asset or {}).get("file_type") or "").strip().lower()
+        if objective_norm == "OUTCOME_APP_PROMOTION":
+            return "应用推广目标暂未接入 App ID / 应用事件配置，不能自动铺广告。"
+        if objective_norm in ("OUTCOME_VIDEO_VIEWS", "VIDEO_VIEWS") or goal_norm in ("video_views", "thruplay"):
+            if file_type != "video":
+                return "视频观看 / ThruPlay 目标必须使用视频素材；当前素材不是视频。"
+        return ""
+
     def _format_fb_error(self, err: dict) -> str:
         if not isinstance(err, dict):
             return f"FB API Error: {err}"
@@ -1077,6 +1087,13 @@ class AutoPilotEngine:
             asset = self._load_asset(campaign["asset_id"])
             if not asset:
                 raise Exception(f"素材 ID={campaign['asset_id']} 不存在")
+            asset_goal_block = self._get_asset_goal_block_reason(
+                asset,
+                campaign.get("objective") or "",
+                campaign.get("conversion_goal") or "",
+            )
+            if asset_goal_block:
+                raise Exception(asset_goal_block)
 
             copy_mode = (campaign.get("copy_mode") or "ai").strip()
             if copy_mode == "empty":
@@ -2303,17 +2320,21 @@ class AutoPilotEngine:
             if pixel_id:
                 payload["promoted_object"] = {"pixel_id": pixel_id}
 
-        # 购物广告（网站转化）：强制设置 destination_type=WEBSITE，确保只投放网站转化
-        # 避免 FB 默认包含 APP 等其他渠道，保证单网站转化逻辑
-        if objective == "OUTCOME_SALES" and opt_goal in ("OFFSITE_CONVERSIONS", "VALUE", "LINK_CLICKS", "LANDING_PAGE_VIEWS"):
+        # 网站类目标：强制设置 destination_type=WEBSITE，避免 Meta 默认推断到 App/店铺/消息等其他渠道。
+        if (
+            objective in ("OUTCOME_SALES", "OUTCOME_LEADS", "OUTCOME_TRAFFIC", "OUTCOME_ENGAGEMENT")
+            and opt_goal in ("OFFSITE_CONVERSIONS", "VALUE", "LINK_CLICKS", "LANDING_PAGE_VIEWS")
+        ):
             payload["destination_type"] = "WEBSITE"
-        # 消息类目标：设置 destination_type=MESSENGER，确保 Conversion Location 正确
-        # 适用于：CONVERSATIONS（聊天对话）optimization_goal
-        if opt_goal == "CONVERSATIONS":
+        # 消息类目标：设置 destination_type=MESSENGER，确保 Conversion Location 正确。
+        if opt_goal in ("CONVERSATIONS", "MESSAGING_PURCHASE_CONVERSION", "MESSAGING_APPOINTMENT_CONVERSION"):
+            if not page_id:
+                raise ValueError(
+                    f"选择消息类转化目的（{opt_goal}）时，主页 ID 为必填。"
+                    f"请在账户详情中配置主页，并确保主页已开启 Messenger / WhatsApp。"
+                )
             payload["destination_type"] = "MESSENGER"
-            # 消息类需要 page_id 作为 promoted_object
-            if page_id:
-                payload["promoted_object"] = {"page_id": page_id}
+            payload["promoted_object"] = {"page_id": page_id}
             # FB API要求：使用 destination_type=MESSENGER 时，publisher_platforms 必须包含 messenger
             # 否则报 Invalid parameter。自动补充 messenger 版位。
             _pp = targeting.get("publisher_platforms", [])
@@ -2457,6 +2478,7 @@ class AutoPilotEngine:
                 "impressions":        "IMPRESSIONS",
                 "conversations":      "CONVERSATIONS",
                 "landing_page_views": "LANDING_PAGE_VIEWS",
+                "post_engagement":    "POST_ENGAGEMENT",
                 # 视频类目标（需要视频素材）
                 "video_views":        "VIDEO_VIEWS",
                 "thruplay":           "THRUPLAY",

@@ -1868,6 +1868,18 @@ def _launch_goal_meta(body: LaunchCampaignBody) -> dict:
     }
 
 
+def _launch_asset_goal_issue(asset: dict, body: LaunchCampaignBody) -> str:
+    objective = (body.objective or "OUTCOME_SALES").strip().upper()
+    goal = _normalize_launch_goal(objective, body.conversion_goal)
+    file_type = str((asset or {}).get("file_type") or "").strip().lower()
+    if objective == "OUTCOME_APP_PROMOTION":
+        return "应用推广目标暂未接入 App ID / 应用事件配置，已在铺广告前拦截，避免创建无效任务。"
+    if objective in {"OUTCOME_VIDEO_VIEWS", "VIDEO_VIEWS"} or goal in {"video_views", "thruplay"}:
+        if file_type != "video":
+            return "视频观看 / ThruPlay 目标必须使用视频素材；当前素材不是视频。"
+    return ""
+
+
 def _account_landing_or_default(conn, act_id: str) -> str:
     account_row = conn.execute("SELECT landing_url FROM accounts WHERE act_id=?", (act_id,)).fetchone()
     setting_row = conn.execute("SELECT value FROM settings WHERE key='default_landing_url'").fetchone()
@@ -2384,6 +2396,10 @@ def launch_campaign(asset_id: int, body: LaunchCampaignBody, user=Depends(get_cu
         conn.close()
         raise HTTPException(404, "素材不存在")
     asset = dict(asset_row)
+    asset_goal_issue = _launch_asset_goal_issue(asset, body)
+    if asset_goal_issue:
+        conn.close()
+        raise HTTPException(400, asset_goal_issue)
     _copy_mode = (body.copy_mode or "ai").strip()
     if _copy_mode == "ai":
         if not asset.get("ai_headlines") or not asset.get("ai_bodies"):
