@@ -374,7 +374,6 @@ tr:hover td{background:var(--bgh)}
 .ads-table tr.ads-adset-row td:first-child{box-shadow:inset 2px 0 0 rgba(148,163,184,.22)}
 .ads-table tr.ads-ad-row td:first-child{box-shadow:inset 1px 0 0 rgba(148,163,184,.16)}
 .btn-sm{padding:5px 10px;font-size:12px}
-#page-ads.page{max-width:none!important;margin:0!important}
 #page-ads .ads-table-card{width:100%;overflow:hidden}
 #page-ads .table-wrap{width:100%!important;overflow-x:auto!important}
 #page-ads .ads-table{width:max(1440px,100%)!important;min-width:1440px!important;table-layout:fixed}
@@ -1625,7 +1624,7 @@ tr:last-child td{border-bottom:0!important}
 /* Commercial ops console alignment pass: keep dense tools tidy and predictable. */
 :root{--ops-gutter:30px;--ops-card-gap:14px;--ops-toolbar-h:42px}
 .content{padding:24px var(--ops-gutter) 42px!important}
-.page{width:100%!important;max-width:1480px!important;margin:0 auto!important}
+.page{width:100%!important;max-width:none!important;margin:0!important}
 .page>.ph:first-child{
  position:relative!important;top:auto!important;z-index:8!important;overflow:hidden!important;
  display:grid!important;grid-template-columns:minmax(260px,1fr) auto!important;align-items:end!important;gap:12px 20px!important;
@@ -5318,7 +5317,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.70';
+var APP_VERSION='v3.11.71';
 function _cst(s){
  if(!s)return'--';
  try{
