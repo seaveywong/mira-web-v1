@@ -374,6 +374,49 @@ tr:hover td{background:var(--bgh)}
 .ads-table tr.ads-adset-row td:first-child{box-shadow:inset 2px 0 0 rgba(148,163,184,.22)}
 .ads-table tr.ads-ad-row td:first-child{box-shadow:inset 1px 0 0 rgba(148,163,184,.16)}
 .btn-sm{padding:5px 10px;font-size:12px}
+#page-ads.page{max-width:none!important;margin:0!important}
+#page-ads .ads-table-card{width:100%;overflow:hidden}
+#page-ads .table-wrap{width:100%!important;overflow-x:auto!important}
+#page-ads .ads-table{width:max(1440px,100%)!important;min-width:1440px!important;table-layout:fixed}
+#page-ads .ads-table th,#page-ads .ads-table td{vertical-align:middle}
+#page-ads .ads-table th:nth-child(1),#page-ads .ads-table td:nth-child(1){width:58px}
+#page-ads .ads-table th:nth-child(2),#page-ads .ads-table td:nth-child(2){width:34px}
+#page-ads .ads-table th:nth-child(3),#page-ads .ads-table td:nth-child(3){width:auto}
+#page-ads .ads-table th:nth-child(4),#page-ads .ads-table td:nth-child(4){width:92px}
+#page-ads .ads-table th:nth-child(5),#page-ads .ads-table td:nth-child(5){width:144px}
+#page-ads .ads-table th:nth-child(6),#page-ads .ads-table td:nth-child(6){width:88px}
+#page-ads .ads-table th:nth-child(7),#page-ads .ads-table td:nth-child(7){width:68px;text-align:right}
+#page-ads .ads-table th:nth-child(8),#page-ads .ads-table td:nth-child(8){width:124px}
+#page-ads .ads-table th:nth-child(9),#page-ads .ads-table td:nth-child(9){width:88px}
+#page-ads .ads-table th:nth-child(10),#page-ads .ads-table td:nth-child(10){width:92px}
+#page-ads .ads-table th:nth-child(11),#page-ads .ads-table td:nth-child(11){width:70px}
+#page-ads .ads-table th:nth-child(12),#page-ads .ads-table td:nth-child(12){width:112px}
+#page-ads .ads-table th:nth-child(13),#page-ads .ads-table td:nth-child(13){width:108px}
+#page-ads .ads-table th:nth-child(14),#page-ads .ads-table td:nth-child(14){width:238px}
+#page-ads .fb-name{min-width:0}
+#page-ads .td-name{max-width:none}
+#page-ads .fb-more{justify-content:flex-start;align-items:center;gap:5px}
+#page-ads .fb-more button,#page-ads .fb-more .fb-op-chip{height:24px;padding:0 7px;font-size:11px}
+.ads-brief-wrap{display:grid;gap:12px}
+.ads-brief-hero{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:12px 14px;border:1px solid var(--bd);border-radius:12px;background:rgba(255,255,255,.035)}
+.ads-brief-title{min-width:0}
+.ads-brief-title strong{display:block;font-size:15px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ads-brief-sub{margin-top:5px;font-size:12px;color:var(--t3);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ads-brief-stats{display:grid;grid-template-columns:repeat(2,minmax(84px,1fr));gap:8px;min-width:190px}
+.ads-brief-stat{padding:8px 10px;border:1px solid var(--bd);border-radius:10px;background:rgba(255,255,255,.025);text-align:right}
+.ads-brief-stat span{display:block;font-size:11px;color:var(--t3)}
+.ads-brief-stat b{display:block;margin-top:3px;font-size:15px;color:var(--t1)}
+.ads-brief-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.ads-brief-card{min-width:0;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;background:rgba(255,255,255,.025)}
+.ads-brief-card.warn{border-color:rgba(245,158,11,.28);background:rgba(245,158,11,.06)}
+.ads-brief-card.ok{border-color:rgba(34,197,94,.24);background:rgba(34,197,94,.055)}
+.ads-brief-card.bad{border-color:rgba(239,68,68,.26);background:rgba(239,68,68,.055)}
+.ads-brief-card.wide{grid-column:1/-1}
+.ads-brief-card span{display:block;margin-bottom:5px;font-size:11px;color:var(--t3);font-weight:720}
+.ads-brief-card b{display:block;color:var(--t1);font-size:13px;line-height:1.45;word-break:break-word;font-weight:760}
+.ads-brief-card small{display:block;margin-top:4px;color:var(--t3);font-size:11px;line-height:1.45;word-break:break-word}
+.ads-brief-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:760px){.ads-brief-hero{display:grid}.ads-brief-stats{min-width:0}.ads-brief-grid{grid-template-columns:1fr}.ads-brief-actions{justify-content:flex-start}}
 /* Form */
 .fg{margin-bottom:14px}
 .fl{display:block;font-size:12px;color:var(--t2);font-weight:600;margin-bottom:7px;letter-spacing:.3px}
@@ -3291,8 +3334,8 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
       <button class="btn btn-p btn-sm" onclick="bulkAdStatus('ACTIVE')">开启选中项</button>
       <button class="btn btn-g btn-sm" onclick="clearSelectedAds()">清空选择</button>
      </div>
-     <div class="card" style="padding:0"><div class="table-wrap"><table class="ads-table">
-      <thead><tr><th style="width:70px">开关</th><th style="width:34px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th style="width:110px">评分</th><th style="width:160px">更多</th></tr></thead>
+     <div class="card ads-table-card" style="padding:0"><div class="table-wrap"><table class="ads-table">
+      <thead><tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th>评分</th><th>更多</th></tr></thead>
       <tbody id="adsBody"><tr><td colspan="14" style="text-align:center;color:var(--t3);padding:40px">加载中...</td></tr></tbody>
      </table></div></div>
      <div style="padding:12px 0;font-size:12px;color:var(--t3);text-align:right" id="adsCount"></div>
@@ -5275,7 +5318,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.68';
+var APP_VERSION='v3.11.69';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -5584,9 +5627,9 @@ function showInfo(htmlContent, titleText) {
  var closeJs = "closeModal('" + moId + "');setTimeout(function(){var el=document.getElementById('" + moId + "');if(el)el.remove();},300)";
  var contentText=String(htmlContent||'');
  var isComplex=/<(?:table|thead|tbody|tr|td)\b/i.test(contentText)
-  || /class=["'][^"']*(table-wrap|team-table-wrap|landing-perf-grid|landing-page-row)/i.test(contentText)
+  || /class=["'][^"']*(table-wrap|team-table-wrap|landing-perf-grid|landing-page-row|ads-brief-wrap)/i.test(contentText)
   || /min-width\s*:\s*(?:[7-9]\d{2}|1\d{3,})px/i.test(contentText)
-  || /广告入口|真实效果|发布自检|失败明细|矩阵归属诊断|最近操作/.test(String(titleText||''));
+  || /广告入口|广告综合信息|真实效果|发布自检|失败明细|矩阵归属诊断|最近操作/.test(String(titleText||''));
  var modalClass=isComplex?'modal modal-wide modal-info':'modal modal-info';
  mo.className = 'mo';
  mo.id = moId;
@@ -8107,7 +8150,7 @@ async function loadAds(opts){
    return allAds;
   }
   var seq=++_adsLoadSeq;
-  document.getElementById('adsBody').innerHTML='<tr><td colspan="13" style="text-align:center;color:var(--t3);padding:40px"><div class="spin" style="margin:0 auto 10px"></div>正在从 Meta 拉取广告层级...</td></tr>';
+  document.getElementById('adsBody').innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--t3);padding:40px"><div class="spin" style="margin:0 auto 10px"></div>正在从 Meta 拉取广告层级...</td></tr>';
   document.getElementById('adsCount').textContent='加载中...';
   var data=await api('GET','/dashboard/ads-live?'+cacheKey)||[];
   if(seq!==_adsLoadSeq)return allAds;
@@ -8119,7 +8162,7 @@ async function loadAds(opts){
   filterAds();
   return allAds;
  }catch(e){
-  document.getElementById('adsBody').innerHTML='<tr><td colspan="13" style="text-align:center;color:var(--er);padding:40px">加载失败：'+e.message+'</td></tr>';
+  document.getElementById('adsBody').innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--er);padding:40px">加载失败：'+e.message+'</td></tr>';
  }
 }
 function _adsJs(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,' ');}
@@ -8533,28 +8576,58 @@ function _adsPageBadgeHtml(p){
  var title=(p.page_name||p.page_id||'')+(p.page_status_hint?(' · '+p.page_status_hint):'');
  return '<span class="badge '+cls+'" title="'+escHtml(title)+'">'+label+'</span>';
 }
+function _adsBriefCard(label,value,sub,kind,wide){
+ var cls=(wide?' wide':'')+(kind?(' '+kind):'');
+ return '<div class="ads-brief-card'+cls+'"><span>'+escHtml(label)+'</span><b>'+value+'</b>'+(sub?'<small>'+sub+'</small>':'')+'</div>';
+}
+function _adsBriefText(v,fallback){
+ return escHtml(String((v!==undefined&&v!==null&&String(v)!=='')?v:(fallback||'--')));
+}
 function _adsLandingBriefHtml(a){
- var l=(a&&a.landing)||{},p=(a&&a.page_brief)||{},targets=_adsLandingTargets(l),rows='';
- rows+=_adsDiagLine('广告账户',displayAccountName(a.account_name,a.act_id)+' / '+displayActId(a.act_id),'');
- rows+=_adsDiagLine('主页',((p.page_name||'')+(p.page_id?' / '+p.page_id:(a.fb_page_id?' / '+a.fb_page_id:'')))||'未识别',p.page_status==='ok'?'ok':(p.page_status?'warn':''));
- rows+=_adsDiagLine('主页状态',p.page_status_hint||p.page_status||'未检查',p.page_status==='ok'?'ok':(p.page_status?'warn':''));
- rows+=_adsDiagLine('预算',a.adset_daily_budget!=null?_adsMoney(a.adset_daily_budget,a.currency||'USD'):(a.campaign_daily_budget!=null?_adsMoney(a.campaign_daily_budget,a.currency||'USD'):'--'),'');
- rows+=_adsDiagLine('落地页入口',l.slug?((l.page_title||'落地页')+' / '+l.slug):'未绑定广告入口',l.slug?'ok':'warn');
- rows+=_adsDiagLine('投放链接',l.public_url||'--',l.public_url?'':'warn');
- rows+=_adsDiagLine('当前跳转',targets.length?targets.join(' | '):'未配置专属跳转，走主链接默认跳转',targets.length?'':'warn');
- rows+=_adsDiagLine('KPI回传',String(a.conversions||0)+' / '+(a.kpi_label||a.kpi_field||'未配置 KPI'),a.kpi_field?'ok':'warn');
- rows+=_adsDiagLine('真实成交/进线',String((l.confirmed_sales||0)||l.final_true_contact||0),Number(l.final_true_contact||0)>0?'ok':'');
- return '<div style="padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid var(--bd);border-radius:8px">'+rows+'</div>';
+ a=a||{};
+ var l=(a&&a.landing)||{},p=(a&&a.page_brief)||{},targets=_adsLandingTargets(l);
+ var pageName=((p.page_name||'')+(p.page_id?' / '+p.page_id:(a.fb_page_id?' / '+a.fb_page_id:'')))||'未识别';
+ var budget=a.adset_daily_budget!=null?_adsMoney(a.adset_daily_budget,a.currency||'USD'):(a.campaign_daily_budget!=null?_adsMoney(a.campaign_daily_budget,a.currency||'USD'):'--');
+ var trueCount=Number(l.final_true_contact||0);
+ var confirmedActions=Number(l.confirmed_actions||0);
+ var confirmedSales=Number(l.confirmed_sales||0);
+ var trueCost=l.cost_per_final_true_contact!==undefined&&l.cost_per_final_true_contact!==null?('$'+Number(l.cost_per_final_true_contact).toFixed(2)):'--';
+ var metricMode=l.final_metric_mode==='confirmed'?'确认口径':(l.final_metric_mode==='unique'?'唯一口径':'原始口径');
+ var landingTitle=l.slug?((l.page_title||'落地页')+' / '+l.slug):'未绑定广告入口';
+ var landingSub=l.landing_health_summary||l.landing_health_status||l.landing_page_status||'';
+ var targetHtml=targets.length?targets.map(function(x){return escHtml(x);}).join('<br>'):'未配置专属跳转，当前走主链接默认跳转';
+ var kpiLabel=a.kpi_label||(a.kpi_field?a.kpi_field.split('.').pop():'未配置 KPI');
+ var hero='<div class="ads-brief-hero">'+
+  '<div class="ads-brief-title"><strong title="'+escHtml(a.ad_name||a.ad_id||'')+'">'+escHtml(a.ad_name||a.ad_id||'--')+'</strong><div class="ads-brief-sub">'+_adsStatusBadge(a.effective_status||a.status||'')+' '+_adsPageBadgeHtml(p)+'<span>'+escHtml(displayAccountName(a.account_name,a.act_id))+'</span></div></div>'+
+  '<div class="ads-brief-stats"><div class="ads-brief-stat"><span>消耗</span><b>$'+Number(a.spend||0).toFixed(2)+'</b></div><div class="ads-brief-stat"><span>真实成本</span><b>'+escHtml(trueCost)+'</b></div></div>'+
+ '</div>';
+ var grid='<div class="ads-brief-grid">'+
+  _adsBriefCard('广告账户',_adsBriefText(displayAccountName(a.account_name,a.act_id)),displayActId(a.act_id),'',false)+
+  _adsBriefCard('主页',_adsBriefText(pageName),p.page_status_hint||p.page_status||'未检查',p.page_status==='ok'?'ok':(p.page_status?'warn':''),false)+
+  _adsBriefCard('预算',_adsBriefText(budget),a.adset_daily_budget!=null?'广告组预算':(a.campaign_daily_budget!=null?'系列预算':'未读取到预算'),'',false)+
+  _adsBriefCard('KPI 回传',_adsBriefText(String(a.conversions||0)+' / '+kpiLabel),a.target_cpa?('目标 CPA $'+Number(a.target_cpa).toFixed(2)):'未设目标 CPA',a.kpi_field?'ok':'warn',false)+
+  _adsBriefCard('落地页入口',_adsBriefText(landingTitle),landingSub,l.slug?'ok':'warn',false)+
+  _adsBriefCard('真实成交 / 进线',_adsBriefText(String(confirmedSales)+' / '+String(trueCount)),metricMode+' · 确认进线 '+confirmedActions+(l.result_date?' · '+l.result_date:''),trueCount>0?'ok':'',false)+
+  _adsBriefCard('投放链接',_adsBriefText(l.public_url),'广告实际应使用子码链接，不直接投主链接',l.public_url?'ok':'warn',true)+
+  _adsBriefCard('当前跳转',targetHtml,targets.length?'该广告子码专属跳转':'未配置时继承主链接默认跳转',targets.length?'ok':'warn',true)+
+ '</div>';
+ return '<div class="ads-brief-wrap">'+hero+grid+'</div>';
+}
+function quickFillAdLandingResult(adId){
+ var a=_adsFind(adId),l=a&&(a.landing||{});
+ if(!a){toast('广告数据已过期，请刷新','wa');return;}
+ if(!l.link_id){showInfo('当前广告还没有绑定广告入口，无法回填到专属子码。请先绑定落地页广告入口。','未绑定广告入口');return;}
+ editLandingAdResult(Number(l.link_id),encodeURIComponent(l.slug||''),Number(l.confirmed_actions||0),Number(l.confirmed_sales||0),Number(l.confirmed_revenue||0),encodeURIComponent(l.result_note||''),encodeURIComponent(l.result_date||''));
 }
 function showAdBrief(adId){
  var a=_adsFind(adId);
  if(!a){toast('广告数据已过期，请刷新','wa');return;}
- var l=a.landing||{},p=a.page_brief||{},actions='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">';
+ var l=a.landing||{},actions='<div class="ads-brief-actions">';
  if(l.link_id)actions+='<button class="btn btn-g btn-sm role-hide-viewer" onclick="quickEditAdLandingLink(\''+_adsJs(a.ad_id)+'\')">修改广告跳转</button>';
+ if(l.link_id)actions+='<button class="btn btn-p btn-sm role-hide-viewer" onclick="quickFillAdLandingResult(\''+_adsJs(a.ad_id)+'\')">回填真实数据</button>';
  if(l.public_url)actions+='<button class="btn btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+_adsJs(l.public_url)+'\').then(function(){toast(\'已复制投放链接\',\'ok\')})">复制投放链接</button>';
  actions+='<button class="btn btn-sm" onclick="quickKpi(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\',\''+_adsJs(a.ad_name||'')+'\')">配置 KPI</button></div>';
- var title='<div><strong>'+escHtml(a.ad_name||a.ad_id)+'</strong></div><div style="font-size:12px;color:var(--t3);margin-top:4px">'+_adsStatusBadge(a.effective_status||a.status||'')+' '+_adsPageBadgeHtml(p)+'</div>';
- showInfo(title+_adsLandingBriefHtml(a)+actions,'广告综合信息');
+ showInfo(_adsLandingBriefHtml(a)+actions,'广告综合信息');
 }
 async function quickEditAdLandingLink(adId){
  var a=_adsFind(adId),l=a&&(a.landing||{});
@@ -8580,6 +8653,7 @@ function _adsMoreActions(a,level){
  if(level==='ad'){
   html+='<button title="广告综合信息" onclick="event.stopPropagation();showAdBrief(\''+_adsJs(a.ad_id)+'\')">Brief</button>';
   if(a.landing&&a.landing.link_id)html+='<button title="修改该广告入口跳转" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(a.ad_id)+'\')">改跳转</button>';
+  if(a.landing&&a.landing.link_id)html+='<button title="回填该广告真实结果" onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(a.ad_id)+'\')">回填</button>';
  }
  if(level==='ad'){
   html+='<button title="配置 KPI" onclick="event.stopPropagation();quickKpi(\'' + _adsJs(a.ad_id) + '\',\'' + _adsJs(a.act_id) + '\',\'' + _adsJs(a.ad_name||'') + '\')">KPI</button>'+
@@ -8607,7 +8681,7 @@ function _adsTrueCell(a){
  var sourceMap={ads_live:'当前广告列表',perf_snapshot_history:'巡检历史',perf_snapshots:'日快照',asset_spend_log:'素材缓存'};
  var sourceLabel=sourceMap[l.spend_source]||'未标记来源';
  var title='广告入口 '+(l.slug||'')+' · '+label+'口径 · 成本来源 '+sourceLabel+(l.result_date?' · 确认日期 '+l.result_date:'')+(l.result_note?' · '+l.result_note:'');
- return '<button class="btn btn-g btn-sm" style="min-width:86px;text-align:left;padding:5px 7px" title="'+escHtml(title)+'" onclick="event.stopPropagation();showPage(\'landing_center\')">'+
+ return '<button class="btn btn-g btn-sm" style="min-width:86px;text-align:left;padding:5px 7px" title="'+escHtml(title)+'" onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(a.ad_id)+'\')">'+
   '<div><strong>'+action+'</strong> <span class="badge '+cls+'" style="font-size:10px">'+label+'</span></div>'+
   '<div style="font-size:10px;color:var(--t3);margin-top:2px">'+(cost!==null&&!isNaN(cost)?'$'+cost.toFixed(2):'--')+' · '+escHtml(sourceLabel)+'</div>'+
  '</button>';
@@ -20237,7 +20311,8 @@ async function saveLandingAdResult(linkId, encodedSlug){
   await api('PATCH','/landing-pages/ad-links/'+linkId+'/result',payload);
   closeModal('moLandingResult');
   toast('已回填 '+(slug||('链接 '+linkId))+' 的真实结果','ok');
-  await loadLandingCenter(true);
+  if(document.getElementById('page-landing_center')&&document.getElementById('page-landing_center').classList.contains('active'))await loadLandingCenter(true);
+  if(document.getElementById('page-ads')&&document.getElementById('page-ads').classList.contains('active'))await loadAds({force:true});
  }catch(e){
   toast('回填失败：'+(e.message||e),'er');
  }
