@@ -14,6 +14,7 @@ from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row
 from datetime import date, timedelta, datetime
 import requests as req
 import time
+import json
 from api.accounts import _calc_available_balance
 from core.perf_history import ensure_perf_snapshot_history_schema
 from services.token_manager import (
@@ -80,11 +81,19 @@ def _landing_ad_metrics_for_ads(
     placeholders = ",".join("?" for _ in clean)
     try:
         rows = conn.execute(
-            f"""SELECT *
-                FROM landing_ad_links
-                WHERE ad_id IN ({placeholders})
-                  AND COALESCE(status,'') NOT IN ('archived','failed','unused')
-                ORDER BY id DESC""",
+            f"""SELECT l.*,
+                       p.title AS page_title,
+                       p.status AS landing_page_status,
+                       p.pages_url AS landing_pages_url,
+                       p.public_url AS landing_public_url,
+                       p.custom_domain AS landing_custom_domain,
+                       p.health_status AS landing_health_status,
+                       p.health_summary AS landing_health_summary
+                FROM landing_ad_links l
+                LEFT JOIN landing_pages p ON p.id=l.page_id
+                WHERE l.ad_id IN ({placeholders})
+                  AND COALESCE(l.status,'') NOT IN ('archived','failed','unused')
+                ORDER BY l.id DESC""",
             clean,
         ).fetchall()
     except Exception:
@@ -115,9 +124,17 @@ def _landing_ad_metrics_for_ads(
         out[ad_id] = {
             "link_id": int(row["id"]),
             "page_id": int(row["page_id"]),
+            "page_title": row["page_title"] or "",
+            "landing_page_status": row["landing_page_status"] or "",
+            "landing_pages_url": row["landing_pages_url"] or "",
+            "landing_public_url": row["landing_public_url"] or "",
+            "landing_custom_domain": row["landing_custom_domain"] or "",
+            "landing_health_status": row["landing_health_status"] or "",
+            "landing_health_summary": row["landing_health_summary"] or "",
             "slug": row["slug"],
             "public_url": row["public_url"] or "",
             "target_url": row["target_url"] or "",
+            "target_urls": _json_loads(row["target_urls"], []),
             "status": row["status"] or "",
             "spend": row_spend if row_spend is not None else stats.get("spend", 0),
             "spend_source": "ads_live" if row_spend is not None else stats.get("spend_source", ""),
@@ -134,6 +151,70 @@ def _landing_ad_metrics_for_ads(
             "result_date": stats.get("confirmed_result_date", ""),
             "result_updated_at": stats.get("confirmed_result_updated_at"),
         }
+    return out
+
+
+def _json_loads(raw, default):
+    try:
+        if raw in (None, ""):
+            return default
+        value = json.loads(raw) if isinstance(raw, str) else raw
+        return value if isinstance(value, type(default)) else default
+    except Exception:
+        return default
+
+
+def _extract_ad_page_id(ad: dict) -> str:
+    creative = ad.get("creative") if isinstance(ad.get("creative"), dict) else {}
+    spec = creative.get("object_story_spec") if isinstance(creative.get("object_story_spec"), dict) else {}
+    for key in ("page_id", "actor_id"):
+        value = str(spec.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _page_brief_map(conn, page_ids: list[str]) -> dict[str, dict]:
+    clean = []
+    seen = set()
+    for page_id in page_ids or []:
+        value = str(page_id or "").strip()
+        if value and value not in seen:
+            seen.add(value)
+            clean.append(value)
+    if not clean:
+        return {}
+    placeholders = ",".join("?" for _ in clean)
+    out: dict[str, dict] = {}
+    try:
+        rows = conn.execute(
+            f"""SELECT page_id, page_name, verified_identity_id, page_status, page_status_hint,
+                       page_is_published, page_can_advertise, page_lead_form_status,
+                       page_status_checked_at
+                FROM tw_certified_pages
+                WHERE page_id IN ({placeholders})""",
+            clean,
+        ).fetchall()
+        for row in rows:
+            status = (row["page_status"] or "unknown").strip().lower()
+            if row["page_is_published"] == 0:
+                status = "unpublished"
+            elif row["page_can_advertise"] == 0 and status in ("", "ok", "unknown"):
+                status = "restricted"
+            out[str(row["page_id"])] = {
+                "page_id": str(row["page_id"] or ""),
+                "page_name": row["page_name"] or "",
+                "verified_identity_id": row["verified_identity_id"] or "",
+                "page_status": status or "unknown",
+                "page_status_hint": row["page_status_hint"] or "",
+                "page_is_published": row["page_is_published"],
+                "page_can_advertise": row["page_can_advertise"],
+                "page_lead_form_status": row["page_lead_form_status"] or "",
+                "page_status_checked_at": row["page_status_checked_at"] or "",
+                "source": "tw_certified_pages",
+            }
+    except Exception:
+        return out
     return out
 
 # ─── KPI字段 -> actions字段映射（v1.3.0修复：每个字段只映射到自身，禁止多字段叠加）────────────
@@ -1397,6 +1478,7 @@ def get_ads_live(
         try:
             rich_fields = (
                 "id,name,status,effective_status,adset_id,campaign_id,"
+                "creative{id,name,object_story_spec},"
                 "adset{id,name,status,effective_status,daily_budget,lifetime_budget,"
                 "budget_remaining,bid_strategy,optimization_goal,campaign_id},"
                 "campaign{id,name,status,effective_status,daily_budget,lifetime_budget,"
@@ -1453,6 +1535,7 @@ def get_ads_live(
                 )
                 adset = ad.get("adset") if isinstance(ad.get("adset"), dict) else {}
                 campaign = ad.get("campaign") if isinstance(ad.get("campaign"), dict) else {}
+                fb_page_id = _extract_ad_page_id(ad) or str(acc.get("page_id") or "").strip()
                 ad_status = ad.get("status", "")
                 effective_status = ad.get("effective_status", "")
                 adset_id = ad.get("adset_id") or adset.get("id") or ""
@@ -1528,6 +1611,8 @@ def get_ads_live(
                     'campaign_budget_remaining': _minor_to_amount(campaign.get("budget_remaining"), currency),
                     'campaign_bid_strategy': campaign.get('bid_strategy', ''),
                     'campaign_objective': campaign.get('objective', ''),
+                    'fb_page_id': fb_page_id,
+                    'account_page_id': str(acc.get('page_id') or '').strip(),
                     'target_cpa': kpi.get('target_cpa'),   # 已是USD
                     'kpi_field': kpi_field,
                     'kpi_label': kpi.get('kpi_label', ''),
@@ -1547,6 +1632,33 @@ def get_ads_live(
                 })
         except Exception:
             continue
+
+    if all_ads:
+        try:
+            conn3 = get_conn()
+            try:
+                spend_by_ad = {r.get("ad_id"): float(r.get("spend") or 0) for r in all_ads if r.get("ad_id")}
+                landing_map = _landing_ad_metrics_for_ads(
+                    conn3,
+                    [r.get("ad_id") for r in all_ads],
+                    date_from=date_from,
+                    date_to=date_to,
+                    spend_by_ad=spend_by_ad,
+                )
+                page_map = _page_brief_map(
+                    conn3,
+                    [r.get("fb_page_id") or r.get("account_page_id") for r in all_ads],
+                )
+                for row in all_ads:
+                    row["landing"] = landing_map.get(row.get("ad_id"), {})
+                    page_id = row.get("fb_page_id") or row.get("account_page_id") or ""
+                    row["page_brief"] = page_map.get(page_id, {"page_id": page_id, "page_status": "unknown"} if page_id else {})
+            finally:
+                conn3.close()
+        except Exception:
+            for row in all_ads:
+                row.setdefault("landing", {})
+                row.setdefault("page_brief", {})
 
     all_ads.sort(key=lambda x: x['spend'], reverse=True)
     return all_ads

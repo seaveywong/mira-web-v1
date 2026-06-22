@@ -5275,7 +5275,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.67';
+var APP_VERSION='v3.11.68';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -8519,10 +8519,68 @@ function _adsMetricCells(m,target){
  var trueHtml=m.true_action?('<strong>'+Number(m.true_action).toFixed(0)+'</strong><div style="font-size:10px;color:var(--t3)">真实 '+(m.true_cpa?'$'+m.true_cpa.toFixed(2):'--')+'</div>'):'<span style="color:var(--t3)">--</span>';
  return '<td><strong>$'+m.spend.toFixed(2)+'</strong></td><td>'+m.conversions+'</td><td>'+trueHtml+'</td><td>'+(m.cpa?'$'+m.cpa.toFixed(2):'--')+'</td><td>'+(target?'$'+Number(target).toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td><td>'+(m.roas?m.roas.toFixed(2)+'x':'--')+'</td>';
 }
+function _adsLandingTargets(l){
+ l=l||{};
+ var arr=Array.isArray(l.target_urls)?l.target_urls.slice():[];
+ if(!arr.length&&l.target_url)arr=[l.target_url];
+ return arr.filter(function(x){return String(x||'').trim();});
+}
+function _adsPageBadgeHtml(p){
+ p=p||{};
+ var st=String(p.page_status||'unknown').toLowerCase();
+ var cls=(st==='ok'||st==='active')?'bg-ok':(['restricted','unpublished','disabled'].indexOf(st)>=0?'bg-er':'bg-wa');
+ var label=st==='ok'?'主页正常':(st==='restricted'?'主页受限':(st==='unpublished'?'未发布':'主页待确认'));
+ var title=(p.page_name||p.page_id||'')+(p.page_status_hint?(' · '+p.page_status_hint):'');
+ return '<span class="badge '+cls+'" title="'+escHtml(title)+'">'+label+'</span>';
+}
+function _adsLandingBriefHtml(a){
+ var l=(a&&a.landing)||{},p=(a&&a.page_brief)||{},targets=_adsLandingTargets(l),rows='';
+ rows+=_adsDiagLine('广告账户',displayAccountName(a.account_name,a.act_id)+' / '+displayActId(a.act_id),'');
+ rows+=_adsDiagLine('主页',((p.page_name||'')+(p.page_id?' / '+p.page_id:(a.fb_page_id?' / '+a.fb_page_id:'')))||'未识别',p.page_status==='ok'?'ok':(p.page_status?'warn':''));
+ rows+=_adsDiagLine('主页状态',p.page_status_hint||p.page_status||'未检查',p.page_status==='ok'?'ok':(p.page_status?'warn':''));
+ rows+=_adsDiagLine('预算',a.adset_daily_budget!=null?_adsMoney(a.adset_daily_budget,a.currency||'USD'):(a.campaign_daily_budget!=null?_adsMoney(a.campaign_daily_budget,a.currency||'USD'):'--'),'');
+ rows+=_adsDiagLine('落地页入口',l.slug?((l.page_title||'落地页')+' / '+l.slug):'未绑定广告入口',l.slug?'ok':'warn');
+ rows+=_adsDiagLine('投放链接',l.public_url||'--',l.public_url?'':'warn');
+ rows+=_adsDiagLine('当前跳转',targets.length?targets.join(' | '):'未配置专属跳转，走主链接默认跳转',targets.length?'':'warn');
+ rows+=_adsDiagLine('KPI回传',String(a.conversions||0)+' / '+(a.kpi_label||a.kpi_field||'未配置 KPI'),a.kpi_field?'ok':'warn');
+ rows+=_adsDiagLine('真实成交/进线',String((l.confirmed_sales||0)||l.final_true_contact||0),Number(l.final_true_contact||0)>0?'ok':'');
+ return '<div style="padding:10px 12px;background:rgba(255,255,255,.025);border:1px solid var(--bd);border-radius:8px">'+rows+'</div>';
+}
+function showAdBrief(adId){
+ var a=_adsFind(adId);
+ if(!a){toast('广告数据已过期，请刷新','wa');return;}
+ var l=a.landing||{},p=a.page_brief||{},actions='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">';
+ if(l.link_id)actions+='<button class="btn btn-g btn-sm role-hide-viewer" onclick="quickEditAdLandingLink(\''+_adsJs(a.ad_id)+'\')">修改广告跳转</button>';
+ if(l.public_url)actions+='<button class="btn btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+_adsJs(l.public_url)+'\').then(function(){toast(\'已复制投放链接\',\'ok\')})">复制投放链接</button>';
+ actions+='<button class="btn btn-sm" onclick="quickKpi(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\',\''+_adsJs(a.ad_name||'')+'\')">配置 KPI</button></div>';
+ var title='<div><strong>'+escHtml(a.ad_name||a.ad_id)+'</strong></div><div style="font-size:12px;color:var(--t3);margin-top:4px">'+_adsStatusBadge(a.effective_status||a.status||'')+' '+_adsPageBadgeHtml(p)+'</div>';
+ showInfo(title+_adsLandingBriefHtml(a)+actions,'广告综合信息');
+}
+async function quickEditAdLandingLink(adId){
+ var a=_adsFind(adId),l=a&&(a.landing||{});
+ if(!a){toast('广告数据已过期，请刷新','wa');return;}
+ if(!l.link_id){showInfo('当前广告还没有绑定广告入口。请先通过落地页主链接自动生成/绑定子码，或重新发布广告。','未绑定广告入口');return;}
+ var oldTargets=_adsLandingTargets(l);
+ var html='<div style="font-size:12px;color:var(--t2);line-height:1.6;margin-bottom:8px">每行一个跳转链接。保存后只影响该广告入口子码，不影响主链接和其他广告。</div>'+
+  '<textarea id="adsQuickTargets" class="fc" style="min-height:150px;width:100%;font-family:ui-monospace,SFMono-Regular,Consolas,monospace">'+escHtml(oldTargets.join('\n'))+'</textarea>'+
+  '<div style="font-size:11px;color:var(--t3);margin-top:8px">入口：'+escHtml(l.public_url||l.slug||'')+'</div>';
+ var ok=await confirmAsync(html,'保存跳转','取消','修改广告跳转');
+ if(!ok)return;
+ var val=(document.getElementById('adsQuickTargets')||{}).value||'';
+ var urls=val.split(/\r?\n/).map(function(x){return x.trim();}).filter(Boolean);
+ if(urls.some(function(u){return !new RegExp('^https?://','i').test(u);})){toast('跳转链接必须以 http:// 或 https:// 开头','er');return;}
+ await api('PATCH','/landing-pages/ad-links/'+l.link_id,{target_urls:urls});
+ toast('广告跳转已更新','ok');
+ await loadAds({force:true});
+}
 function _adsMoreActions(a,level){
  var html='<div class="fb-more">';
  var opId=level==='account'?a.act_id:(level==='campaign'?a.campaign_id:(level==='adset'?a.adset_id:a.ad_id));
  html+=_adsRecentOpChip(level,opId);
+ if(level==='ad'){
+  html+='<button title="广告综合信息" onclick="event.stopPropagation();showAdBrief(\''+_adsJs(a.ad_id)+'\')">Brief</button>';
+  if(a.landing&&a.landing.link_id)html+='<button title="修改该广告入口跳转" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(a.ad_id)+'\')">改跳转</button>';
+ }
  if(level==='ad'){
   html+='<button title="配置 KPI" onclick="event.stopPropagation();quickKpi(\'' + _adsJs(a.ad_id) + '\',\'' + _adsJs(a.act_id) + '\',\'' + _adsJs(a.ad_name||'') + '\')">KPI</button>'+
    '<button title="广告诊断" onclick="event.stopPropagation();showDiagnose(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\')">诊断</button>';
@@ -19725,7 +19783,7 @@ async function cleanupLandingUnusedAdLinks(pageId,estimatedCount){
  );
  if(!ok)return;
  try{
-  var res=await api('POST','/landing-pages/pages/'+pageId+'/ad-links/cleanup-unused',{limit:2000});
+  var res=await api('POST','/landing-pages/pages/'+pageId+'/ad-links/cleanup-safe',{limit:2000,include_bound_stale:true,stale_days:7,statuses:['reserved','failed','unused','archived']});
   var deleted=Number((res&&res.deleted)||0);
   var skipped=(res&&res.skipped&&res.skipped.length)||0;
   toast('已清理 '+deleted+' 条未使用入口'+(skipped?'，跳过 '+skipped+' 条有数据入口':''),deleted?'ok':'wa');

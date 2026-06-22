@@ -213,6 +213,9 @@ class LandingAdAutoBindReq(BaseModel):
 class LandingAdLinkCleanupReq(BaseModel):
     limit: int = Field(default=500, ge=1, le=2000)
     statuses: list[str] = Field(default_factory=lambda: ["reserved", "failed", "unused"])
+    include_bound_stale: bool = True
+    stale_days: int = Field(default=7, ge=1, le=90)
+    dry_run: bool = False
 
 
 def _landing_ad_link_create_count(requested_count: int, target_urls: list[str]) -> int:
@@ -4362,6 +4365,100 @@ def cleanup_unused_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq 
             "deleted_links": deleted[:200],
             "skipped": skipped[:200],
             "statuses": statuses,
+        }
+    finally:
+        conn.close()
+
+
+@router.post("/pages/{page_id}/ad-links/cleanup-safe")
+def cleanup_safe_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq = LandingAdLinkCleanupReq(), user=Depends(get_current_user)):
+    allowed_status = {"reserved", "failed", "unused", "archived"}
+    statuses = []
+    for status in body.statuses or []:
+        clean = (status or "").strip().lower()
+        if clean in allowed_status and clean not in statuses:
+            statuses.append(clean)
+    if not statuses:
+        statuses = ["reserved", "failed", "unused"]
+    stale_days = int(body.stale_days or 7)
+    stale_cutoff = (datetime.utcnow() + timedelta(hours=8) - timedelta(days=stale_days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_conn()
+    try:
+        _assert_page_access(conn, page_id, user)
+        rows = conn.execute(
+            """SELECT l.*, a.enabled AS account_enabled, a.account_status AS account_status
+                 FROM landing_ad_links l
+                 LEFT JOIN accounts a ON a.act_id=l.act_id
+                WHERE l.page_id=?
+                ORDER BY l.id ASC
+                LIMIT ?""",
+            (page_id, int(body.limit or 500)),
+        ).fetchall()
+        deleted = []
+        skipped = []
+        candidate_count = 0
+        for row in rows:
+            link_id = int(row["id"])
+            slug = str(row["slug"] or "").strip()
+            status = str(row["status"] or "reserved").strip().lower()
+            ad_id = str(row["ad_id"] or "").strip()
+            act_id = str(row["act_id"] or "").strip()
+            row_age_value = str(row["updated_at"] or row["created_at"] or "")
+            is_stale = bool(row_age_value and row_age_value < stale_cutoff)
+            account_missing = bool(act_id and row["account_status"] is None and row["account_enabled"] is None)
+            account_disabled = False
+            try:
+                account_disabled = row["account_enabled"] is not None and int(row["account_enabled"]) != 1
+            except Exception:
+                account_disabled = False
+            try:
+                account_disabled = account_disabled or (row["account_status"] is not None and int(row["account_status"]) != 1)
+            except Exception:
+                pass
+
+            candidate_reason = ""
+            if not ad_id and status in statuses:
+                candidate_reason = "unbound"
+            elif body.include_bound_stale and status in {"failed", "unused", "archived"} and is_stale:
+                candidate_reason = f"status:{status}"
+            elif body.include_bound_stale and is_stale and account_missing:
+                candidate_reason = "account_removed"
+            elif body.include_bound_stale and is_stale and account_disabled:
+                candidate_reason = "account_disabled"
+            if not candidate_reason:
+                continue
+            candidate_count += 1
+
+            reason = ""
+            if _landing_ad_link_event_count(conn, int(row["page_id"]), slug) > 0:
+                reason = "has_landing_events"
+            elif _landing_ad_link_result_count(conn, link_id) > 0:
+                reason = "has_manual_results"
+            if reason:
+                skipped.append({"id": link_id, "slug": slug, "reason": reason, "candidate_reason": candidate_reason})
+                continue
+
+            deleted.append({"id": link_id, "slug": slug, "reason": candidate_reason})
+            if body.dry_run:
+                continue
+            if _has_table(conn, "landing_ad_route_state"):
+                conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (link_id,))
+            conn.execute("DELETE FROM landing_ad_links WHERE id=?", (link_id,))
+        if not body.dry_run:
+            conn.commit()
+        return {
+            "success": True,
+            "page_id": page_id,
+            "scanned": len(rows),
+            "candidate_count": candidate_count,
+            "dry_run": bool(body.dry_run),
+            "deleted": len(deleted),
+            "deleted_links": deleted[:200],
+            "skipped": skipped[:200],
+            "statuses": statuses,
+            "include_bound_stale": bool(body.include_bound_stale),
+            "stale_days": stale_days,
         }
     finally:
         conn.close()
