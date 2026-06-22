@@ -2971,6 +2971,37 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
     grid-template-columns:1fr!important;
   }
 }
+.ad-center-shell{display:grid;gap:12px;margin-bottom:12px}
+.ad-center-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.ad-center-card{border:1px solid var(--bd);border-radius:14px;background:var(--bg2);padding:12px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start;cursor:pointer;transition:.15s ease}
+.ad-center-card:hover{transform:translateY(-1px);border-color:var(--ac);box-shadow:0 10px 24px rgba(0,0,0,.08)}
+.ad-center-card b{display:block;color:var(--t1);font-size:13px}
+.ad-center-card span{display:block;margin-top:4px;color:var(--t3);font-size:11px;line-height:1.4}
+.ad-center-card em{font-style:normal;color:var(--ac);font-size:18px;font-weight:900}
+.ad-center-strip{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--bd);border-radius:14px;background:linear-gradient(90deg,rgba(59,130,246,.08),rgba(16,185,129,.06))}
+.ad-center-strip strong{font-size:12px;color:var(--t1);margin-right:4px}
+.ad-center-strip small{color:var(--t3);font-size:11px}
+.ads-hierarchy-chip{display:inline-flex;align-items:center;gap:5px;margin-left:6px;padding:2px 7px;border-radius:999px;border:1px solid var(--bd);font-size:10px;color:var(--t3);vertical-align:middle}
+.ads-hierarchy-chip b{color:var(--t1);font-size:10px}
+.ads-table tr.ads-account-row td{font-weight:760}
+.ads-table tr.ads-campaign-row td:nth-child(3){border-left:4px solid rgba(16,185,129,.45)}
+.ads-table tr.ads-adset-row td:nth-child(3){border-left:4px solid rgba(245,158,11,.42)}
+.ads-table tr.ads-ad-row td:nth-child(3){border-left:4px solid rgba(99,102,241,.32)}
+.launch-link-panel{margin-top:8px;border:1px solid var(--bd);border-radius:12px;background:rgba(59,130,246,.045);padding:10px 12px}
+.launch-link-panel-head{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.launch-link-panel-title{font-size:12px;font-weight:820;color:var(--t1)}
+.launch-link-panel-desc{font-size:11px;color:var(--t3);margin-top:3px;line-height:1.45}
+.launch-link-stats{display:flex;gap:6px;flex-wrap:wrap}
+.launch-link-pill{display:inline-flex;gap:4px;align-items:center;border-radius:999px;border:1px solid var(--bd);padding:3px 8px;font-size:11px;background:var(--bg2);color:var(--t2)}
+.launch-link-pill.ok{border-color:rgba(34,197,94,.28);color:var(--ok);background:rgba(34,197,94,.07)}
+.launch-link-pill.warn{border-color:rgba(245,158,11,.32);color:var(--wa);background:rgba(245,158,11,.08)}
+.launch-link-list{margin-top:8px;display:grid;gap:6px;max-height:138px;overflow:auto}
+.launch-link-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(160px,1.45fr) auto;gap:8px;align-items:center;font-size:11px;padding:7px 8px;border:1px solid rgba(148,163,184,.16);border-radius:9px;background:rgba(255,255,255,.025)}
+.launch-link-row b{font-size:11px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.launch-link-row code{font-size:11px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.launch-link-row .badge{white-space:nowrap}
+@media(max-width:980px){.ad-center-nav{grid-template-columns:repeat(2,minmax(0,1fr))}.launch-link-row{grid-template-columns:1fr}}
+@media(max-width:640px){.ad-center-nav{grid-template-columns:1fr}}
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -3298,12 +3329,16 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
       <div><h2>投放中心</h2><p>按账户查看广告、主页、预算、投放链接与真实结果</p></div>
       <button class="btn btn-g btn-sm" onclick="loadAds({force:true})">刷新</button>
      </div>
-     <div class="fb" style="margin-bottom:10px;gap:6px">
-      <span style="font-size:12px;color:var(--t3);margin-right:2px">投放资产</span>
-      <button class="btn btn-g btn-sm" onclick="showPage('accounts')">账户与 Token</button>
-      <button class="btn btn-g btn-sm" onclick="showPage('landing_urls')">账户默认链接</button>
-      <button class="btn btn-g btn-sm" onclick="showPage('landing_center')">落地页与广告入口</button>
-      <button class="btn btn-g btn-sm" onclick="showPage('twpages')">主页资产</button>
+     <div class="ad-center-shell">
+      <div class="ad-center-nav">
+       <div class="ad-center-card" onclick="showPage('accounts')"><div><b>广告账户 / Token</b><span>导入账户、查看操作号、主页和 Pixel 绑定</span></div><em>AC</em></div>
+       <div class="ad-center-card" onclick="showPage('landing_urls')"><div><b>账户默认链接</b><span>按账户维护主链接 / 表单链接，铺广告自动读取</span></div><em>URL</em></div>
+       <div class="ad-center-card" onclick="showPage('landing_center')"><div><b>落地页与广告入口</b><span>主链接、子码、跳转、真实进线和防护日志</span></div><em>LP</em></div>
+       <div class="ad-center-card" onclick="showPage('twpages')"><div><b>主页资产</b><span>主页状态、类型、粉丝规模、Verified ID</span></div><em>PG</em></div>
+      </div>
+      <div class="ad-center-strip">
+       <strong>当前工作台：</strong><small>从账户层级向下查看广告系列 → 广告组 → 广告；单条广告可直接改跳转、回填真实数据、配置 KPI。</small>
+      </div>
      </div>
      <div class="fb" style="flex-wrap:wrap;gap:8px">
       <select class="fc" id="adsAct" onchange="loadAds()" style="min-width:160px"><option value="">全部账户</option></select>
@@ -4836,13 +4871,14 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
      <label id="launchBindLandingLinkRow" style="display:flex;align-items:flex-start;gap:6px;margin-top:6px;font-size:11px;color:var(--t2);line-height:1.5">
       <input id="launchBindLandingLink" type="checkbox" checked style="width:auto;margin-top:2px">
       <span id="launchBindLandingLinkText">同步保存为所选账户主链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。</span>
-     </label>
-     <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：此处填写 &gt; 素材级绑定 &gt; 账户主链接/已绑定主链接 &gt; 系统全局默认；系统主链接会为每条广告自动生成广告入口并回绑广告。</div>
-    </div>
+      </label>
+      <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：此处填写 &gt; 素材级绑定 &gt; 账户主链接/已绑定主链接 &gt; 系统全局默认；系统主链接会为每条广告自动生成广告入口并回绑广告。</div>
+      <div id="launchLinkStatusPanel"></div>
+     </div>
     <!-- 消息模版：选择消息类转化目的时显示 -->
     <div class="fg" id="launchMsgTemplateRow" style="margin-bottom:12px;display:none">
      <label class="fl">欢迎消息模版 <span style="color:#6b7280;font-size:11px">（可选）</span>
-      <a href="#" onclick="showPage('templates');closeModal('moLaunch');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模版库</a>
+       <a href="#" onclick="showPage('templates');closeModal('moLaunchCampaign');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模版库</a>
      </label>
      <div style="display:flex;gap:8px;align-items:center">
       <select class="fc" id="launchMsgTemplate" style="flex:1">
@@ -4855,7 +4891,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
     <!-- Lead Form 模版：选择即时表单转化目的时显示 -->
     <div class="fg" id="launchLeadFormRow" style="margin-bottom:12px;display:none">
      <label class="fl">潜在客户表单模版 <span style="color:#6b7280;font-size:11px">（可选）</span>
-      <a href="#" onclick="showPage('templates');closeModal('moLaunch');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模版库</a>
+       <a href="#" onclick="showPage('templates');closeModal('moLaunchCampaign');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模版库</a>
      </label>
      <div style="display:flex;gap:8px;align-items:center">
       <select class="fc" id="launchLeadFormId" style="flex:1">
@@ -4906,7 +4942,7 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
       </select>
       <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="refreshTwPages()" title="重新匹配">重新匹配</button>
      </div>
-     <div style="font-size:11px;color:var(--t3);margin-top:3px" id="launchTwHint">选择账户后自动匹配同矩阵且已填写 Verified ID 的主页库记录。<a href="#" onclick="showPage('twpages');closeModal('moLaunch');return false" style="color:var(--ac)">管理主页库</a></div>
+      <div style="font-size:11px;color:var(--t3);margin-top:3px" id="launchTwHint">选择账户后自动匹配同矩阵且已填写 Verified ID 的主页库记录。<a href="#" onclick="showPage('twpages');closeModal('moLaunchCampaign');return false" style="color:var(--ac)">管理主页库</a></div>
     </div>
    </div>
 
@@ -8624,17 +8660,18 @@ function _adsSwitchButton(a,level){
  return '<button class="fb-switch '+(isOn?'on':'off')+'" '+(al.ok?'':'disabled')+' title="'+escHtml(title)+'" aria-label="'+escHtml(title)+'" onclick="event.stopPropagation();runAdStatusOp(\''+_adsJs(a.ad_id)+'\',\''+level+'\',\''+desired+'\',this)"><span></span></button>';
 }
 function _adsNameCell(type,key,open,depth,name,sub){
- var cls={accounts:'account',campaigns:'campaign',adsets:'adset'}[type]||'ad';
- var label={accounts:'账户',campaigns:'系列',adsets:'组'}[type]||'广告';
- return '<div class="fb-name">'+
-  '<span class="fb-indent" style="width:'+(depth*18)+'px"></span>'+
-  '<button class="fb-caret" onclick="event.stopPropagation();toggleAdsTree(\''+type+'\',\''+_adsJs(key)+'\')" title="'+(open?'收起':'展开')+'">'+(open?'▾':'▸')+'</button>'+
-  '<span class="fb-level '+cls+'">'+label+'</span>'+
-  '<div style="min-width:0"><div class="td-name" title="'+escHtml(name||'')+'">'+escHtml(name||'')+'</div>'+(sub?'<div class="td-id">'+escHtml(sub)+'</div>':'')+'</div></div>';
+  var cls={accounts:'account',campaigns:'campaign',adsets:'adset'}[type]||'ad';
+  var label={accounts:'账户',campaigns:'系列',adsets:'组'}[type]||'广告';
+  var layer={accounts:'账户层',campaigns:'系列层',adsets:'广告组层'}[type]||'广告层';
+  return '<div class="fb-name">'+
+   '<span class="fb-indent" style="width:'+(depth*18)+'px"></span>'+
+   '<button class="fb-caret" onclick="event.stopPropagation();toggleAdsTree(\''+type+'\',\''+_adsJs(key)+'\')" title="'+(open?'收起':'展开')+'">'+(open?'▾':'▸')+'</button>'+
+   '<span class="fb-level '+cls+'">'+label+'</span>'+
+   '<div style="min-width:0"><div class="td-name" title="'+escHtml(name||'')+'">'+escHtml(name||'')+'<span class="ads-hierarchy-chip">'+escHtml(layer)+'</span></div>'+(sub?'<div class="td-id">'+escHtml(sub)+'</div>':'')+'</div></div>';
 }
 function _adsLeafName(a){
- var copyBtn='<button class="fb-caret" title="复制广告ID" onclick="event.stopPropagation();navigator.clipboard&&navigator.clipboard.writeText(\'' + _adsJs(a.ad_id) + '\').then(function(){toast(\'已复制广告ID\',\'ok\')})" style="font-size:10px;width:20px;height:20px">⧉</button>';
- return '<div class="fb-name"><span class="fb-indent" style="width:54px"></span><span class="fb-level ad">广告</span><div style="min-width:0"><div class="td-name" title="'+escHtml(a.ad_name||'')+'">'+escHtml(a.ad_name||'')+'</div><div class="td-id" style="display:flex;align-items:center;gap:4px">'+escHtml(a.ad_id||'')+copyBtn+'</div></div></div>';
+  var copyBtn='<button class="fb-caret" title="复制广告ID" onclick="event.stopPropagation();navigator.clipboard&&navigator.clipboard.writeText(\'' + _adsJs(a.ad_id) + '\').then(function(){toast(\'已复制广告ID\',\'ok\')})" style="font-size:10px;width:20px;height:20px">⧉</button>';
+ return '<div class="fb-name"><span class="fb-indent" style="width:54px"></span><span class="fb-level ad">广告</span><div style="min-width:0"><div class="td-name" title="'+escHtml(a.ad_name||'')+'">'+escHtml(a.ad_name||'')+'<span class="ads-hierarchy-chip">广告层</span></div><div class="td-id" style="display:flex;align-items:center;gap:4px">'+escHtml(a.ad_id||'')+copyBtn+'</div></div></div>';
 }
 function _adsSum(rows){
  var spend=0,conv=0,rev=0,trueAction=0,confirmed=0;
@@ -13049,9 +13086,45 @@ function _effectiveLaunchLinkForAccount(account, meta){
  return _accountLandingUrl(account);
 }
 function _launchMissingEffectiveLinks(meta){
- return _getLaunchSelectedAccounts().filter(function(account){
-  return !_effectiveLaunchLinkForAccount(account,meta);
- });
+  return _getLaunchSelectedAccounts().filter(function(account){
+   return !_effectiveLaunchLinkForAccount(account,meta);
+  });
+}
+function _renderLaunchLinkStatusPanel(meta){
+ var panel=document.getElementById('launchLinkStatusPanel');
+ if(!panel)return;
+ meta=meta||_getLaunchGoalMeta();
+ if(meta.isMessage){
+  panel.innerHTML='';
+  return;
+ }
+ var selected=_getLaunchSelectedAccounts();
+ var manual=((document.getElementById('launchLandingUrl')||{}).value||'').trim();
+ var modeLabel=meta.isLead?'表单链接':'主链接';
+ var linkHint=meta.isLead?'Lead 表单回跳/隐私链接':'落地页主链接';
+ if(!selected.length){
+  panel.innerHTML='<div class="launch-link-panel"><div class="launch-link-panel-head"><div><div class="launch-link-panel-title">投放链接策略</div><div class="launch-link-panel-desc">先选择账户；系统会检查账户是否已有 '+modeLabel+'。留空时按账户绑定链接生成 /a/子码 + ad={{ad.id}}。</div></div><button type="button" class="btn btn-g btn-sm" onclick="closeModal(&quot;moLaunchCampaign&quot;);showPage(&quot;landing_urls&quot;)">去维护账户链接</button></div></div>';
+  return;
+ }
+ var rows=selected.map(function(account){
+  var url=_effectiveLaunchLinkForAccount(account,meta);
+  var status=url?'已绑定':'缺链接';
+  var cls=url?'bg-ok':'bg-wa';
+  return '<div class="launch-link-row">'+
+   '<b title="'+escHtml((account&&account.act_id)||'')+'">'+escHtml(_launchAccountDisplayName(account,(account&&account.act_id)||''))+'</b>'+
+   '<code title="'+escHtml(manual||url||'')+'">'+escHtml(manual?('本次覆盖：'+manual):(url||('未配置'+modeLabel)))+'</code>'+
+   '<span class="badge '+cls+'">'+status+'</span>'+
+  '</div>';
+ }).join('');
+ var boundCount=selected.filter(function(account){return !!_effectiveLaunchLinkForAccount(account,meta);}).length;
+ var missing=selected.length-boundCount;
+ var manualText=manual?'本次输入会覆盖所选账户的账户默认链接；勾选同步后还会保存到账户。':'未手填时使用每个账户自己的 '+modeLabel+'，不会把第一个账户链接误用到其他账户。';
+ panel.innerHTML='<div class="launch-link-panel">'+
+  '<div class="launch-link-panel-head"><div><div class="launch-link-panel-title">投放链接策略 · '+escHtml(linkHint)+'</div><div class="launch-link-panel-desc">'+escHtml(manualText)+' 实际投放链接由系统自动生成广告入口子码，并在创建广告后回填广告 ID。</div></div>'+
+  '<div class="launch-link-stats"><span class="launch-link-pill ok">已绑定 '+boundCount+'</span><span class="launch-link-pill '+(missing?'warn':'ok')+'">缺失 '+missing+'</span></div></div>'+
+  '<div class="launch-link-list">'+rows+'</div>'+
+  (missing?'<div style="display:flex;justify-content:flex-end;margin-top:8px"><button type="button" class="btn btn-g btn-sm" onclick="closeModal(&quot;moLaunchCampaign&quot;);showPage(&quot;landing_urls&quot;)">补账户链接</button><button type="button" class="btn btn-p btn-sm" onclick="closeModal(&quot;moLaunchCampaign&quot;);showPage(&quot;landing_center&quot;);openLandingPublishDrawer()">发布新主链接</button></div>':'')+
+ '</div>';
 }
 // 账户勾选变化时更新持久化Set和计数
 function _onLaunchActCbChange(actId, checked){
@@ -13068,8 +13141,9 @@ function _onLaunchActCbChange(actId, checked){
  if(ids.length===1)onLaunchActChange(ids[0]);
  // 不自动收起，让用户可以继续勾选多个账户
  // 刷新落地页/表单链接候选（只显示已选账户的链接）
- if (typeof _refreshLandingUrlOptions === 'function') _refreshLandingUrlOptions();
- _renderLaunchChecklist();
+  if (typeof _refreshLandingUrlOptions === 'function') _refreshLandingUrlOptions();
+  _renderLaunchChecklist();
+  _renderLaunchLinkStatusPanel();
 }
 function onLaunchActChange(actId){
  if(!actId)return;
@@ -13129,6 +13203,7 @@ function onLaunchActChange(actId){
   if(pageHint)pageHint.textContent=' 无法拉取自动铺广告操作号可投主页（'+e.message+'），请手动输入';
   if(typeof _bindLaunchChecklistInputs==='function')_bindLaunchChecklistInputs();
   _renderLaunchChecklist();
+  _renderLaunchLinkStatusPanel();
  });
 
  var pixelSel=_ensureLaunchSelectControl('launchPixelId');
@@ -13258,8 +13333,9 @@ async function openLaunchModal(assetId){
  // 初始化转化目的选项（根据默认广告目标）
  onLaunchObjectiveChange();
  _bindLaunchChecklistInputs();
- _renderLaunchChecklist();
- loadLandingUrlOptions();
+  _renderLaunchChecklist();
+  _renderLaunchLinkStatusPanel();
+  loadLandingUrlOptions();
  openModal('moLaunchCampaign');
 }
 function _numOrFallback(v, fallback){
@@ -13456,17 +13532,17 @@ async function onLaunchObjectiveChange() {
     {v:'CONVERSATIONS',        l:' 消息对话（Conversations）'},
     {v:'MESSAGING_PURCHASE_CONVERSION',l:' 消息线索（Messenger/WhatsApp）'},
     {v:'OFFSITE_CONVERSIONS',     l:' 网站转化线索（需 Pixel）'}
-   ],
-   'OUTCOME_SALES': [
-    {v:'LINK_CLICKS',         l:' 链接点击（Link Clicks）'},
-    {v:'LANDING_PAGE_VIEWS',      l:' 落地页浏览（Landing Page Views）'},
-    {v:'REACH',            l:' 触达人数（Reach）'},
-    {v:'IMPRESSIONS',         l:' 展示次数（Impressions）'},
-    {v:'CONVERSATIONS',        l:' 消息对话（Conversations）'},
-    {v:'MESSAGING_PURCHASE_CONVERSION',l:' 消息购买（Messenger/WhatsApp）'},
-    {v:'OFFSITE_CONVERSIONS',     l:' 网站转化（需 Pixel）'},
-    {v:'VALUE',            l:' 转化价值优化（需 Pixel）'}
-   ],
+    ],
+    'OUTCOME_SALES': [
+     {v:'OFFSITE_CONVERSIONS',     l:' 网站转化（需 Pixel）'},
+     {v:'VALUE',            l:' 转化价值优化（需 Pixel）'},
+     {v:'MESSAGING_PURCHASE_CONVERSION',l:' 消息购买（Messenger/WhatsApp）'},
+     {v:'LINK_CLICKS',         l:' 链接点击（自动按 Traffic 投放）'},
+     {v:'LANDING_PAGE_VIEWS',      l:' 落地页浏览（自动按 Traffic 投放）'},
+     {v:'REACH',            l:' 触达人数（自动按 Awareness 投放）'},
+     {v:'IMPRESSIONS',         l:' 展示次数（自动按 Awareness 投放）'},
+     {v:'CONVERSATIONS',        l:' 消息对话（自动按 Engagement 投放）'}
+    ],
    'VIDEO_VIEWS': [
     {v:'VIDEO_VIEWS', l:' 视频观看（Video Views）'},
     {v:'THRUPLAY',  l:'⏵ ThruPlay（完整播放）'}
@@ -13821,7 +13897,7 @@ async function onLaunchObjectiveChange() {
   ].forEach(function(pair){
    var el = document.getElementById(pair[0]);
    if (!el || el.dataset.launchChecklistBound === '1') return;
-   el.addEventListener(pair[1], function(){ _renderLaunchChecklist(); });
+   el.addEventListener(pair[1], function(){ _renderLaunchChecklist(); _renderLaunchLinkStatusPanel(); });
    el.dataset.launchChecklistBound = '1';
   });
  }
@@ -14101,12 +14177,13 @@ async function onLaunchObjectiveChange() {
       var actEl = document.getElementById('launchActId');
       if (actEl) actId = actEl.value;
      }
-     if (actId && window._launchAllAccounts) {
-      var acc = window._launchAllAccounts.find(function(a){ return a.act_id === actId || String(a.id) === String(actId); });
-      _prefillLaunchLandingUrl(actId, 'form', _accountFormLink(acc));
-     }
-     _renderLaunchChecklist(meta);
-    }, 100);
+      if (actId && window._launchAllAccounts) {
+       var acc = window._launchAllAccounts.find(function(a){ return a.act_id === actId || String(a.id) === String(actId); });
+       _prefillLaunchLandingUrl(actId, 'form', _accountFormLink(acc));
+      }
+      _renderLaunchChecklist(meta);
+      _renderLaunchLinkStatusPanel(meta);
+     }, 100);
    } else {
     landingUrlRow.placeholder = '留空=使用账户主链接/素材绑定/全局默认，自动生成广告入口';
     if(landingUrlLabel)landingUrlLabel.innerHTML=' 落地页链接（本次投放）';
@@ -14117,16 +14194,18 @@ async function onLaunchObjectiveChange() {
       var actEl = document.getElementById('launchActId');
       if (actEl) actId = actEl.value;
      }
-     if (actId && window._launchAllAccounts) {
-      var acc = window._launchAllAccounts.find(function(a){ return a.act_id === actId || String(a.id) === String(actId); });
-      _prefillLaunchLandingUrl(actId, 'landing', _accountLandingUrl(acc));
-     }
-    }, 100);
+      if (actId && window._launchAllAccounts) {
+       var acc = window._launchAllAccounts.find(function(a){ return a.act_id === actId || String(a.id) === String(actId); });
+       _prefillLaunchLandingUrl(actId, 'landing', _accountLandingUrl(acc));
+      }
+      _renderLaunchLinkStatusPanel(meta);
+     }, 100);
    }
   }
 
   _updateLaunchCtaOptions(meta);
   _renderLaunchChecklist(meta);
+  _renderLaunchLinkStatusPanel(meta);
   _updateKpiPreview();
  }
 
@@ -22121,13 +22200,14 @@ function _refreshLandingUrlOptions() {
    var goal = (document.getElementById('launchConvGoal') || {}).value || '';
    var isLead = goal.toUpperCase() === 'LEAD_GENERATION';
    if (isLead) {
-    var fOpt = allForm.find(function(o) { return o.act_id === actId; });
-    _prefillLaunchLandingUrl(actId, 'form', fOpt ? fOpt.url : '');
-   } else {
-    var lOpt = allLanding.find(function(o) { return o.act_id === actId; });
-    _prefillLaunchLandingUrl(actId, 'landing', lOpt ? lOpt.url : '');
+     var fOpt = allForm.find(function(o) { return o.act_id === actId; });
+     _prefillLaunchLandingUrl(actId, 'form', fOpt ? fOpt.url : '');
+    } else {
+     var lOpt = allLanding.find(function(o) { return o.act_id === actId; });
+     _prefillLaunchLandingUrl(actId, 'landing', lOpt ? lOpt.url : '');
+    }
+    if (typeof _renderLaunchLinkStatusPanel === 'function') _renderLaunchLinkStatusPanel();
    }
-  }
  } else {
   // 未选账户时显示全部
   _launchLandingUrlOptions = allLanding;
@@ -22178,9 +22258,10 @@ function filterLandingUrlSuggestions(q) {
    e.preventDefault();
    var url = this.getAttribute('data-url');
    var inp = document.getElementById('launchLandingUrl');
-   if (inp) inp.value = url;
-   dd.style.display = 'none';
-  });
+    if (inp) inp.value = url;
+    if (typeof _renderLaunchLinkStatusPanel === 'function') _renderLaunchLinkStatusPanel();
+    dd.style.display = 'none';
+   });
  });
  dd.style.display = 'block';
 }

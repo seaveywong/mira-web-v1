@@ -245,6 +245,12 @@ def _normalize_campaign_goal_fields(objective: str = "", conversion_goal: str = 
         goal_norm = "conversations"
     if objective_norm == "OUTCOME_LEADS" and not goal_norm:
         goal_norm = "lead_generation"
+    if objective_norm == "OUTCOME_SALES" and goal_norm in {"link_clicks", "landing_page_views"}:
+        objective_norm = "OUTCOME_TRAFFIC"
+    elif objective_norm == "OUTCOME_SALES" and goal_norm in {"reach", "impressions"}:
+        objective_norm = "OUTCOME_AWARENESS"
+    elif objective_norm == "OUTCOME_SALES" and goal_norm == "conversations":
+        objective_norm = "OUTCOME_ENGAGEMENT"
     return objective_norm, goal_norm
 
 
@@ -794,6 +800,13 @@ class AutoPilotEngine:
             return (
                 "当前主页尚未接受 Facebook Lead Generation Terms。"
                 "请先以主页身份访问 https://www.facebook.com/ads/leadgen/tos 完成确认后再发布 Lead 广告。"
+            )
+        if subcode == 2859002 or "non-discrimination" in message.lower():
+            return (
+                "当前广告账户尚未完成 Facebook Non-Discrimination Policy 认证，Meta 会拒绝创建广告。"
+                "这不是 Mira 链接、素材、OAuth App 或 Token 路径问题；需要用该广告账户有权限的 FB 账号访问 "
+                "https://www.facebook.com/certification/nondiscrimination 完成认证后再投放。"
+                f"原始错误：{message}"
             )
 
         parts = []
@@ -2403,9 +2416,11 @@ class AutoPilotEngine:
                     "[AutoPilot] bid_strategy=%s requires target_cpa; fallback to LOWEST_COST_WITHOUT_CAP",
                     bid_strategy,
                 )
-                payload["bid_strategy"] = "LOWEST_COST_WITHOUT_CAP"
-            else:
-                payload["bid_strategy"] = bid_strategy
+            elif bid_strategy not in ("", "LOWEST_COST_WITHOUT_CAP"):
+                logger.warning(
+                    "[AutoPilot] unsupported uncapped bid_strategy=%s without target_cpa; use Meta default lowest cost",
+                    bid_strategy,
+                )
 
         # 需要认证国家：按国家设置对应的区域声明类别与身份字段。
         countries = targeting.get("geo_locations", {}).get("countries", [])

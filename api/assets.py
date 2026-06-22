@@ -1826,6 +1826,12 @@ def _normalize_launch_body(body: LaunchCampaignBody) -> None:
     body.act_id = str(body.act_id or "").strip() or None
     body.act_ids = [str(a).strip() for a in (body.act_ids or []) if str(a).strip()]
     body.conversion_goal = _normalize_launch_goal(body.objective, body.conversion_goal)
+    if body.objective == "OUTCOME_SALES" and body.conversion_goal in {"link_clicks", "landing_page_views"}:
+        body.objective = "OUTCOME_TRAFFIC"
+    elif body.objective == "OUTCOME_SALES" and body.conversion_goal in {"reach", "impressions"}:
+        body.objective = "OUTCOME_AWARENESS"
+    elif body.objective == "OUTCOME_SALES" and body.conversion_goal == "conversations":
+        body.objective = "OUTCOME_ENGAGEMENT"
     body.conversion_event = _normalize_conversion_event(body.conversion_event, body.objective, body.conversion_goal)
     body.page_id = (body.page_id or "").strip() or None
     body.pixel_id = (body.pixel_id or "").strip() or None
@@ -2096,6 +2102,36 @@ def _launch_page_block_reason(conn, page_id: str) -> str:
     return f"{row['page_name'] or page_id}({page_id}): " + " / ".join(dict.fromkeys(reasons))
 
 
+def _recent_account_certification_issue(conn, act_ids: list[str], days: int = 30) -> list[str]:
+    if not act_ids:
+        return []
+    placeholders = ",".join("?" for _ in act_ids)
+    try:
+        rows = conn.execute(
+            f"""SELECT c.act_id, COALESCE(a.name, c.act_id) AS account_name,
+                       MAX(aca.created_at) AS last_error_at
+                FROM auto_campaign_ads aca
+                JOIN auto_campaigns c ON c.id=aca.campaign_id
+                LEFT JOIN accounts a ON a.act_id=c.act_id
+                WHERE c.act_id IN ({placeholders})
+                  AND datetime(COALESCE(aca.created_at, c.updated_at, c.created_at)) >= datetime('now', ?)
+                  AND (
+                      aca.error_msg LIKE '%2859002%'
+                      OR lower(aca.error_msg) LIKE '%non-discrimination%'
+                      OR lower(aca.error_msg) LIKE '%nondiscrimination%'
+                  )
+                GROUP BY c.act_id, account_name
+                ORDER BY last_error_at DESC""",
+            list(act_ids) + [f"-{int(days)} days"],
+        ).fetchall()
+    except Exception:
+        return []
+    return [
+        f"{row['account_name']}（{row['act_id']}，最近失败 {row['last_error_at'] or '--'}）"
+        for row in rows
+    ]
+
+
 def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
     _normalize_launch_body(body)
     items = []
@@ -2149,6 +2185,17 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 items.append({"key": "token", "label": "操作号 Token", "status": "pass", "msg": "已找到可用于创建广告的操作号"})
         except Exception as e:
             items.append({"key": "token", "label": "操作号 Token", "status": "warn", "msg": f"Token 预检失败，提交时会再次校验：{e}"})
+
+        certification_blocks = _recent_account_certification_issue(conn, act_ids)
+        if certification_blocks:
+            items.append({
+                "key": "account_certification",
+                "label": "账户合规认证",
+                "status": "warn",
+                "msg": "以下账户最近被 Meta 拦截：如果还没处理，需要先完成 Non-Discrimination Policy 认证；如果刚已完成，可继续提交让 Meta 重新验证：" + "；".join(certification_blocks[:5]),
+            })
+        else:
+            items.append({"key": "account_certification", "label": "账户合规认证", "status": "pass", "msg": "未发现近期非歧视认证拦截记录"})
 
         meta = _launch_goal_meta(body)
         page_missing = [
