@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.85</title>
+<title>Mira · 广告投放管理系统 v3.11.86</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3498,6 +3498,70 @@ input:focus, select:focus, textarea:focus {
 .currency-usd { font-weight: 700; color: var(--t1); font-size: 14px; }
 .currency-local { font-size: 11px; color: var(--t3); display: block; margin-top: 2px; }
 
+
+/* ==================== MIRA UX REFACTOR 3.0: 平铺式分签 ==================== */
+.ads-tabs-container {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  gap: 20px;
+}
+.ads-tab-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t2);
+  padding: 10px 0;
+  cursor: pointer;
+  position: relative;
+}
+.ads-tab-btn:hover {
+  color: var(--p);
+}
+.ads-tab-btn.active {
+  color: var(--p);
+}
+.ads-tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--p);
+}
+
+.flat-row:hover {
+  background: var(--bg2) !important;
+}
+
+.flat-node-meta {
+  font-size: 11px;
+  color: var(--t3);
+  margin-top: 4px;
+}
+.flat-node-meta span {
+  background: var(--bg2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+  border: 1px solid var(--border);
+}
+
+.mira-empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--t3);
+}
+.mira-empty-state svg {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  opacity: 0.2;
+}
+/* ========================================================================= */
+
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -3511,7 +3575,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.85</p>
+<p id="loginVer">广告投放管理系统 v3.11.86</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3530,7 +3594,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.85</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.86</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -3885,8 +3949,7 @@ input:focus, select:focus, textarea:focus {
       <button class="btn btn-g btn-sm" onclick="clearSelectedAds()">清空选择</button>
      </div>
      <div id="adsBoard" class="ads-board"><div class="ads-board-empty"><span class="spin"></span> 加载中...</div></div>
-     <div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table">
-      <thead><tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th>评分</th><th>更多</th></tr></thead>
+     <div class="ads-tabs-container" id="adsViewTabs"><button class="ads-tab-btn active" onclick="switchAdsViewTab('ads')">广告明细 (Ads)</button><button class="ads-tab-btn" onclick="switchAdsViewTab('adsets')">广告组 (AdSets)</button><button class="ads-tab-btn" onclick="switchAdsViewTab('campaigns')">广告系列 (Campaigns)</button></div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th>评分</th><th>操作</th></tr></thead>
       <tbody id="adsBody"><tr><td colspan="14" style="text-align:center;color:var(--t3);padding:40px">加载中...</td></tr></tbody>
      </table></div></div>
      <div style="padding:12px 0;font-size:12px;color:var(--t3);text-align:right" id="adsCount"></div>
@@ -5900,7 +5963,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.85';
+var APP_VERSION='v3.11.86';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -9501,7 +9564,7 @@ async function quickEditAdLandingLink(adId){
   toast('广告跳转已更新','ok');
   await loadAds();
 }
-function _adsMoreActions(a,level){
+function __originalAdsMoreActions(a,level){
  var html='<div class="fb-more">';
  var opId=level==='account'?a.act_id:(level==='campaign'?a.campaign_id:(level==='adset'?a.adset_id:a.ad_id));
  html+=_adsRecentOpChip(level,opId);
@@ -9701,7 +9764,7 @@ function renderAdsBoard(rows, forceOpen){
  });
  host.innerHTML=html.join('');
 }
-function renderAdsTree(rows, forceOpen){
+function _originalRenderAdsTree(rows, forceOpen){
  var tb=document.getElementById('adsBody');
  var html=[];
  var accountsGroup=_adsGroupBy(rows,function(a){return a.act_id||'unknown';});
@@ -23819,6 +23882,154 @@ closeModal = function(id) {
   }
 };
 // =============================================================
+
+
+// ==================== MIRA UX REFACTOR 3.0 JS ====================
+window._currentAdsViewTab = 'ads';
+
+function switchAdsViewTab(tab) {
+  window._currentAdsViewTab = tab;
+
+  var tabs = document.querySelectorAll('.ads-tab-btn');
+  tabs.forEach(function(t) {
+    if (t.getAttribute('onclick').includes(tab)) {
+      t.classList.add('active');
+    } else {
+      t.classList.remove('active');
+    }
+  });
+
+  filterAds();
+}
+
+function renderAdsTree(rows, forceOpen) {
+  var tb = document.getElementById('adsBody');
+  var head = document.getElementById('adsTableHead');
+  if (!tb) return;
+
+  if (!rows || !rows.length) {
+    tb.innerHTML = '<tr><td colspan="14"><div class="mira-empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><br>没有找到符合条件的数据</div></td></tr>';
+    document.getElementById('adsCount').textContent = '共 0 条';
+    return;
+  }
+
+  var html = [];
+  var tab = window._currentAdsViewTab || 'ads';
+
+  if (tab === 'campaigns') {
+    head.innerHTML = '<tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告系列名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>ROAS</th><th>广告数</th><th>评分</th><th>操作</th></tr>';
+
+    var campGroup = _adsGroupBy(rows, function(a){return a.campaign_id||('__camp_'+a.ad_id);});
+    campGroup.keys.forEach(function(campKey) {
+      var campRows = campGroup.map[campKey], campRep = campRows[0], campM = _adsSum(campRows);
+
+      html.push('<tr class="ads-campaign-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--border);">');
+      html.push('<td>'+_adsSwitchButton(campRep,'campaign')+'</td>');
+      html.push('<td>'+_adsSelectBox('campaign',campKey,'')+'</td>');
+
+      var metaHtml = '<div class="flat-node-meta"><span>所属账户: ' + escHtml(displayAccountName(campRep.account_name, campRep.act_id)) + '</span></div>';
+      html.push('<td><div style="font-weight:600; font-size:14px;">'+escHtml(campRep.campaign_name||campKey)+'</div>' + metaHtml + '</td>');
+
+      html.push('<td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td>');
+      html.push('<td>'+_adsBudgetCell(campRep,'campaign')+'</td>');
+
+      html.push('<td>'+formatUSD(campM.spend_usd || campM.spend, campRep.currency, campM.spend)+'</td>');
+      html.push('<td>'+campM.conversions+'</td>');
+      html.push('<td>'+campM.trueConversions+'</td>');
+      html.push('<td class="'+(campM.cpa>0?'':'')+'">'+(campM.cpa>0?'$'+campM.cpa.toFixed(2):'--')+'</td>');
+      html.push('<td>'+(campM.roas>0?campM.roas.toFixed(2)+'x':'--')+'</td>');
+
+      html.push('<td><span class="badge bg-mu">'+campM.count+' 条</span></td>');
+      html.push('<td>'+_adsGroupScoreCell(campRows)+'</td>');
+      html.push('<td>'+_adsMoreActions(campRep,'campaign')+'</td>');
+      html.push('</tr>');
+    });
+
+  } else if (tab === 'adsets') {
+    head.innerHTML = '<tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告组名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>ROAS</th><th>广告数</th><th>评分</th><th>操作</th></tr>';
+
+    var adsetGroup = _adsGroupBy(rows, function(a){return a.adset_id||('__adset_'+a.ad_id);});
+    adsetGroup.keys.forEach(function(adsetKey) {
+      var setRows = adsetGroup.map[adsetKey], setRep = setRows[0], setM = _adsSum(setRows);
+
+      html.push('<tr class="ads-adset-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--border);">');
+      html.push('<td>'+_adsSwitchButton(setRep,'adset')+'</td>');
+      html.push('<td>'+_adsSelectBox('adset',adsetKey,'')+'</td>');
+
+      var metaHtml = '<div class="flat-node-meta"><span>系列: ' + escHtml(setRep.campaign_name||'未知') + '</span><span>账户: ' + displayActIdClean(setRep.act_id) + '</span></div>';
+      html.push('<td><div style="font-weight:600; font-size:14px;">'+escHtml(setRep.adset_name||adsetKey)+'</div>' + metaHtml + '</td>');
+
+      html.push('<td>'+_adsStatusBadge(_adsGroupStatus(setRows,'adset'))+'</td>');
+      html.push('<td>'+_adsBudgetCell(setRep,'adset')+'</td>');
+
+      html.push('<td>'+formatUSD(setM.spend_usd || setM.spend, setRep.currency, setM.spend)+'</td>');
+      html.push('<td>'+setM.conversions+'</td>');
+      html.push('<td>'+setM.trueConversions+'</td>');
+      html.push('<td class="'+(setM.cpa>0?'':'')+'">'+(setM.cpa>0?'$'+setM.cpa.toFixed(2):'--')+'</td>');
+      html.push('<td>'+(setM.roas>0?setM.roas.toFixed(2)+'x':'--')+'</td>');
+
+      html.push('<td><span class="badge bg-mu">'+setM.count+' 条</span></td>');
+      html.push('<td>'+_adsGroupScoreCell(setRows)+'</td>');
+      html.push('<td>'+_adsMoreActions(setRep,'adset')+'</td>');
+      html.push('</tr>');
+    });
+
+  } else {
+    head.innerHTML = '<tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告名称 (Ad)</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th>评分</th><th>操作</th></tr>';
+
+    var sortedRows = rows.slice().sort(function(a, b) {
+      return (b.spend_usd || b.spend || 0) - (a.spend_usd || a.spend || 0);
+    });
+
+    sortedRows.forEach(function(a) {
+      var cc = a.target_cpa ? (a.cpa <= a.target_cpa ? 'cpa-good' : a.cpa <= a.target_cpa * 1.3 ? 'cpa-warn' : 'cpa-bad') : '';
+
+      html.push('<tr class="ads-ad-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--border);">');
+      html.push('<td>'+_adsSwitchButton(a,'ad')+'</td>');
+      html.push('<td>'+_adsSelectBox('ad',a.ad_id,'')+'</td>');
+
+      var metaHtml = '<div class="flat-node-meta"><span>组: ' + escHtml(a.adset_name||'未知') + '</span><span>系列: ' + escHtml(a.campaign_name||'未知') + '</span></div>';
+      var adNameHtml = '<div style="font-weight:600; font-size:13px; color:var(--t1);">' + escHtml(a.ad_name||a.ad_id) + '</div>' + metaHtml;
+
+      if(a.landing && a.landing.slug) {
+         adNameHtml += '<div style="margin-top:6px;font-size:11px;">🔗 <a href="/a/'+escHtml(a.landing.slug)+'?ad='+escHtml(a.ad_id)+'" target="_blank" style="color:var(--p);text-decoration:none">'+escHtml(a.landing.slug)+'</a></div>';
+      }
+
+      html.push('<td>'+adNameHtml+'</td>');
+      html.push('<td>'+_adsStatusBadge(a.effective_status||a.status||'')+'</td>');
+      html.push('<td>'+_adsBudgetCell(a,'ad')+'</td>');
+      html.push('<td>'+formatUSD(a.spend_usd || a.spend, a.currency, a.spend)+'</td>');
+      html.push('<td>'+(a.conversions||0)+'</td>');
+      html.push('<td>'+_adsTrueCell(a)+'</td>');
+      html.push('<td class="'+cc+'">'+(a.cpa?'$'+Number(a.cpa).toFixed(2):'--')+'</td>');
+      html.push('<td>'+(a.target_cpa?'$'+Number(a.target_cpa).toFixed(2):'<span style="color:var(--t3)">--</span>')+'</td>');
+      html.push('<td>'+(a.roas?Number(a.roas).toFixed(2)+'x':'--')+'</td>');
+      html.push('<td>'+_adsKpiCell(a)+'</td>');
+      html.push('<td>'+_adsScoreCell(a)+'</td>');
+      html.push('<td>'+_adsMoreActions(a,'ad')+'</td>');
+      html.push('</tr>');
+    });
+  }
+
+  tb.innerHTML = html.join('');
+  document.getElementById('adsCount').textContent = '当前视图共 ' + (tab === 'ads' ? rows.length : (tab === 'adsets' ? Object.keys(_adsGroupBy(rows, function(a){return a.adset_id||a.ad_id}).map).length : Object.keys(_adsGroupBy(rows, function(a){return a.campaign_id||a.ad_id}).map).length)) + ' 条数据';
+  updateAdsBulkBar();
+}
+
+var _originalAdsMoreActions = _adsMoreActions;
+function _adsMoreActions(rep, level) {
+  var id = (level==='account'?rep.act_id:level==='campaign'?rep.campaign_id:level==='adset'?rep.adset_id:rep.ad_id);
+  if (!id) return '';
+  var menu = '<div class="meatball-menu-wrapper"><button class="meatball-menu-btn">⋮</button><div class="meatball-menu-dropdown">';
+  menu += '<button class="meatball-dropdown-item" onclick="showAdRules(\''+id+'\')">⚙️ 守护规则</button>';
+  if (level === 'ad' || level === 'adset') {
+      menu += '<button class="meatball-dropdown-item" onclick="openAdDiag(\''+id+'\')">🩺 投放诊断</button>';
+  }
+  menu += '<button class="meatball-dropdown-item" onclick="showAdEdit(\''+id+'\')">✏️ 编辑</button>';
+  menu += '</div></div>';
+  return menu;
+}
+// =================================================================
 
 </script></body>
 </html>
