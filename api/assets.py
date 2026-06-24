@@ -1417,6 +1417,7 @@ def _ai_analyze_asset(asset_id: int, purpose: str = 'general', languages: list =
     except Exception as e:
         import traceback
         err_msg = str(e)
+        #
         # 提取可读的错误描述
         if '429' in err_msg or 'quota' in err_msg.lower() or 'rate' in err_msg.lower():
             short_err = 'API 配额已耗尽,请升级计划或更换 Key'
@@ -2121,7 +2122,8 @@ def _recent_account_certification_issue(conn, act_ids: list[str], days: int = 30
                       OR lower(aca.error_msg) LIKE '%nondiscrimination%'
                   )
                 GROUP BY c.act_id, account_name
-                ORDER BY last_error_at DESC""",
+      
+          ORDER BY last_error_at DESC""",
             list(act_ids) + [f"-{int(days)} days"],
         ).fetchall()
     except Exception:
@@ -2137,14 +2139,12 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
     items = []
     act_ids = _launch_act_ids(body)
     if not act_ids:
-        items.append({"key": "account", "label": "广告账户", "status": "fail", "msg": "请选择至少一个广告账户"})
+        items.append({"key": "account", "label": "广告账户", "status": "fail", "msg": "未选择广告账户，请先在列表中勾选要投放的账户。"})
         return {"pass": False, "overall": "fail", "items": items}
 
     conn = get_conn()
     try:
-        account_where = [
-            "act_id IN (%s)" % ",".join("?" for _ in act_ids)
-        ]
+        account_where = ["act_id IN (%s)" % ",".join("?" for _ in act_ids)]
         account_params = list(act_ids)
         if user is not None:
             apply_team_scope(account_where, account_params, user, "team_id", include_unassigned=False)
@@ -2157,21 +2157,23 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
         default_page_id = _get_setting_value(conn, "autopilot_fb_page_id", "").strip()
         default_pixel_id = _get_setting_value(conn, "autopilot_fb_pixel_id", "").strip()
         default_landing_url = _get_setting_value(conn, "default_landing_url", "").strip()
+
         for act_id, acc in account_map.items():
             effective_landing_url = resolve_account_landing_link(conn, act_id, acc, default_landing_url)
             effective_form_link = resolve_account_form_link(conn, act_id, acc, effective_landing_url)
             acc["landing_url_effective"] = effective_landing_url
             acc["form_link_effective"] = effective_form_link
+
         for act_id in act_ids:
             acc = account_map.get(act_id)
             if not acc:
-                items.append({"key": "account", "label": act_id, "status": "fail", "msg": "账户不在系统中"})
+                items.append({"key": "account", "label": act_id, "status": "fail", "msg": "系统未找到此账户，可能是权限不足或已删除。"})
                 continue
             block_reason = _launch_account_block_reason(acc)
             if block_reason:
                 items.append({"key": "account", "label": acc.get("name") or act_id, "status": "fail", "msg": block_reason})
             else:
-                items.append({"key": "account", "label": acc.get("name") or act_id, "status": "pass", "msg": "账户状态正常"})
+                items.append({"key": "account", "label": acc.get("name") or act_id, "status": "pass", "msg": "账户状态及权限校验通过。"})
 
         try:
             from services.token_manager import ACTION_CREATE, get_exec_token_candidates
@@ -2180,24 +2182,24 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 if not get_exec_token_candidates(act_id, ACTION_CREATE, notify_exhausted=False, reserve=False)
             ]
             if token_missing:
-                items.append({"key": "token", "label": "操作号 Token", "status": "fail", "msg": "以下账户没有可用 CREATE Token：" + ", ".join(token_missing[:5])})
+                items.append({"key": "token", "label": "投放权限(操作号)", "status": "fail", "msg": "缺少可写操作号，系统无法为您自动铺广告：" + ", ".join(token_missing[:5])})
             else:
-                items.append({"key": "token", "label": "操作号 Token", "status": "pass", "msg": "已找到可用于创建广告的操作号"})
+                items.append({"key": "token", "label": "投放权限(操作号)", "status": "pass", "msg": "操作号矩阵匹配成功，具备创建广告权限。"})
         except Exception as e:
-            items.append({"key": "token", "label": "操作号 Token", "status": "warn", "msg": f"Token 预检失败，提交时会再次校验：{e}"})
+            items.append({"key": "token", "label": "投放权限(操作号)", "status": "warn", "msg": f"操作号预检超时，提交时将再次重试。"})
 
         certification_blocks = _recent_account_certification_issue(conn, act_ids)
         if certification_blocks:
             items.append({
                 "key": "account_certification",
-                "label": "账户合规认证",
+                "label": "Facebook 政策认证",
                 "status": "warn",
-                "msg": "以下账户最近被 Meta 拦截：如果还没处理，需要先完成 Non-Discrimination Policy 认证；如果刚已完成，可继续提交让 Meta 重新验证：" + "；".join(certification_blocks[:5]),
+                "msg": "发现近期 Meta 拦截记录。若已完成 Non-Discrimination 认证请忽略，系统将自动重试提交：" + "；".join(certification_blocks[:5]),
             })
-        else:
-            items.append({"key": "account_certification", "label": "账户合规认证", "status": "pass", "msg": "未发现近期非歧视认证拦截记录"})
 
         meta = _launch_goal_meta(body)
+
+        # Page Verification
         page_missing = [
             (account_map.get(act_id, {}) or {}).get("name") or act_id
             for act_id in act_ids
@@ -2208,7 +2210,7 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
             )
         ]
         if page_missing:
-            items.append({"key": "page", "label": "主页", "status": "fail", "msg": "以下账户缺少主页 ID：" + ", ".join(page_missing[:5])})
+            items.append({"key": "page", "label": "主页 (Facebook Page)", "status": "fail", "msg": "广告缺少身份主页：" + ", ".join(page_missing[:5])})
         else:
             page_blocks = []
             for act_id in act_ids:
@@ -2219,16 +2221,17 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 )
                 reason = _launch_page_block_reason(conn, selected_page)
                 if reason:
-                    page_blocks.append(((account_map.get(act_id, {}) or {}).get("name") or act_id) + ": " + reason)
+                    page_blocks.append(((account_map.get(act_id, {}) or {}).get("name") or act_id) + " - " + reason)
             if body.tw_page_id:
                 tw_reason = _launch_page_block_reason(conn, body.tw_page_id)
                 if tw_reason:
                     page_blocks.append("认证主页: " + tw_reason)
             if page_blocks:
-                items.append({"key": "page", "label": "主页", "status": "fail", "msg": "主页不可投放：" + "；".join(page_blocks[:5])})
+                items.append({"key": "page", "label": "主页 (Facebook Page)", "status": "fail", "msg": "主页已被封禁或未发布：" + "；".join(page_blocks[:5])})
             else:
-                items.append({"key": "page", "label": "主页", "status": "pass", "msg": "已选择主页"})
+                items.append({"key": "page", "label": "主页 (Facebook Page)", "status": "pass", "msg": "主页状态正常，可投放广告。"})
 
+        # Pixel Verification based on conversion goals
         pixel_missing = [
             (account_map.get(act_id, {}) or {}).get("name") or act_id
             for act_id in act_ids
@@ -2239,12 +2242,13 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
             )
         ]
         if str(meta.get("goal") or "").upper() in _PIXEL_REQUIRED_GOALS and pixel_missing:
-            items.append({"key": "pixel", "label": "Pixel", "status": "fail", "msg": "网站转化/转化价值目标缺少 Pixel：" + ", ".join(pixel_missing[:5])})
+            items.append({"key": "pixel", "label": "像素 (Pixel)", "status": "fail", "msg": "此转化目标强制要求配置 Pixel，请检查：" + ", ".join(pixel_missing[:5])})
         elif body.objective == "OUTCOME_SALES" and pixel_missing:
-            items.append({"key": "pixel", "label": "Pixel", "status": "warn", "msg": "以下账户未配置 Pixel，转化广告建议补齐：" + ", ".join(pixel_missing[:5])})
+            items.append({"key": "pixel", "label": "像素 (Pixel)", "status": "warn", "msg": "销量目标建议绑定 Pixel 以优化成效：" + ", ".join(pixel_missing[:5])})
         else:
-            items.append({"key": "pixel", "label": "Pixel", "status": "pass", "msg": "Pixel 配置可用或当前目标不强制"})
+            items.append({"key": "pixel", "label": "像素 (Pixel)", "status": "pass", "msg": "像素检查通过 (或当前广告目标不需要像素)。"})
 
+        # Landing Page Verification
         if meta["landing_required"]:
             landing_missing = [
                 (account_map.get(act_id, {}) or {}).get("name") or act_id
@@ -2263,11 +2267,13 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                     if issue:
                         landing_issues.append(issue)
                 if landing_issues:
-                    items.append({"key": "landing_url_ready", "label": "落地页发布状态", "status": "fail", "msg": "；".join(landing_issues[:5])})
+                    items.append({"key": "landing_url_ready", "label": "落地页连通性", "status": "fail", "msg": "；".join(landing_issues[:5])})
                 else:
-                    items.append({"key": "landing_url", "label": "落地页链接", "status": "pass", "msg": "已配置落地页；系统投放时会自动生成广告入口短码并回绑广告"})
+                    items.append({"key": "landing_url", "label": "落地页配置", "status": "pass", "msg": "落地页链接就绪，系统将为您生成广告专用入口短链接。"})
             else:
-                items.append({"key": "landing_url", "label": "落地页链接", "status": "fail", "msg": "以下账户缺少落地页链接：" + ", ".join(landing_missing[:5])})
+                items.append({"key": "landing_url", "label": "落地页配置", "status": "fail", "msg": "销量或流量目标必须填写落地页链接：" + ", ".join(landing_missing[:5])})
+
+        # Leads Form Verification
         elif meta["is_lead"] and not body.lead_form_id:
             form_missing = [
                 (account_map.get(act_id, {}) or {}).get("name") or act_id
@@ -2280,52 +2286,41 @@ def _run_launch_precheck(body: PreCheckBody, user=None) -> dict:
                 )
             ]
             if not form_missing:
-                items.append({"key": "form_link", "label": "表单回跳链接", "status": "pass", "msg": "已配置 Lead 表单回跳/隐私链接"})
+                items.append({"key": "form_link", "label": "表单回跳链接", "status": "pass", "msg": "已检测到隐私条款/回跳链接配置。"})
             else:
-                items.append({"key": "form_link", "label": "表单回跳链接", "status": "warn", "msg": "以下账户缺少表单回跳链接，自动建表单时会尝试使用系统兜底：" + ", ".join(form_missing[:5])})
+                items.append({"key": "form_link", "label": "表单回跳链接", "status": "warn", "msg": "未填写表单回跳链接，系统创建时将使用兜底链接：" + ", ".join(form_missing[:5])})
 
         regulated = [c for c in (body.target_countries or []) if c in _REGULATED_IDENTITY_COUNTRIES]
         if regulated:
             from services.token_manager import get_matrix_id_for_account
-            _label = f"合规投放 ({'/'.join(regulated)})"
+            _label = f"特定区域合规 ({'/'.join(regulated)})"
             _any_fail = False
-            _any_pass = False
-            _messages = []
-            for _act_id in act_ids:
-                _mid = None
-                try:
-                    _mid = get_matrix_id_for_account(_act_id)
-                except Exception:
-                    pass
-                if _mid is None:
-                    _any_fail = True
-                    _messages.append(f"{_act_id}: 未识别矩阵归属")
-                else:
-                    _c2 = get_conn()
-                    _cp = _c2.execute(
-                        "SELECT page_name FROM tw_certified_pages WHERE matrix_id=? AND verified_identity_id IS NOT NULL AND TRIM(verified_identity_id)!='' LIMIT 1",
-                        (_mid,)
-                    ).fetchone()
-                    _c2.close()
-                    if _cp:
-                        _any_pass = True
-                        _messages.append(f"矩阵 {_mid}: {_cp['page_name']} (已认证)")
-                    else:
+            for act_id in act_ids:
+                if not body.tw_page_id:
+                    _mx = get_matrix_id_for_account(act_id)
+                    _mx_cert = ""
+                    if _mx:
+                        _mx_row = conn.execute("SELECT fb_tw_page_id FROM account_matrices WHERE id=?", (_mx,)).fetchone()
+                        if _mx_row:
+                            _mx_cert = str(_mx_row["fb_tw_page_id"] or "").strip()
+                    if not _mx_cert:
                         _any_fail = True
-                        _messages.append(f"矩阵 {_mid}: 无 Verified ID")
-            if _any_pass and not _any_fail:
-                items.append({"key": "tw_identity", "label": _label, "status": "pass", "msg": "; ".join(_messages)})
-            elif _any_fail and _any_pass:
-                items.append({"key": "tw_identity", "label": _label, "status": "warn", "msg": "; ".join(_messages)})
+                        break
+            if _any_fail:
+                items.append({"key": "tw_page", "label": _label, "status": "fail", "msg": "投放港澳台等受监管地区必须绑定认证过的 Facebook 实体主页。"})
             else:
-                items.append({"key": "tw_identity", "label": _label, "status": "fail", "msg": "所有账户均无 Verified ID。请先在主页库为对应矩阵的主页填写 Verified Identity ID。"})
+                items.append({"key": "tw_page", "label": _label, "status": "pass", "msg": "合规主页已匹配。"})
+
+        fails = sum(1 for i in items if i["status"] == "fail")
+        warns = sum(1 for i in items if i["status"] == "warn")
+        overall = "fail" if fails > 0 else ("warn" if warns > 0 else "pass")
+        return {"pass": fails == 0, "overall": overall, "items": items, "total_accounts": len(act_ids)}
+    except Exception as e:
+        logger.error(f"[LaunchPreCheck] error: {e}", exc_info=True)
+        items.append({"key": "sys", "label": "系统检查", "status": "fail", "msg": f"校验逻辑异常: {e}"})
+        return {"pass": False, "overall": "fail", "items": items}
     finally:
         conn.close()
-
-    has_fail = any(i["status"] == "fail" for i in items)
-    has_warn = any(i["status"] == "warn" for i in items)
-    return {"pass": not has_fail, "overall": "fail" if has_fail else ("warn" if has_warn else "pass"), "items": items}
-
 
 def _build_launch_precheck_block_message(report: dict) -> str:
     fails = [i for i in report.get("items", []) if i.get("status") == "fail"]
@@ -2767,3 +2762,4 @@ def search_accounts(
         items.append(d)
     conn.close()
     return items
+
