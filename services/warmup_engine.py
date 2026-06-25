@@ -7,6 +7,7 @@ import mimetypes
 import os
 import requests
 import json
+import math
 import time
 import threading
 import urllib.parse
@@ -174,9 +175,10 @@ def _fb_post_result(path: str, token: str, data: dict) -> Tuple[bool, dict]:
         wait_for_write_slot(token, operation=f"warmup:{path}")
         resp = requests.post(f"{FB_API_BASE}/{path}", json=payload, timeout=30)
         result = resp.json()
-        if resp.status_code == 200 and result.get("success") is not False:
+        api_error = result.get("error") if isinstance(result, dict) else None
+        if resp.status_code == 200 and result.get("success") is not False and not isinstance(api_error, dict):
             return True, result
-        err = result.get("error", {})
+        err = api_error if isinstance(api_error, dict) else {}
         note_write_failure(token, result, operation=f"warmup:{path}")
         return False, {
             "error": True,
@@ -421,6 +423,35 @@ def _usd5_to_minor_units(currency: str) -> int:
     return _usd_to_minor_units(_WARMUP_TARGET_USD, currency)
 
 
+def _meta_min_daily_budget(act_id: str, token: str) -> int:
+    """Read Meta's account-level daily-budget floor without mutating the account."""
+    try:
+        data = _fb_get(act_id, token, {"fields": "min_daily_budget"})
+        if not isinstance(data, dict) or isinstance(data.get("error"), dict):
+            return 0
+        return max(0, int(float(data.get("min_daily_budget") or 0)))
+    except Exception as exc:
+        logger.warning("warmup: %s could not read min_daily_budget: %s", act_id, exc)
+        return 0
+
+
+def _warmup_daily_budget(act_id: str, token: str, currency: str) -> tuple[int, int]:
+    """Return a $5-equivalent budget rounded up to Meta's accepted budget floor."""
+    target_budget = max(1, _usd5_to_minor_units(currency))
+    min_daily_budget = _meta_min_daily_budget(act_id, token)
+    if min_daily_budget <= 0:
+        return target_budget, 0
+
+    local_per_usd = _local_per_usd_rate(currency)
+    minimum_major = _from_minor_units(min_daily_budget, currency)
+    minimum_usd = minimum_major / local_per_usd if local_per_usd > 0 else 0
+    if minimum_usd <= 0:
+        return max(target_budget, min_daily_budget), min_daily_budget
+
+    required_multiples = max(1, math.ceil(_WARMUP_TARGET_USD / minimum_usd))
+    return max(target_budget, min_daily_budget * required_multiples), min_daily_budget
+
+
 def _parse_countries(value) -> list:
     if not value:
         return []
@@ -582,6 +613,38 @@ def _sync_pages_for_token(token_id: int, conn) -> int:
     return good
 
 
+def sync_active_operation_pages(limit: int = 100) -> dict:
+    limit = max(1, min(int(limit or 100), 100))
+    conn = get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT aot.token_id
+            FROM accounts
+            JOIN account_op_tokens aot ON aot.act_id=accounts.act_id
+            JOIN fb_tokens t ON t.id=aot.token_id
+            WHERE accounts.enabled=1
+              AND COALESCE(accounts.account_status, 1) NOT IN (3, 7, 9, 100, 101)
+              AND aot.status='active'
+              AND t.status='active'
+              AND t.token_type='operate'
+              AND COALESCE(t.token_source, 'system_user') IN ('system_user','oauth_user')
+            ORDER BY aot.token_id
+            LIMIT ?
+        """, (limit,)).fetchall()
+        synced_tokens = 0
+        available_pages = 0
+        for row in rows:
+            synced_tokens += 1
+            available_pages += int(_sync_pages_for_token(int(row["token_id"]), conn) or 0)
+        return {
+            "status": "ok",
+            "tokens": synced_tokens,
+            "available_pages": available_pages,
+        }
+    finally:
+        conn.close()
+
+
 def _resolve_warmup_page_id(account: dict) -> Optional[str]:
     page_id = (account.get("page_id") or "").strip()
     if page_id:
@@ -665,7 +728,7 @@ def _warmup_scan_diagnostics() -> dict:
             )
         )"""
         with_page = base + page_clause
-        mirror_off = with_page + " AND COALESCE(mirror_enabled, 0)=0"
+        mirror_off = with_page + " AND COALESCE(accounts.mirror_enabled, 0)=0"
         create_token_clause = """ AND EXISTS (
             SELECT 1 FROM account_op_tokens aot
             JOIN fb_tokens t ON t.id=aot.token_id
@@ -780,14 +843,39 @@ def _strip_account_prefix(detail: str, act_id: str) -> str:
     return detail
 
 
+def _fb_error_payload(result: dict) -> dict:
+    if not isinstance(result, dict):
+        return {}
+    nested_error = result.get("error")
+    return nested_error if isinstance(nested_error, dict) else result
+
+
+_WARMUP_NO_WRITE_MSG = "操作号无写权限，请在 Business Manager 给该账户的操作号系统用户授予 Advertiser/管理权限（FB code=100/subcode=33：账户可读但写被拒）"
+
+
+def _fb_error_is_no_write_permission(result) -> bool:
+    """操作号对该账户/对象只读、无写权限（FB code=100 / subcode=33，账户可读但写被拒）。
+    正解是去 BM 给操作号授予写权限，而非当作普通失败反复重试刷屏。兼容 dict 与格式化字符串两种错误。"""
+    if isinstance(result, dict):
+        err = _fb_error_payload(result)
+        try:
+            code = int(err.get("code") or 0)
+            sub = int(err.get("subcode") or err.get("error_subcode") or 0)
+        except (TypeError, ValueError):
+            code, sub = 0, 0
+        return code == 100 and sub == 33
+    return "subcode=33" in str(result or "")
+
+
 def _format_fb_error(result: dict) -> str:
     if not isinstance(result, dict):
         return str(result)
-    msg = result.get("message") or str(result)
-    code = result.get("code")
-    subcode = result.get("subcode")
-    user_title = result.get("user_title")
-    user_msg = result.get("user_msg")
+    error = _fb_error_payload(result)
+    msg = error.get("message") or str(result)
+    code = error.get("code")
+    subcode = error.get("subcode") or error.get("error_subcode")
+    user_title = error.get("user_title") or error.get("error_user_title")
+    user_msg = error.get("user_msg") or error.get("error_user_msg")
     parts = []
     if user_title:
         parts.append(str(user_title))
@@ -1021,6 +1109,44 @@ def _check_and_warmup_unlocked(user: Optional[dict] = None):
         "AND NOT EXISTS (SELECT 1 FROM tw_certified_pages p "
         "WHERE p.page_id=accounts.page_id AND (" + bad_page_sql + "))"
     )
+    page_sync_tokens = conn.execute(f"""
+        SELECT DISTINCT aot.token_id
+        FROM accounts
+        JOIN account_op_tokens aot ON aot.act_id=accounts.act_id
+        JOIN fb_tokens t ON t.id=aot.token_id
+        LEFT JOIN teams tm ON tm.id=accounts.team_id
+        LEFT JOIN users ou ON ou.id=accounts.owner_user_id AND COALESCE(ou.is_active, 1)=1
+        WHERE accounts.enabled=1
+          {manual_scope_sql}
+          AND (?=1 OR COALESCE(tm.warmup_enabled, 0)=1 OR COALESCE(ou.warmup_enabled, 0)=1)
+          AND COALESCE(accounts.account_status, 1) NOT IN (3, 7, 9, 100, 101)
+          AND COALESCE(accounts.mirror_enabled, 0)=0
+          AND COALESCE(tm.mirror_enabled, 0)=0
+          AND COALESCE(tm.sentinel_enabled, 0)=0
+          AND COALESCE(ou.mirror_enabled, 0)=0
+          AND COALESCE(ou.sentinel_enabled, 0)=0
+          AND aot.status='active'
+          AND t.status='active'
+          AND t.token_type='operate'
+          AND COALESCE(t.token_source, 'system_user') IN ('system_user','oauth_user')
+          AND NOT EXISTS (
+              SELECT 1 FROM tw_certified_pages p
+              WHERE p.token_id=aot.token_id AND {good_page_sql}
+          )
+          AND (
+              COALESCE(accounts.page_id, '')=''
+              OR EXISTS (
+                  SELECT 1 FROM tw_certified_pages p
+                  WHERE p.page_id=accounts.page_id AND ({bad_page_sql})
+              )
+          )
+        LIMIT 100
+    """, (*manual_scope_params, 1 if global_warmup_enabled else 0)).fetchall()
+    for token_row in page_sync_tokens:
+        try:
+            _sync_pages_for_token(int(token_row["token_id"]), conn)
+        except Exception as exc:
+            logger.warning("warmup: pre-sync pages failed for token_id=%s: %s", token_row["token_id"], exc)
     candidates = conn.execute(f"""
         SELECT accounts.*
         FROM accounts
@@ -1044,7 +1170,7 @@ def _check_and_warmup_unlocked(user: Optional[dict] = None):
                     AND {good_page_sql}
               )
           )
-          AND COALESCE(mirror_enabled, 0)=0
+          AND COALESCE(accounts.mirror_enabled, 0)=0
           AND COALESCE(tm.mirror_enabled, 0)=0
           AND COALESCE(tm.sentinel_enabled, 0)=0
           AND COALESCE(ou.mirror_enabled, 0)=0
@@ -1061,14 +1187,21 @@ def _check_and_warmup_unlocked(user: Optional[dict] = None):
           AND (
               (COALESCE(warmup_state, '')='' AND COALESCE(warmup_campaign_id, '')='')
               OR warmup_state='dormant'
-              OR (
-                  warmup_state='recent_spend'
-                  AND (
-                      warmup_last_checked_at IS NULL
-                      OR warmup_last_checked_at <= datetime('now','+8 hours','-3 days')
-                  )
-              )
-          )
+               OR (
+                   warmup_state='recent_spend'
+                   AND (
+                       warmup_last_checked_at IS NULL
+                       OR warmup_last_checked_at <= datetime('now','+8 hours','-3 days')
+                   )
+               )
+               OR (
+                   warmup_state='budget_rejected'
+                   AND (
+                       warmup_last_checked_at IS NULL
+                       OR warmup_last_checked_at <= datetime('now','+8 hours','-24 hours')
+                   )
+               )
+           )
         ORDER BY CASE WHEN warmup_state='dormant' THEN 1 WHEN warmup_state='recent_spend' THEN 2 ELSE 0 END, created_at ASC
     """, (*manual_scope_params, 1 if global_warmup_enabled else 0)).fetchall()
     conn.close()
@@ -1165,9 +1298,13 @@ def rewarm_account(account: dict) -> Tuple[str, str]:
 
 def _fb_error_is_security_hold(result: dict) -> bool:
     """FB error 31/3858385: 账户需要身份验证，不应重试"""
-    if not isinstance(result, dict):
+    error = _fb_error_payload(result)
+    try:
+        return int(error.get("code") or 0) == 31 and int(
+            error.get("subcode") or error.get("error_subcode") or 0
+        ) == 3858385
+    except (TypeError, ValueError):
         return False
-    return result.get("code") == 31 and result.get("subcode") == 3858385
 
 
 def _mark_fb_security_hold(act_id: str, account_name: str, detail: str, campaign_id: str = "") -> None:
@@ -1178,14 +1315,73 @@ def _mark_fb_security_hold(act_id: str, account_name: str, detail: str, campaign
         conn.execute("""
             UPDATE accounts SET warmup_state='fb_security_hold',
                 warmup_last_checked_at=?,
-                warmup_campaign_id=CASE WHEN ? != '' THEN ? ELSE warmup_campaign_id END
+                warmup_campaign_id=CASE WHEN ? != '' THEN ? ELSE NULL END,
+                warmup_triggered_at=CASE WHEN ? != '' THEN warmup_triggered_at ELSE NULL END
             WHERE act_id=?
-        """, (now_cst, campaign_id, campaign_id, act_id))
+        """, (now_cst, campaign_id, campaign_id, campaign_id, act_id))
         conn.commit()
     finally:
         conn.close()
     _log_action(act_id, "warmup_fb_security_hold", detail, account_name, status="failed", level="warning")
     logger.warning(f"warmup: {act_id} 需要 FB 身份验证，暂停自动重试 (campaign={campaign_id or 'N/A'})")
+
+
+def _stop_for_fb_security_hold(
+    act_id: str,
+    account_name: str,
+    token: str,
+    created: list,
+    stage: str,
+    result: dict,
+    campaign_id: str = "",
+) -> Tuple[str, str]:
+    cleanup_failures = _cleanup_created_objects(
+        act_id, token, created, f"fb_security_hold:{stage}", account_name
+    ) if created else []
+    retained_campaign_id = campaign_id if cleanup_failures else ""
+    _mark_fb_security_hold(
+        act_id,
+        account_name,
+        f"{stage}: {_format_fb_error(result)}; cleanup_failed={','.join(cleanup_failures) or 'none'}",
+        retained_campaign_id,
+    )
+    suffix = "，已清理已创建对象" if not cleanup_failures else "，部分已创建对象待身份验证后清理"
+    return ("skipped", f"{act_id}: 账户需要身份验证，请登录 Ads Manager 完成验证{suffix}")
+
+
+def _fb_error_is_invalid_adset_budget(result: dict) -> bool:
+    error = _fb_error_payload(result)
+    try:
+        return int(error.get("code") or 0) == 100 and int(
+            error.get("subcode") or error.get("error_subcode") or 0
+        ) == 1487067
+    except (TypeError, ValueError):
+        return False
+
+
+def _mark_warmup_budget_rejected(
+    act_id: str,
+    account_name: str,
+    detail: str,
+    campaign_id: str,
+    cleanup_failed: bool,
+) -> None:
+    """Avoid repeated create/rollback loops after Meta rejects an ad-set budget."""
+    now_cst = _cst_now()
+    retained_campaign_id = campaign_id if cleanup_failed else ""
+    conn = get_conn()
+    try:
+        conn.execute("""
+            UPDATE accounts SET warmup_state='budget_rejected',
+                warmup_last_checked_at=?,
+                warmup_campaign_id=CASE WHEN ? != '' THEN ? ELSE NULL END,
+                warmup_triggered_at=CASE WHEN ? != '' THEN warmup_triggered_at ELSE NULL END
+            WHERE act_id=?
+        """, (now_cst, retained_campaign_id, retained_campaign_id, retained_campaign_id, act_id))
+        conn.commit()
+    finally:
+        conn.close()
+    _log_action(act_id, "warmup_budget_rejected", detail, account_name, status="failed", level="warning")
 
 
 def _warmup_account(account: dict) -> Tuple[str, str]:
@@ -1248,6 +1444,8 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
         # 3. 素材 image_hash
         ok, result = _upload_image_to_fb(act_id, token, asset.get("file_path") or asset.get("file_url", ""))
         if not ok:
+            if _fb_error_is_no_write_permission(result):
+                return ("skipped", f"{act_id}: {_WARMUP_NO_WRITE_MSG}")
             return ("error", f"{act_id}: 素材上传失败: {result}")
         image_hash = result
 
@@ -1265,8 +1463,11 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
             err_msg = _format_fb_error(result)
             code = result.get("code", 0)
             if _fb_error_is_security_hold(result):
-                _mark_fb_security_hold(act_id, account_name, f"campaign_create: {err_msg}", campaign_id)
-                return ("skipped", f"{act_id}: 账户需要身份验证，请登录 Ads Manager 完成验证")
+                return _stop_for_fb_security_hold(
+                    act_id, account_name, token, created, "campaign_create", result, campaign_id
+                )
+            if _fb_error_is_no_write_permission(result):
+                return ("skipped", f"{act_id}: {_WARMUP_NO_WRITE_MSG}")
             if code in (190, 200, 294):
                 logger.error(f"warmup: {act_id} campaign 创建权限错误(code={code}): {err_msg}")
                 return ("skipped", f"{act_id}: 权限不足(code={code})")
@@ -1279,13 +1480,14 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
         if not ok:
             err_msg = _format_fb_error(result)
             if _fb_error_is_security_hold(result):
-                _mark_fb_security_hold(act_id, account_name, f"campaign_pause: {err_msg}", campaign_id)
-                return ("skipped", f"{act_id}: 账户需要身份验证")
+                return _stop_for_fb_security_hold(
+                    act_id, account_name, token, created, "campaign_pause", result, campaign_id
+                )
             _cleanup_created_objects(act_id, token, created, "campaign_write_preflight_failed", account_name)
             return ("skipped", f"{act_id}: 广告账户当前不可写，无法启动预热: {err_msg}")
 
         # 5. 创建 AdSet
-        daily_budget = _usd5_to_minor_units(currency)
+        daily_budget, meta_min_daily_budget = _warmup_daily_budget(act_id, token, currency)
         country = _pick_warmup_country(account, asset)
         ok, result = _fb_post_result(
             f"{act_id}/adsets", token,
@@ -1304,8 +1506,9 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
         if not ok:
             err_msg = _format_fb_error(result)
             if _fb_error_is_security_hold(result):
-                _mark_fb_security_hold(act_id, account_name, f"adset_create: {err_msg}", campaign_id)
-                return ("skipped", f"{act_id}: 账户需要身份验证")
+                return _stop_for_fb_security_hold(
+                    act_id, account_name, token, created, "adset_create", result, campaign_id
+                )
             _cleanup_created_objects(act_id, token, created, "adset_create_failed", account_name)
             return ("error", f"{act_id}: 创建 adset 失败: {err_msg}")
         adset_id = result.get("id")
@@ -1332,8 +1535,9 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
         if not ok:
             err_msg = _format_fb_error(result)
             if _fb_error_is_security_hold(result):
-                _mark_fb_security_hold(act_id, account_name, f"creative_create: {err_msg}", campaign_id)
-                return ("skipped", f"{act_id}: 账户需要身份验证")
+                return _stop_for_fb_security_hold(
+                    act_id, account_name, token, created, "creative_create", result, campaign_id
+                )
             _cleanup_created_objects(act_id, token, created, "creative_create_failed", account_name)
             return ("error", f"{act_id}: 创建 creative 失败: {err_msg}")
         creative_id = result.get("id")
@@ -1351,15 +1555,31 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
         if not ok:
             err_msg = _format_fb_error(result)
             if _fb_error_is_security_hold(result):
-                _mark_fb_security_hold(act_id, account_name, f"ad_create: {err_msg}", campaign_id)
-                return ("skipped", f"{act_id}: 账户需要身份验证，请登录 Ads Manager 完成验证")
+                return _stop_for_fb_security_hold(
+                    act_id, account_name, token, created, "ad_create", result, campaign_id
+                )
+            if _fb_error_is_invalid_adset_budget(result):
+                cleanup_failures = _cleanup_created_objects(
+                    act_id, token, created, "ad_create_budget_rejected", account_name
+                )
+                _mark_warmup_budget_rejected(
+                    act_id,
+                    account_name,
+                    f"ad_create: {err_msg}; daily_budget={daily_budget}; "
+                    f"meta_min_daily_budget={meta_min_daily_budget}; "
+                    f"cleanup_failed={','.join(cleanup_failures) or 'none'}",
+                    campaign_id,
+                    bool(cleanup_failures),
+                )
+                return ("skipped", f"{act_id}: Meta 拒绝广告组预算，已清理对象并进入 24 小时冷却")
             _cleanup_created_objects(act_id, token, created, "ad_create_failed", account_name)
             return ("error", f"{act_id}: 创建 ad 失败: {err_msg}")
         ad_id = result.get("id")
         if not ad_id:
             if _fb_error_is_security_hold(result):
-                _mark_fb_security_hold(act_id, account_name, f"missing_ad_id: {result}", campaign_id)
-                return ("skipped", f"{act_id}: 账户需要身份验证")
+                return _stop_for_fb_security_hold(
+                    act_id, account_name, token, created, "missing_ad_id", result, campaign_id
+                )
             _cleanup_created_objects(act_id, token, created, "missing_ad_id", account_name)
             return ("error", f"{act_id}: FB 未返回 ad_id: {result}")
         created.append(("ad", ad_id))
@@ -1382,14 +1602,18 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
         ok, activation_error, is_sec_hold = _activate_warmup_objects(token, campaign_id, adset_id, ad_id)
         if not ok:
             if is_sec_hold:
-                _mark_fb_security_hold(act_id, account_name, f"activation: {activation_error}", campaign_id)
-                return ("skipped", f"{act_id}: 账户需要身份验证，广告已创建但未激活")
+                return _stop_for_fb_security_hold(
+                    act_id, account_name, token, created, "activation", {"message": activation_error}, campaign_id
+                )
             cleanup_failures = _cleanup_created_objects(act_id, token, created, "activation_failed", account_name)
             _clear_warmup_record_for_campaign(act_id, campaign_id, bool(cleanup_failures))
             return ("error", f"{act_id}: 激活预热广告失败: {activation_error}")
 
         _log_action(act_id, "warmup_start", f"campaign={campaign_id}, country={country}, target_usd={_WARMUP_TARGET_USD:g}", account_name)
-        logger.info(f"warmup: {act_id} 预热已启动 campaign={campaign_id}, country={country}, daily_budget={daily_budget}")
+        logger.info(
+            "warmup: %s started campaign=%s, country=%s, daily_budget=%s, meta_min_daily_budget=%s",
+            act_id, campaign_id, country, daily_budget, meta_min_daily_budget,
+        )
         return ("started", campaign_id)
 
     except Exception as e:
