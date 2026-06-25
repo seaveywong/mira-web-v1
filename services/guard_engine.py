@@ -3749,7 +3749,7 @@ def sentinel_patrol() -> dict:
                             old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                             status="success", operator="sentinel")
                 continue
-            ok, err = _fb_post(camp_id, token, {"status": "PAUSED"})
+            ok, err, _ptok, _plabel, _pcand = _fb_pause_with_candidates(acc, camp_id, token)
             if ok:
                 time.sleep(0.5)
                 verified = _verify_status(camp_id, token, "PAUSED")
