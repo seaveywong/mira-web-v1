@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.97</title>
+<title>Mira · 广告投放管理系统 v3.11.98</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3600,7 +3600,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.97</p>
+<p id="loginVer">广告投放管理系统 v3.11.98</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3619,7 +3619,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.97</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.98</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -3960,12 +3960,6 @@ input:focus, select:focus, textarea:focus {
        <option value="recent_ops">最近操作</option>
       </select>
       <input class="fc" id="adsQ" placeholder="搜索广告名称..." oninput="filterAds()" style="min-width:180px">
-      <button class="btn btn-g btn-sm" onclick="expandAdsTree()">展开全部</button>
-      <button class="btn btn-g btn-sm" onclick="collapseAdsTree()">收起全部</button>
-      <div class="ads-view-toggle" role="group" aria-label="广告列表视图">
-       <button id="adsViewBoard" onclick="setAdsListView('board')">层级卡片</button>
-       <button class="active" id="adsViewTable" onclick="setAdsListView('table')">广告管理器列表</button>
-      </div>
      </div>
      <div id="adsBulkBar" class="fb" style="gap:8px;margin-top:8px;display:none">
       <span id="adsSelectedCount" style="font-size:12px;color:var(--t3)">已选 0 条</span>
@@ -3973,7 +3967,6 @@ input:focus, select:focus, textarea:focus {
       <button class="btn btn-p btn-sm" onclick="bulkAdStatus('ACTIVE')">开启选中项</button>
       <button class="btn btn-g btn-sm" onclick="clearSelectedAds()">清空选择</button>
      </div>
-     <div id="adsBoard" class="ads-board"><div class="ads-board-empty"><span class="spin"></span> 加载中...</div></div>
      <div class="ads-tabs-container" id="adsViewTabs">
       <div class="ads-tabs-left">
        <button class="ads-tab-btn active" onclick="switchAdsViewTab('campaigns')">📁 广告系列</button>
@@ -5998,7 +5991,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.97';
+var APP_VERSION='v3.11.98';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -6018,7 +6011,7 @@ function _fmtActionLogTime(s){
 }
 var token='',accounts=[],rulesMeta={guard_types:[],scale_types:[]},kpiFields=[],_teamResAllUsers=[],ruleMode='guard',importTkId=null,importAutoMode=false,selAccs=new Set(),chartS=null,chartC=null,logsPage=1,allAds=[],selectedAds=new Set(),_adsTreeOpen={accounts:{},campaigns:{},adsets:{}},_adsRecentOps={},_adsPersistedOps={},kpiAllData=[],kpiTabCurrent='all',selectedTplId=null,settingsData=[],_kpiOptionsCache=null,_globalMirrorEnabled=false,localTokenNodes=[],localExecutorTasks=[],localExtensionPackage=null,localTokenUiState={open:{}};
 var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',ts:0}, _adsLoadSeq=0, ADS_CACHE_MS=60000;
-var _adsListView=(localStorage.getItem('mira_ads_list_view')||'table')==='board'?'board':'table';
+var _adsListView='table'; // 层级卡片(board)视图已下线，固定为广告管理器表格
 
 // ── API ──
 async function api(m,p,b){
@@ -9420,12 +9413,8 @@ function setAdsListView(view){
  filterAds();
 }
 function _syncAdsListView(){
- var board=document.getElementById('adsBoard'),table=document.getElementById('adsTableCard');
- if(board)board.style.display=_adsListView==='board'?'grid':'none';
- if(table)table.style.display=_adsListView==='table'?'':'none';
- var b=document.getElementById('adsViewBoard'),t=document.getElementById('adsViewTable');
- if(b)b.classList.toggle('active',_adsListView==='board');
- if(t)t.classList.toggle('active',_adsListView==='table');
+ var table=document.getElementById('adsTableCard');
+ if(table)table.style.display='';
 }
 function expandAdsTree(){
  _adsTreeOpen={accounts:{},campaigns:{},adsets:{}};
@@ -9615,10 +9604,15 @@ async function quickEditAdLandingLink(adId){
  if(!ok)return;
  var val=(document.getElementById('adsQuickTargets')||{}).value||'';
  var urls=val.split(/\r?\n/).map(function(x){return x.trim();}).filter(Boolean);
+ if(!urls.length){toast('请至少填写一个跳转链接','wa');return;}
  if(urls.some(function(u){return !new RegExp('^https?://','i').test(u);})){toast('跳转链接必须以 http:// 或 https:// 开头','er');return;}
+ try{
   await api('PATCH','/landing-pages/ad-links/'+l.link_id,{target_urls:urls});
   toast('广告跳转已更新','ok');
-  await loadAds();
+  await loadAds({force:true});
+ }catch(e){
+  toast('保存跳转失败：'+(e.message||e),'er');
+ }
 }
 function __originalAdsMoreActions(a,level){
  var html='<div class="fb-more">';
@@ -9874,15 +9868,13 @@ function filterAds(){
  });
  window._lastFilteredAds=f;
  _syncAdsListView();
- var tb=document.getElementById('adsBody'),board=document.getElementById('adsBoard');
+ var tb=document.getElementById('adsBody');
  if(!f.length){
-  if(board)board.innerHTML='<div class="ads-board-empty">暂无匹配数据<br><button class="btn btn-g btn-sm" style="margin-top:10px" onclick="clearAdsFilters()">清空筛选</button></div>';
   tb.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--t3);padding:40px">暂无匹配数据<br><button class="btn btn-g btn-sm" style="margin-top:10px" onclick="clearAdsFilters()">清空筛选</button></td></tr>';
   document.getElementById('adsCount').textContent='';
   updateAdsBulkBar();
   return
  }
- renderAdsBoard(f, !!(q||st));
  renderAdsTree(f, !!(q||st));
 }
 async function runAdStatusOp(adId,level,desired,btn){
