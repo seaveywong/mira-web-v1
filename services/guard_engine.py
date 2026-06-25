@@ -1167,6 +1167,13 @@ def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str)
     return False, f"已尝试{len(candidates)}个写入Token({labels})，均失败：{reason}", primary_token, "", None
 
 
+def _fb_pause_safe(account: dict, target_id: str, primary_token: str) -> tuple:
+    """关停安全封装：依次尝试操作号 -> 管理号兜底等可写候选 Token，任一成功即返回 (True, "")。
+    仅用于哨兵/镜像/紧急暂停等关停类守护操作；创建/预热不走此路径。返回 (ok, err) 与 _fb_post 同形，便于就地替换。"""
+    ok, err, _used_token, _used_label, _cand = _fb_pause_with_candidates(account, target_id, primary_token)
+    return ok, err
+
+
 # ── 核心关闭逻辑（含向上升级）──────────────────────────────────────────────
 
 def _pause_with_escalation(
@@ -1999,7 +2006,7 @@ class GuardEngine:
                                         old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                                         status="success", operator="system")
                         else:
-                            ok, err_msg = _fb_post(ad["id"], token, {"status": "PAUSED"})
+                            ok, err_msg = _fb_pause_safe(account, ad["id"], token)
                             action_status = "success" if (ok and _verify_status(ad["id"], token, "PAUSED")) else "failed"
                             _log_action(act_id, "ad", ad["id"], ad.get("name", ad["id"]),
                                         "pause", "mirror_mode",
@@ -2029,7 +2036,7 @@ class GuardEngine:
                                 "ad_names": ad_names
                             })
                         else:
-                            ok, err_msg = _fb_post(cid, token, {"status": "PAUSED"})
+                            ok, err_msg = _fb_pause_safe(account, cid, token)
                             if ok:
                                 time.sleep(2)
                                 verified = _verify_status(cid, token, "PAUSED")
@@ -2770,7 +2777,7 @@ class GuardEngine:
                                 old_value={"status": "ACTIVE"}, new_value={"status": "PAUSED"},
                                 status="success", operator="system")
                 else:
-                    ok, err_msg = _fb_post(ad["id"], token, {"status": "PAUSED"})
+                    ok, err_msg = _fb_pause_safe(account, ad["id"], token)
                     action_status = "success" if (ok and _verify_status(ad["id"], token, "PAUSED")) else "failed"
                     _log_action(act_id, "ad", ad["id"], ad.get("name", ad["id"]),
                                 "pause", "mirror_mode",
@@ -2801,7 +2808,7 @@ class GuardEngine:
                         "ad_names": ad_names
                     })
                 else:
-                    ok, err_msg = _fb_post(cid, token, {"status": "PAUSED"})
+                    ok, err_msg = _fb_pause_safe(account, cid, token)
                     if ok:
                         time.sleep(2)
                         verified = _verify_status(cid, token, "PAUSED")
@@ -3597,7 +3604,7 @@ def emergency_pause_all(
             total += 1
             item_id = item["id"]
             item_name = item.get("name", item_id)
-            ok, err = _fb_post(item_id, token, {"status": "PAUSED"})
+            ok, err = _fb_pause_safe(acc, item_id, token)
             if ok:
                 time.sleep(0.5)
                 verified = _verify_status(item_id, token, "PAUSED")
