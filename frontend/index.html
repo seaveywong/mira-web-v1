@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.90</title>
+<title>Mira · 广告投放管理系统 v3.11.91</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3565,7 +3565,7 @@ input:focus, select:focus, textarea:focus {
 
 .ads-table{table-layout:fixed;width:100%}
 .ads-table th{position:sticky;top:0;background:var(--bg2);z-index:2;padding:8px 6px;font-size:12px;color:var(--t2);border-bottom:2px solid var(--border)}
-.ads-table td{padding:10px 6px;vertical-align:middle;border-bottom:1px solid var(--border);font-size:13px}
+.ads-table td{padding:10px 6px;vertical-align:middle;border-bottom:1px solid var(--border);font-size:13px}.ads-table td:last-child{overflow:visible;position:relative}
 .ads-table tr:hover td{background:var(--bg2)}
 .breadcrumb-bar{display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--p);color:var(--p);font-size:13px}
 </style>
@@ -3581,7 +3581,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.90</p>
+<p id="loginVer">广告投放管理系统 v3.11.91</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3600,7 +3600,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.90</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.91</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5974,7 +5974,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.90';
+var APP_VERSION='v3.11.91';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -23938,6 +23938,23 @@ function renderAdsTree(rows, forceOpen) {
   var head = document.getElementById('adsTableHead');
   if (!tb) return;
 
+  var breadcrumbHtml = '';
+  if (window._adsDrillFilter) {
+    var fKey = window._adsDrillFilter.key;
+    var fVal = window._adsDrillFilter.value;
+    rows = rows.filter(function(r) { return r[fKey] === fVal; });
+    var fLabel = fKey === 'campaign_id' ? '系列' : (fKey === 'adset_id' ? '广告组' : '');
+    var displayVal = fVal;
+    if (rows.length > 0) {
+      if (fKey === 'campaign_id') displayVal = rows[0].campaign_name || fVal;
+      if (fKey === 'adset_id') displayVal = rows[0].adset_name || fVal;
+    }
+    breadcrumbHtml = '<div class="breadcrumb-bar" style="display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--p);color:var(--p);font-size:13px;"><b>🔍 ' + fLabel + ':</b>&nbsp;' + escHtml(displayVal) + '&nbsp;<button onclick="clearAdsFilter()" style="background:none;border:none;color:var(--p);font-weight:bold;cursor:pointer;font-size:14px;padding:0;">✕</button></div>';
+  }
+  var bc = document.getElementById('adsDrillBreadcrumb');
+  if (!bc) { var tc = document.getElementById('adsViewTabs'); if (tc) { bc = document.createElement('div'); bc.id = 'adsDrillBreadcrumb'; tc.parentNode.insertBefore(bc, tc.nextSibling); } }
+  if (bc) bc.innerHTML = breadcrumbHtml;
+
   if (!rows || !rows.length) {
     tb.innerHTML = '<tr><td colspan="14"><div class="mira-empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><br>没有找到符合条件的数据</div></td></tr>';
     document.getElementById('adsCount').textContent = '共 0 条';
@@ -23959,7 +23976,7 @@ function renderAdsTree(rows, forceOpen) {
       html.push('<td>'+_adsSelectBox('campaign',campKey,'')+'</td>');
 
       var metaHtml = '<div class="flat-node-meta"><span>所属账户: ' + escHtml(displayAccountName(campRep.account_name, campRep.act_id)) + '</span></div>';
-      html.push('<td><div style="font-weight:600; font-size:14px;">'+escHtml(campRep.campaign_name||campKey)+'</div>' + metaHtml + '</td>');
+      html.push('<td><a href="javascript:void(0)" onclick="applyAdsFilter(\'campaign_id\', \''+_adsJs(campKey)+'\', \'adsets\', event)" style="font-weight:600;font-size:14px;color:var(--p);text-decoration:none;">'+escHtml(campRep.campaign_name||campKey)+'</a>' + metaHtml + '</td>');
 
       html.push('<td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td>');
       html.push('<td>'+_adsBudgetCell(campRep,'campaign')+'</td>');
@@ -23988,7 +24005,7 @@ function renderAdsTree(rows, forceOpen) {
       html.push('<td>'+_adsSelectBox('adset',adsetKey,'')+'</td>');
 
       var metaHtml = '<div class="flat-node-meta"><span>系列: ' + escHtml(setRep.campaign_name||'未知') + '</span><span>账户: ' + displayActIdClean(setRep.act_id) + '</span></div>';
-      html.push('<td><div style="font-weight:600; font-size:14px;">'+escHtml(setRep.adset_name||adsetKey)+'</div>' + metaHtml + '</td>');
+      html.push('<td><a href="javascript:void(0)" onclick="applyAdsFilter(\'adset_id\', \''+_adsJs(adsetKey)+'\', \'ads\', event)" style="font-weight:600;font-size:14px;color:var(--p);text-decoration:none;">'+escHtml(setRep.adset_name||adsetKey)+'</a>' + metaHtml + '</td>');
 
       html.push('<td>'+_adsStatusBadge(_adsGroupStatus(setRows,'adset'))+'</td>');
       html.push('<td>'+_adsBudgetCell(setRep,'adset')+'</td>');
@@ -24051,14 +24068,28 @@ var _originalAdsMoreActions = _adsMoreActions;
 function _adsMoreActions(rep, level) {
   var id = (level==='account'?rep.act_id:level==='campaign'?rep.campaign_id:level==='adset'?rep.adset_id:rep.ad_id);
   if (!id) return '';
-  var menu = '<div class="meatball-menu-wrapper"><button class="meatball-menu-btn">⋮</button><div class="meatball-menu-dropdown">';
-  menu += '<button class="meatball-dropdown-item" onclick="showAdRules(\''+id+'\')">⚙️ 守护规则</button>';
-  if (level === 'ad' || level === 'adset') {
-      menu += '<button class="meatball-dropdown-item" onclick="openAdDiag(\''+id+'\')">🩺 投放诊断</button>';
+  var actId = rep.act_id || '';
+  var btns = [];
+  var btnStyle = 'display:inline-flex;align-items:center;gap:3px;border:1px solid var(--border);border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;background:var(--bg2);color:var(--t1);white-space:nowrap;';
+
+  if (level === 'campaign') {
+    btns.push('<button onclick="event.stopPropagation();applyAdsFilter(\'campaign_id\',\''+_adsJs(id)+'\',\'adsets\')" style="'+btnStyle+'background:var(--p);color:#fff;border-color:var(--p);font-weight:600;">查看广告组 →</button>');
   }
-  menu += '<button class="meatball-dropdown-item" onclick="showAdEdit(\''+id+'\')">✏️ 编辑</button>';
-  menu += '</div></div>';
-  return menu;
+  if (level === 'adset') {
+    btns.push('<button onclick="event.stopPropagation();applyAdsFilter(\'adset_id\',\''+_adsJs(id)+'\',\'ads\')" style="'+btnStyle+'background:var(--p);color:#fff;border-color:var(--p);font-weight:600;">查看广告 →</button>');
+  }
+
+  if (level === 'ad') {
+    btns.push('<button onclick="event.stopPropagation();showDiagnose(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\')" title="广告诊断" style="'+btnStyle+'">🩺</button>');
+    btns.push('<button onclick="event.stopPropagation();quickKpi(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\',\''+_adsJs(rep.ad_name||'')+'\')" title="KPI配置" style="'+btnStyle+'">🎯</button>');
+    btns.push('<button onclick="event.stopPropagation();showAdBrief(\''+_adsJs(id)+'\')" title="广告详情" style="'+btnStyle+'">ℹ️</button>');
+    if (rep.landing && rep.landing.link_id) {
+      btns.push('<button onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改跳转" style="'+btnStyle+'color:var(--wa);">🔗</button>');
+      btns.push('<button onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(id)+'\')" title="回填数据" style="'+btnStyle+'color:var(--ok);">📝</button>');
+    }
+  }
+
+  return '<div style="display:inline-flex;gap:3px;align-items:center;white-space:nowrap">'+_adsRecentOpChip(level,id)+btns.join('')+'</div>';
 }
 // =================================================================
 
@@ -24140,7 +24171,6 @@ async function openQuickImportAccount() {
 
 async function doQuickImportAccounts(tokenId) {
   try {
-    closeModal('moInfo');
     toast('正在扫描并导入账户...', 'ok');
     var result = await api('POST','/accounts/import/'+tokenId, {act_ids: []});
     var msg = '已导入 '+Number(result.imported||0)+' 个账户';
@@ -24148,6 +24178,7 @@ async function doQuickImportAccounts(tokenId) {
     toast(msg, 'ok');
     // Refresh account dropdowns
     if (typeof loadAccounts === 'function') loadAccounts();
+    if (typeof loadDash === 'function') setTimeout(function(){ loadDash(); }, 1500);
   } catch(e) {
     toast('导入失败: '+(e.message||e), 'er');
   }
