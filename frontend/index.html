@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.96</title>
+<title>Mira · 广告投放管理系统 v3.11.97</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3291,7 +3291,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 }
 .mira-drawer-header {
   padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--bd);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -3320,7 +3320,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 }
 .mira-drawer-footer {
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--bd);
   display: flex;
   justify-content: flex-end;
   background: var(--bg2);
@@ -3344,7 +3344,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 .wizard-step {
   margin-bottom: 30px;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 8px;
   padding: 20px;
 }
@@ -3352,7 +3352,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
   font-weight: 700;
   font-size: 15px;
   margin-bottom: 16px;
-  color: var(--p);
+  color: var(--ac);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3364,7 +3364,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
   justify-content: center;
   width: 24px;
   height: 24px;
-  background: var(--p);
+  background: var(--ac);
   color: #fff;
   border-radius: 50%;
   font-size: 12px;
@@ -3372,10 +3372,10 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 
 /* Action Button normalization */
 .btn-primary-action {
-  background: var(--p);
+  background: var(--ac);
   color: white;
   border: none;
-  box-shadow: 0 2px 6px rgba(var(--p-rgb), 0.3);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.18);
   font-weight: 600;
   padding: 8px 16px;
   border-radius: 6px;
@@ -3384,7 +3384,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 .btn-secondary-action {
   background: var(--bg2);
   color: var(--t1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
@@ -3405,7 +3405,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
   position: absolute;
   right: 0;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   border-radius: 6px;
   display: none;
@@ -3432,7 +3432,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 /* Fix Input bottom line residues */
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: var(--p);
+  border-color: var(--ac);
   box-shadow: 0 0 0 2px rgba(var(--p-rgb), 0.1);
 }
 
@@ -3442,7 +3442,7 @@ input:focus, select:focus, textarea:focus {
   padding: 40px 20px;
   background: var(--bg2);
   border-radius: 12px;
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--bd);
   max-width: 500px;
   margin: 40px auto;
 }
@@ -3453,14 +3453,14 @@ input:focus, select:focus, textarea:focus {
   padding: 12px;
   margin-bottom: 8px;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 8px;
   text-align: left;
   opacity: 0.5;
 }
 .onboarding-step.active {
   opacity: 1;
-  border-color: var(--p);
+  border-color: var(--ac);
   box-shadow: 0 2px 8px rgba(var(--p-rgb), 0.1);
 }
 
@@ -3477,7 +3477,7 @@ input:focus, select:focus, textarea:focus {
 
 .meatball-menu-wrapper { position: relative; display: inline-block; }
 .meatball-menu-btn { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--t2); padding: 4px 8px; line-height: 1; }
-.meatball-menu-dropdown { position: absolute; right: 0; top: 100%; background: var(--bg); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 6px; display: none; z-index: 999; min-width: 140px; }
+.meatball-menu-dropdown { position: absolute; right: 0; top: 100%; background: var(--bg); border: 1px solid var(--bd); box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 6px; display: none; z-index: 999; min-width: 140px; }
 .meatball-menu-wrapper:hover .meatball-menu-dropdown { display: block; }
 .meatball-dropdown-item { display: block; padding: 10px 16px; text-align: left; border: none; background: none; width: 100%; cursor: pointer; color: var(--t1); font-size: 13px; }
 .meatball-dropdown-item:hover { background: var(--bg2); }
@@ -3486,15 +3486,15 @@ input:focus, select:focus, textarea:focus {
 .mira-drawer.open { right: 0; }
 .mira-drawer-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 9998; display: none; backdrop-filter: blur(2px); }
 .mira-drawer-overlay.open { display: block; }
-.mira-drawer-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg2); }
+.mira-drawer-header { padding: 16px 24px; border-bottom: 1px solid var(--bd); display: flex; justify-content: space-between; align-items: center; background: var(--bg2); }
 .mira-drawer-title { font-size: 18px; font-weight: 700; color: var(--t1); }
 .mira-drawer-close { background: none; border: none; font-size: 20px; color: var(--t3); cursor: pointer; }
 .mira-drawer-close:hover { color: var(--t1); }
 .mira-drawer-content { flex: 1; overflow-y: auto; padding: 24px; }
-.mira-drawer-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; background: var(--bg2); gap: 12px; }
-.wizard-step { margin-bottom: 30px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
-.wizard-step-title { font-weight: 700; font-size: 15px; margin-bottom: 16px; color: var(--p); display: flex; align-items: center; gap: 8px; }
-.wizard-step-title::before { content: attr(data-step); display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: var(--p); color: #fff; border-radius: 50%; font-size: 12px; }
+.mira-drawer-footer { padding: 16px 24px; border-top: 1px solid var(--bd); display: flex; justify-content: flex-end; background: var(--bg2); gap: 12px; }
+.wizard-step { margin-bottom: 30px; background: var(--bg); border: 1px solid var(--bd); border-radius: 8px; padding: 20px; }
+.wizard-step-title { font-weight: 700; font-size: 15px; margin-bottom: 16px; color: var(--ac); display: flex; align-items: center; gap: 8px; }
+.wizard-step-title::before { content: attr(data-step); display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: var(--ac); color: #fff; border-radius: 50%; font-size: 12px; }
 .currency-usd { font-weight: 700; color: var(--t1); font-size: 14px; }
 .currency-local { font-size: 11px; color: var(--t3); display: block; margin-top: 2px; }
 
@@ -3502,9 +3502,22 @@ input:focus, select:focus, textarea:focus {
 /* ==================== MIRA UX REFACTOR 3.0: 平铺式分签 ==================== */
 .ads-tabs-container {
   display: flex;
-  border-bottom: 1px solid var(--border);
+  align-items: flex-end;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--bd);
   margin-bottom: 16px;
   gap: 20px;
+  flex-wrap: wrap;
+}
+.ads-tabs-left {
+  display: flex;
+  gap: 20px;
+}
+.ads-tabs-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
 }
 .ads-tab-btn {
   background: none;
@@ -3517,10 +3530,10 @@ input:focus, select:focus, textarea:focus {
   position: relative;
 }
 .ads-tab-btn:hover {
-  color: var(--p);
+  color: var(--ac);
 }
 .ads-tab-btn.active {
-  color: var(--p);
+  color: var(--ac);
 }
 .ads-tab-btn.active::after {
   content: '';
@@ -3529,7 +3542,7 @@ input:focus, select:focus, textarea:focus {
   left: 0;
   width: 100%;
   height: 2px;
-  background: var(--p);
+  background: var(--ac);
 }
 
 .flat-row:hover {
@@ -3546,7 +3559,7 @@ input:focus, select:focus, textarea:focus {
   padding: 2px 6px;
   border-radius: 4px;
   margin-right: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
 }
 
 .mira-empty-state {
@@ -3564,10 +3577,16 @@ input:focus, select:focus, textarea:focus {
 
 
 .ads-table{width:100%}
-.ads-table th{position:sticky;top:0;background:var(--bg2);z-index:2;padding:8px 6px;font-size:12px;color:var(--t2);border-bottom:2px solid var(--border)}
-.ads-table td{padding:10px 6px;vertical-align:middle;border-bottom:1px solid var(--border);font-size:13px}.ads-table td:last-child{overflow:visible;position:relative}
+.ads-table th{position:sticky;top:0;background:var(--bg2);z-index:2;padding:8px 6px;font-size:12px;color:var(--t2);border-bottom:2px solid var(--bd)}
+.ads-table td{padding:10px 6px;vertical-align:middle;border-bottom:1px solid var(--bd);font-size:13px}.ads-table td:last-child{overflow:visible;position:relative}
 .ads-table tr:hover td{background:var(--bg2)}
-.breadcrumb-bar{display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--p);color:var(--p);font-size:13px}
+.breadcrumb-bar{display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--ac);color:var(--ac);font-size:13px}
+/* 投放中心：内联操作按钮统一样式 */
+.ads-inline-btn{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--bd);border-radius:5px;padding:4px 8px;cursor:pointer;font-size:12px;background:var(--bg2);color:var(--t1);white-space:nowrap;line-height:1;transition:background .12s,border-color .12s}
+.ads-inline-btn:hover{background:var(--bgh);border-color:var(--bd2)}
+.ads-inline-btn.primary{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600}
+.ads-inline-btn.primary:hover{background:var(--ach);border-color:var(--ach)}
+.ads-inline-btn.icon{padding:4px 7px;font-size:13px}
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -3581,7 +3600,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.96</p>
+<p id="loginVer">广告投放管理系统 v3.11.97</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3600,7 +3619,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.96</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.97</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -3955,12 +3974,17 @@ input:focus, select:focus, textarea:focus {
       <button class="btn btn-g btn-sm" onclick="clearSelectedAds()">清空选择</button>
      </div>
      <div id="adsBoard" class="ads-board"><div class="ads-board-empty"><span class="spin"></span> 加载中...</div></div>
-     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-<div style="display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0">
-  <button class="btn btn-p btn-sm" onclick="openQuickLinkGen()" title="生成投放链接，用于手动上广告时复制到FB" style="font-size:12px;padding:5px 10px;">🔗 生成投放链接</button>
-  <button class="btn btn-g btn-sm" onclick="openQuickImportAccount()" title="导入新广告账户并自动匹配Token" style="font-size:12px;padding:5px 10px;">＋ 导入账户</button>
-</div>
-</div><div class="ads-tabs-container" id="adsViewTabs"><button class="ads-tab-btn active" onclick="switchAdsViewTab('campaigns')">📁 广告系列</button><button class="ads-tab-btn" onclick="switchAdsViewTab('adsets')">📦 广告组</button><button class="ads-tab-btn" onclick="switchAdsViewTab('ads')">📰 广告</button></div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:56px">目标CPA</th><th style="width:50px">ROAS</th><th style="width:44px">KPI</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr></thead>
+     <div class="ads-tabs-container" id="adsViewTabs">
+      <div class="ads-tabs-left">
+       <button class="ads-tab-btn active" onclick="switchAdsViewTab('campaigns')">📁 广告系列</button>
+       <button class="ads-tab-btn" onclick="switchAdsViewTab('adsets')">📦 广告组</button>
+       <button class="ads-tab-btn" onclick="switchAdsViewTab('ads')">📰 广告</button>
+      </div>
+      <div class="ads-tabs-actions">
+       <button class="btn btn-p btn-sm" onclick="openQuickLinkGen()" title="生成投放链接，用于手动上广告时复制到FB" style="font-size:12px;padding:5px 10px;">🔗 生成投放链接</button>
+       <button class="btn btn-g btn-sm" onclick="openQuickImportAccount()" title="导入新广告账户并自动匹配Token" style="font-size:12px;padding:5px 10px;">＋ 导入账户</button>
+      </div>
+     </div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:56px">目标CPA</th><th style="width:50px">ROAS</th><th style="width:44px">KPI</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr></thead>
       <tbody id="adsBody"><tr><td colspan="14" style="text-align:center;color:var(--t3);padding:40px">加载中...</td></tr></tbody>
      </table></div></div>
      <div style="padding:12px 0;font-size:12px;color:var(--t3);text-align:right" id="adsCount"></div>
@@ -5974,7 +5998,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.96';
+var APP_VERSION='v3.11.97';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -8959,6 +8983,7 @@ function onAdsAccountChanged(){
  if(actId)localStorage.setItem('mira_ads_act',actId);
  else localStorage.removeItem('mira_ads_act');
  _adsCache={key:'',ts:0,data:null};
+ window._adsDrillFilter=null; // 切换账户后清除上一个账户残留的下钻过滤，避免列表被过滤成空
  loadAds();
 }
 function viewAllAdsAccounts(){
@@ -23885,7 +23910,11 @@ function closeMiraDrawer(id) {
 function formatUSD(amount, originalCurrency, originalAmount) {
   if (amount === null || amount === undefined || amount === '') return '-';
   var usdHtml = '<span class="currency-usd">$' + parseFloat(amount).toFixed(2) + '</span>';
-  if (originalCurrency && originalCurrency.toUpperCase() !== 'USD') {
+  // 仅当确有原始币种金额时才显示本币行；后端 ads-live 的 spend 已换算为 USD，
+  // 不再把 USD 数字误标为本地币种（VND 等）。
+  if (originalCurrency && originalCurrency.toUpperCase() !== 'USD'
+      && originalAmount !== null && originalAmount !== undefined && originalAmount !== ''
+      && !isNaN(parseFloat(originalAmount))) {
     usdHtml += '<span class="currency-local">' + originalCurrency + ' ' + parseFloat(originalAmount).toFixed(2) + '</span>';
   }
   return usdHtml;
@@ -23921,16 +23950,27 @@ window._currentAdsViewTab = 'campaigns';
 function switchAdsViewTab(tab) {
   window._currentAdsViewTab = tab;
 
-  var tabs = document.querySelectorAll('.ads-tab-btn');
-  tabs.forEach(function(t) {
-    if (t.getAttribute('onclick').includes(tab)) {
-      t.classList.add('active');
-    } else {
-      t.classList.remove('active');
-    }
+  // 精确匹配，避免 "adsets" 包含 "ads" 导致切到「广告」时误高亮「广告组」
+  var needle = "switchAdsViewTab('" + tab + "')";
+  document.querySelectorAll('.ads-tab-btn').forEach(function(t) {
+    var oc = t.getAttribute('onclick') || '';
+    t.classList.toggle('active', oc.indexOf(needle) >= 0);
   });
 
   filterAds();
+}
+
+// 跨 Tab 下钻过滤：点击系列名→过滤到该系列的广告组；点击组名→过滤到该组的广告。
+function applyAdsFilter(key, value, targetTab, event) {
+  if (event && event.preventDefault) event.preventDefault();
+  window._adsDrillFilter = { key: key, value: value };
+  switchAdsViewTab(targetTab || 'ads');
+}
+
+// 清除下钻过滤（面包屑 ✕ 调用）
+function clearAdsFilter() {
+  window._adsDrillFilter = null;
+  if (typeof filterAds === 'function') filterAds();
 }
 
 function renderAdsTree(rows, forceOpen) {
@@ -23949,42 +23989,46 @@ function renderAdsTree(rows, forceOpen) {
       if (fKey === 'campaign_id') displayVal = rows[0].campaign_name || fVal;
       if (fKey === 'adset_id') displayVal = rows[0].adset_name || fVal;
     }
-    breadcrumbHtml = '<div class="breadcrumb-bar" style="display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--p);color:var(--p);font-size:13px;"><b>🔍 ' + fLabel + ':</b>&nbsp;' + escHtml(displayVal) + '&nbsp;<button onclick="clearAdsFilter()" style="background:none;border:none;color:var(--p);font-weight:bold;cursor:pointer;font-size:14px;padding:0;">✕</button></div>';
+    breadcrumbHtml = '<div class="breadcrumb-bar" style="display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--ac);color:var(--ac);font-size:13px;"><b>🔍 ' + fLabel + ':</b>&nbsp;' + escHtml(displayVal) + '&nbsp;<button onclick="clearAdsFilter()" style="background:none;border:none;color:var(--ac);font-weight:bold;cursor:pointer;font-size:14px;padding:0;">✕</button></div>';
   }
   var bc = document.getElementById('adsDrillBreadcrumb');
   if (!bc) { var tc = document.getElementById('adsViewTabs'); if (tc) { bc = document.createElement('div'); bc.id = 'adsDrillBreadcrumb'; tc.parentNode.insertBefore(bc, tc.nextSibling); } }
   if (bc) bc.innerHTML = breadcrumbHtml;
 
+  var tab = window._currentAdsViewTab || 'ads';
+  var colCount = (tab === 'ads') ? 14 : 13;
+
   if (!rows || !rows.length) {
-    tb.innerHTML = '<tr><td colspan="14"><div class="mira-empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><br>没有找到符合条件的数据</div></td></tr>';
+    tb.innerHTML = '<tr><td colspan="'+colCount+'"><div class="mira-empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><br>没有找到符合条件的数据</div></td></tr>';
     document.getElementById('adsCount').textContent = '共 0 条';
     return;
   }
 
   var html = [];
-  var tab = window._currentAdsViewTab || 'ads';
+  var _adsRenderedCount = rows.length;
 
   if (tab === 'campaigns') {
-    head.innerHTML = '<tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告系列名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:50px">ROAS</th><th style="width:36px">广告</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr>';
+    head.innerHTML = '<tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告系列名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:84px">消耗</th><th style="width:46px">转化</th><th style="width:46px">真实</th><th style="width:58px">CPA</th><th style="width:50px">ROAS</th><th style="width:40px">广告</th><th style="width:48px">评分</th><th style="width:132px">操作</th></tr>';
 
     var campGroup = _adsGroupBy(rows, function(a){return a.campaign_id||('__camp_'+a.ad_id);});
+    _adsRenderedCount = campGroup.keys.length;
     campGroup.keys.forEach(function(campKey) {
       var campRows = campGroup.map[campKey], campRep = campRows[0], campM = _adsSum(campRows);
 
-      html.push('<tr class="ads-campaign-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--border);">');
+      html.push('<tr class="ads-campaign-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--bd);">');
       html.push('<td>'+_adsSwitchButton(campRep,'campaign')+'</td>');
       html.push('<td>'+_adsSelectBox('campaign',campKey,'')+'</td>');
 
       var metaHtml = '<div class="flat-node-meta"><span>所属账户: ' + escHtml(displayAccountName(campRep.account_name, campRep.act_id)) + '</span></div>';
-      html.push('<td><a href="javascript:void(0)" onclick="applyAdsFilter(\'campaign_id\', \''+_adsJs(campKey)+'\', \'adsets\', event)" style="font-weight:600;font-size:14px;color:var(--p);text-decoration:none;">'+escHtml(campRep.campaign_name||campKey)+'</a>' + metaHtml + '</td>');
+      html.push('<td><a href="javascript:void(0)" onclick="applyAdsFilter(\'campaign_id\', \''+_adsJs(campKey)+'\', \'adsets\', event)" style="font-weight:600;font-size:14px;color:var(--ac);text-decoration:none;">'+escHtml(campRep.campaign_name||campKey)+'</a>' + metaHtml + '</td>');
 
       html.push('<td>'+_adsStatusBadge(_adsGroupStatus(campRows,'campaign'))+'</td>');
       html.push('<td>'+_adsBudgetCell(campRep,'campaign')+'</td>');
 
-      html.push('<td>'+formatUSD(campM.spend_usd || campM.spend, campRep.currency, campM.spend)+'</td>');
+      html.push('<td>'+formatUSD(campM.spend, campRep.currency)+'</td>');
       html.push('<td>'+campM.conversions+'</td>');
-      html.push('<td>'+campM.trueConversions+'</td>');
-      html.push('<td class="'+(campM.cpa>0?'':'')+'">'+(campM.cpa>0?'$'+campM.cpa.toFixed(2):'--')+'</td>');
+      html.push('<td>'+(campM.true_action||0)+'</td>');
+      html.push('<td>'+(campM.cpa>0?'$'+campM.cpa.toFixed(2):'--')+'</td>');
       html.push('<td>'+(campM.roas>0?campM.roas.toFixed(2)+'x':'--')+'</td>');
 
       html.push('<td><span class="badge bg-mu">'+campM.count+' 条</span></td>');
@@ -23994,26 +24038,27 @@ function renderAdsTree(rows, forceOpen) {
     });
 
   } else if (tab === 'adsets') {
-    head.innerHTML = '<tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告组名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:50px">ROAS</th><th style="width:36px">广告</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr>';
+    head.innerHTML = '<tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告组名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:84px">消耗</th><th style="width:46px">转化</th><th style="width:46px">真实</th><th style="width:58px">CPA</th><th style="width:50px">ROAS</th><th style="width:40px">广告</th><th style="width:48px">评分</th><th style="width:132px">操作</th></tr>';
 
     var adsetGroup = _adsGroupBy(rows, function(a){return a.adset_id||('__adset_'+a.ad_id);});
+    _adsRenderedCount = adsetGroup.keys.length;
     adsetGroup.keys.forEach(function(adsetKey) {
       var setRows = adsetGroup.map[adsetKey], setRep = setRows[0], setM = _adsSum(setRows);
 
-      html.push('<tr class="ads-adset-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--border);">');
+      html.push('<tr class="ads-adset-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--bd);">');
       html.push('<td>'+_adsSwitchButton(setRep,'adset')+'</td>');
       html.push('<td>'+_adsSelectBox('adset',adsetKey,'')+'</td>');
 
       var metaHtml = '<div class="flat-node-meta"><span>系列: ' + escHtml(setRep.campaign_name||'未知') + '</span><span>账户: ' + displayActIdClean(setRep.act_id) + '</span></div>';
-      html.push('<td><a href="javascript:void(0)" onclick="applyAdsFilter(\'adset_id\', \''+_adsJs(adsetKey)+'\', \'ads\', event)" style="font-weight:600;font-size:14px;color:var(--p);text-decoration:none;">'+escHtml(setRep.adset_name||adsetKey)+'</a>' + metaHtml + '</td>');
+      html.push('<td><a href="javascript:void(0)" onclick="applyAdsFilter(\'adset_id\', \''+_adsJs(adsetKey)+'\', \'ads\', event)" style="font-weight:600;font-size:14px;color:var(--ac);text-decoration:none;">'+escHtml(setRep.adset_name||adsetKey)+'</a>' + metaHtml + '</td>');
 
       html.push('<td>'+_adsStatusBadge(_adsGroupStatus(setRows,'adset'))+'</td>');
       html.push('<td>'+_adsBudgetCell(setRep,'adset')+'</td>');
 
-      html.push('<td>'+formatUSD(setM.spend_usd || setM.spend, setRep.currency, setM.spend)+'</td>');
+      html.push('<td>'+formatUSD(setM.spend, setRep.currency)+'</td>');
       html.push('<td>'+setM.conversions+'</td>');
-      html.push('<td>'+setM.trueConversions+'</td>');
-      html.push('<td class="'+(setM.cpa>0?'':'')+'">'+(setM.cpa>0?'$'+setM.cpa.toFixed(2):'--')+'</td>');
+      html.push('<td>'+(setM.true_action||0)+'</td>');
+      html.push('<td>'+(setM.cpa>0?'$'+setM.cpa.toFixed(2):'--')+'</td>');
       html.push('<td>'+(setM.roas>0?setM.roas.toFixed(2)+'x':'--')+'</td>');
 
       html.push('<td><span class="badge bg-mu">'+setM.count+' 条</span></td>');
@@ -24023,7 +24068,7 @@ function renderAdsTree(rows, forceOpen) {
     });
 
   } else {
-    head.innerHTML = '<tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:56px">目标CPA</th><th style="width:50px">ROAS</th><th style="width:44px">KPI</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr>';
+    head.innerHTML = '<tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>广告名称</th><th style="width:60px">状态</th><th style="width:72px">预算</th><th style="width:84px">消耗</th><th style="width:46px">转化</th><th style="width:96px">真实</th><th style="width:58px">CPA</th><th style="width:58px">目标CPA</th><th style="width:50px">ROAS</th><th style="width:48px">KPI</th><th style="width:48px">评分</th><th style="width:132px">操作</th></tr>';
 
     var sortedRows = rows.slice().sort(function(a, b) {
       return (b.spend_usd || b.spend || 0) - (a.spend_usd || a.spend || 0);
@@ -24032,7 +24077,7 @@ function renderAdsTree(rows, forceOpen) {
     sortedRows.forEach(function(a) {
       var cc = a.target_cpa ? (a.cpa <= a.target_cpa ? 'cpa-good' : a.cpa <= a.target_cpa * 1.3 ? 'cpa-warn' : 'cpa-bad') : '';
 
-      html.push('<tr class="ads-ad-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--border);">');
+      html.push('<tr class="ads-ad-row flat-row" style="background:var(--bg); border-bottom: 1px solid var(--bd);">');
       html.push('<td>'+_adsSwitchButton(a,'ad')+'</td>');
       html.push('<td>'+_adsSelectBox('ad',a.ad_id,'')+'</td>');
 
@@ -24040,13 +24085,13 @@ function renderAdsTree(rows, forceOpen) {
       var adNameHtml = '<div style="font-weight:600; font-size:13px; color:var(--t1);">' + escHtml(a.ad_name||a.ad_id) + '</div>' + metaHtml;
 
       if(a.landing && a.landing.slug) {
-         adNameHtml += '<div style="margin-top:6px;font-size:11px;">🔗 <a href="/a/'+escHtml(a.landing.slug)+'?ad='+escHtml(a.ad_id)+'" target="_blank" style="color:var(--p);text-decoration:none">'+escHtml(a.landing.slug)+'</a></div>';
+         adNameHtml += '<div style="margin-top:6px;font-size:11px;">🔗 <a href="/a/'+escHtml(a.landing.slug)+'?ad='+escHtml(a.ad_id)+'" target="_blank" style="color:var(--ac);text-decoration:none">'+escHtml(a.landing.slug)+'</a></div>';
       }
 
       html.push('<td>'+adNameHtml+'</td>');
       html.push('<td>'+_adsStatusBadge(a.effective_status||a.status||'')+'</td>');
       html.push('<td>'+_adsBudgetCell(a,'ad')+'</td>');
-      html.push('<td>'+formatUSD(a.spend_usd || a.spend, a.currency, a.spend)+'</td>');
+      html.push('<td>'+formatUSD(a.spend, a.currency)+'</td>');
       html.push('<td>'+(a.conversions||0)+'</td>');
       html.push('<td>'+_adsTrueCell(a)+'</td>');
       html.push('<td class="'+cc+'">'+(a.cpa?'$'+Number(a.cpa).toFixed(2):'--')+'</td>');
@@ -24060,36 +24105,35 @@ function renderAdsTree(rows, forceOpen) {
   }
 
   tb.innerHTML = html.join('');
-  document.getElementById('adsCount').textContent = '当前视图共 ' + (tab === 'ads' ? rows.length : (tab === 'adsets' ? Object.keys(_adsGroupBy(rows, function(a){return a.adset_id||a.ad_id}).map).length : Object.keys(_adsGroupBy(rows, function(a){return a.campaign_id||a.ad_id}).map).length)) + ' 条数据';
+  var unitLabel = tab === 'campaigns' ? '个系列' : (tab === 'adsets' ? '个广告组' : '条广告');
+  document.getElementById('adsCount').textContent = '当前视图共 ' + _adsRenderedCount + ' ' + unitLabel;
   updateAdsBulkBar();
 }
 
-var _originalAdsMoreActions = _adsMoreActions;
 function _adsMoreActions(rep, level) {
   var id = (level==='account'?rep.act_id:level==='campaign'?rep.campaign_id:level==='adset'?rep.adset_id:rep.ad_id);
   if (!id) return '';
   var actId = rep.act_id || '';
   var btns = [];
-  var btnStyle = 'display:inline-flex;align-items:center;gap:3px;border:1px solid var(--border);border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;background:var(--bg2);color:var(--t1);white-space:nowrap;';
 
   if (level === 'campaign') {
-    btns.push('<button onclick="event.stopPropagation();applyAdsFilter(\'campaign_id\',\''+_adsJs(id)+'\',\'adsets\')" style="'+btnStyle+'background:var(--p);color:#fff;border-color:var(--p);font-weight:600;">查看广告组 →</button>');
+    btns.push('<button class="ads-inline-btn primary" onclick="event.stopPropagation();applyAdsFilter(\'campaign_id\',\''+_adsJs(id)+'\',\'adsets\')">查看广告组 →</button>');
   }
   if (level === 'adset') {
-    btns.push('<button onclick="event.stopPropagation();applyAdsFilter(\'adset_id\',\''+_adsJs(id)+'\',\'ads\')" style="'+btnStyle+'background:var(--p);color:#fff;border-color:var(--p);font-weight:600;">查看广告 →</button>');
+    btns.push('<button class="ads-inline-btn primary" onclick="event.stopPropagation();applyAdsFilter(\'adset_id\',\''+_adsJs(id)+'\',\'ads\')">查看广告 →</button>');
   }
 
   if (level === 'ad') {
-    btns.push('<button onclick="event.stopPropagation();showDiagnose(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\')" title="广告诊断" style="'+btnStyle+'">🩺</button>');
-    btns.push('<button onclick="event.stopPropagation();quickKpi(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\',\''+_adsJs(rep.ad_name||'')+'\')" title="KPI配置" style="'+btnStyle+'">🎯</button>');
-    btns.push('<button onclick="event.stopPropagation();showAdBrief(\''+_adsJs(id)+'\')" title="广告详情" style="'+btnStyle+'">ℹ️</button>');
+    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();showDiagnose(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\')" title="广告诊断">🩺</button>');
+    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();quickKpi(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\',\''+_adsJs(rep.ad_name||'')+'\')" title="KPI配置">🎯</button>');
+    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();showAdBrief(\''+_adsJs(id)+'\')" title="广告详情">ℹ️</button>');
     if (rep.landing && rep.landing.link_id) {
-      btns.push('<button onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改跳转" style="'+btnStyle+'color:var(--wa);">🔗</button>');
-      btns.push('<button onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(id)+'\')" title="回填数据" style="'+btnStyle+'color:var(--ok);">📝</button>');
+      btns.push('<button class="ads-inline-btn icon" style="color:var(--wa)" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改跳转">🔗</button>');
+      btns.push('<button class="ads-inline-btn icon" style="color:var(--ok)" onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(id)+'\')" title="回填数据">📝</button>');
     }
   }
 
-  return '<div style="display:inline-flex;gap:3px;align-items:center;white-space:nowrap">'+_adsRecentOpChip(level,id)+btns.join('')+'</div>';
+  return '<div style="display:inline-flex;gap:4px;align-items:center;white-space:nowrap">'+_adsRecentOpChip(level,id)+btns.join('')+'</div>';
 }
 // =================================================================
 
@@ -24119,7 +24163,7 @@ async function openQuickLinkGen() {
         var slug = lp.slug || '(无短码)';
         var domain = lp.custom_domain || 'go.dailyusbrief.xyz';
         var adLink = 'https://'+domain+'/a/'+slug+'?ad={{ad.id}}';
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px">';
         html += '<div><b style="font-size:13px">'+escHtml(lp.name||slug)+'</b><br><code style="font-size:11px;color:var(--t3)">'+escHtml(adLink)+'</code></div>';
         html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(adLink)+'\');toast(\'已复制投放链接\',\'ok\')" style="flex-shrink:0">📋 复制</button>';
         html += '</div>';
@@ -24130,7 +24174,7 @@ async function openQuickLinkGen() {
     html += '<div style="color:var(--er)">加载落地页失败: '+escHtml(e.message||e)+'</div>';
   }
 
-  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--border);padding-top:10px">💡 手动建广告时，把链接里的 <code>{{ad.id}}</code> 替换为 FB 的动态宏，投出去后 Mira 会自动回绑广告 ID。</div>';
+  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px">💡 手动建广告时，把链接里的 <code>{{ad.id}}</code> 替换为 FB 的动态宏，投出去后 Mira 会自动回绑广告 ID。</div>';
   html += '</div>';
 
   showInfo(html, '生成投放链接');
@@ -24153,7 +24197,7 @@ async function openQuickImportAccount() {
     } else {
       html += '<div style="max-height:250px;overflow-y:auto;margin-bottom:12px">';
       manageTokens.forEach(function(tk) {
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px">';
         html += '<div><b style="font-size:13px">'+escHtml(tk.token_alias||tk.token_name||'Token #'+tk.id)+'</b><br><span style="font-size:11px;color:var(--t3)">'+escHtml(tk.token_source||'system_user')+'</span></div>';
         html += '<button class="btn btn-p btn-sm" onclick="doQuickImportAccounts('+tk.id+')" style="flex-shrink:0">📥 扫描导入</button>';
         html += '</div>';
@@ -24164,7 +24208,7 @@ async function openQuickImportAccount() {
     html += '<div style="color:var(--er)">加载 Token 失败: '+escHtml(e.message||e)+'</div>';
   }
 
-  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--border);padding-top:10px">💡 导入后系统会自动匹配操作号 Token 到对应账户。</div>';
+  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px">💡 导入后系统会自动匹配操作号 Token 到对应账户。</div>';
   html += '</div>';
   showInfo(html, '导入广告账户');
 }
@@ -24221,14 +24265,14 @@ async function openQuickLaunch() {
       var thumb = a.thumbnail_url || a.preview_url || '';
       var typeLabel = a.file_type === 'video' ? '视频' : '图片';
       var countryLabel = (a.target_countries && Array.isArray(a.target_countries)) ? a.target_countries.slice(0,3).join(',') : (a.target_countries || '未设国家');
-      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer" onclick="closeAllModals();openLaunchModal('+a.id+')">';
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px;cursor:pointer" onclick="closeAllModals();openLaunchModal('+a.id+')">';
       html += '<div style="width:48px;height:48px;flex-shrink:0;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:20px">'+(thumb?'<img src="'+escHtml(thumb)+'" style="width:100%;height:100%;object-fit:cover">':'📷')+'</div>';
       html += '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(name)+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">'+typeLabel+' · '+escHtml(countryLabel)+'</div></div>';
-      html += '<span style="color:var(--p);font-size:12px;font-weight:600;flex-shrink:0">铺广告 →</span>';
+      html += '<span style="color:var(--ac);font-size:12px;font-weight:600;flex-shrink:0">铺广告 →</span>';
       html += '</div>';
     });
     html += '</div>';
-    html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--border);padding-top:10px">💡 素材需要在素材库中上传并完成 AI 文案分析后才能铺广告。没看到想要的？<a href="#" onclick="closeAllModals();showPage(\'assets\');return false" style="color:var(--p)">去素材库</a></div>';
+    html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px">💡 素材需要在素材库中上传并完成 AI 文案分析后才能铺广告。没看到想要的？<a href="#" onclick="closeAllModals();showPage(\'assets\');return false" style="color:var(--ac)">去素材库</a></div>';
     html += '</div>';
     showInfo(html, '选择素材铺广告');
   } catch(e) {
