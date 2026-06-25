@@ -255,6 +255,11 @@ async def startup():
         import logging
         logging.getLogger("mira").warning(f"warmup schema warning: {e}")
     start_scheduler()
+    try:
+        from api.dashboard import start_meta_spend_reconciliation_worker
+        start_meta_spend_reconciliation_worker()
+    except Exception as e:
+        logging.getLogger("mira").warning(f"meta spend reconciliation worker warning: {e}")
 
 
 # ── API 路由（必须在静态文件挂载之前注册）──────────────────────────────────
@@ -287,6 +292,15 @@ app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": APP_VERSION}
+
+# 隐私政策（公开，无需登录，用于 Facebook App Review）
+@app.get("/privacy")
+async def privacy():
+    return FileResponse(
+        os.path.join(FRONTEND, "privacy.html"),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
 
 
 # ── 前端静态文件服务（放在最后，避免拦截 API 路由）─────────────────────────
