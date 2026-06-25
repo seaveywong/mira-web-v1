@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.89</title>
+<title>Mira · 广告投放管理系统 v3.11.90</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -352,7 +352,7 @@ tr:hover td{background:var(--bgh)}
 .fb-more button{height:26px;padding:0 8px;border-radius:6px;border:1px solid var(--bd);background:rgba(17,24,39,.78);color:var(--t2);font-size:11px;font-weight:700;cursor:pointer}
 .fb-more button:hover:not(:disabled){background:var(--bgh);color:var(--t1);border-color:var(--bd2)}
 .fb-more button:disabled{opacity:.35;cursor:not-allowed}
-.fb-op-chip{height:24px;padding:0 7px;border-radius:4px;border:1px solid var(--bd);background:rgba(255,255,255,.025);color:var(--t2);font-size:11px;font-weight:650;cursor:pointer}
+.fb-op-chip{display:inline-flex!important;align-items:center;justify-content:center;height:24px!important;min-width:32px;padding:0 7px!important;border-radius:4px;border:1px solid var(--bd);background:rgba(255,255,255,.025);color:var(--t2);font-size:11px;font-weight:650;cursor:pointer;white-space:nowrap!important;writing-mode:horizontal-tb!important;flex-shrink:0}
 .fb-op-chip.ok{color:#7fc9a7;border-color:rgba(127,201,167,.24);background:rgba(255,255,255,.025)}
 .fb-op-chip.er{color:#e99b9b;border-color:rgba(233,155,155,.24);background:rgba(255,255,255,.025)}
 .fb-op-chip.wa{color:#dfc17a;border-color:rgba(223,193,122,.24);background:rgba(255,255,255,.025)}
@@ -3581,7 +3581,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.89</p>
+<p id="loginVer">广告投放管理系统 v3.11.90</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3600,7 +3600,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.89</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.90</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -3955,7 +3955,12 @@ input:focus, select:focus, textarea:focus {
       <button class="btn btn-g btn-sm" onclick="clearSelectedAds()">清空选择</button>
      </div>
      <div id="adsBoard" class="ads-board"><div class="ads-board-empty"><span class="spin"></span> 加载中...</div></div>
-     <div class="ads-tabs-container" id="adsViewTabs"><button class="ads-tab-btn active" onclick="switchAdsViewTab('campaigns')">📁 广告系列</button><button class="ads-tab-btn" onclick="switchAdsViewTab('adsets')">📦 广告组</button><button class="ads-tab-btn" onclick="switchAdsViewTab('ads')">📰 广告</button></div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th>评分</th><th>操作</th></tr></thead>
+     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<div style="display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0">
+  <button class="btn btn-p btn-sm" onclick="openQuickLinkGen()" title="生成投放链接，用于手动上广告时复制到FB" style="font-size:12px;padding:5px 10px;">🔗 生成投放链接</button>
+  <button class="btn btn-g btn-sm" onclick="openQuickImportAccount()" title="导入新广告账户并自动匹配Token" style="font-size:12px;padding:5px 10px;">＋ 导入账户</button>
+</div>
+</div><div class="ads-tabs-container" id="adsViewTabs"><button class="ads-tab-btn active" onclick="switchAdsViewTab('campaigns')">📁 广告系列</button><button class="ads-tab-btn" onclick="switchAdsViewTab('adsets')">📦 广告组</button><button class="ads-tab-btn" onclick="switchAdsViewTab('ads')">📰 广告</button></div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th>开关</th><th><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th>状态</th><th>预算</th><th>消耗</th><th>转化</th><th>真实</th><th>CPA 实际</th><th>目标CPA</th><th>ROAS</th><th>KPI</th><th>评分</th><th>操作</th></tr></thead>
       <tbody id="adsBody"><tr><td colspan="14" style="text-align:center;color:var(--t3);padding:40px">加载中...</td></tr></tbody>
      </table></div></div>
      <div style="padding:12px 0;font-size:12px;color:var(--t3);text-align:right" id="adsCount"></div>
@@ -5969,7 +5974,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.89';
+var APP_VERSION='v3.11.90';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -24056,6 +24061,97 @@ function _adsMoreActions(rep, level) {
   return menu;
 }
 // =================================================================
+
+
+
+// ── 快速生成投放链接 ──
+async function openQuickLinkGen() {
+  var actId = (document.getElementById('adsAct')||{}).value || '';
+  if (!actId || actId === '__all__') { toast('请先在顶部选择一个具体账户','wa'); return; }
+
+  // Fetch landing pages for this account
+  var html = '<div style="text-align:left">';
+  html += '<div style="font-size:13px;color:var(--t2);margin-bottom:12px">为账户 <b>'+escHtml(displayActIdClean(actId))+'</b> 生成广告投放链接</div>';
+
+  try {
+    var landings = await api('GET','/landing-pages?act_id='+encodeURIComponent(actId)) || [];
+    var activePages = landings.filter(function(l){ return l.status !== 'archived'; });
+
+    if (!activePages.length) {
+      html += '<div style="padding:16px;background:var(--wag);border-radius:8px;margin-bottom:12px;font-size:13px;color:var(--t2)">';
+      html += '⚠️ 该账户还没有绑定落地页主链接。<br>';
+      html += '<button class="btn btn-p btn-sm" onclick="closeModal(\'moQuickLinkGen\');showPage(\'landing_center\')" style="margin-top:8px">去落地页工作台创建</button>';
+      html += '</div>';
+    } else {
+      html += '<div style="max-height:300px;overflow-y:auto;margin-bottom:12px">';
+      activePages.forEach(function(lp) {
+        var slug = lp.slug || '(无短码)';
+        var domain = lp.custom_domain || 'go.dailyusbrief.xyz';
+        var adLink = 'https://'+domain+'/a/'+slug+'?ad={{ad.id}}';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">';
+        html += '<div><b style="font-size:13px">'+escHtml(lp.name||slug)+'</b><br><code style="font-size:11px;color:var(--t3)">'+escHtml(adLink)+'</code></div>';
+        html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(adLink)+'\');toast(\'已复制投放链接\',\'ok\')" style="flex-shrink:0">📋 复制</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+  } catch(e) {
+    html += '<div style="color:var(--er)">加载落地页失败: '+escHtml(e.message||e)+'</div>';
+  }
+
+  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--border);padding-top:10px">💡 手动建广告时，把链接里的 <code>{{ad.id}}</code> 替换为 FB 的动态宏，投出去后 Mira 会自动回绑广告 ID。</div>';
+  html += '</div>';
+
+  showInfo(html, '生成投放链接');
+}
+
+// ── 快速导入账户 ──
+async function openQuickImportAccount() {
+  var html = '<div style="text-align:left">';
+  html += '<div style="font-size:13px;color:var(--t2);margin-bottom:12px">选择可用的管理号 Token 来扫描并导入广告账户</div>';
+
+  try {
+    // Fetch available manage tokens
+    var tokens = await api('GET','/tokens?token_type=manage') || [];
+    var manageTokens = tokens.filter(function(t){ return t.token_type === 'manage' && t.status === 'active'; });
+
+    if (!manageTokens.length) {
+      html += '<div style="padding:16px;background:var(--erg);border-radius:8px;font-size:13px;color:var(--er)">';
+      html += '❌ 没有找到可用的管理号 Token。请先在「Token 管理」中添加。';
+      html += '</div>';
+    } else {
+      html += '<div style="max-height:250px;overflow-y:auto;margin-bottom:12px">';
+      manageTokens.forEach(function(tk) {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">';
+        html += '<div><b style="font-size:13px">'+escHtml(tk.token_alias||tk.token_name||'Token #'+tk.id)+'</b><br><span style="font-size:11px;color:var(--t3)">'+escHtml(tk.token_source||'system_user')+'</span></div>';
+        html += '<button class="btn btn-p btn-sm" onclick="doQuickImportAccounts('+tk.id+')" style="flex-shrink:0">📥 扫描导入</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+  } catch(e) {
+    html += '<div style="color:var(--er)">加载 Token 失败: '+escHtml(e.message||e)+'</div>';
+  }
+
+  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--border);padding-top:10px">💡 导入后系统会自动匹配操作号 Token 到对应账户。</div>';
+  html += '</div>';
+  showInfo(html, '导入广告账户');
+}
+
+async function doQuickImportAccounts(tokenId) {
+  try {
+    closeModal('moInfo');
+    toast('正在扫描并导入账户...', 'ok');
+    var result = await api('POST','/accounts/import/'+tokenId, {act_ids: []});
+    var msg = '已导入 '+Number(result.imported||0)+' 个账户';
+    if (Number(result.skipped||0)) msg += '，跳过 '+result.skipped+' 个';
+    toast(msg, 'ok');
+    // Refresh account dropdowns
+    if (typeof loadAccounts === 'function') loadAccounts();
+  } catch(e) {
+    toast('导入失败: '+(e.message||e), 'er');
+  }
+}
 
 </script></body>
 </html>

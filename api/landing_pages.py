@@ -50,7 +50,13 @@ from services.landing_publisher import (
 logger = logging.getLogger("mira.landing_pages")
 router = APIRouter()
 CST = timezone(timedelta(hours=8))
-LANDING_TRACKING_RETENTION_DAYS = 7
+try:
+    LANDING_TRACKING_RETENTION_DAYS = max(
+        7,
+        min(365, int(os.environ.get("MIRA_LANDING_TRACKING_RETENTION_DAYS", "90"))),
+    )
+except (TypeError, ValueError):
+    LANDING_TRACKING_RETENTION_DAYS = 90
 LANDING_TEMPLATE_REFERENCE_ZIP = os.environ.get(
     "MIRA_LANDING_TEMPLATE_REFERENCE_ZIP",
     "/opt/mira/landing-template-reference.zip",
@@ -6308,6 +6314,8 @@ def landing_page_stats(
     days: int = 7,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    ad_slug: Optional[str] = None,
+    ad_id: Optional[str] = None,
     user=Depends(get_current_user),
 ):
     days = max(1, min(int(days or 7), LANDING_TRACKING_RETENTION_DAYS))
@@ -6316,8 +6324,29 @@ def landing_page_stats(
     end_at = (datetime.fromisoformat(date_to) + timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
     conn = get_conn()
     page = _assert_page_access(conn, page_id, user)
-    params = (page_id, start_at, end_at)
+    params_list = [page_id, start_at, end_at]
     event_where = "page_id=? AND created_at>=? AND created_at<?"
+    ad_slug = str(ad_slug or "").strip()
+    normalized_ad_id = _normalize_ad_id(ad_id or "")
+    if ad_slug:
+        event_where += " AND (path=? OR COALESCE(metadata,'') LIKE ? OR COALESCE(metadata,'') LIKE ?)"
+        params_list.extend([
+            f"/a/{ad_slug}",
+            f'%"ad_slug":"{ad_slug}"%',
+            f'%"ad_slug": "{ad_slug}"%',
+        ])
+    if normalized_ad_id:
+        event_where += (
+            " AND (COALESCE(metadata,'') LIKE ? OR COALESCE(metadata,'') LIKE ?"
+            " OR COALESCE(metadata,'') LIKE ? OR COALESCE(metadata,'') LIKE ?)"
+        )
+        params_list.extend([
+            f'%"ad_id":"{normalized_ad_id}"%',
+            f'%"ad_id": "{normalized_ad_id}"%',
+            f'%"ad":"{normalized_ad_id}"%',
+            f'%"ad": "{normalized_ad_id}"%',
+        ])
+    params = tuple(params_list)
     by_type = {
         r["event_type"]: int(r["cnt"] or 0)
         for r in conn.execute(
@@ -6358,7 +6387,7 @@ def landing_page_stats(
         for r in conn.execute(
             """SELECT COALESCE(NULLIF(target_url,''),'--') AS target_url, event_type, COUNT(*) AS cnt
                FROM landing_events
-               WHERE page_id=? AND created_at>=? AND created_at<? AND event_type IN ('redirect','click')
+               WHERE """ + event_where + """ AND event_type IN ('redirect','click')
                GROUP BY target_url,event_type
                ORDER BY cnt DESC LIMIT 30""",
             params,
@@ -6369,7 +6398,7 @@ def landing_page_stats(
         for r in conn.execute(
             """SELECT COALESCE(NULLIF(reason,''),'--') AS reason, COUNT(*) AS cnt
                FROM landing_events
-               WHERE page_id=? AND created_at>=? AND created_at<? AND event_type='block'
+               WHERE """ + event_where + """ AND event_type='block'
                GROUP BY reason
                ORDER BY cnt DESC LIMIT 20""",
             params,
@@ -6381,7 +6410,7 @@ def landing_page_stats(
             """SELECT event_type, decision, reason, path, target_url, referrer,
                       country, region, city, colo, asn, platform, device_type,
                       browser, os, metadata, created_at
-               FROM landing_events WHERE page_id=? AND created_at>=? AND created_at<?
+               FROM landing_events WHERE """ + event_where + """
                ORDER BY id DESC LIMIT 5000""",
             params,
         ).fetchall()
