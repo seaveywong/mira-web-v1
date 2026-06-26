@@ -1287,11 +1287,11 @@ def _check_and_warmup_unlocked(user: Optional[dict] = None):
     return summary
 
 
-def rewarm_account(account: dict) -> Tuple[str, str]:
+def rewarm_account(account: dict, force: bool = True) -> Tuple[str, str]:
     if not _warmup_lock.acquire(blocking=False):
         return ("skipped", "预热任务正在运行，请稍后重试")
     try:
-        return _warmup_account(account)
+        return _warmup_account(account, force=force)
     finally:
         _warmup_lock.release()
 
@@ -1384,7 +1384,7 @@ def _mark_warmup_budget_rejected(
     _log_action(act_id, "warmup_budget_rejected", detail, account_name, status="failed", level="warning")
 
 
-def _warmup_account(account: dict) -> Tuple[str, str]:
+def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
     """对单个账户执行预热，返回 (状态, 详情)"""
     act_id = account["act_id"]
     currency = account.get("currency", "USD")
@@ -1398,16 +1398,19 @@ def _warmup_account(account: dict) -> Tuple[str, str]:
     created = []
 
     try:
-        if _recent_spend_hold_active(account):
-            return ("skipped", _recent_spend_hold_message(account))
+        if not force:
+            if _recent_spend_hold_active(account):
+                return ("skipped", _recent_spend_hold_message(account))
 
-        recent_spend, recent_error = _get_recent_account_spend(act_id)
-        if recent_spend is not None and recent_spend > 0:
-            _mark_recent_spend_skip(account, recent_spend)
-            return ("skipped", f"{act_id}: 最近{_WARMUP_RECENT_SPEND_DAYS}天已有消耗 {recent_spend:.2f} {currency}，跳过预热")
-        if recent_error:
-            logger.warning(f"warmup: {act_id} {recent_error}，跳过预热以避免误创建")
-            return ("skipped", f"{act_id}: 无法确认最近{_WARMUP_RECENT_SPEND_DAYS}天消耗，已跳过预热: {recent_error}")
+            recent_spend, recent_error = _get_recent_account_spend(act_id)
+            if recent_spend is not None and recent_spend > 0:
+                _mark_recent_spend_skip(account, recent_spend)
+                return ("skipped", f"{act_id}: 最近{_WARMUP_RECENT_SPEND_DAYS}天已有消耗 {recent_spend:.2f} {currency}，跳过预热")
+            if recent_error:
+                logger.warning(f"warmup: {act_id} {recent_error}，跳过预热以避免误创建")
+                return ("skipped", f"{act_id}: 无法确认最近{_WARMUP_RECENT_SPEND_DAYS}天消耗，已跳过预热: {recent_error}")
+        else:
+            logger.info(f"warmup: {act_id} 手动强制重新预热，跳过近期消耗保护")
 
         if page_id:
             block_reason = _warmup_page_block_reason(page_id)
