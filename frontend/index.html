@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.105</title>
+<title>Mira · 广告投放管理系统 v3.11.106</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3516,7 +3516,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.105</p>
+<p id="loginVer">广告投放管理系统 v3.11.106</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3535,7 +3535,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.105</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.106</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -3890,7 +3890,8 @@ input:focus, select:focus, textarea:focus {
        <button class="ads-tab-btn" onclick="switchAdsViewTab('ads')">📰 广告</button>
       </div>
       <div class="ads-tabs-actions">
-       <button class="btn btn-p btn-sm" onclick="openQuickLinkGen()" title="生成投放链接，用于手动上广告时复制到FB" style="font-size:12px;padding:5px 10px;">🔗 生成投放链接</button>
+       <button class="btn btn-p btn-sm" onclick="openLaunchFromAdCenter()" title="直接打开铺广告向导，素材在向导内选择" style="font-size:12px;padding:5px 10px;">🚀 铺广告</button>
+       <button class="btn btn-g btn-sm" onclick="openQuickLinkGen()" title="生成投放链接，用于手动上广告时复制到FB" style="font-size:12px;padding:5px 10px;">🔗 生成投放链接</button>
        <button class="btn btn-g btn-sm" onclick="openQuickImportAccount()" title="导入新广告账户并自动匹配Token" style="font-size:12px;padding:5px 10px;">＋ 导入账户</button>
       </div>
      </div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:56px">目标CPA</th><th style="width:50px">ROAS</th><th style="width:44px">KPI</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr></thead>
@@ -5909,7 +5910,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.105';
+var APP_VERSION='v3.11.106';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -14009,6 +14010,11 @@ function selectLaunchAsset(id){
  document.querySelectorAll('.mo[id^="moInfo_"]').forEach(function(el){ try{closeModal(el.id);}catch(e){} setTimeout(function(){if(el&&el.parentNode)el.remove();},250); });
  toast('已选择素材','ok');
 }
+// 账户优先入口：从投放中心直接开铺广告向导，素材在向导内选（无需先逛素材库）
+function openLaunchFromAdCenter(){
+ if(typeof openLaunchModal!=='function'){ toast('铺广告组件未就绪，请刷新','er'); return; }
+ openLaunchModal('');
+}
 function _numOrFallback(v, fallback){
  var n=parseFloat(v);
  return Number.isFinite(n)?n:fallback;
@@ -14955,7 +14961,7 @@ async function onLaunchObjectiveChange() {
  var adLanguage=(document.getElementById('launchAdLanguage')||{}).value||'en';
  var selectedActIds=typeof _getSelectedActIds==='function'?(_getSelectedActIds()||[]):(actId?[actId]:[]);
  selectedActIds=selectedActIds.map(function(v){return String(v||'').trim();}).filter(Boolean);
- if(!assetId){toast('素材 ID 缺失，请刷新后重试','er');return;}
+ if(!assetId){toast('请先在向导顶部选择素材（点"选择素材"）','wa');return;}
  if(!selectedActIds.length){toast('请选择至少一个广告账户','er');return;}
  actId=selectedActIds[0];
  var convGoal=((document.getElementById('launchConvGoal')||{}).value||'');
