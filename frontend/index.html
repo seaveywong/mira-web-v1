@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.110</title>
+<title>Mira · 广告投放管理系统 v3.11.111</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3516,7 +3516,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.110</p>
+<p id="loginVer">广告投放管理系统 v3.11.111</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3535,7 +3535,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.110</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.111</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5913,7 +5913,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.110';
+var APP_VERSION='v3.11.111';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -13984,7 +13984,7 @@ function renderLaunchAssetSummary(){
   el.innerHTML='<div class="las-empty"><span>⚠️ 未选择素材</span><button class="btn btn-p btn-sm" onclick="pickLaunchAsset()">选择素材</button></div>';
   return;
  }
- var thumb=a.thumbnail_url||a.preview_url||'';
+ var thumb=a.thumb_url||(a.file_type==='image'?a.file_url:'')||'';
  var name=a.ai_headline||a.file_name||('素材 #'+a.id);
  var type=a.file_type==='video'?'视频':'图片';
  var copyBadge=(a.ai_headlines||a.ai_bodies)?'<span class="badge bg-ok" style="font-size:10px">AI文案就绪</span>':'<span class="badge bg-wa" style="font-size:10px">缺AI文案</span>';
@@ -14002,7 +14002,7 @@ async function pickLaunchAsset(){
  var cur=Number((document.getElementById('launchAssetId')||{}).value||0);
  var html='<div style="max-height:360px;overflow-y:auto">';
  launchable.slice(0,60).forEach(function(a){
-  var thumb=a.thumbnail_url||a.preview_url||'';
+  var thumb=a.thumb_url||(a.file_type==='image'?a.file_url:'')||'';
   var name=a.ai_headline||a.file_name||('素材 #'+a.id);
   var hasCopy=(a.ai_headlines||a.ai_bodies)?'AI文案就绪':'缺AI文案';
   html+='<div class="las-pick'+(a.id===cur?' sel':'')+'" onclick="selectLaunchAsset('+a.id+')">'+
@@ -24011,7 +24011,7 @@ async function openQuickLaunch() {
     html += '<div style="max-height:350px;overflow-y:auto;margin-bottom:12px">';
     launchable.slice(0, 30).forEach(function(a) {
       var name = a.ai_headline || a.file_name || ('素材 #'+a.id);
-      var thumb = a.thumbnail_url || a.preview_url || '';
+      var thumb = a.thumb_url || (a.file_type==='image'?a.file_url:'') || '';
       var typeLabel = a.file_type === 'video' ? '视频' : '图片';
       var countryLabel = (a.target_countries && Array.isArray(a.target_countries)) ? a.target_countries.slice(0,3).join(',') : (a.target_countries || '未设国家');
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px;cursor:pointer" onclick="closeAllModals();openLaunchModal('+a.id+')">';
