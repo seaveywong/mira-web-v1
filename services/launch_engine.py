@@ -1395,9 +1395,12 @@ class AutoPilotEngine:
                 "OUTCOME_APP_PROMOTION": "APP",
             }
             _obj_short = _obj_abbr.get(campaign["objective"], "ADS")
+            def _san_seg(_s):
+                import re as _re
+                return _re.sub(r"[^0-9A-Za-z]+", "", str(_s or "").strip())
             _ctry_list = target_countries or ["XX"]
-            _ctry_str  = "-".join(_ctry_list[:2])
-            _ast_code  = asset.get("asset_code") or f"AST-{asset['id']:04d}"
+            _ctry_str  = "-".join(filter(None, (_san_seg(c) for c in _ctry_list[:2]))) or "XX"
+            _ast_code  = _san_seg(asset.get("asset_code") or f"AST-{asset['id']:04d}") or f"AST{asset['id']:04d}"
             from datetime import datetime as _dt
             try:
                 import pytz as _pytz
@@ -2917,6 +2920,12 @@ class AutoPilotEngine:
                         landing_url = _tracked_landing_url
             except Exception as _link_err:
                 logger.warning("[AutoPilot] landing ad link auto-bind skipped: %s", _link_err)
+
+        # ── 命名自动修正：把专属子码后缀拼进广告名，Ads Manager 里一眼对上子码 ──
+        if _landing_link_reserved and _landing_link_reserved.get("slug"):
+            _slug_suffix = str(_landing_link_reserved.get("slug") or "").strip()
+            if _slug_suffix and not str(name or "").endswith("-" + _slug_suffix):
+                name = f"{name}-{_slug_suffix}"
 
         # ── 消息模板：保留原始值，统一在后面消息广告构建阶段处理 ──
         # 不在此处提前解析，避免双重解析导致 int() 失败
