@@ -1426,6 +1426,8 @@ class AutoPilotEngine:
                         daily_budget=test_budget if budget_mode == "CBO" else None,
                         currency=_acc_currency,
                         budget_mode=budget_mode,
+                        bid_strategy=bid_strategy,
+                        target_cpa=campaign["target_cpa"],
                     ),
                 )
                 token = self._candidate_token(_campaign_token_candidate, token)
@@ -2177,6 +2179,8 @@ class AutoPilotEngine:
         daily_budget: Optional[float] = None,
         currency: str = "USD",
         budget_mode: str = "ABO",
+        bid_strategy: str = "LOWEST_COST_WITHOUT_CAP",
+        target_cpa=None,
     ) -> str:
         """创建 Facebook Campaign"""
         act_id_num = act_id.replace("act_", "")
@@ -2202,6 +2206,11 @@ class AutoPilotEngine:
             if campaign_budget_units <= 0:
                 raise ValueError("CBO 模式必须配置大于 0 的系列日预算")
             payload["daily_budget"] = campaign_budget_units
+            # CBO 必须在系列上显式声明 bid_strategy，否则 AdSet 创建会报 "Bid Amount Required"
+            if target_cpa and float(target_cpa) > 0 and str(bid_strategy or "").upper() in ("COST_CAP", "BID_CAP"):
+                payload["bid_strategy"] = "COST_CAP"
+            else:
+                payload["bid_strategy"] = "LOWEST_COST_WITHOUT_CAP"
         else:
             payload["is_adset_budget_sharing_enabled"] = False
 
