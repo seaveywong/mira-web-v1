@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.111</title>
+<title>Mira · 广告投放管理系统 v3.11.112</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3516,7 +3516,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.111</p>
+<p id="loginVer">广告投放管理系统 v3.11.112</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3535,7 +3535,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.111</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.112</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5913,7 +5913,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.111';
+var APP_VERSION='v3.11.112';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -13736,23 +13736,47 @@ function _renderLaunchLinkStatusPanel(meta){
   (missing?'<div style="display:flex;justify-content:flex-end;margin-top:8px"><button type="button" class="btn btn-g btn-sm" onclick="showLaunchAccountLinks()">弹窗内补充参考</button><button type="button" class="btn btn-p btn-sm" onclick="closeModal(&quot;moLaunchCampaign&quot;);showPage(&quot;landing_center&quot;);openLandingPublishDrawer()">发布新主链接</button></div>':'')+
  '</div>';
 }
-function showLaunchAccountLinks(){
+async function showLaunchAccountLinks(){
  var selected=_getLaunchSelectedAccounts();
  var list=selected.length?selected:((window._launchAllAccounts&&window._launchAllAccounts.length)?window._launchAllAccounts.slice(0,80):(_landingUrlAccs||[]).slice(0,80));
  if(!list.length){toast('暂无账户链接数据，请先加载账户','wa');return;}
+ var lps=[];
+ try{ lps=(typeof _landingPages!=='undefined'&&_landingPages&&_landingPages.length)?_landingPages:(await api('GET','/landing-pages/pages')||[]); }catch(e){}
+ var lpOptions='<option value="">从落地页库选…</option>'+(lps||[]).filter(function(p){return p&&(p.public_url||p.pages_url);}).map(function(p){return '<option value="'+escHtml(p.public_url||p.pages_url)+'">'+escHtml(p.title||p.name||p.slug||('落地页 '+p.id))+'</option>';}).join('');
  var rows=list.map(function(a){
-  var landing=_accountLandingUrl(a);
-  var form=_accountFormLink(a);
+  var aid=String(a.act_id||'');
+  var landing=_accountLandingUrl(a)||'';
+  var form=_accountFormLink(a)||'';
   return '<tr>'+
-   '<td style="padding:8px 10px"><div style="font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escHtml(displayAccountName(a.name,a.act_id))+'">'+escHtml(displayAccountName(a.name,a.act_id))+'</div><div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(displayActId(a.act_id))+'</div></td>'+
-   '<td style="padding:8px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(landing||'')+'">'+(landing?'<code>'+escHtml(landing)+'</code>':'<span style="color:var(--wa)">未配置</span>')+'</td>'+
-   '<td style="padding:8px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(form||'')+'">'+(form?'<code>'+escHtml(form)+'</code>':'<span style="color:var(--t3)">未配置</span>')+'</td>'+
-   '<td style="padding:8px 10px;text-align:right;white-space:nowrap">'+(landing?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(landing)+'\')">复制主链</button>':'')+(form?'<button class="btn btn-g btn-sm" onclick="copyText(\''+encodeURIComponent(form)+'\')">复制表单</button>':'')+'</td>'+
+   '<td style="padding:8px 10px;vertical-align:top"><div style="font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="'+escHtml(displayAccountName(a.name,aid))+'">'+escHtml(displayAccountName(a.name,aid))+'</div><div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(displayActIdClean(aid))+'</div></td>'+
+   '<td style="padding:8px 10px;vertical-align:top"><input class="fc" id="lalL_'+escHtml(aid)+'" value="'+escHtml(landing)+'" placeholder="https://域名/a/短码 或落地页链接" style="font-size:12px;width:240px;margin-bottom:4px"><select class="fc" style="width:240px;font-size:11px" onchange="if(this.value){var i=document.getElementById(\'lalL_'+escHtml(aid)+'\');if(i)i.value=this.value;this.selectedIndex=0;}">'+lpOptions+'</select></td>'+
+   '<td style="padding:8px 10px;vertical-align:top"><input class="fc" id="lalF_'+escHtml(aid)+'" value="'+escHtml(form)+'" placeholder="表单链接(可选)" style="font-size:12px;width:170px"></td>'+
+   '<td style="padding:8px 10px;text-align:right;white-space:nowrap;vertical-align:top"><button class="btn btn-p btn-sm role-hide-viewer" onclick="saveLaunchAccountLink(\''+_adsJs(aid)+'\')">保存</button><br><button class="btn btn-g btn-sm" style="margin-top:4px" onclick="copyLaunchAdLinkTemplate(\''+_adsJs(aid)+'\')" title="复制 /a/短码?ad={{ad.id}} 投放链接模板">复制投放链接</button></td>'+
   '</tr>';
  }).join('');
- var html='<div style="text-align:left"><div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">这里是当前已选账户的主链接/表单链接。铺广告提交时会按账户读取这些链接，并自动生成广告级子码 + <code>ad={{ad.id}}</code>，不是直接投主链接。</div>'+
-  '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;min-width:760px;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px 10px">账户</th><th style="text-align:left;padding:8px 10px">主链接</th><th style="text-align:left;padding:8px 10px">表单链接</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+ var html='<div style="text-align:left"><div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">在这里直接配置各账户的<b>主链接</b>（可从落地页库选，或填地址），点保存即生效。铺广告会按账户读取，并自动生成广告级子码 <code>/a/短码?ad={{ad.id}}</code> 回绑广告——不是直接投主链接。</div>'+
+  '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px 10px">账户</th><th style="text-align:left;padding:8px 10px">主链接（落地页）</th><th style="text-align:left;padding:8px 10px">表单链接</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
  showInfo(html,'账户投放链接');
+}
+// 「账户投放链接」面板内直接保存账户主链接/表单链接（复用 PATCH /accounts/by-act-id）
+function saveLaunchAccountLink(actId){
+ var lu=((document.getElementById('lalL_'+actId)||{}).value||'').trim();
+ var fl=((document.getElementById('lalF_'+actId)||{}).value||'').trim();
+ if(lu&&!/^https?:\/\//i.test(lu)){toast('主链接必须以 http:// 或 https:// 开头','er');return;}
+ if(fl&&!/^https?:\/\//i.test(fl)){toast('表单链接必须以 http:// 或 https:// 开头','er');return;}
+ api('PATCH','/accounts/by-act-id/'+actId,{landing_url:lu||null,form_link:fl||null}).then(function(){
+  toast('已保存账户链接','ok');
+  var upd=function(arr){(arr||[]).forEach(function(a){if(String(a.act_id||'')===String(actId)){a.landing_url=lu;a.form_link=fl;}});};
+  upd(window._launchAllAccounts);upd(window._launchFilteredAccounts);upd(typeof _landingUrlAccs!=='undefined'?_landingUrlAccs:null);
+  if(typeof _renderLaunchLinkStatusPanel==='function')_renderLaunchLinkStatusPanel();
+  if(typeof _renderLaunchChecklist==='function')_renderLaunchChecklist();
+ }).catch(function(e){toast('保存失败：'+(e.message||e),'er');});
+}
+// 复制该账户的广告投放链接模板（主链接 + ?ad={{ad.id}} 动态宏）
+function copyLaunchAdLinkTemplate(actId){
+ var lu=((document.getElementById('lalL_'+actId)||{}).value||'').trim();
+ if(!lu){toast('请先填写主链接','wa');return;}
+ copyText(encodeURIComponent(_appendAdMacro(lu)));
 }
 // 账户勾选变化时更新持久化Set和计数
 function _onLaunchActCbChange(actId, checked){
