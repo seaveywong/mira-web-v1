@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.114</title>
+<title>Mira · 广告投放管理系统 v3.11.115</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -3516,7 +3516,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.114</p>
+<p id="loginVer">广告投放管理系统 v3.11.115</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3535,7 +3535,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.114</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.115</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -5913,7 +5913,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.114';
+var APP_VERSION='v3.11.115';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -9467,7 +9467,7 @@ async function quickBindAdLandingLink(adId){
  var html='<div style="text-align:left">'+
   '<div style="font-size:12px;color:var(--t2);line-height:1.6;margin-bottom:8px">为广告 <b>'+escHtml(a.ad_name||a.ad_id)+'</b> 绑定一个落地页广告入口（子码）。绑定后即可在列表里改跳转、回填真实数据。</div>'+
   '<label style="font-size:12px;color:var(--t3)">选择落地页</label>'+
-  '<select id="bindPageSel" class="fc" style="width:100%;margin:4px 0 8px">'+usable.map(function(p){return '<option value="'+p.id+'">'+escHtml(p.name||p.slug||('页面 '+p.id))+'</option>';}).join('')+'</select>'+
+  '<select id="bindPageSel" class="fc" style="width:100%;margin:4px 0 8px">'+usable.map(function(p){return '<option value="'+p.id+'">'+escHtml(p.title||p.name||p.slug||('落地页 '+p.id))+(p.custom_domain?(' · '+escHtml(p.custom_domain)):'')+'</option>';}).join('')+'</select>'+
   '<label style="font-size:12px;color:var(--t3)">跳转目标链接（每行一个）</label>'+
   '<textarea id="bindTargets" class="fc" style="min-height:110px;width:100%;font-family:ui-monospace,SFMono-Regular,Consolas,monospace">'+escHtml(defTarget)+'</textarea>'+
   '</div>';
@@ -15288,6 +15288,14 @@ function _pollLaunchProgress(assetId, campaignId){
     if(status === "done" || status === "error"){
      clearInterval(_launchPollTimer);
      _launchPollTimer = null;
+     if(status === "error"){
+      // 失败时再拉一次，拿到落定的真实报错（避免显示"正在创建广告..."这种中间态）
+      setTimeout(function(){
+       api("GET","/assets/"+assetId+"/campaigns/"+campaignId+"/status").then(function(r2){
+        if(r2)_setLaunchProgress(r2.progress_pct||pct,r2.error_msg||r2.progress_msg||msg,"error",r2);
+       }).catch(function(){});
+      },1500);
+     }
      loadAssets();
      loadAds();
     }
@@ -15326,6 +15334,22 @@ function _renderLaunchAdLinks(links){
   '<div style="max-height:220px;overflow:auto;border:1px solid rgba(22,101,52,.18);border-radius:8px;background:rgba(255,255,255,.38)">'+
   '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left;padding:6px 8px">广告</th><th style="text-align:left;padding:6px 8px">入口链接</th><th style="text-align:left;padding:6px 8px">专属跳转</th><th style="text-align:left;padding:6px 8px">状态</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+more+'</div>';
 }
+// 把常见 FB 报错翻译成可操作的中文提示
+function _launchFriendlyHint(text){
+ var t=String(text||'');
+ function box(s){return '<div style="font-weight:700;margin-bottom:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fdba74;border-radius:6px;color:#9a3412">'+s+'</div>';}
+ if(/authenticate your account|access your account without permission|本人验证|身份验证/i.test(t))
+  return box('🔒 账户被 FB 安全锁定：请用有权限的 FB 账号打开 <b>Ads Manager</b> 进入该广告账户完成<b>身份验证</b>，再重新投放（已有广告不受影响）。');
+ if(/Bid Amount Required|bid_amount/i.test(t))
+  return box('💰 出价策略需要出价金额：请填写<b>目标 CPA</b>，或把出价策略改为<b>最低成本（自动）</b>。');
+ if(/subcode=33|does not support this operation|missing permissions|权限拒绝/i.test(t))
+  return box('🔑 操作号无写权限：请在 <b>Business Manager</b> 给操作号(系统用户)授予该<b>账户/主页</b>的广告写权限。');
+ if(/image_hash|creative|object_story|无素材|asset|素材/i.test(t))
+  return box('🖼 素材/创意问题：请确认素材已上传成功、AI 文案已生成；必要时换一个素材重试。');
+ if(/budget|预算/i.test(t))
+  return box('📉 预算问题：请检查日预算是否达到该账户币种的最低投放金额。');
+ return '';
+}
 function _setLaunchProgress(pct, msg, status, data){
  var bar = document.getElementById('launchProgressBar');
  var pctEl = document.getElementById('launchProgressPct');
@@ -15359,10 +15383,10 @@ function _setLaunchProgress(pct, msg, status, data){
    detailEl.style.background = '#fee2e2';
    detailEl.style.color = '#b91c1c';
    if(data && data.error_detail){
-    detailEl.innerHTML = '<div style="font-weight:600;margin-bottom:6px">以下账户创建失败：</div>' + data.error_detail;
+    detailEl.innerHTML = _launchFriendlyHint(data.error_detail) + '<div style="font-weight:600;margin-bottom:6px">以下账户创建失败：</div>' + data.error_detail;
    } else {
     var errMsg = (data && (data.error_msg || data.progress_msg)) || msg || '未知错误';
-    detailEl.innerHTML = ' 错误详情：' + errMsg;
+    detailEl.innerHTML = _launchFriendlyHint(errMsg) + ' 错误详情：' + escHtml(errMsg);
    }
    _appendLaunchNdpPromptIfNeeded(detailEl, [
     data && data.error_detail,
