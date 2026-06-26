@@ -3497,7 +3497,7 @@ class AutoPilotEngine:
             status_clause = "WHERE status='published'" if published_only else "WHERE 1=1"
             rows = conn.execute(
                 f"""SELECT id, status, pages_url, custom_domain, target_urls, team_id, owner_user_id,
-                          raw_response, last_error, worker_enabled, edge_runtime_version, link_kind
+                          raw_response, last_error, worker_enabled, link_kind
                    FROM landing_pages
                    {status_clause}
                      AND (COALESCE(pages_url,'')!='' OR COALESCE(custom_domain,'')!='')
