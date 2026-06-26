@@ -3338,7 +3338,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--ac);
-  box-shadow: 0 0 0 2px rgba(var(--p-rgb), 0.1);
+  box-shadow: 0 0 0 2px var(--acg);
 }
 
 /* Empty State Onboarding */
@@ -3366,7 +3366,7 @@ input:focus, select:focus, textarea:focus {
 .onboarding-step.active {
   opacity: 1;
   border-color: var(--ac);
-  box-shadow: 0 2px 8px rgba(var(--p-rgb), 0.1);
+  box-shadow: 0 2px 8px var(--acg);
 }
 
 
@@ -5936,7 +5936,7 @@ var _pageAutoCache={}, _adsCache={key:'',ts:0,data:null}, _adsOpsCache={key:'',t
 var _adsListView='table'; // 层级卡片(board)视图已下线，固定为广告管理器表格
 
 // ── API ──
-async function api(m,p,b){
+async function api(m,p,b,opt){
  m=(m||'GET').toUpperCase();
  var isWriteMethod=['POST','PUT','PATCH','DELETE'].indexOf(m)>=0;
  if(isWriteMethod && typeof canWrite==='function' && !canWrite()){
@@ -5954,7 +5954,7 @@ async function api(m,p,b){
  var r=await fetch('/api'+p,o);
  if(r.status===401){logout();return null}
  var d=await r.json().catch(function(){return{}});
- if(!r.ok)throw new Error(d.detail||JSON.stringify(d));
+ if(!r.ok){var _em=(d&&d.detail)?d.detail:('请求失败 ('+r.status+')');if(!opt||!opt.silent){try{toast(_em,'er')}catch(_t){}}throw new Error(_em);}
  return d;
 }
 
