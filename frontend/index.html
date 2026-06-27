@@ -9495,6 +9495,7 @@ function showAdBrief(adId){
  if(l.public_url)actions+='<button class="btn btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+_adsJs(l.public_url)+'\').then(function(){toast(\'已复制投放链接\',\'ok\')})">复制投放链接</button>';
  actions+='<button class="btn btn-sm" onclick="quickKpi(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\',\''+_adsJs(a.ad_name||'')+'\')">配置 KPI</button>';
  if(l.link_id)actions+='<button class="btn btn-g btn-sm" onclick="_adsOpenLandingData(\''+_adsJs(a.ad_id)+'\')">查看落地数据</button>';
+ actions+='<button class="btn btn-sm" onclick="_adsGoAssetForAd(\''+_adsJs(a.ad_id)+'\')" title="按广告名里的素材码搜索素材库">🎨 素材</button>';
  if((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)actions+='<button class="btn btn-sm" onclick="jumpToTwPage(\''+_adsJs((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)+'\')">→ 主页库</button>';
  actions+='<button class="btn btn-sm" onclick="_openActHub(\''+_adsJs(a.act_id)+'\')">账户配置中心</button></div>';
  showInfo(_adsLandingBriefHtml(a)+actions,'广告综合信息');
@@ -20532,6 +20533,15 @@ function jumpToTwPage(pageId){
  try{closeAllModals();}catch(e){}
  showPage('twpages');
  try{var s=document.getElementById('twPageSearch2');if(s&&pageId)s.value=String(pageId);loadTwCertPages2(false);}catch(e){}
+}
+function _adsGoAssetForAd(adId){
+ var a=_adsFind(adId)||{};
+ var actId=a.act_id||'';
+ var seg=(String(a.ad_name||'').split(/[-–—\/]/)[0]||'').trim();
+ showPage('assets');
+ try{var af=document.getElementById('assetsActFilter');if(af&&actId)af.value=actId;}catch(e){}
+ try{var s=document.getElementById('assetsSearch');if(s)s.value=seg;}catch(e){}
+ setTimeout(function(){try{loadAssets(true);}catch(e){}},180);
 }
 function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  stats=stats||{};
