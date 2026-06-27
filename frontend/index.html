@@ -4618,9 +4618,11 @@ input:focus, select:focus, textarea:focus {
      <label><input type="checkbox" id="lpFormEnabled"> 表单链接标记</label>
      <label><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
      <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用防护规则</label>
-     <label><input type="checkbox" id="lpRepeatVisitor"> 防重粉（拦截今日重复转化）</label>
+     <label><input type="checkbox" id="lpRepeatVisitor"> 防重粉</label>
+     <select class="fc" id="lpRepeatVisitorWindow" title="防重粉判定窗口" style="width:120px;flex:0 0 120px;padding:0 8px"><option value="">今日</option><option value="6">近6小时</option><option value="24">近24小时</option><option value="168">近7天</option></select>
      <select class="fc" id="lpRotation" onchange="updateLandingRotationHint()"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
     </div>
+    <div style="margin:6px 0 0;font-size:11.5px;color:#6e6e73;line-height:1.5">同一访客(指纹)今日已点击/提交过 → 再次转化会被记为拦截，防止刷量刷转化；按 ip+ua 指纹识别，清 cookie/换设备可绕过（基础防刷）。</div>
     <div class="landing-template-tools">
      <select class="fc" id="lpProtectionTemplate" onchange="applyProtectionTemplateToPrefix(this.value,'lp')"><option value="">选择防护规则模板</option></select>
      <button class="btn btn-g btn-sm" type="button" onclick="openLandingProtectionDrawer()">管理模板</button>
@@ -21899,7 +21901,7 @@ async function runLandingProtectionTest(id){
    var blockedCount=profiles.filter(function(x){return !!x.blocked;}).length;
    var passCount=profiles.length-blockedCount;
    statusLine='<div style="font-weight:800;color:'+(blockedCount>0?'var(--ok)':'var(--wa)')+'">'+(blockedCount>0?('防护已开启 · 拦截 '+blockedCount+' / 放行 '+passCount):'防护已开启 · 全部放行')+'</div>'+
-    '<div style="font-size:12px;color:var(--t3);margin-top:3px">检查时间：'+escHtml(r.checked_at||'')+(r.repeat_visitor_block_enabled?' · 已开启防重粉（点击/提交时生效，不在访问拦截内）':'')+'</div>';
+    '<div style="font-size:12px;color:var(--t3);margin-top:3px">检查时间：'+escHtml(r.checked_at||'')+(r.repeat_visitor_block_enabled?(' · 已开启防重粉'+(r.repeat_visitor_block_window_hours?('（窗口：'+({6:'近6小时',24:'近24小时',168:'近7天'}[r.repeat_visitor_block_window_hours]||('近'+r.repeat_visitor_block_window_hours+'小时'))+'）'):'（窗口：今日，点击/提交时生效）')):'')+'</div>';
   }
   var rows=profiles.map(function(x){
    var ok=!x.blocked;
@@ -22232,7 +22234,13 @@ function _landingRulesByPrefix(prefix){
   required_query:_lpCsv(prefix+'RequiredQuery')
  };
  var rv=document.getElementById(prefix+'RepeatVisitor');
- if(rv&&rv.checked) r.repeat_visitor_block={enabled:true};
+ if(rv&&rv.checked){
+  var _rvb={enabled:true};
+  var _w=document.getElementById(prefix+'RepeatVisitorWindow');
+  var _wv=_w?String(_w.value||'').trim():'';
+  if(_wv&&['6','24','168'].indexOf(_wv)>=0) _rvb.window_hours=parseInt(_wv,10);
+  r.repeat_visitor_block=_rvb;
+ }
  return r;
 }
 function _setLandingRulesByPrefix(prefix,rules){
@@ -22259,6 +22267,8 @@ function _setLandingRulesByPrefix(prefix,rules){
  });
  var _rv=document.getElementById(prefix+'RepeatVisitor');
  if(_rv) _rv.checked=!!(rules.repeat_visitor_block&&rules.repeat_visitor_block.enabled);
+ var _rvw=document.getElementById(prefix+'RepeatVisitorWindow');
+ if(_rvw){var _wh=rules.repeat_visitor_block?(rules.repeat_visitor_block.window_hours||''):'';_wh=['6','24','168'].indexOf(String(_wh))>=0?String(_wh):'';_rvw.value=_wh;}
  if(prefix==='lp'){toggleLandingProtectionRules();renderLandingProtectionSummary();}
  if(prefix==='pt')renderProtectionTemplateSummary();
  if(prefix==='rt')toggleLandingRuntimeProtectionRules();
@@ -22655,8 +22665,10 @@ function editLandingRuntimeConfig(pageId){
        '<div class="fg"><label class="fl">运行开关</label><div class="landing-runtime-switches">'+
         '<label class="landing-runtime-switch"><div>边缘统计<span>记录访问、点击和跳转</span></div><input type="checkbox" id="rtTrackingEnabled"></label>'+
         '<label class="landing-runtime-switch"><div>防护规则<span>按规则放行或拦截</span></div><input type="checkbox" id="rtProtectionEnabled" onchange="toggleLandingRuntimeProtectionRules()"></label>'+
-        '<label class="landing-runtime-switch"><div>防重粉<span>拦截今日重复转化</span></div><input type="checkbox" id="rtRepeatVisitor"></label>'+
+        '<label class="landing-runtime-switch"><div>防重粉<span>拦截重复转化</span></div><input type="checkbox" id="rtRepeatVisitor"></label>'+
+        '<select class="fc" id="rtRepeatVisitorWindow" title="防重粉判定窗口" style="width:130px"><option value="">今日</option><option value="6">近6小时</option><option value="24">近24小时</option><option value="168">近7天</option></select>'+
        '</div></div>'+
+      '<div style="margin:6px 0 0;font-size:11.5px;color:#6e6e73;line-height:1.5">同一访客(指纹)今日已点击/提交过 → 再次转化会被记为拦截，防止刷量刷转化；按 ip+ua 指纹识别，清 cookie/换设备可绕过（基础防刷）。</div>'+
       '</div>'+
      '</div>'+
      '<details class="landing-runtime-assets"><summary>页面资产：域名、Pixel、模板</summary><div class="landing-runtime-assets-body">'+
@@ -22684,6 +22696,7 @@ function editLandingRuntimeConfig(pageId){
  var rot=document.getElementById('rtRotation');if(rot)rot.value=p.rotation_mode||'sequential';
  var tr=document.getElementById('rtTrackingEnabled');if(tr)tr.checked=!!p.tracking_enabled;
  var pr=document.getElementById('rtProtectionEnabled');if(pr)pr.checked=!!p.protection_enabled;
+ try{_setLandingRulesByPrefix('rt',r);}catch(_e){} /* v3.11.151: 预填防重粉开关+窗口，避免开窗丢失 */
  renderProtectionTemplateSelects();
  var rtTpl=document.getElementById('rtProtectionTemplate');if(rtTpl&&p.protection_template_id)rtTpl.value=String(p.protection_template_id);
  renderLandingRuntimeProtectionSummary();

@@ -3331,8 +3331,16 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
         if normalized:
             clean[key] = normalized[:80]
     # v3.11.137 防重粉开关（结构化布尔，非字符串列表）
+    # v3.11.151 增加 window_hours（可选，1..168）；未设或非法 -> 不写入（按"今日"判定）。
     if isinstance(rules.get("repeat_visitor_block"), dict) and rules.get("repeat_visitor_block", {}).get("enabled"):
-        clean["repeat_visitor_block"] = {"enabled": True}
+        rvb_out: dict[str, Any] = {"enabled": True}
+        try:
+            _wh = int(rules.get("repeat_visitor_block", {}).get("window_hours") or 0)
+        except (TypeError, ValueError):
+            _wh = 0
+        if _wh and 1 <= _wh <= 168:
+            rvb_out["window_hours"] = _wh
+        clean["repeat_visitor_block"] = rvb_out
     return clean
 
 
@@ -5956,19 +5964,34 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
             logger.exception("landing ad link auto-bind failed: page_id=%s slug=%s ad_id=%s", body.page_id, slug, ad_id)
     # v3.11.137 防重粉(基础)：仅在转化动作(click/submit)拦截"今日"重复访客；以指纹(ip_hash|ua_hash)
     # 为身份，命中则记为 block（不计入点击转化，配合 landing_metrics）。容错：任何异常->按原事件正常记录。
+    # v3.11.151 ①命中时写入 reason（之前为空，日志无法解释）；②支持 window_hours（1..168），未设->按"今日"。
+    _evt_reason = body.reason  # 默认沿用客户端 reason；命中防重粉时覆盖
     try:
         _rvb = _json_loads(page["protection_rules"] or "{}", {})
-        if page["protection_enabled"] and isinstance(_rvb, dict)                 and _rvb.get("repeat_visitor_block", {}).get("enabled")                 and event_type in ("click", "submit") and (body.ip_hash or ua_hash):
+        _rvb_cfg = _rvb.get("repeat_visitor_block", {}) if isinstance(_rvb, dict) else {}
+        _wh = 0
+        try:
+            _wh = int(_rvb_cfg.get("window_hours") or 0)
+        except (TypeError, ValueError):
+            _wh = 0
+        _win_clause = (
+            "created_at >= datetime('now','-{h} hours','+8 hours')".format(h=_wh)
+            if (_wh and 1 <= _wh <= 168)
+            else "date(created_at)=date('now','+8 hours')"
+        )
+        _win_label = "近{h}小时".format(h=_wh) if (_wh and 1 <= _wh <= 168) else "今日"
+        if page["protection_enabled"] and isinstance(_rvb, dict)                 and _rvb_cfg.get("enabled")                 and event_type in ("click", "submit") and (body.ip_hash or ua_hash):
             _fp = "NULLIF(COALESCE(NULLIF(ip_hash,''),'') || '|' || COALESCE(NULLIF(user_agent_hash,''),''), '|')"
             _prior = conn.execute(
                 "SELECT 1 FROM landing_events WHERE page_id=? AND event_type IN ('click','submit') "
-                "AND decision<>'block' AND date(created_at)=date('now','+8 hours') "
+                "AND decision<>'block' AND " + _win_clause + " "
                 "AND (" + _fp + ") IS NOT NULL AND (" + _fp + ")=? LIMIT 1",
                 (body.page_id, (body.ip_hash or "") + "|" + (ua_hash or "")),
             ).fetchone()
             if _prior:
                 event_type = "block"
                 decision = "block"
+                _evt_reason = "防重粉：{w}重复转化（指纹命中）".format(w=_win_label)
     except Exception:
         logger.exception("landing repeat-visitor check failed: page_id=%s", body.page_id)
     conn.execute(
@@ -5980,7 +6003,7 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
             body.page_id,
             event_type,
             decision,
-            _truncate(body.reason, 500),
+            _truncate(_evt_reason, 500),
             _truncate(body.path, 500),
             _truncate(body.target_url, 1000),
             _truncate(body.referrer, 1000),
@@ -6517,6 +6540,7 @@ def landing_page_protection_test(page_id: int, user=Depends(get_current_user)):
         "success": True,
         "protection_enabled": protection_enabled,
         "repeat_visitor_block_enabled": bool(rvb and rvb.get("enabled")),
+        "repeat_visitor_block_window_hours": int(rvb.get("window_hours") or 0) if (rvb and rvb.get("window_hours")) else 0,
         "profiles": profiles_out,
         "checked_at": _now_cst(),
     }
