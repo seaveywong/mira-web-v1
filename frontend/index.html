@@ -376,7 +376,8 @@ tr:hover td{background:var(--bgh)}
 .btn-sm{padding:5px 10px;font-size:12px}
 #page-ads .ads-table-card{width:100%;overflow:hidden}
 #page-ads .table-wrap{width:100%!important;overflow-x:auto!important}
-#page-ads .ads-table{width:max(1440px,100%)!important;min-width:1440px!important}
+#page-ads .ads-table{width:100%!important}
+@media(min-width:900px){#page-ads .ads-table{min-width:1440px!important}}
 #page-ads .ads-table th,#page-ads .ads-table td{vertical-align:middle}
 #page-ads .ads-table th:nth-child(1),#page-ads .ads-table td:nth-child(1){width:58px}
 #page-ads .ads-table th:nth-child(2),#page-ads .ads-table td:nth-child(2){width:34px}
@@ -3733,7 +3734,7 @@ input:focus, select:focus, textarea:focus {
       <div class="sc orange" style="cursor:pointer" onclick="openDashboardAllowances()">
        <div class="sc-label">今日放行</div>
        <div class="sc-val orange" id="s-allowance">--</div>
-       <div class="sc-sub" id="s-allowance-sub">账户本地日 · 点击管理</div>
+       <div class="sc-sub" id="s-allowance-sub">账户本地日期 · 点击管理</div>
        <div class="sc-icon"></div>
       </div>
       <div class="sc cyan" style="cursor:pointer" onclick="toggleAccDetail('balance')">
@@ -5624,6 +5625,7 @@ input:focus, select:focus, textarea:focus {
    </div>
    <div id="scaleFields" style="display:none">
     <div class="fg"><label class="fl">策略类型 <span class="req">*</span></label><select class="fc" id="scaleType" onchange="onScaleType()"></select><div class="rtd" id="scaleDesc"></div></div>
+    <div id="scalePreview" class="rule-preview" style="margin:6px 0 10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;font-size:12px;color:var(--t3);min-height:18px"></div>
     <div class="fr">
      <div class="fg"><label class="fl">CPA 达标比例</label><input class="fc" id="sp_cpa_ratio" type="number" step="0.05" min="0.1" max="2" value="0.8" oninput="updateScalePreview()"><div class="fh">实际 CPA ≤ 目标 CPA × 此比例才拉量，例如 0.8 表示低于目标 80%</div></div>
      <div class="fg"><label class="fl">最低转化数</label><input class="fc" id="sp_min_conversions" type="number" min="1" step="1" value="3" oninput="updateScalePreview()"><div class="fh">当天转化至少达到此数量</div></div>
@@ -6190,6 +6192,7 @@ function syncModalOpenState(){
 function openModal(id){
  var el=document.getElementById(id);
  if(!el)return;
+ document.querySelectorAll('.mo.show').forEach(function(o){if(o.id!==id){o.classList.remove('show');o.style.display='none';}});
  el.style.display='';
  el.classList.add('show');
  syncModalOpenState();
@@ -8054,7 +8057,7 @@ function updateDashboardAllowanceCard(data){
   var accounts={};
   items.forEach(function(it){if(it&&it.act_id)accounts[it.act_id]=1;});
   var accountCount=Object.keys(accounts).length;
-  sub.textContent=items.length?(accountCount+' 个账户 · 账户本地日'):'账户本地日 · 点击管理';
+  sub.textContent=items.length?(accountCount+' 个账户 · 账户本地日期'):'账户本地日期 · 点击管理';
  }
 }
 
@@ -8175,7 +8178,7 @@ function renderTaskCenter(sum,accounts){
  var allowanceItems=window._guardAllowancesToday||[];
  if(allowanceItems.length){
   var adNames=allowanceItems.slice(0,3).map(function(it){return it.ad_name||it.ad_id||'';}).filter(Boolean).join('、');
-  cards.push(taskCard('info','今日放行',allowanceItems.length+' 条广告','这些广告在账户本地日会跳过规则止损：'+(adNames||'点击查看详情'),'查看/撤销','openDashboardAllowances()'));
+  cards.push(taskCard('info','今日放行',allowanceItems.length+' 条广告','这些广告在账户本地日期会跳过规则止损：'+(adNames||'点击查看详情'),'查看/撤销','openDashboardAllowances()'));
   metaParts.push(allowanceItems.length+' 条今日放行');
  }
  if(!cards.length){
@@ -14240,6 +14243,7 @@ function updateLaunchStructurePreview(){
   ].join('');
 }
 async function updateLaunchPreview(assetId){
+ if(!assetId){window._launchPreviewPlan={loaded:false,rawAudienceGroups:0,creativeVariants:0};updateLaunchStructurePreview();return;}
  try{
   var a=await api('GET','/assets/'+assetId);
   var headlines=Array.isArray(a.ai_headlines)?a.ai_headlines:[];
@@ -17173,6 +17177,8 @@ var SETTINGS_CAT_LABELS = {
  general:  { label: '通用设置', desc: '模拟模式、冷却时间、铺放参数' },
  warmup:   { label: "预热", desc: "账户预热、自动创建 page_likes 广告激活账户" },
  storage:  { label: '存储与清理', desc: '磁盘告警、自动清理、备份管理' },
+ mirror:   { label: '镜像模式', desc: '落地页镜像备份' },
+ security: { label: '安全与访问', desc: '哨兵间隔、心跳超时、团队隔离' },
 };
 
 // ── 重构 renderSI 函数（带中文释义） ──
@@ -24258,13 +24264,13 @@ async function openQuickLaunch() {
 }
 
 function closeAllModals() {
-  // Close any open info modals
-  var modals = document.querySelectorAll('.mo');
-  modals.forEach(function(m) {
-    if (m.id && m.id.indexOf('moInfo_') === 0) {
-      closeModal(m.id);
-    }
+  // Close ALL open modals (info modals + any visible .mo) — fixes drawer freeze + modal stacking
+  document.querySelectorAll('.mo').forEach(function(m) {
+    var vis = (m.classList && m.classList.contains('show')) || (m.style.display && m.style.display !== 'none');
+    if (m.id && vis) { try { closeModal(m.id); } catch(e){} }
   });
+  document.querySelectorAll('.modal-overlay[data-dynamic-modal="1"]').forEach(function(o){ try{o.remove();}catch(e){} });
+  if (window.syncModalOpenState) syncModalOpenState();
 }
 
 </script></body>
