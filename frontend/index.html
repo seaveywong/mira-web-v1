@@ -339,7 +339,7 @@ tr:hover td{background:var(--bgh)}
 .fb-switch.off{background:rgba(74,96,128,.18)}
 .fb-switch:hover:not(:disabled){filter:brightness(1.12)}
 .fb-switch:disabled{opacity:.35;cursor:not-allowed}
-.fb-name{display:flex;align-items:center;gap:8px;min-width:280px}
+.fb-name{display:flex;align-items:center;gap:8px;min-width:0}
 .fb-name .fb-indent{display:inline-block;flex-shrink:0}
 .fb-caret{width:22px;height:22px;border-radius:6px;border:1px solid var(--bd);background:rgba(17,24,39,.72);color:var(--t2);display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer}
 .fb-caret:hover{background:var(--bgh);color:var(--t1)}
@@ -377,7 +377,7 @@ tr:hover td{background:var(--bgh)}
 #page-ads .ads-table-card{width:100%;overflow:hidden}
 #page-ads .table-wrap{width:100%!important;overflow-x:auto!important}
 #page-ads .ads-table{width:100%!important}
-@media(min-width:900px){#page-ads .ads-table{min-width:1440px!important}}
+@media(min-width:900px){#page-ads .ads-table{min-width:min(1440px,100%)!important}}
 #page-ads .ads-table th,#page-ads .ads-table td{vertical-align:middle}
 #page-ads .ads-table th:nth-child(1),#page-ads .ads-table td:nth-child(1){width:58px}
 #page-ads .ads-table th:nth-child(2),#page-ads .ads-table td:nth-child(2){width:34px}
@@ -668,7 +668,7 @@ body{background:#0b0f14;color:var(--t1)}
 .fc:focus{border-color:var(--ac);outline:none}
 .btn{height:32px;min-height:32px;padding:0 12px;border:1px solid transparent;border-radius:5px;font-weight:650;letter-spacing:0}
 .btn-sm{height:28px;min-height:28px;padding:0 9px;font-size:12px}
-.btn-p{background:#3b78df;border-color:#5b8fe8;color:#fff}
+.btn-p{background:#3b78df;border-color:#5b8fe8;color:#fff;font-weight:750;box-shadow:0 1px 3px rgba(59,120,223,.28)}
 .btn-p:hover{background:#326cc9;border-color:#6d9af0}
 .btn-ok{background:#218861;border-color:#33a77b;color:#fff}
 .btn-er{background:#a94646;border-color:#ca6666;color:#fff}
@@ -3004,6 +3004,26 @@ body.landing-protection-open #page-landing_center .landing-card-head{
   #page-landing_center .landing-page-actions{
     grid-template-columns:1fr!important;
   }
+}
+@media(max-width:760px){
+  /* #1 touch targets ≥36px (mobile-only; desktop sizing untouched) */
+  .btn-ic{min-width:36px!important;min-height:36px!important;height:36px!important;width:36px!important}
+  .btn-sm{min-height:32px;padding:0 11px}
+  .fb-more button{min-height:32px;padding:0 10px}
+  .fb-op-chip{min-height:32px!important}
+  .td-acts{gap:10px}
+  /* #2 settings inline toggles larger hit area */
+  .toggle{width:44px;height:26px}
+  .ts::before{width:20px;height:20px}
+  .toggle input:checked+.ts::before{transform:translateX(18px)}
+  /* #4 keep horizontal scroll INSIDE .table-wrap, never at page level */
+  .table-wrap{overflow-x:auto;max-width:100%}
+  /* #5 twpages chips wrap to ≥36px targets (covered by #1 sizes; ensure wrap) */
+  .fb-more{flex-wrap:wrap;gap:8px}
+  /* #7 ad-center-nav: reduce tab min-width + hide badge to fit 6 tabs */
+  .ad-center-card{min-width:84px;padding:7px 8px}
+  .ad-center-card em{display:none}
+  .ad-center-nav{gap:4px}
 }
 .ad-center-shell{display:grid;gap:8px;margin-bottom:12px}
 .ad-center-nav{display:flex;gap:6px;overflow-x:auto;padding:4px;border:1px solid var(--bd);border-radius:14px;background:var(--bg2);scrollbar-width:thin}
