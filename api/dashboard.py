@@ -7,11 +7,13 @@ Mira Dashboard API v2.1
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Event, Lock, Thread
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
 from core.account_access import is_read_blocking_status, note_account_read_failure, note_account_read_success
 from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row_access
 from datetime import date, timedelta, datetime
+from zoneinfo import ZoneInfo
 import requests as req
 import time
 import json
@@ -30,6 +32,11 @@ from api.landing_pages import _ad_link_stats
 router = APIRouter()
 _SUMMARY_CACHE = {}
 _SUMMARY_CACHE_TTL = 30
+_ADS_LIVE_LOCKS = {}
+_ADS_LIVE_LOCKS_GUARD = Lock()
+_META_SPEND_RECONCILE_LOCK = Lock()
+_META_SPEND_RECONCILE_STOP = Event()
+_META_SPEND_RECONCILE_THREAD = None
 
 
 def _require_superadmin_user(user):
@@ -53,6 +60,220 @@ def _fetch_visible_accounts(conn, user, act_id: Optional[str] = None):
     if where:
         sql += " WHERE " + " AND ".join(where)
     return conn.execute(sql, params).fetchall()
+
+
+def _ensure_ads_live_cache_schema(conn):
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS ads_live_cache (
+               act_id TEXT NOT NULL,
+               date_from TEXT NOT NULL,
+               date_to TEXT NOT NULL,
+               payload_json TEXT NOT NULL,
+               updated_ts INTEGER NOT NULL,
+               updated_at TEXT DEFAULT (datetime('now','+8 hours')),
+               PRIMARY KEY(act_id, date_from, date_to)
+           )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ads_live_cache_act ON ads_live_cache(act_id)")
+
+
+def _ads_live_lock_key(act_id: str, date_from: str, date_to: str) -> str:
+    return "|".join([str(act_id or ""), str(date_from or ""), str(date_to or "")])
+
+
+def _ads_live_lock_for(act_id: str, date_from: str, date_to: str):
+    key = _ads_live_lock_key(act_id, date_from, date_to)
+    with _ADS_LIVE_LOCKS_GUARD:
+        lock = _ADS_LIVE_LOCKS.get(key)
+        if lock is None:
+            lock = Lock()
+            _ADS_LIVE_LOCKS[key] = lock
+        return lock
+
+
+def _ads_live_now_text() -> str:
+    return (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _ads_live_cache_get(conn, act_id: str, date_from: str, date_to: str):
+    _ensure_ads_live_cache_schema(conn)
+    row = conn.execute(
+        """SELECT payload_json, updated_ts, updated_at
+           FROM ads_live_cache
+           WHERE act_id=? AND date_from=? AND date_to=?""",
+        (act_id, date_from, date_to),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        payload = json.loads(row["payload_json"] or "[]")
+        if not isinstance(payload, list):
+            return None
+    except Exception:
+        return None
+    age = max(0, int(time.time()) - int(row["updated_ts"] or 0))
+    updated_at = row["updated_at"] or ""
+    for item in payload:
+        if isinstance(item, dict):
+            item["ads_live_cached"] = True
+            item["ads_live_synced_at"] = updated_at
+            item["ads_live_cache_age_seconds"] = age
+    return payload
+
+
+def _ads_live_cache_set(conn, act_id: str, date_from: str, date_to: str, rows: list[dict]):
+    _ensure_ads_live_cache_schema(conn)
+    now_ts = int(time.time())
+    synced_at = _ads_live_now_text()
+    payload = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        item.pop("landing", None)
+        item.pop("page_brief", None)
+        item["ads_live_cached"] = False
+        item["ads_live_synced_at"] = synced_at
+        item["ads_live_cache_age_seconds"] = 0
+        payload.append(item)
+    conn.execute(
+        "DELETE FROM ads_live_cache WHERE act_id=? AND NOT (date_from=? AND date_to=?)",
+        (act_id, date_from, date_to),
+    )
+    conn.execute(
+        """INSERT INTO ads_live_cache(act_id,date_from,date_to,payload_json,updated_ts,updated_at)
+           VALUES(?,?,?,?,?,datetime('now','+8 hours'))
+           ON CONFLICT(act_id,date_from,date_to) DO UPDATE SET
+             payload_json=excluded.payload_json,
+             updated_ts=excluded.updated_ts,
+             updated_at=datetime('now','+8 hours')""",
+        (act_id, date_from, date_to, json.dumps(payload, ensure_ascii=False), now_ts),
+    )
+    conn.commit()
+
+
+def _ads_live_cached_for_accounts(conn, accounts: list[dict], date_from: str, date_to: str):
+    cached_rows = []
+    for acc in accounts or []:
+        hit = _ads_live_cache_get(conn, acc.get("act_id"), date_from, date_to)
+        if hit is None:
+            return None
+        cached_rows.extend(hit)
+    return cached_rows
+
+
+def invalidate_ads_live_cache(act_id: Optional[str] = None):
+    conn = get_conn()
+    try:
+        _ensure_ads_live_cache_schema(conn)
+        if act_id:
+            conn.execute("DELETE FROM ads_live_cache WHERE act_id=?", (act_id,))
+        else:
+            conn.execute("DELETE FROM ads_live_cache")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _patch_ads_live_cache_payload(act_id: str, patcher) -> bool:
+    if not act_id:
+        return False
+    conn = get_conn()
+    touched_any = False
+    try:
+        _ensure_ads_live_cache_schema(conn)
+        rows = conn.execute(
+            "SELECT act_id,date_from,date_to,payload_json FROM ads_live_cache WHERE act_id=?",
+            (act_id,),
+        ).fetchall()
+        now_ts = int(time.time())
+        for cache_row in rows:
+            try:
+                payload = json.loads(cache_row["payload_json"] or "[]")
+            except Exception:
+                continue
+            if not isinstance(payload, list):
+                continue
+            touched = False
+            for item in payload:
+                if isinstance(item, dict) and patcher(item):
+                    touched = True
+            if not touched:
+                continue
+            conn.execute(
+                """UPDATE ads_live_cache
+                   SET payload_json=?, updated_ts=?, updated_at=datetime('now','+8 hours')
+                   WHERE act_id=? AND date_from=? AND date_to=?""",
+                (
+                    json.dumps(payload, ensure_ascii=False),
+                    now_ts,
+                    cache_row["act_id"],
+                    cache_row["date_from"],
+                    cache_row["date_to"],
+                ),
+            )
+            touched_any = True
+        if touched_any:
+            conn.commit()
+        return touched_any
+    finally:
+        conn.close()
+
+
+def patch_ads_live_cache_status(act_id: str, level: str, target_id: str, desired_status: str, result: Optional[dict] = None) -> bool:
+    actual = desired_status
+    if isinstance(result, dict):
+        actual = result.get("effective_status") or result.get("actual_status") or result.get("status") or actual
+    level = (level or "").lower().strip()
+
+    def patcher(item: dict) -> bool:
+        if level == "campaign" and str(item.get("campaign_id") or "") == str(target_id):
+            item["campaign_status"] = actual
+            item["campaign_effective_status"] = actual
+            if actual != "ACTIVE":
+                item["effective_status"] = actual
+            elif item.get("adset_status") == "ACTIVE" and item.get("status") == "ACTIVE":
+                item["effective_status"] = "ACTIVE"
+            return True
+        if level == "adset" and str(item.get("adset_id") or "") == str(target_id):
+            item["adset_status"] = actual
+            item["adset_effective_status"] = actual
+            if actual != "ACTIVE":
+                item["effective_status"] = actual
+            elif item.get("campaign_status") == "ACTIVE" and item.get("status") == "ACTIVE":
+                item["effective_status"] = "ACTIVE"
+            return True
+        if level == "ad" and str(item.get("ad_id") or "") == str(target_id):
+            item["status"] = actual
+            item["effective_status"] = actual
+            return True
+        return False
+
+    return _patch_ads_live_cache_payload(act_id, patcher)
+
+
+def patch_ads_live_cache_budget(act_id: str, level: str, target_id: str, daily_budget, result: Optional[dict] = None) -> bool:
+    amount = daily_budget
+    currency = None
+    if isinstance(result, dict):
+        amount = result.get("daily_budget") if result.get("daily_budget") is not None else result.get("budget", amount)
+        currency = result.get("currency")
+    level = (level or "").lower().strip()
+
+    def patcher(item: dict) -> bool:
+        if level == "campaign" and str(item.get("campaign_id") or "") == str(target_id):
+            item["campaign_daily_budget"] = amount
+            if currency:
+                item["currency"] = currency
+            return True
+        if level == "adset" and str(item.get("adset_id") or "") == str(target_id):
+            item["adset_daily_budget"] = amount
+            if currency:
+                item["currency"] = currency
+            return True
+        return False
+
+    return _patch_ads_live_cache_payload(act_id, patcher)
 
 
 def _act_id_filter_sql(act_ids: list[str], column: str):
@@ -508,6 +729,310 @@ def _get_token_for_account(acc: dict) -> Optional[str]:
 
 def _get_rate(currency: str, conn) -> float:
     return _local_per_usd_rate(currency)
+
+
+def _ensure_meta_spend_reconcile_schema(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS meta_spend_reconcile_audit (
+               act_id TEXT NOT NULL,
+               snapshot_date TEXT NOT NULL,
+               ad_id TEXT NOT NULL,
+               currency TEXT NOT NULL DEFAULT 'USD',
+               spend_original REAL NOT NULL DEFAULT 0,
+               spend_usd REAL NOT NULL DEFAULT 0,
+               fx_local_per_usd REAL NOT NULL DEFAULT 1,
+               conversions REAL NOT NULL DEFAULT 0,
+               source TEXT NOT NULL DEFAULT 'manual',
+               synced_at TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),
+               PRIMARY KEY(act_id, snapshot_date, ad_id)
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_meta_spend_reconcile_date "
+        "ON meta_spend_reconcile_audit(snapshot_date, act_id)"
+    )
+
+
+def _normalize_meta_sync_dates(date_from: Optional[str], date_to: Optional[str]) -> tuple[str, str]:
+    df, dt = _default_dates(date_from, date_to)
+    try:
+        start = datetime.strptime(df, "%Y-%m-%d").date()
+        end = datetime.strptime(dt, "%Y-%m-%d").date()
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="date_from/date_to must be YYYY-MM-DD") from exc
+    if start > end:
+        start, end = end, start
+    if (end - start).days > 30:
+        raise HTTPException(status_code=400, detail="Meta reconciliation supports up to 31 days per request")
+    return start.isoformat(), end.isoformat()
+
+
+def _meta_sync_days(date_from: str, date_to: str) -> list[str]:
+    start = datetime.strptime(date_from, "%Y-%m-%d").date()
+    end = datetime.strptime(date_to, "%Y-%m-%d").date()
+    out = []
+    while start <= end:
+        out.append(start.isoformat())
+        start += timedelta(days=1)
+    return out
+
+
+def _meta_sync_fx_rate(currency: str) -> float:
+    rate = float(_get_rate(currency, None) or 0)
+    if rate <= 0 or rate != rate:
+        raise RuntimeError(f"invalid exchange rate for {currency or 'USD'}")
+    return rate
+
+
+def _fetch_meta_spend_rows(act_id: str, token: str, date_from: str, date_to: str) -> list[dict]:
+    next_url = f"https://graph.facebook.com/v25.0/{act_id}/insights"
+    params = {
+        "access_token": token,
+        "fields": "date_start,ad_id,ad_name,adset_id,campaign_id,spend,impressions,clicks,actions,action_values",
+        "time_range": json.dumps({"since": date_from, "until": date_to}),
+        "time_increment": 1,
+        "level": "ad",
+        "limit": 250,
+    }
+    rows = []
+    seen_urls = set()
+    for _ in range(100):
+        if not next_url or next_url in seen_urls:
+            break
+        seen_urls.add(next_url)
+        response = req.get(next_url, params=params, timeout=35)
+        data = response.json()
+        if data.get("error"):
+            error = data["error"]
+            raise RuntimeError(error.get("message") or str(error))
+        rows.extend(data.get("data") or [])
+        next_url = (data.get("paging") or {}).get("next")
+        params = {}
+    return rows
+
+
+def _sync_meta_spend_for_accounts(
+    accounts: list[dict],
+    date_from: str,
+    date_to: str,
+    *,
+    source: str,
+) -> dict:
+    requested_days = _meta_sync_days(date_from, date_to)
+    result = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "synced_accounts": 0,
+        "failed_accounts": 0,
+        "synced_ads": 0,
+        "spend_usd": 0.0,
+        "accounts": [],
+    }
+    for account in accounts:
+        act_id = str(account.get("act_id") or "").strip()
+        if not act_id:
+            continue
+        account_name = str(account.get("name") or act_id)
+        currency = str(account.get("currency") or "USD").upper()
+        token = get_exec_token(act_id, ACTION_READ, notify_exhausted=False)
+        if not token:
+            result["failed_accounts"] += 1
+            result["accounts"].append({
+                "act_id": act_id,
+                "name": account_name,
+                "status": "missing_read_token",
+            })
+            continue
+        try:
+            source_rows = _fetch_meta_spend_rows(act_id, token, date_from, date_to)
+            fx_rate = _meta_sync_fx_rate(currency)
+            conn = get_conn()
+            try:
+                _ensure_meta_spend_reconcile_schema(conn)
+                kpi_rows = conn.execute(
+                    """SELECT target_id, kpi_field
+                       FROM kpi_configs
+                       WHERE act_id=? AND level='ad' AND enabled=1""",
+                    (act_id,),
+                ).fetchall()
+                kpi_map = {str(row["target_id"]): row["kpi_field"] for row in kpi_rows}
+                for day in requested_days:
+                    conn.execute(
+                        "DELETE FROM perf_snapshots WHERE act_id=? AND snapshot_date=?",
+                        (act_id, day),
+                    )
+                    conn.execute(
+                        "DELETE FROM meta_spend_reconcile_audit WHERE act_id=? AND snapshot_date=?",
+                        (act_id, day),
+                    )
+
+                synced_rows = 0
+                account_spend_usd = 0.0
+                for item in source_rows:
+                    day = str(item.get("date_start") or "").strip()
+                    ad_id = str(item.get("ad_id") or "").strip()
+                    if day not in requested_days or not ad_id:
+                        continue
+                    spend_original = float(item.get("spend") or 0)
+                    spend_usd = round(spend_original / fx_rate, 4)
+                    actions = item.get("actions") or []
+                    action_values = item.get("action_values") or []
+                    kpi_field = kpi_map.get(ad_id)
+                    conversions = _count_conversions(actions, kpi_field)
+                    revenue_original = _count_revenue(action_values, kpi_field) if kpi_field else 0.0
+                    roas = round(revenue_original / spend_original, 4) if spend_original > 0 and revenue_original > 0 else 0.0
+                    cpa = round(spend_usd / conversions, 4) if conversions > 0 else None
+                    conn.execute(
+                        """INSERT INTO perf_snapshots
+                           (act_id, ad_id, adset_id, campaign_id, ad_name, snapshot_date,
+                            spend, impressions, clicks, conversions, cpa, roas, kpi_field,
+                            raw_actions, currency)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            act_id,
+                            ad_id,
+                            str(item.get("adset_id") or ""),
+                            str(item.get("campaign_id") or ""),
+                            str(item.get("ad_name") or ad_id),
+                            day,
+                            spend_usd,
+                            int(float(item.get("impressions") or 0)),
+                            int(float(item.get("clicks") or 0)),
+                            conversions,
+                            cpa,
+                            roas,
+                            kpi_field,
+                            json.dumps(actions, ensure_ascii=False),
+                            "USD",
+                        ),
+                    )
+                    conn.execute(
+                        """INSERT INTO meta_spend_reconcile_audit
+                           (act_id, snapshot_date, ad_id, currency, spend_original, spend_usd,
+                            fx_local_per_usd, conversions, source, synced_at)
+                           VALUES (?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))""",
+                        (
+                            act_id,
+                            day,
+                            ad_id,
+                            currency,
+                            spend_original,
+                            spend_usd,
+                            fx_rate,
+                            conversions,
+                            source,
+                        ),
+                    )
+                    synced_rows += 1
+                    account_spend_usd += spend_usd
+                for day in requested_days:
+                    conn.execute(
+                        """INSERT INTO meta_spend_reconcile_audit
+                           (act_id, snapshot_date, ad_id, currency, spend_original, spend_usd,
+                            fx_local_per_usd, conversions, source, synced_at)
+                           VALUES (?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))""",
+                        (
+                            act_id,
+                            day,
+                            "__account__",
+                            currency,
+                            0,
+                            0,
+                            fx_rate,
+                            0,
+                            source,
+                        ),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+            result["synced_accounts"] += 1
+            result["synced_ads"] += synced_rows
+            result["spend_usd"] += account_spend_usd
+            result["accounts"].append({
+                "act_id": act_id,
+                "name": account_name,
+                "currency": currency,
+                "fx_local_per_usd": fx_rate,
+                "ads": synced_rows,
+                "spend_usd": round(account_spend_usd, 2),
+                "status": "ok",
+            })
+        except Exception as exc:
+            result["failed_accounts"] += 1
+            result["accounts"].append({
+                "act_id": act_id,
+                "name": account_name,
+                "status": "error",
+                "error": str(exc)[:300],
+            })
+    _SUMMARY_CACHE.clear()
+    result["spend_usd"] = round(result["spend_usd"], 2)
+    return result
+
+
+def reconcile_completed_meta_spend() -> dict:
+    if not _META_SPEND_RECONCILE_LOCK.acquire(blocking=False):
+        return {"status": "busy"}
+    try:
+        conn = get_conn()
+        try:
+            _ensure_meta_spend_reconcile_schema(conn)
+            accounts = [dict(row) for row in conn.execute("SELECT * FROM accounts").fetchall()]
+            finalized = []
+            now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+            for account in accounts:
+                try:
+                    account_now = now_utc.astimezone(ZoneInfo(account.get("timezone") or "UTC"))
+                except Exception:
+                    account_now = now_utc
+                completed_day = (account_now.date() - timedelta(days=1)).isoformat()
+                exists = conn.execute(
+                    """SELECT 1 FROM meta_spend_reconcile_audit
+                       WHERE act_id=? AND snapshot_date=? LIMIT 1""",
+                    (account.get("act_id"), completed_day),
+                ).fetchone()
+                if not exists:
+                    finalized.append((account, completed_day))
+        finally:
+            conn.close()
+        synced = 0
+        failed = 0
+        for account, completed_day in finalized:
+            outcome = _sync_meta_spend_for_accounts(
+                [account],
+                completed_day,
+                completed_day,
+                source="scheduled_finalization",
+            )
+            synced += int(outcome.get("synced_accounts") or 0)
+            failed += int(outcome.get("failed_accounts") or 0)
+        return {"status": "ok", "synced_accounts": synced, "failed_accounts": failed}
+    finally:
+        _META_SPEND_RECONCILE_LOCK.release()
+
+
+def start_meta_spend_reconciliation_worker() -> None:
+    global _META_SPEND_RECONCILE_THREAD
+    if _META_SPEND_RECONCILE_THREAD and _META_SPEND_RECONCILE_THREAD.is_alive():
+        return
+
+    def worker() -> None:
+        if _META_SPEND_RECONCILE_STOP.wait(120):
+            return
+        while not _META_SPEND_RECONCILE_STOP.is_set():
+            try:
+                reconcile_completed_meta_spend()
+            except Exception:
+                pass
+            _META_SPEND_RECONCILE_STOP.wait(3600)
+
+    _META_SPEND_RECONCILE_THREAD = Thread(
+        target=worker,
+        name="mira-meta-spend-reconcile",
+        daemon=True,
+    )
+    _META_SPEND_RECONCILE_THREAD.start()
 
 
 def _beijing_today() -> date:
@@ -1348,6 +1873,7 @@ def get_ads_live(
     act_id: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    refresh: Optional[str] = None,
     user=Depends(get_current_user)
 ):
     """
@@ -1492,7 +2018,33 @@ def get_ads_live(
         kpi_map = {}
     kpi_conn.close()
 
+    refresh_requested = str(refresh or "").strip().lower() in ("1", "true", "yes", "force", "refresh")
     all_ads = []
+    served_from_cache = False
+    cache_lock = None
+    cache_lock_acquired = False
+    cache_scope = act_id or "__visible__"
+    cache_conn = get_conn()
+    try:
+        _ensure_ads_live_cache_schema(cache_conn)
+        if not refresh_requested:
+            cached = _ads_live_cached_for_accounts(cache_conn, accs, date_from, date_to)
+            if cached is not None:
+                all_ads = cached
+                served_from_cache = True
+        if not served_from_cache:
+            cache_lock = _ads_live_lock_for(cache_scope, date_from, date_to)
+            cache_lock.acquire()
+            cache_lock_acquired = True
+            if not refresh_requested:
+                cached = _ads_live_cached_for_accounts(cache_conn, accs, date_from, date_to)
+                if cached is not None:
+                    all_ads = cached
+                    served_from_cache = True
+    finally:
+        cache_conn.close()
+    if served_from_cache:
+        accs = []
     for acc in accs:
         currency = (acc.get('currency') or 'USD').upper()
         token = _get_token_for_account(acc)
@@ -1666,6 +2218,40 @@ def get_ads_live(
         except Exception:
             continue
 
+    if not served_from_cache:
+        fresh_synced_at = _ads_live_now_text()
+        for row in all_ads:
+            row["ads_live_cached"] = False
+            row["ads_live_synced_at"] = fresh_synced_at
+            row["ads_live_cache_age_seconds"] = 0
+        cache_save_conn = get_conn()
+        try:
+            grouped_rows = {}
+            for row in all_ads:
+                key = row.get("act_id")
+                if not key:
+                    continue
+                grouped_rows.setdefault(key, []).append(row)
+            for acc in _fetch_visible_accounts(cache_save_conn, user, act_id):
+                acc_key = acc["act_id"]
+                _ads_live_cache_set(cache_save_conn, acc_key, date_from, date_to, grouped_rows.get(acc_key, []))
+        except Exception:
+            pass
+        finally:
+            cache_save_conn.close()
+    if cache_lock_acquired and cache_lock:
+        try:
+            cache_lock.release()
+        except Exception:
+            pass
+
+    for row in all_ads:
+        kpi = kpi_map.get((row.get("act_id"), row.get("ad_id")), {})
+        row["target_cpa"] = kpi.get("target_cpa")
+        row["kpi_field"] = kpi.get("kpi_field")
+        row["kpi_label"] = kpi.get("kpi_label", "")
+        row["kpi_source"] = kpi.get("source", "")
+
     if all_ads:
         try:
             conn3 = get_conn()
@@ -1698,6 +2284,32 @@ def get_ads_live(
 
 
 # ─── 消耗查询（自定义日期） ───────────────────────────────────
+@router.post("/sync-spend")
+def sync_spend_from_meta(body: dict, user=Depends(get_current_user)):
+    _require_operator_user(user)
+    body = body or {}
+    act_id = str(body.get("act_id") or "").strip() or None
+    date_from, date_to = _normalize_meta_sync_dates(
+        body.get("date_from"),
+        body.get("date_to"),
+    )
+    conn = get_conn()
+    try:
+        accounts = [dict(row) for row in _fetch_visible_accounts(conn, user, act_id)]
+    finally:
+        conn.close()
+    if act_id and not accounts:
+        raise HTTPException(status_code=404, detail="account not found or not accessible")
+    outcome = _sync_meta_spend_for_accounts(
+        accounts,
+        date_from,
+        date_to,
+        source="manual_meta_sync",
+    )
+    outcome["status"] = "ok" if not outcome["failed_accounts"] else "partial"
+    return outcome
+
+
 @router.get("/spend-query")
 def spend_query(
     date_from: str,

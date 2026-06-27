@@ -31,6 +31,30 @@ def _assert_account_access(act_id: str, user) -> None:
         conn.close()
 
 
+def _invalidate_ads_cache_safely(act_id: str) -> None:
+    try:
+        from api.dashboard import invalidate_ads_live_cache
+        invalidate_ads_live_cache(act_id)
+    except Exception:
+        pass
+
+
+def _patch_ads_status_cache_safely(act_id: str, level: str, target_id: str, status: str, result: dict) -> None:
+    try:
+        from api.dashboard import patch_ads_live_cache_status
+        patch_ads_live_cache_status(act_id, level, target_id, status, result)
+    except Exception:
+        _invalidate_ads_cache_safely(act_id)
+
+
+def _patch_ads_budget_cache_safely(act_id: str, level: str, target_id: str, daily_budget: Optional[float], result: dict) -> None:
+    try:
+        from api.dashboard import patch_ads_live_cache_budget
+        patch_ads_live_cache_budget(act_id, level, target_id, daily_budget, result)
+    except Exception:
+        _invalidate_ads_cache_safely(act_id)
+
+
 class StatusRequest(BaseModel):
     act_id: str
     level: str
@@ -58,7 +82,7 @@ def update_status(body: StatusRequest, user=Depends(get_current_user)):
     _require_operator_user(user)
     _assert_account_access(body.act_id, user)
     try:
-        return set_status(
+        result = set_status(
             act_id=body.act_id,
             level=body.level,
             target_id=body.target_id,
@@ -66,6 +90,8 @@ def update_status(body: StatusRequest, user=Depends(get_current_user)):
             target_name=body.target_name or "",
             operator=_operator_name(user),
         )
+        _patch_ads_status_cache_safely(body.act_id, body.level, body.target_id, body.status, result)
+        return result
     except AdOpsError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -95,6 +121,7 @@ def bulk_update_status(body: BulkStatusRequest, user=Depends(get_current_user)):
                 target_name=item.target_name or "",
                 operator=operator,
             )
+            _patch_ads_status_cache_safely(item.act_id, item.level, item.target_id, item.status, result)
             success += 1
             results.append({
                 "ok": True,
@@ -128,7 +155,7 @@ def update_adset_budget(body: BudgetRequest, user=Depends(get_current_user)):
     if not body.adset_id:
         raise HTTPException(status_code=400, detail="adset_id is required")
     try:
-        return set_adset_budget(
+        result = set_adset_budget(
             act_id=body.act_id,
             adset_id=body.adset_id,
             daily_budget=body.daily_budget,
@@ -136,6 +163,8 @@ def update_adset_budget(body: BudgetRequest, user=Depends(get_current_user)):
             target_name=body.target_name or "",
             operator=_operator_name(user),
         )
+        _patch_ads_budget_cache_safely(body.act_id, "adset", body.adset_id, body.daily_budget, result)
+        return result
     except AdOpsError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -153,7 +182,7 @@ def update_budget(body: BudgetRequest, user=Depends(get_current_user)):
     if not target_id:
         raise HTTPException(status_code=400, detail="target_id is required")
     try:
-        return set_daily_budget(
+        result = set_daily_budget(
             act_id=body.act_id,
             level=level,
             target_id=target_id,
@@ -162,6 +191,8 @@ def update_budget(body: BudgetRequest, user=Depends(get_current_user)):
             target_name=body.target_name or "",
             operator=_operator_name(user),
         )
+        _patch_ads_budget_cache_safely(body.act_id, level, target_id, body.daily_budget, result)
+        return result
     except AdOpsError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
