@@ -5604,6 +5604,15 @@ input:focus, select:focus, textarea:focus {
      </select>
      <div class="fh">“主要成效”会按每条广告自己的 KPI 字段计算转化。例：购买广告看购买，线索广告看线索。</div>
     </div>
+    <div class="fg">
+     <label class="fl">转化来源 <span style="color:var(--t4);font-size:11px;font-weight:400">（衡量“转化”的数据源）</span></label>
+     <select class="fc" id="gp_conversion_source" onchange="updateGuardPreview()">
+      <option value="fb">FB 回传转化（默认）</option>
+      <option value="landing">落地页按钮点击</option>
+      <option value="either">二者取大（FB 或落地点击任一）</option>
+     </select>
+     <div class="fh">“落地页按钮点击”比 FB 回传更快、近实时；以按钮点击作为转化信号参与止损/空耗判定。仅对含转化的规则(止血/CPA/点击无转化等)生效；共享子码不计入。</div>
+    </div>
     <div class="fr">
      <div class="fg"><label class="fl">静默开始时间</label><input class="fc" id="silStart" type="time"><div class="fh">静默时段内不执行此规则</div></div>
      <div class="fg"><label class="fl">静默结束时间</label><input class="fc" id="silEnd" type="time"></div>
@@ -16340,10 +16349,11 @@ function renderGuard(rules){
    var descStr=r.rule_type==='bleed_abs'?'止血线: $'+(r.param_value||20):r.rule_type==='cpa_exceed'?'CPA > 目标×'+((r.param_ratio||1.3)*100).toFixed(0)+'%'+(r.param_value?' (目标$'+parseFloat(r.param_value).toFixed(2)+')':''):r.rule_type==='trend_drop'?'跌幅阈值: '+(r.param_value||40)+'%':r.rule_type==='consecutive_bad'?'连续 '+(r.param_days||2)+' 天超标 '+((r.param_ratio||1.3)*100).toFixed(0)+'%':r.rule_type==='click_no_conv'?'点击阈值: '+(r.param_value||100):r.rule_type==='low_ctr_no_conv'?'消耗 ≥ $'+(r.param_value||10)+' · CTR ≤ '+(r.param_ratio||0.5)+'%':r.rule_type==='reach_no_conv'?'覆盖 ≥ '+(r.param_value||1000)+' · 消耗 ≥ $'+(r.param_ratio||10):r.rule_type==='budget_burn_fast'?'单周期增加: $'+(r.param_value||20):'';
   var silStr=r.silent_start?' · 静默 '+r.silent_start+'-'+r.silent_end:'';
   var kfiBadge=r.kpi_filter?'<span class="badge" style="background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3);font-size:10px">'+escHtml(ruleKpiFilterLabel(r.kpi_filter))+'</span>':'';
+  var convBadge=(r.conversion_source==='landing')?'<span class="badge" style="background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3);font-size:10px" title="以落地页按钮点击作为转化信号">落地点击</span>':(r.conversion_source==='either')?'<span class="badge" style="background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3);font-size:10px" title="FB回传与落地点点击取大">FB/点击取大</span>':'';
   var scopeLabel=r.scope_label||(r.scope==='owner'?'名下全部账户':'指定账户');
   var scopeTitle=r.scope==='owner'?'当前运营名下全部账户':(displayActId(r.act_id)||'指定账户');
   var noteLabel=r.note==='owner_default_stoploss_v2'?'默认止损规则':r.note;
-  var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>'+kfiBadge;
+  var actBadge='<span class="badge bg-mu" title="'+escHtml(scopeTitle)+'">'+escHtml(scopeLabel)+'</span>'+kfiBadge+convBadge;
   var cardStyle='';
   var explain=guardRuleExplain(r);
    return'<div class="rc '+(r.enabled?'':'dis')+'" style="'+cardStyle+'"><div class="rc-icon g"></div><div class="rc-body"><div class="rc-title">'+(r.rule_name||tl[r.rule_type]||r.rule_type)+'</div><div class="rc-desc">'+descStr+silStr+'</div><div class="rule-explain">'+escHtml(explain)+'</div><div class="rc-meta"><span class="badge bg-er">'+(al[r.action]||r.action)+'</span>'+actBadge+(noteLabel?'<span style="font-size:11px;color:var(--t3)">'+escHtml(noteLabel)+'</span>':'')+'</div></div><div class="rc-acts role-hide-viewer"><label class="toggle"><input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleG('+r.id+')"><span class="ts"></span></label><button class="btn-ic" title="编辑规则" onclick="editG('+r.id+')">编</button><button class="btn-ic d" title="删除规则" onclick="delG('+r.id+')">删</button></div></div>';
@@ -16402,6 +16412,7 @@ function showAddRule(mode, opts){
    updateScalePreview();
   });
  }
+ var _csrc=document.getElementById('gp_conversion_source');if(_csrc)_csrc.value='fb';
  ['ruleName','ruleNote','silStart','silEnd'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
  // 重置账户选择框（避免编辑后再添加时保留旧值）
  var actSel=document.getElementById('ruleAct');
@@ -16527,7 +16538,8 @@ async function submitRule(){
    var type=document.getElementById('guardType').value;
    var d=rulesMeta.guard_types&&rulesMeta.guard_types.find(function(t){return t.value===type});
    var kpiFilter=document.getElementById('gp_kpi_filter')?document.getElementById('gp_kpi_filter').value||null:null;
-    var body={act_id:actId,level:'ad',target_id:'__global__',rule_name:document.getElementById('ruleName').value.trim()||null,rule_type:type,action:document.getElementById('guardAction').value,silent_start:document.getElementById('silStart').value||null,silent_end:document.getElementById('silEnd').value||null,note:document.getElementById('ruleNote').value.trim()||null,kpi_filter:kpiFilter};
+   var convSrc=(document.getElementById('gp_conversion_source')||{}).value||'fb';
+    var body={act_id:actId,level:'ad',target_id:'__global__',rule_name:document.getElementById('ruleName').value.trim()||null,rule_type:type,action:document.getElementById('guardAction').value,silent_start:document.getElementById('silStart').value||null,silent_end:document.getElementById('silEnd').value||null,note:document.getElementById('ruleNote').value.trim()||null,kpi_filter:kpiFilter,conversion_source:convSrc};
    if(d&&d.params)d.params.forEach(function(p){var v=document.getElementById('gp_'+p.key)&&document.getElementById('gp_'+p.key).value;if(v!==undefined&&v!=='')body[p.key]=parseFloat(v)||v});
    if(_editingRuleId){await api('PUT','/rules/guard/'+_editingRuleId,body);}
    else{await api('POST','/rules/guard',body);}
@@ -16580,6 +16592,7 @@ async function editG(id){
   document.getElementById('silEnd')&&(document.getElementById('silEnd').value=r.silent_end||'');
   document.getElementById('ruleNote')&&(document.getElementById('ruleNote').value=r.note||'');
   var kf=document.getElementById('gp_kpi_filter');if(kf)kf.value=r.kpi_filter||'';
+  var cs=document.getElementById('gp_conversion_source');if(cs)cs.value=r.conversion_source||'fb';
   // 回填动态参数字段
   if(r.param_value!=null){var pv=document.getElementById('gp_param_value');if(pv)pv.value=r.param_value;}
   if(r.param_ratio!=null){var pr=document.getElementById('gp_param_ratio');if(pr)pr.value=r.param_ratio;}

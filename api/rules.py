@@ -46,6 +46,8 @@ def _ensure_rule_scope_columns(conn) -> None:
             conn.execute("ALTER TABLE guard_rules ADD COLUMN team_id INTEGER")
         if "created_by" not in guard_cols:
             conn.execute("ALTER TABLE guard_rules ADD COLUMN created_by TEXT")
+        if "conversion_source" not in guard_cols:
+            conn.execute("ALTER TABLE guard_rules ADD COLUMN conversion_source TEXT DEFAULT 'fb'")
         conn.execute("UPDATE guard_rules SET scope='account' WHERE scope IS NULL OR scope=''")
         conn.execute(
             """UPDATE guard_rules
@@ -560,6 +562,7 @@ class GuardRuleIn(BaseModel):
     silent_end: Optional[str] = None
     note: Optional[str] = None
     kpi_filter: Optional[str] = None   # KPI类型筛选
+    conversion_source: Optional[str] = "fb"   # fb(默认,FB回传) / landing(落地页CTA点击) / either(取大)
 
 
 class GuardAdAllowanceIn(BaseModel):
@@ -662,13 +665,14 @@ def add_guard_rule(body: GuardRuleIn, user=Depends(get_current_user)):
             param_value, param_ratio, param_days,
             action, action_value, enabled,
             silent_start, silent_end, note, kpi_filter,
-            scope, owner_user_id, team_id, created_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            scope, owner_user_id, team_id, created_by, conversion_source)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (act_id, body.rule_name, body.level, body.target_id, body.rule_type,
          body.param_value, body.param_ratio, body.param_days,
          body.action, body.action_value, body.enabled,
          body.silent_start, body.silent_end, body.note, body.kpi_filter,
-         scope, owner_user_id, team_id, (user or {}).get("username"))
+         scope, owner_user_id, team_id, (user or {}).get("username"),
+         (body.conversion_source or "fb"))
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -896,6 +900,7 @@ def update_guard_rule(rule_id: int, body: GuardRuleIn, user=Depends(get_current_
            action=?, action_value=?, enabled=?,
            silent_start=?, silent_end=?, note=?, kpi_filter=?,
            scope=?, owner_user_id=?, team_id=?, created_by=?,
+           conversion_source=?,
            updated_at=datetime('now')
            WHERE id=?""",
         (act_id, body.rule_name, body.level, body.target_id, body.rule_type,
@@ -903,7 +908,8 @@ def update_guard_rule(rule_id: int, body: GuardRuleIn, user=Depends(get_current_
          body.action, body.action_value, body.enabled,
          body.silent_start, body.silent_end, body.note,
          getattr(body, "kpi_filter", None),
-         scope, owner_user_id, team_id, (user or {}).get("username"), rule_id)
+         scope, owner_user_id, team_id, (user or {}).get("username"),
+         (body.conversion_source or "fb"), rule_id)
     )
     conn.commit()
     conn.close()

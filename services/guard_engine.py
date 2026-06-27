@@ -2155,13 +2155,20 @@ class GuardEngine:
         # target_id="__global__" still means "all objects inside this account".
         rules = _load_rules_for_account(conn, "guard_rules", account)
         scale_rules = _load_rules_for_account(conn, "scale_rules", account)
+        # v3.11.136: 落地页CTA点击作为可选转化信号（账户本地今日；容错：失败->{}，绝不影响FB回传判断）
+        try:
+            from services.landing_metrics import landing_click_conversions as _lcc
+            _click_map = _lcc(conn, account, _account_local_date(account))
+        except Exception as _e:
+            logger.warning(f"landing click map failed {act_id}: {_e}")
+            _click_map = {}
         conn.close()
 
         account_rules, object_rules = self._split_guard_rules(act_id, rules)
         ad_metrics = []
         for ad in ads:
             try:
-                metrics = self._inspect_ad(account, ad, token, object_rules, scale_rules)
+                metrics = self._inspect_ad(account, ad, token, object_rules, scale_rules, click_map=_click_map)
                 if metrics:
                     ad_metrics.append(metrics)
             except Exception as e:
@@ -2461,7 +2468,7 @@ class GuardEngine:
         if failures and not successes:
             _set_retry_cooldown(f"{act_id}:account", rule_type)
 
-    def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None):
+    def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None, click_map: dict = None):
             from services.kpi_resolver import get_kpi_for_ad
 
             act_id = account["act_id"]
@@ -2563,6 +2570,12 @@ class GuardEngine:
                     broader_conv = float(a.get("value", 0))
                     break
 
+            # v3.11.136: 落地页CTA点击作为可选转化信号（容错：缺失/异常->0，绝不影响FB回传判断）
+            try:
+                landing_clicks = float((click_map or {}).get(ad_id) or 0)
+            except Exception:
+                landing_clicks = 0.0
+
             # v3.4.0: 交叉验证 — kpi_field是否真实存在于FB actions[]
             if spend > 0:
                 _cross_validate_kpi(ad_id, kpi_field, actions_raw, spend)
@@ -2612,6 +2625,7 @@ class GuardEngine:
                     reach=reach, ctr=ctr, unique_clicks=unique_clicks,
                     account_currency=account_currency, spend_raw=spend_raw,
                     broader_conv=broader_conv,
+                    landing_clicks=landing_clicks,
                     kpi_field=kpi_field,
                 )
 
@@ -2851,7 +2865,8 @@ class GuardEngine:
                     target_cpa: Optional[float], kpi_label: str, impressions: int,
                     reach: int = 0, ctr: float = 0.0, unique_clicks: int = 0,
                     account_currency: str = "USD", spend_raw: float = None,
-                    broader_conv: float = 0.0, kpi_field: str = ""):
+                    broader_conv: float = 0.0, kpi_field: str = "",
+                    landing_clicks: float = 0.0):
         """
         所有金额参数（spend/cpa/target_cpa）均为 USD。
         account_currency: 账户原始货币（仅用于日志展示）
@@ -2866,6 +2881,23 @@ class GuardEngine:
         cur_note = ""
         if account_currency != "USD" and spend_raw is not None:
             cur_note = f"（原始 {account_currency} {spend_raw:.2f}，已转换为 USD）"
+
+        # v3.11.136: 转化来源 conversion_source — fb(默认,FB回传,行为不变) /
+        # landing(落地页CTA点击) / either(二者取大)。改写 conversions/cpa 让下方所有
+        # 分支(bleed_abs/cpa_exceed/click_no_conv/low_ctr/reach)自动生效；
+        # fb 时不动 conversions/cpa -> 与历史行为完全一致。
+        try:
+            _lsrc = str(rule.get("conversion_source") or "fb").strip().lower()
+            if _lsrc == "landing":
+                _lc = float(landing_clicks or 0)
+                conversions = _lc
+                cpa = (spend / _lc) if _lc > 0 else None
+            elif _lsrc == "either":
+                _lc = float(landing_clicks or 0)
+                conversions = max(float(conversions or 0), _lc)
+                cpa = (spend / conversions) if conversions > 0 else None
+        except Exception:
+            pass  # 任何异常 -> 保持 fb 默认（conversions/cpa 未改）
 
         if rule_type == "bleed_abs":
             threshold = rule.get("param_value") or self.default_bleed_abs
