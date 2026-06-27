@@ -2211,11 +2211,18 @@ class AutoPilotEngine:
             payload["daily_budget"] = campaign_budget_units
             # CBO 必须在系列上显式声明 bid_strategy，否则 AdSet 创建会报 "Bid Amount Required"
             if target_cpa and float(target_cpa) > 0 and str(bid_strategy or "").upper() in ("COST_CAP", "BID_CAP"):
+                # COST_CAP 系列级策略：bid_amount 在系列级不是必填（FB 用 daily_budget 控制），
+                # 但策略必须与 campaign 的 daily_budget 一致使用。这里不附 bid_amount，
+                # 避免与 daily_budget 冲突。
                 payload["bid_strategy"] = "COST_CAP"
             else:
                 payload["bid_strategy"] = "LOWEST_COST_WITHOUT_CAP"
         else:
             payload["is_adset_budget_sharing_enabled"] = False
+        # 硬性不变量（系列级）：LOWEST_COST_WITHOUT_CAP 绝不能携带 bid_amount
+        # （FB 错误 code=100/subcode=1815858）。CBO 系列级不传 bid_amount。
+        if payload.get("bid_strategy") == "LOWEST_COST_WITHOUT_CAP":
+            payload.pop("bid_amount", None)
 
         data = self._fb_post(f"act_{act_id_num}/campaigns", token, payload)
         return data["id"]
@@ -2421,6 +2428,12 @@ class AutoPilotEngine:
                 payload["bid_strategy"] = "COST_CAP"
                 payload["bid_amount"] = bid_amount_units
             else:
+                # 无 target_cpa：必须显式声明 LOWEST_COST_WITHOUT_CAP。
+                # 关键：若完全不传 bid_strategy 字段，FB 对部分优化目标
+                # （如 PAGE_LIKES / POST_ENGAGEMENT）会报 2490487
+                # "Bid Amount Or Bid Constraints Required For Bid Strategy"，
+                # 因为 FB 不会自动推断默认策略，而是要求显式 bid 或 bid_constraints。
+                # 显式发送 LOWEST_COST_WITHOUT_CAP（无 bid_amount）即可被接受。
                 if bid_strategy in ("COST_CAP", "BID_CAP"):
                     logger.warning(
                         "[AutoPilot] bid_strategy=%s requires target_cpa; fallback to LOWEST_COST_WITHOUT_CAP",
@@ -2428,9 +2441,13 @@ class AutoPilotEngine:
                     )
                 elif bid_strategy not in ("", "LOWEST_COST_WITHOUT_CAP"):
                     logger.warning(
-                        "[AutoPilot] unsupported uncapped bid_strategy=%s without target_cpa; use Meta default lowest cost",
+                        "[AutoPilot] unsupported uncapped bid_strategy=%s without target_cpa; use LOWEST_COST_WITHOUT_CAP",
                         bid_strategy,
                     )
+                payload["bid_strategy"] = "LOWEST_COST_WITHOUT_CAP"
+        else:
+            # CBO：AdSet 级不能设置 bid_strategy/bid_amount（已在 _create_campaign 系列级声明）。
+            pass
         # 硬性不变量：bid_strategy=LOWEST_COST_WITHOUT_CAP 时绝不能携带 bid_amount
         # （FB 会报「竞价策略无法设置竞价金额」错误 code=100/subcode=1815858）。
         if payload.get("bid_strategy") == "LOWEST_COST_WITHOUT_CAP":
