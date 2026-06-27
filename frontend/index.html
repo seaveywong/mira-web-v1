@@ -9493,7 +9493,9 @@ function showAdBrief(adId){
  if(l.link_id)actions+='<button class="btn btn-g btn-sm role-hide-viewer" onclick="quickEditAdLandingLink(\''+_adsJs(a.ad_id)+'\')">修改广告跳转</button>';
  if(l.link_id)actions+='<button class="btn btn-p btn-sm role-hide-viewer" onclick="quickFillAdLandingResult(\''+_adsJs(a.ad_id)+'\')">回填真实数据</button>';
  if(l.public_url)actions+='<button class="btn btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+_adsJs(l.public_url)+'\').then(function(){toast(\'已复制投放链接\',\'ok\')})">复制投放链接</button>';
- actions+='<button class="btn btn-sm" onclick="quickKpi(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\',\''+_adsJs(a.ad_name||'')+'\')">配置 KPI</button></div>';
+ actions+='<button class="btn btn-sm" onclick="quickKpi(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\',\''+_adsJs(a.ad_name||'')+'\')">配置 KPI</button>';
+ if(l.link_id)actions+='<button class="btn btn-g btn-sm" onclick="_adsOpenLandingData(\''+_adsJs(a.ad_id)+'\')">查看落地数据</button>';
+ actions+='<button class="btn btn-sm" onclick="_openActHub(\''+_adsJs(a.act_id)+'\')">账户配置中心</button></div>';
  showInfo(_adsLandingBriefHtml(a)+actions,'广告综合信息');
 }
 async function quickEditAdLandingLink(adId){
@@ -23946,8 +23948,8 @@ function _adsCurrentAct(){var sel=document.getElementById('adsAct');var v=sel&&s
 function _adsGoAssetsForAct(actId){showPage('assets');try{var sel=document.getElementById('assetsActFilter');if(sel&&actId)sel.value=actId;}catch(e){}setTimeout(function(){try{loadAssets(true);}catch(e){}},180);}
 function _hubGo(page,selectId,loader){showPage(page);if(selectId){try{var s=document.getElementById(selectId);if(s&&window._hubActId)s.value=window._hubActId;}catch(e){}}if(loader){setTimeout(function(){try{loader();}catch(e){}},220);}}
 function _closeHub(){try{closeAllModals();}catch(e){}}
-function _openActHub(){
- var actId=_adsCurrentAct();
+function _openActHub(actId){
+ actId=actId||_adsCurrentAct();
  if(!actId){toast('请先在顶部选择一个具体账户','wa');return;}
  window._hubActId=actId;
  var shortId=String(actId).replace('act_','');
