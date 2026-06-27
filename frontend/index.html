@@ -2293,7 +2293,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 .landing-ad-more[open] summary{border-color:var(--ac);color:var(--ac);background:var(--acg)}
 .landing-ad-more-menu{position:absolute;right:0;top:38px;z-index:24000;display:grid;gap:6px;min-width:136px;padding:8px;border:1px solid var(--bd);border-radius:10px;background:var(--bg3);box-shadow:var(--sh)}
 .landing-ad-more-menu .btn{width:100%;justify-content:flex-start!important}
-.landing-ad-link-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;min-width:128px}
+.landing-ad-link-actions{display:flex;flex-wrap:wrap;gap:4px;min-width:128px}
 .landing-ad-link-actions .btn{height:30px!important;min-height:30px!important;padding:0 8px!important;justify-content:center;white-space:nowrap}
 .landing-ad-link-actions .primary{grid-column:1/-1}
 .landing-ad-link-actions .danger{color:var(--er)!important;border-color:rgba(230,57,70,.24)!important;background:rgba(230,57,70,.06)!important}
@@ -17565,6 +17565,7 @@ function onAiProv(prov){
  if(me&&p.models){me.innerHTML=p.models.map(function(m){return'<option value="'+m+'">'+m+'</option>'}).join('')}
 }
 function renderSI(s,providers,cp){
+ if(!s.label)s.label=s.key||'';
  var isHidden=['tg_chat_id','ai_base_url','inspect_interval_min','autopilot_enabled','autopilot_test_budget','autopilot_stop_loss','autopilot_max_adsets','dispatch_max_tasks_per_run','dispatch_min_score','global_dispatch_enabled'].includes(s.key);if(isHidden)return '';
  var isToggle=['ai_enabled','ai_vision_enabled','tg_enabled','inspect_enabled','dry_run','learning_phase_protect','escalate_on_fail','mirror_enabled','warmup_enabled'].includes(s.key);
  var isModel=s.key==='ai_model'&&providers&&cp&&providers[cp];
@@ -21081,7 +21082,8 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
   var rows=events.slice(0,80).map(function(x){
    var place=[x.country||'',x.region||'',x.city||''].filter(Boolean).join(' / ')||'--';
    var device=[x.device_type||'',x.os||'',x.browser||''].filter(Boolean).join(' · ')||'--';
-   var result=String(x.event_type||'').toLowerCase()==='redirect'?(x.target_url||'--'):(x.reason||x.target_url||'--');
+   var _tu=x.target_url||'';
+   var result=String(x.event_type||'').toLowerCase()==='redirect'?(_tu?_tu.replace(/^https?:\/\//,'').replace(/[?#].*$/,'').slice(0,48)+(_tu.length>48?'…':''):'--'):(x.reason||x.target_url||'--');
    var cls=String(x.event_type||'').toLowerCase()==='block'||String(x.event_type||'').toLowerCase()==='error'?'bg-er':'bg-ok';
    return '<div class="landing-event-card">'+
     '<div class="landing-event-top"><div class="landing-event-title"><span>'+escHtml(evName(x.event_type))+'</span><span class="badge '+cls+'">'+escHtml(x.decision||'')+'</span></div><span class="landing-event-time">'+escHtml(x.created_at||'')+'</span></div>'+
