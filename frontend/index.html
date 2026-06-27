@@ -2396,9 +2396,9 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
   align-items:center!important;
   justify-content:center!important;
   overflow:hidden!important;
-  z-index:9000!important;
+  z-index:100100!important;
 }
-.modal-overlay{z-index:9000!important}
+.modal-overlay{z-index:100100!important}
 .modal{
   width:min(680px,calc(100vw - 48px))!important;
  max-width:calc(100vw - 48px)!important;
@@ -5978,7 +5978,7 @@ async function api(m,p,b,opt){
   var r=await fetch('/api'+p,o);
   if(r.status===401){logout();return null}
   var d=await r.json().catch(function(){return{}});
-  if(!r.ok){var _em=_friendlyApiError(d,r.status);if(!opt||!opt.silent){try{toast(_em,'er')}catch(_t){}}throw new Error(_em);}
+  if(!r.ok){var _em=_friendlyApiError(d,r.status);if(isWriteMethod&&(!opt||!opt.silent)){try{toast(_em,'er')}catch(_t){}}throw new Error(_em);}
   return d;
  }finally{clearTimeout(_bt);document.body.classList.remove('busy');}
 }
