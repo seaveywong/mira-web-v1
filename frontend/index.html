@@ -3651,6 +3651,15 @@ input:focus, select:focus, textarea:focus {
     <div id="teamPausedBanner" class="team-paused-banner">当前团队已暂停，写入操作已禁用。请联系超级管理员恢复团队。</div>
     <!-- Dashboard -->
     <div class="page active" id="page-dashboard">
+     <div id="dashOnboard" style="display:none;margin:12px 0;padding:18px 20px;background:var(--bg2);border:1px solid var(--bd);border-radius:12px">
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px">👋 欢迎使用 Mira，三步开始投放</div>
+      <div style="color:var(--t2);font-size:13px;margin-bottom:12px">系统会全程引导：先导入广告账户与操作号 Token，再去投放中心铺广告，最后用落地页追踪每条广告的进线。</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+       <button type="button" onclick="showPage('tokens')" style="background:var(--ac);color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">① 导入 Token / 账户</button>
+       <button type="button" onclick="showPage('ads')" style="background:var(--ac);color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">② 铺广告</button>
+       <button type="button" onclick="showPage('landing_center')" style="background:var(--bgh);color:var(--t1);border:1px solid var(--bd);padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">③ 配置落地页</button>
+      </div>
+     </div>
      <div class="ph" style="align-items:center">
       <div>
        <h2>数据看板</h2>
@@ -8713,6 +8722,7 @@ async function loadDash(){
    api('GET','/accounts').then(function(accs){
     if(seq!==_dashLoadSeq)return;
     window._balanceDetails=accs||[];
+    var _ob=document.getElementById('dashOnboard');if(_ob)_ob.style.display=(!accs||!accs.length)?'':'none';
     renderBalanceCardFromAccounts(window._balanceDetails);
     renderTaskCenter(sum, window._balanceDetails);
    }).catch(function(){
@@ -24005,7 +24015,7 @@ async function openQuickImportAccount() {
 
   try {
     // Fetch available manage tokens
-    var tokens = await api('GET','/tokens?token_type=manage') || [];
+    var tokens = await api('GET','/accounts/tokens?token_type=manage') || [];
     var manageTokens = tokens.filter(function(t){ return t.token_type === 'manage' && t.status === 'active'; });
 
     if (!manageTokens.length) {
