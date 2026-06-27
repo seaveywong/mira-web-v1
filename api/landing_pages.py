@@ -4456,7 +4456,8 @@ def _landing_ad_link_event_count(conn, page_id: int, slug: str) -> int:
               path=?
               OR COALESCE(metadata,'') LIKE ?
               OR COALESCE(metadata,'') LIKE ?
-             )""",
+             )
+             AND LOWER(COALESCE(event_type,'')) IN ('click','redirect','submit')""",
         (
             int(page_id),
             f"/a/{slug}",
@@ -5024,7 +5025,8 @@ def delete_landing_ad_link(link_id: int, user=Depends(get_current_user)):
                               path=?
                               OR COALESCE(metadata,'') LIKE ?
                               OR COALESCE(metadata,'') LIKE ?
-                             )""",
+                             )
+                             AND LOWER(COALESCE(event_type,'')) IN ('click','redirect','submit')""",
                         (
                             int(row["page_id"]),
                             f"/a/{slug}",

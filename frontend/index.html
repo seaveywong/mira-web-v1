@@ -2291,7 +2291,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 .landing-ad-more summary{list-style:none;display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 11px;border:1px solid var(--bd);border-radius:var(--rs);background:var(--bg3);color:var(--t2);font-size:12px;font-weight:650;cursor:pointer;white-space:nowrap}
 .landing-ad-more summary::-webkit-details-marker{display:none}
 .landing-ad-more[open] summary{border-color:var(--ac);color:var(--ac);background:var(--acg)}
-.landing-ad-more-menu{position:absolute;right:0;top:38px;z-index:20;display:grid;gap:6px;min-width:136px;padding:8px;border:1px solid var(--bd);border-radius:10px;background:var(--bg3);box-shadow:var(--sh)}
+.landing-ad-more-menu{position:absolute;right:0;top:38px;z-index:24000;display:grid;gap:6px;min-width:136px;padding:8px;border:1px solid var(--bd);border-radius:10px;background:var(--bg3);box-shadow:var(--sh)}
 .landing-ad-more-menu .btn{width:100%;justify-content:flex-start!important}
 .landing-ad-link-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;min-width:128px}
 .landing-ad-link-actions .btn{height:30px!important;min-height:30px!important;padding:0 8px!important;justify-content:center;white-space:nowrap}
@@ -20511,7 +20511,7 @@ function _landingAdLinkCanDelete(item,stats){
  if(String(item.ad_id||'').trim())return false;
  var status=String(item.status||'reserved').toLowerCase();
  if(['active'].indexOf(status)>=0)return false;
- var keys=['visit','click','redirect','submit','block','total','unique_visit','unique_click','unique_redirect','whatsapp_click','whatsapp_redirect','true_contact','confirmed_actions','confirmed_sales','confirmed_result_count','spend','fb_conversions','fb_clicks','impressions'];
+ var keys=['click','redirect','submit','unique_click','unique_redirect','whatsapp_click','whatsapp_redirect','true_contact','confirmed_actions','confirmed_sales','confirmed_result_count','spend','fb_conversions','fb_clicks','impressions'];
  for(var i=0;i<keys.length;i++){
   if(Number(stats[keys[i]]||0)>0)return false;
  }
@@ -20734,6 +20734,7 @@ function closeLandingPublishDrawer(){
 function openLandingApiDrawer(){
  if(!isPageVisible('landing_center'))showPage('landing_center');
  closeLandingDrawers();
+ try{closeAllModals();}catch(e){}
  document.body.classList.add('landing-api-open');
  setTimeout(function(){
   var el=document.getElementById('cfApiName');
@@ -20746,6 +20747,7 @@ function closeLandingApiDrawer(){
 function openLandingProtectionDrawer(){
  if(!isPageVisible('landing_center'))showPage('landing_center');
  closeLandingDrawers();
+ try{closeAllModals();}catch(e){}
  document.body.classList.add('landing-protection-open');
  renderProtectionTemplateList();
  renderProtectionTemplateSummary();
