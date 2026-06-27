@@ -23987,7 +23987,7 @@ function _openActHub(actId){
  h+=b('规则引擎',"_closeHub();_hubGo('rules','rulesAct',loadRules)",'止损 / 拉量规则');
  h+=b('KPI 配置',"_closeHub();_hubGo('kpi','kpiAct',loadKpi)",'账户 KPI 目标');
  h+=b('操作号 / Token',"_closeHub();openOpPoolModal(window._hubActId)",'操作号绑定与池');
- h+=b('权限诊断',"_closeHub();showAccountPermissionDiagnostic(window._hubActId)",'Token/主页写权限检查');
+ h+=b('权限诊断',"_closeHub();showAccountPermissionDiagnostic(window._hubActId)",'Token/主页写权限检查'); h+=b('落地页工作台',"_closeHub();_hubGo('landing_center')",'发布 / 管理落地页与广告入口'); h+=b('操作日志',"_closeHub();_hubGo('logs')",'该账户最近操作记录'); h+=b('团队管理',"_closeHub();_hubGo('team_admin')",'团队成员与资源归属');
  h+=b('🚀 为该账户铺广告',"_closeHub();openLaunchFromAdCenter()",'打开铺广告向导（自动预选）');
  h+='</div>';
  showInfo(h,'账户配置中心 · '+shortId);
