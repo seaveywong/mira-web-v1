@@ -582,7 +582,7 @@ def list_assets(
         kw = f"%{search.strip()}%"
         where.append(
             "(COALESCE(display_name,'') LIKE ? OR COALESCE(file_name,'') LIKE ? OR "
-            "COALESCE(asset_code,'') LIKE ? OR COALESCE(note,'') LIKE ? OR "
+            "COALESCE(asset_code,'') LIKE ? OR COALESCE(a.note,'') LIKE ? OR "
             "COALESCE(folder_name,'') LIKE ? OR COALESCE(batch_code,'') LIKE ? OR "
             "COALESCE(tags,'') LIKE ?)"
         )
