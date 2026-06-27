@@ -4365,11 +4365,12 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
             if body.protection_enabled is not None
             else bool(page.get("protection_enabled"))
         )
-        rules_json = (
-            json.dumps(_safe_rules(body.protection_rules), ensure_ascii=False)
-            if body.protection_rules is not None
-            else (page.get("protection_rules") or "{}")
-        )
+        if body.protection_rules is not None:
+            _existing_rules = _json_loads(page.get("protection_rules") or "{}", {})
+            _merged_rules = {**(_existing_rules if isinstance(_existing_rules, dict) else {}), **body.protection_rules}
+            rules_json = json.dumps(_safe_rules(_merged_rules), ensure_ascii=False)
+        else:
+            rules_json = page.get("protection_rules") or "{}"
         pixel_id = page.get("pixel_id") or ""
         custom_domain = page.get("custom_domain") or ""
         template_id = int(page.get("template_id") or 1)
