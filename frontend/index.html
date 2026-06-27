@@ -3579,7 +3579,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item ad-center-migrated-nav" onclick="showPage('landing_center')"><span class="nav-icon"></span>落地页工作台</div>
     <!-- 铺放中心暂时停用 v3.0.7 -->
     <div class="nav-sec-title">规则与策略</div>
-    <div class="nav-item" onclick="showPage('kpi')"><span class="nav-icon"></span>KPI 配置</div>
+    <div class="nav-item role-superadmin-only" onclick="showPage('kpi')"><span class="nav-icon"></span>KPI 配置</div>
     <div class="nav-item role-superadmin-only" onclick="showPage('kpi_mapping')"><span class="nav-icon"></span>KPI 映射</div>
     <div class="nav-item" onclick="showPage('rules')"><span class="nav-icon"></span>规则引擎</div>
     <div class="nav-sec-title">系统</div>
@@ -4898,7 +4898,7 @@ input:focus, select:focus, textarea:focus {
    <div style="font-size:14px;font-weight:600;margin-bottom:12px;text-align:center;color:var(--t2)">更多功能</div>
    <button class="mobile-more-item" onclick="showPage('assets');setMobileNav('');toggleMobileMoreMenu()"><span></span>素材库</button>
    <button class="mobile-more-item" onclick="showPage('ads','ads');setMobileNav('ads');toggleMobileMoreMenu()"><span></span>投放中心</button>
-   <button class="mobile-more-item" onclick="showPage('kpi');setMobileNav('');toggleMobileMoreMenu()"><span></span>KPI 配置</button>
+   <button class="mobile-more-item role-superadmin-only" onclick="showPage('kpi');setMobileNav('');toggleMobileMoreMenu()"><span></span>KPI 配置</button>
    <button class="mobile-more-item role-superadmin-only" onclick="showPage('kpi_mapping');setMobileNav('');toggleMobileMoreMenu()"><span></span>KPI 映射</button>
    <button class="mobile-more-item" onclick="showPage('logs');setMobileNav('');toggleMobileMoreMenu()"><span></span>操作日志</button>
    <button class="mobile-more-item" onclick="showPage('tokens');setMobileNav('');toggleMobileMoreMenu()"><span></span>Token 管理</button>
@@ -6427,7 +6427,7 @@ function _validateLandingUrl(input) {
 
 // ── 权限控制 ──────────────────────────────────────────────────────────────────
 var ROLE_LEVELS = {superadmin:100, admin:80, operator:50, viewer:10};
-var PAGE_MIN_ROLES = {settings:'superadmin', kpi_mapping:'superadmin', team_admin:'admin'};
+var PAGE_MIN_ROLES = {settings:'superadmin', kpi:'superadmin', kpi_mapping:'superadmin', team_admin:'admin'};
 function getCurrentRole(){return localStorage.getItem('mira_role')||'viewer';}
 function hasRole(minRole){return (ROLE_LEVELS[getCurrentRole()]||0)>=(ROLE_LEVELS[minRole]||0);}
 function isSuperadminRole(){return getCurrentRole()==='superadmin';}
