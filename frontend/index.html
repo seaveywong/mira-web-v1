@@ -1058,6 +1058,7 @@ tr:hover td{background:#151e29}
  background:#101720;border:1px solid #263545;border-radius:6px;padding:4px;margin-bottom:12px
 }
 .kpi-tab{height:30px;padding:0 12px;border-radius:5px;border:1px solid transparent;margin:0;color:#9aaabd}
+.kpi-load-more button{cursor:pointer}
 .kpi-tab.active{background:#172233;border-color:#2f4770;color:#9fc0ff}
 #page-rules .ph>div:last-child,#page-twpages .ph>div:last-child,#page-landing_urls .ph>div:last-child{
  display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap
@@ -2165,6 +2166,11 @@ select.fc option{background:#fff;color:#1d1d1f}
 }
 .landing-path-strip b{color:#1d1d1f;font-size:12px;margin-right:2px}
 .landing-path-strip span{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid #e5e5ea;border-radius:999px;background:#fff;color:#515154;font-weight:680}
+.landing-onboarding-hint{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-2px 0 14px;padding:10px 14px;border:1px solid #bfdbfe;border-radius:10px;background:#eff6ff;color:#1e3a8a;font-size:13px;line-height:1.5}
+.landing-onboarding-hint b{color:#1d4ed8;font-weight:760}
+.landing-onboarding-hint-text{flex:1;min-width:0}
+.landing-onboarding-hint-close{margin-left:auto;border:0;background:transparent;color:#6e6e73;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px}
+.landing-onboarding-hint-close:hover{background:rgba(30,58,138,.08);color:#1e3a8a}
 .landing-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .landing-top-actions .fc{height:36px!important}
 .landing-top-actions .btn{height:36px!important;min-height:36px!important}
@@ -2345,7 +2351,14 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
 .landing-stats-pill-card{min-width:0}
 .landing-stats-pill-card b{font-size:13px;color:var(--t1)}
 .landing-event-list{display:grid;gap:8px;max-height:560px;overflow:auto;padding-right:2px}
-.landing-event-card{border:1px solid var(--bd);border-radius:10px;background:#fff;padding:14px 16px;display:grid;gap:12px}
+.landing-event-card{border:1px solid var(--bd);border-left-width:4px;border-radius:10px;background:#fff;padding:14px 16px;display:grid;gap:12px}
+.landing-event-card[data-et="redirect"]{border-left-color:var(--ok)}
+.landing-event-card[data-et="block"]{border-left-color:var(--er)}
+.landing-event-card[data-et="error"]{border-left-color:var(--er)}
+.landing-event-card[data-et="click"]{border-left-color:var(--ac)}
+.landing-event-card[data-et="submit"]{border-left-color:var(--wa)}
+.landing-event-card[data-et="visit"]{border-left-color:var(--t3)}
+.landing-event-card[data-et="pass"]{border-left-color:var(--ok)}
 .landing-event-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .landing-event-title{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-weight:820;color:var(--t1)}
 .landing-event-time{color:var(--t3);font-size:12px}
@@ -3859,7 +3872,7 @@ input:focus, select:focus, textarea:focus {
        <button class="ad-center-card" data-ad-center-tab="accounts" onclick="switchAdCenterModule('accounts')"><div><b>广告账户</b><span>导入账户、Token、操作号和 Pixel 状态</span></div><em>AC</em></button>
        <button class="ad-center-card" data-ad-center-tab="templates" onclick="switchAdCenterModule('templates')"><div><b>广告模板</b><span>消息模板、Lead Form 模板和复用配置</span></div><em>TP</em></button>
        <button class="ad-center-card" data-ad-center-tab="links" onclick="switchAdCenterModule('links')"><div><b>账户投放链接</b><span>维护账户主链接 / 表单链接，铺广告自动读取</span></div><em>URL</em></button>
-       <button class="ad-center-card" data-ad-center-tab="landing" onclick="switchAdCenterModule('landing')"><div><b>落地页入口</b><span>主链接、子码、跳转、真实进线和防护日志</span></div><em>LP</em></button>
+       <button class="ad-center-card" data-ad-center-tab="landing" onclick="switchAdCenterModule('landing')"><div><b>落地页入口</b><span>落地页、子码、跳转、真实进线和防护日志</span></div><em>LP</em></button>
        <button class="ad-center-card" data-ad-center-tab="pages" onclick="switchAdCenterModule('pages')"><div><b>主页库</b><span>主页状态、类型、粉丝规模、Verified ID</span></div><em>PG</em></button>
       </div>
       <div class="ad-center-strip">
@@ -4469,20 +4482,24 @@ input:focus, select:focus, textarea:focus {
  <div class="landing-path-strip">
  <b>投放链路</b><span>发布链接</span><span>绑定账户</span><span>铺广告生成广告入口</span><span>回填真实进线</span>
  </div>
+ <div class="landing-onboarding-hint" id="landingOnboardingHint" style="display:none">
+  <span class="landing-onboarding-hint-text">新手：先<b>发布一个落地页</b> → <b>绑定账户</b> → 铺广告时自动生成入口</span>
+  <button type="button" class="landing-onboarding-hint-close" onclick="dismissLandingOnboardingHint()" title="我知道了">×</button>
+ </div>
  <details class="landing-guide-details">
   <summary>查看投放链路说明与域名建议</summary>
  <div class="landing-simple-guide">
   <div class="landing-guide-card">
    <div class="landing-guide-title">日常投放照这 4 步走</div>
    <div class="landing-guide-steps">
-    <div class="landing-guide-step"><b>1</b><span>先发布一个主链接</span><small>选择域名、模板、跳转链接和统计规则。</small></div>
+    <div class="landing-guide-step"><b>1</b><span>先发布一个落地页</span><small>选择域名、模板、跳转链接和统计规则。</small></div>
     <div class="landing-guide-step"><b>2</b><span>把链接绑定到账户</span><small>铺广告时会自动带入，不用每次手填。</small></div>
     <div class="landing-guide-step"><b>3</b><span>给广告用投放链接</span><small>一键铺广告会自动生成入口；手工投放才在“广告入口”复制推荐链接。</small></div>
     <div class="landing-guide-step"><b>4</b><span>看数据和回填结果</span><small>没回填时看 FB 成效；有回填时按真实进线算成本。</small></div>
    </div>
-   <div class="landing-guide-note"><b>推荐：</b><span>铺广告弹窗会自动用账户主链接生成 <code>/a/入口码?ad={{ad.id}}</code> 并回绑广告；只有手工建广告时，才需要在“广告入口”里复制投放链接。</span></div>
+   <div class="landing-guide-note"><b>推荐：</b><span>铺广告弹窗会自动用账户投放链接生成 <code>/a/子码?ad={{ad.id}}</code> 并回绑广告；只有手工建广告时，才需要在“广告入口”里复制投放链接。</span></div>
    <div class="landing-quick-actions">
-    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布主链接</button>
+    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布落地页</button>
     <button class="btn btn-g" onclick="showPage('landing_urls')">绑定到账户</button>
     <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">管理像素/域名预设</button>
    </div>
@@ -5413,7 +5430,7 @@ input:focus, select:focus, textarea:focus {
      </div>
      <label id="launchBindLandingLinkRow" style="display:flex;align-items:flex-start;gap:6px;margin-top:6px;font-size:11px;color:var(--t2);line-height:1.5">
       <input id="launchBindLandingLink" type="checkbox" checked style="width:auto;margin-top:2px">
-      <span id="launchBindLandingLinkText">同步保存为所选账户主链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。</span>
+      <span id="launchBindLandingLinkText">同步保存为所选账户投放链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。</span>
       </label>
       <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：此处填写 &gt; 素材级绑定 &gt; 账户主链接/已绑定主链接 &gt; 系统全局默认；系统主链接会为每条广告自动生成广告入口并回绑广告。</div>
       <div id="launchLinkStatusPanel"></div>
@@ -6225,8 +6242,8 @@ function showGlossary(){
   ]},
   {t:"投放与链接",items:[
    ["落地页","广告点击后用户到达的页面，由系统发布到 CDN / 自定义域名。"],
-   ["投放链接 / 主链接","账户绑定的默认落地页地址，铺广告时自动带入。"],
-   ["广告入口 / 子码","系统为每条广告生成的 /a/短码 可追踪链接，创建后会自动回绑广告 ID。"],
+   ["投放链接","账户绑定的默认落地页地址，铺广告时自动带入。"],
+   ["广告入口 / 子码","系统为每条广告生成的 /a/子码 可追踪链接，创建后会自动回绑广告 ID。"],
    ["Pixel","Meta 转化跟踪像素，用于统计转化。"],
    ["CTA","广告按钮的行动号召，如 立即购买、了解更多。"]
   ]},
@@ -8220,8 +8237,8 @@ var AD_CENTER_MODULE_TEXT={
  ads:'从账户层级向下查看广告系列 → 广告组 → 广告；单条广告可直接改跳转、回填真实数据、配置 KPI。',
  accounts:'账户资产、Token、操作号和 Pixel 状态统一维护；完成后可直接回到广告总览查看投放结果。',
  templates:'消息模板和 Lead Form 模板在这里维护；铺广告弹窗会直接读取可用模板。',
- links:'账户默认主链接 / 表单链接在这里维护；铺广告时自动生成广告级子码入口。',
- landing:'管理主链接、广告入口、跳转、防护、统计和真实结果回填。',
+ links:'账户默认投放链接 / 表单链接在这里维护；铺广告时自动生成广告级子码入口。',
+ landing:'管理落地页、广告入口、跳转、防护、统计和真实结果回填。',
  pages:'管理可投放主页、主页状态、类型、粉丝规模和 Verified ID。'
 };
 function pageFromHash(){
@@ -8975,7 +8992,7 @@ function setAdsRange(days){
  loadAds();
 }
 function _renderAdsAccountPrompt(){
- var message='<div class="onboarding-empty-state"><h3>👋 欢迎来到投放中心</h3><p style="color:var(--t3);margin-bottom:20px;">三步完成您的首次广告投放</p><div class="onboarding-step active"><b>1</b> <span>在“授权中心”绑定 Meta OAuth 操作号</span></div><div class="onboarding-step"><b>2</b> <span>在“落地页工作台”绑定您的第一个分发页面</span></div><div class="onboarding-step"><b>3</b> <span>选择一个账户，点击右侧“一键铺广告”</span></div></div>';
+ var message='<div class="onboarding-empty-state"><h3>👋 欢迎来到投放中心</h3><p style="color:var(--t3);margin-bottom:20px;">三步完成您的首次广告投放</p><div class="onboarding-step active"><b>1</b> <span>在“授权中心”绑定 Meta OAuth 操作号</span></div><div class="onboarding-step"><b>2</b> <span>在“落地页工作台”绑定您的第一个落地页</span></div><div class="onboarding-step"><b>3</b> <span>选择一个账户，点击右侧“一键铺广告”</span></div></div>';
  var body=document.getElementById('adsBody');
  // board 视图已下线，欢迎引导改为在表格区整行展示
  if(body)body.innerHTML='<tr><td colspan="14" style="padding:24px">'+message+'</td></tr>';
@@ -13785,7 +13802,7 @@ function _renderLaunchLinkStatusPanel(meta){
  }
  var selected=_getLaunchSelectedAccounts();
  var manual=((document.getElementById('launchLandingUrl')||{}).value||'').trim();
- var modeLabel=meta.isLead?'表单链接':'主链接';
+ var modeLabel=meta.isLead?'表单链接':'投放链接';
  var linkHint=meta.isLead?'Lead 表单回跳/隐私链接':'落地页主链接';
  if(!selected.length){
   panel.innerHTML='<div class="launch-link-panel"><div class="launch-link-panel-head"><div><div class="launch-link-panel-title">投放链接策略</div><div class="launch-link-panel-desc">先选择账户；系统会检查账户是否已有 '+modeLabel+'。留空时按账户绑定链接生成 /a/子码 + ad={{ad.id}}。</div></div><button type="button" class="btn btn-g btn-sm" onclick="showLaunchAccountLinks()">查看账户链接</button></div></div>';
@@ -13824,7 +13841,7 @@ async function showLaunchAccountLinks(){
   var form=_accountFormLink(a)||'';
   return '<tr>'+
    '<td style="padding:8px 10px;vertical-align:top"><div style="font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="'+escHtml(displayAccountName(a.name,aid))+'">'+escHtml(displayAccountName(a.name,aid))+'</div><div style="font-size:11px;color:var(--t3);font-family:monospace">'+escHtml(displayActIdClean(aid))+'</div></td>'+
-   '<td style="padding:8px 10px;vertical-align:top"><input class="fc" id="lalL_'+escHtml(aid)+'" value="'+escHtml(landing)+'" placeholder="https://域名/a/短码 或落地页链接" style="font-size:12px;width:240px;margin-bottom:4px"><select class="fc" style="width:240px;font-size:11px" onchange="if(this.value){var i=document.getElementById(\'lalL_'+escHtml(aid)+'\');if(i)i.value=this.value;this.selectedIndex=0;}">'+lpOptions+'</select></td>'+
+   '<td style="padding:8px 10px;vertical-align:top"><input class="fc" id="lalL_'+escHtml(aid)+'" value="'+escHtml(landing)+'" placeholder="https://域名/a/子码 或落地页链接" style="font-size:12px;width:240px;margin-bottom:4px"><select class="fc" style="width:240px;font-size:11px" onchange="if(this.value){var i=document.getElementById(\'lalL_'+escHtml(aid)+'\');if(i)i.value=this.value;this.selectedIndex=0;}">'+lpOptions+'</select></td>'+
    '<td style="padding:8px 10px;vertical-align:top"><input class="fc" id="lalF_'+escHtml(aid)+'" value="'+escHtml(form)+'" placeholder="表单链接(可选)" style="font-size:12px;width:170px"></td>'+
    '<td style="padding:8px 10px;text-align:right;white-space:nowrap;vertical-align:top"><button class="btn btn-p btn-sm role-hide-viewer" onclick="saveLaunchAccountLink(\''+_adsJs(aid)+'\')">保存</button><br><button class="btn btn-g btn-sm" style="margin-top:4px" onclick="copyLaunchAdLinkTemplate(\''+_adsJs(aid)+'\')" title="复制 /a/短码?ad={{ad.id}} 投放链接模板">复制投放链接</button></td>'+
   '</tr>';
@@ -15002,7 +15019,7 @@ async function onLaunchObjectiveChange() {
   if (bindLaunchLinkText) {
    bindLaunchLinkText.textContent = meta.isLead
     ? '同步保存为所选账户表单链接；Lead 表单回跳使用该链接。'
-    : '同步保存为所选账户主链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。';
+    : '同步保存为所选账户投放链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。';
   }
   if (landingUrlRow && landingUrlRow.parentElement) {
    landingUrlRow.parentElement.style.opacity = meta.isMessage ? '0.4' : '1';
@@ -15496,8 +15513,10 @@ function _setLaunchProgress(pct, msg, status, data){
 
 // ── KPI ──
 var kpiTabCurrent='all';
+var kpiListPage=0, KPI_PAGE_SIZE=100;
 function switchKpiTab(tab){
  kpiTabCurrent=tab;
+ kpiListPage=0;
  document.querySelectorAll('.kpi-tab').forEach(function(t){t.classList.remove('active')});
  document.querySelectorAll('.kpi-tab').forEach(function(t){
   if(t.getAttribute('onclick')&&t.getAttribute('onclick').includes("'"+tab+"'"))t.classList.add('active');
@@ -15540,6 +15559,7 @@ async function loadKpi(){
   // 填充KPI字段下拉
   var kpiFieldSel=document.getElementById('kpiFieldSel');
   if(kpiFieldSel)kpiFieldSel.innerHTML=kpiFields.map(function(f){return'<option value="'+(f.key||f.value||'')+'">'+(f.label||f.key||f.value||'')+'</option>'}).join('');
+  kpiListPage=0;
   renderKpiList();
  }catch(e){el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>加载失败：'+e.message+'</p></div>'}
 }
@@ -15551,9 +15571,11 @@ function renderKpiList(){
   el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>暂无 KPI 配置<br>点击「自动扫描预设」快速批量配置，或手动添加</p></div>';
   return;
  }
+ var visibleCount=Math.min(data.length, (kpiListPage+1)*KPI_PAGE_SIZE);
+ var pageData=data.slice(0, visibleCount);
  var lvMap={account:{label:'账户级',cls:'bg-mu'},campaign:{label:'Campaign',cls:'bg-cy'},adset:{label:'广告组',cls:'bg-pu'},ad:{label:'广告级',cls:'bg-ac'}};
  var srcMap={manual:'<span class="badge bg-ok">人工</span>',auto:'<span class="badge bg-wa">自动推断</span>',rule:'<span class="badge bg-wa">自动推断</span>',history:'<span class="badge bg-wa">历史推断</span>',default:'<span class="badge bg-mu">默认</span>',ai:'<span class="badge bg-pu">AI分析</span>'};
- el.innerHTML=data.map(function(k){
+ el.innerHTML=pageData.map(function(k){
   var lv=lvMap[k.level]||{label:k.level,cls:'bg-mu'};
   var actName=(window._kpiActMap&&window._kpiActMap[k.act_id])||displayActId(k.act_id)||'';
   var field=String(k.kpi_field||'');
@@ -15591,7 +15613,19 @@ function renderKpiList(){
    '</div>'+
    '</div>';
  }).join('');
+ if(data.length>visibleCount){
+  var moreEl=document.createElement('div');
+  moreEl.className='kpi-load-more';
+  moreEl.style.cssText='text-align:center;padding:12px;margin-top:10px';
+  var rem=data.length-visibleCount;
+  moreEl.innerHTML='<button class="btn btn-g btn-sm" onclick="loadMoreKpi()" style="min-width:160px">加载更多（剩余 '+rem+' 条）</button>';
+  el.appendChild(moreEl);
+ }
  updateGuardPreview();
+}
+function loadMoreKpi(){
+ kpiListPage++;
+ renderKpiList();
 }
 
 function showAddKpi(){
@@ -19894,6 +19928,11 @@ async function loadLandingCenter(force){
   toast('落地页工作台加载失败：'+(e.message||e),'er');
  }
 }
+function dismissLandingOnboardingHint(){
+ localStorage.setItem('mira_landing_hint_dismissed','1');
+ var el=document.getElementById('landingOnboardingHint');
+ if(el)el.style.display='none';
+}
 function renderLandingMvpPanel(){
  var el=document.getElementById('landingMvpPanel');
  if(!el)return;
@@ -19903,6 +19942,8 @@ function renderLandingMvpPanel(){
  var usableDomains=domains.filter(function(d){return d&&d.domain;});
  var pages=Array.isArray(_landingPages)?_landingPages:[];
  var published=pages.filter(function(p){return String(p.status||'')==='published';});
+ var _hintEl=document.getElementById('landingOnboardingHint');
+ if(_hintEl)_hintEl.style.display=(published.length===0&&!localStorage.getItem('mira_landing_hint_dismissed'))?'flex':'none';
  var customPublished=published.filter(function(p){return !!String(p.custom_domain||'').trim();});
  var perf=_landingAdPerf||{};
  var perfItems=Array.isArray(perf.items)?perf.items:[];
@@ -21078,7 +21119,7 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
    var _tu=x.target_url||'';
    var result=String(x.event_type||'').toLowerCase()==='redirect'?(_tu?_tu.replace(/^https?:\/\//,'').replace(/[?#].*$/,'').slice(0,48)+(_tu.length>48?'…':''):'--'):(x.reason||x.target_url||'--');
    var cls=String(x.event_type||'').toLowerCase()==='block'||String(x.event_type||'').toLowerCase()==='error'?'bg-er':'bg-ok';
-   return '<div class="landing-event-card">'+
+   return '<div class="landing-event-card" data-et="'+escHtml(String(x.event_type||'').toLowerCase())+'">'+
     '<div class="landing-event-top"><div class="landing-event-title"><span>'+escHtml(evName(x.event_type))+'</span><span class="badge '+cls+'">'+escHtml(x.decision||'')+'</span></div><span class="landing-event-time">'+escHtml(x.created_at||'')+'</span></div>'+
     '<div class="landing-event-fields"><div class="landing-event-field"><span>地区</span><b title="'+escHtml(place)+'">'+escHtml(place)+'</b></div><div class="landing-event-field"><span>设备</span><b title="'+escHtml(device)+'">'+escHtml(device)+'</b></div><div class="landing-event-field"><span>广告 ID</span><b title="'+escHtml(x.ad_id||'')+'">'+escHtml(x.ad_id||'未识别')+'</b></div><div class="landing-event-field"><span>路径</span><b title="'+escHtml(x.path||'')+'">'+escHtml(x.path||'--')+'</b></div></div>'+
     '<div class="landing-event-reason"><b style="color:var(--t1)">结果：</b>'+escHtml(result)+'</div>'+
@@ -23186,7 +23227,7 @@ async function showLandingStats(id,dateFrom,dateTo){
   function landingReasonText(x){
    var t=String(x.event_type||'').toLowerCase();
    if(t==='block')return '拦截原因：'+landingReasonLabel(x.reason);
-   if(t==='redirect')return '跳转目标：'+(x.target_url||'--');
+   if(t==='redirect'){var _tu=x.target_url||'';return '跳转目标：'+(_tu?_tu.replace(/^https?:\/\//,'').replace(/[?#].*$/,'').slice(0,48)+(_tu.length>48?'…':''):'--');}
    if(t==='click')return '点击目标：'+(x.target_url||'页面按钮');
    if(t==='error')return '错误信息：'+landingReasonLabel(x.reason||x.target_url||'--');
    return '记录说明：'+landingReasonLabel(x.reason||x.target_url||'--');
@@ -23199,7 +23240,7 @@ async function showLandingStats(id,dateFrom,dateTo){
    var device=[x.device_type||'',x.os||'',x.browser||''].filter(Boolean).join(' · ')||'--';
    var adInfo=landingAdInfo(x);
    var pathText=x.path||'--';
-   return '<div class="landing-event-card">'+
+   return '<div class="landing-event-card" data-et="'+escHtml(String(x.event_type||'').toLowerCase())+'">'+
     '<div class="landing-event-top"><div class="landing-event-title"><span>'+escHtml(eventName(x.event_type))+'</span><span class="badge '+state.cls+'">'+escHtml(state.label)+'</span></div><span class="landing-event-time">'+escHtml(x.created_at||'')+'</span></div>'+
     '<div class="landing-event-fields">'+
      '<div class="landing-event-field"><span>地区</span><b title="'+escHtml(place)+'">'+escHtml(place)+'</b></div>'+
@@ -24159,7 +24200,7 @@ async function openQuickLinkGen() {
     html += '<div style="border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px">';
     html += '<div style="font-weight:600;font-size:13px;margin-bottom:8px">跳转链接设置（新建广告默认使用）</div>';
     html += '<label style="font-size:12px;color:var(--t3)">落地页主链接</label>';
-    html += '<input class="fc" id="qlinkLanding" type="url" value="'+escHtml(landingUrl)+'" placeholder="https://域名/a/短码" style="width:100%;margin:4px 0 8px;font-size:12px">';
+    html += '<input class="fc" id="qlinkLanding" type="url" value="'+escHtml(landingUrl)+'" placeholder="https://域名/a/子码" style="width:100%;margin:4px 0 8px;font-size:12px">';
     html += '<label style="font-size:12px;color:var(--t3)">表单链接（潜在客户广告，可选）</label>';
     html += '<input class="fc" id="qlinkForm" type="url" value="'+escHtml(formLink)+'" placeholder="https://..." style="width:100%;margin:4px 0 8px;font-size:12px">';
     html += '<button class="btn btn-p btn-sm role-hide-viewer" onclick="saveQuickLinkAccount(\''+_adsJs(actId)+'\')">保存跳转并刷新</button>';
