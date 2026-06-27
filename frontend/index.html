@@ -3859,6 +3859,7 @@ input:focus, select:focus, textarea:focus {
      <div class="fb ads-context-bar" style="flex-wrap:wrap;gap:8px">
       <select class="fc" id="adsAct" onchange="onAdsAccountChanged()" style="min-width:220px"><option value="">选择广告账户</option></select>
       <button class="btn btn-g btn-sm" type="button" onclick="viewAllAdsAccounts()">查看全部账户</button>
+      <button class="btn btn-g btn-sm" type="button" onclick="_openActHub()" title="一键跳转到该账户的主页/链接/素材/规则/操作号等配置">⚙️ 账户配置</button>
       <!-- 日期范围筛选 -->
       <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
        <span style="font-size:12px;color:var(--t3);white-space:nowrap">日期：</span>
@@ -23941,6 +23942,41 @@ function renderAdsTree(rows, forceOpen) {
   updateAdsBulkBar();
 }
 
+function _adsCurrentAct(){var sel=document.getElementById('adsAct');var v=sel&&sel.value;return (v&&v!=='__all__')?v:'';}
+function _adsGoAssetsForAct(actId){showPage('assets');try{var sel=document.getElementById('assetsActFilter');if(sel&&actId)sel.value=actId;}catch(e){}setTimeout(function(){try{loadAssets(true);}catch(e){}},180);}
+function _hubGo(page,selectId,loader){showPage(page);if(selectId){try{var s=document.getElementById(selectId);if(s&&window._hubActId)s.value=window._hubActId;}catch(e){}}if(loader){setTimeout(function(){try{loader();}catch(e){}},220);}}
+function _closeHub(){try{closeAllModals();}catch(e){}}
+function _openActHub(){
+ var actId=_adsCurrentAct();
+ if(!actId){toast('请先在顶部选择一个具体账户','wa');return;}
+ window._hubActId=actId;
+ var shortId=String(actId).replace('act_','');
+ function b(label,onclick,sub){return '<button type="button" class="btn btn-g" style="justify-content:flex-start;text-align:left;padding:10px 12px;flex:1 1 45%;min-width:46%" onclick="'+onclick+'"><div><div style="font-weight:600;font-size:13px">'+label+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">'+sub+'</div></div></button>';}
+ var h='<div style="font-size:12px;color:var(--t3);margin-bottom:10px">账户 <b style="color:var(--t1)">'+escHtml(shortId)+'</b> · 一键跳转到相关模块，配置完返回投放中心即可。</div>';
+ h+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
+ h+=b('主页 / Pixel',"_closeHub();openPagePixelModal(window._hubActId)",'主页状态、Pixel 绑定');
+ h+=b('投放链接 / 跳转',"_closeHub();_hubGo('landing_urls')",'账户主链接、表单链接');
+ h+=b('素材库',"_closeHub();_adsGoAssetsForAct(window._hubActId)",'该账户的素材');
+ h+=b('规则引擎',"_closeHub();_hubGo('rules','rulesAct',loadRules)",'止损 / 拉量规则');
+ h+=b('KPI 配置',"_closeHub();_hubGo('kpi','kpiAct',loadKpi)",'账户 KPI 目标');
+ h+=b('操作号 / Token',"_closeHub();openOpPoolModal(window._hubActId)",'操作号绑定与池');
+ h+=b('权限诊断',"_closeHub();showAccountPermissionDiagnostic(window._hubActId)",'Token/主页写权限检查');
+ h+=b('🚀 为该账户铺广告',"_closeHub();openLaunchFromAdCenter()",'打开铺广告向导（自动预选）');
+ h+='</div>';
+ showInfo(h,'账户配置中心 · '+shortId);
+}
+async function _adsOpenLandingData(adId){
+ var a=_adsFind(adId);
+ if(!a||!a.landing||!a.landing.link_id){toast('该广告未绑定落地入口','wa');return;}
+ var l=a.landing;
+ try{
+  var link=await api('GET','/landing-pages/ad-links/'+encodeURIComponent(l.link_id));
+  var pid=link&&(link.page_id||link.landing_page_id);
+  if(!pid&&link&&link.page){pid=link.page.id||link.page.page_id;}
+  if(pid&&l.slug){showLandingAdLinkLogs(pid,encodeURIComponent(l.slug));return;}
+  quickFillAdLandingResult(adId);
+ }catch(e){toast('读取落地入口失败：'+(e.message||e),'er');}
+}
 function _adsMoreActions(rep, level) {
   var id = (level==='account'?rep.act_id:level==='campaign'?rep.campaign_id:level==='adset'?rep.adset_id:rep.ad_id);
   if (!id) return '';
@@ -23961,6 +23997,7 @@ function _adsMoreActions(rep, level) {
     if (rep.landing && rep.landing.link_id) {
       btns.push('<button class="ads-inline-btn icon" style="color:var(--wa)" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改跳转链接">🔗</button>');
       btns.push('<button class="ads-inline-btn icon" style="color:var(--ok)" onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(id)+'\')" title="回填真实数据">📝</button>');
+      btns.push('<button class="ads-inline-btn icon" style="color:var(--ac)" onclick="event.stopPropagation();_adsOpenLandingData(\''+_adsJs(id)+'\')" title="查看该广告的落地页访问日志/数据">📊</button>');
     } else {
       // 未绑定子码的广告：始终给一个「绑定跳转」入口
       btns.push('<button class="ads-inline-btn icon" style="color:var(--t3)" onclick="event.stopPropagation();quickBindAdLandingLink(\''+_adsJs(id)+'\')" title="绑定落地页广告入口（绑定后可改跳转/回填）">🔗</button>');
