@@ -284,6 +284,15 @@ def _try_candidates(candidates: Iterable[dict], func) -> Tuple[dict, dict]:
             label = candidate.get("label") or candidate.get("alias") or candidate.get("source") or "token"
             errors.append(f"{label}: {_sanitize(exc)}")
             logger.warning("[AdOps] candidate failed: %s", errors[-1])
+            # v3.11.155 §1: 写权限错误是账户/主页级问题，与 token 无关。
+            # account_write / page_ads 命中 → 立即停止轮换其它 token（轮换也救不回来），
+            # 直接抛出清晰的中文 user_message。非权限错误（限流/瞬时）继续轮换。
+            cls = classify_fb_write_error(exc)
+            if cls["is_permission"] and cls["kind"] in (
+                "account_write",
+                "page_ads",
+            ):
+                raise AdOpsError(cls["user_message"]) from exc
     raise AdOpsError("; ".join(errors) or "All token candidates failed")
 
 

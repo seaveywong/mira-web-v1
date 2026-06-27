@@ -50,6 +50,7 @@ from services.landing_link_resolver import (
     resolve_public_url as _shared_resolve_public_url,
 )
 from services.local_executor import run_local_graph_task
+from services.notifier import notify_account
 
 logger = logging.getLogger("mira.autopilot")
 
@@ -838,6 +839,57 @@ class AutoPilotEngine:
             parts.append("Unknown Facebook API error")
         return "FB API Error: " + " | ".join(parts)
 
+    def _fmt_launch_err(self, err) -> str:
+        """Normalize an ad/adset creation exception into a clear user message.
+
+        Routes FB write-permission errors through the shared classifier so they
+        render as the clear Chinese prompt; non-FB exceptions keep their text.
+        Accepts: Exception (possibly carrying an FB dict in args) / dict / str.
+        """
+        if isinstance(err, BaseException):
+            args = getattr(err, "args", None)
+            if args and isinstance(args[0], dict):
+                return self._format_fb_error(args[0])
+            perm = classify_fb_write_error(err)
+            if perm["is_permission"]:
+                return perm["user_message"]
+            text = str(err).strip()
+            return text or "Unknown error"
+        if isinstance(err, dict):
+            return self._format_fb_error(err)
+        return str(err) if err is not None else "Unknown error"
+
+    def _notify_launch_failure(self, campaign: dict, act_id: str, done_msg: str, err_summary: str) -> None:
+        """Send a TG alert on terminal launch failure (only once per failed launch).
+
+        Routes through services.notifier.notify_account so it respects the existing
+        TG enable/disable + team/owner routing (same pattern as guard_engine alerts).
+        Best-effort: never raises into the launch path.
+        """
+        try:
+            if not act_id:
+                return
+            _account_name = ""
+            try:
+                _an = get_conn()
+                _row = _an.execute("SELECT name FROM accounts WHERE act_id=? LIMIT 1", (act_id,)).fetchone()
+                if _row:
+                    _account_name = _row["name"] or act_id
+                _an.close()
+            except Exception:
+                _account_name = act_id
+            _campaign_name = (campaign.get("name") if campaign else "") or f"#{campaign.get('id') if campaign else '?'}"
+            _clear = err_summary or done_msg or "未知错误"
+            _msg = (
+                f"❌ <b>广告发布失败</b>\n"
+                f"账户：<code>{act_id}</code> {_account_name}\n"
+                f"计划：<code>{_campaign_name}</code>\n"
+                f"原因：{_clear}"
+            )
+            notify_account(act_id, _msg, event_type="launch", include_owner=True, dedup_key=f"launch_fail:{act_id}:{campaign.get('id') if campaign else ''}")
+        except Exception as _tg_err:
+            logger.warning(f"[AutoPilot] launch-failure TG notify skipped: {_tg_err}")
+
     def _fb_get(self, path: str, token: str, params: dict = None) -> dict:
         """GET 请求到 FB Graph API"""
         if self._is_local_candidate():
@@ -1602,7 +1654,7 @@ class AutoPilotEngine:
                                             headline, body,
                                             json.dumps(variant_audience, ensure_ascii=False),
                                             None, None,
-                                            status="error", error_msg=f"原始错误: {adset_err}; 降级错误: {fallback_err}",
+                                            status="error", error_msg=f"原始错误: {self._fmt_launch_err(adset_err)}; 降级错误: {self._fmt_launch_err(fallback_err)}",
                                             adset_name=variant_adset_name, ad_name=ad_name
                                         )
                                         continue
@@ -1613,7 +1665,7 @@ class AutoPilotEngine:
                                         headline, body,
                                         json.dumps(variant_audience, ensure_ascii=False),
                                         None, None,
-                                        status="error", error_msg=str(adset_err),
+                                        status="error", error_msg=self._fmt_launch_err(adset_err),
                                         adset_name=variant_adset_name, ad_name=ad_name
                                     )
                                     continue
@@ -1653,7 +1705,7 @@ class AutoPilotEngine:
                                 logger.info(f"[AutoPilot] ✅ Ad {group_idx+1}-{ad_idx+1} 创建成功: {fb_ad_id}")
                                 time.sleep(0.1)
                             except Exception as ad_err:
-                                _ad_err_msg = str(ad_err)
+                                _ad_err_msg = self._fmt_launch_err(ad_err)
                                 logger.error(f"[AutoPilot] Ad {group_idx+1}-{ad_idx+1} 创建失败: {_ad_err_msg}")
                                 self._insert_campaign_ad(
                                     campaign_id, act_id, campaign["asset_id"],
@@ -1754,7 +1806,7 @@ class AutoPilotEngine:
                             time.sleep(0.1)  # 轻量错峰，主要限流已交给 token_manager
 
                         except Exception as ad_err:
-                            _ad_err_msg = str(ad_err)
+                            _ad_err_msg = self._fmt_launch_err(ad_err)
                             logger.error(f"[AutoPilot] Ad {ad_idx+1} 创建失败: {_ad_err_msg}")
                             self._insert_campaign_ad(
                                 campaign_id, act_id, campaign["asset_id"],
@@ -1853,7 +1905,7 @@ class AutoPilotEngine:
                                     logger.info(f"[AutoPilot] ✅ Ad {ad_idx+1}（降级）创建成功: {fb_ad_id}")
                                     time.sleep(0.1)
                                 except Exception as ad_err2:
-                                    _ad_err_msg2 = str(ad_err2)
+                                    _ad_err_msg2 = self._fmt_launch_err(ad_err2)
                                     logger.error(f"[AutoPilot] Ad {ad_idx+1}（降级）创建失败: {_ad_err_msg2}")
                                     self._insert_campaign_ad(
                                         campaign_id, act_id, campaign["asset_id"],
@@ -1874,7 +1926,7 @@ class AutoPilotEngine:
                                 None, None,
                                 json.dumps(audience, ensure_ascii=False),
                                 None, None,
-                                status="error", error_msg=f"原始错误: {adset_err}; 降级错误: {fallback_err}",
+                                status="error", error_msg=f"原始错误: {self._fmt_launch_err(adset_err)}; 降级错误: {self._fmt_launch_err(fallback_err)}",
                                 adset_name=adset_name
                             )
                     else:
@@ -1884,7 +1936,7 @@ class AutoPilotEngine:
                             None, None,
                             json.dumps(audience, ensure_ascii=False),
                             None, None,
-                            status="error", error_msg=str(adset_err),
+                            status="error", error_msg=self._fmt_launch_err(adset_err),
                             adset_name=adset_name
                         )
 
@@ -1964,6 +2016,7 @@ class AutoPilotEngine:
                 _done_msg += _cleanup_note
                 # 全部失败时改为 error 状态
                 self._update_progress(campaign_id, "error", _done_msg)
+                self._notify_launch_failure(campaign, act_id, _done_msg, _err_summary)
             elif total_ads == 0:
                 _done_msg = f"AdSet 已创建但广告全部失败！共 {total_adsets} 个 AdSet，0 条广告"
                 if _err_summary:
@@ -1971,6 +2024,7 @@ class AutoPilotEngine:
                 _done_msg += _cleanup_note
                 # 广告全部失败时也改为 error
                 self._update_progress(campaign_id, "error", _done_msg)
+                self._notify_launch_failure(campaign, act_id, _done_msg, _err_summary)
             else:
                 _done_msg = f"完成！共创建 {total_adsets} 个 AdSet，{total_ads} 条广告"
                 if _err_summary:
@@ -1984,6 +2038,7 @@ class AutoPilotEngine:
         except Exception as e:
             logger.error(f"[AutoPilot] ❌ 任务失败 campaign_id={campaign_id}: {e}")
             self._update_campaign_status(campaign_id, "error", str(e))
+            self._notify_launch_failure(campaign, campaign.get("act_id", "") if campaign else "", self._fmt_launch_err(e), "")
 
 
             # Write to action_logs
@@ -3294,10 +3349,10 @@ class AutoPilotEngine:
                 _link_cache.pop(_link_cache_key, None)
             return ad_id
         except Exception as _ad_create_err:
-            _ad_create_msg = str(_ad_create_err)
+            _ad_create_msg = self._fmt_launch_err(_ad_create_err)
             if self._is_app_development_mode_error(_ad_create_msg):
                 _ad_create_err = Exception(self._format_app_development_mode_error(_ad_create_msg))
-            self._mark_landing_ad_link(_landing_link_reserved, "failed", error_msg=str(_ad_create_err))
+            self._mark_landing_ad_link(_landing_link_reserved, "failed", error_msg=self._fmt_launch_err(_ad_create_err))
             raise _ad_create_err
 
     # ── 兴趣词解析 ───────────────────────────────────────────────────────────

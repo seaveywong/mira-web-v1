@@ -857,23 +857,6 @@ def _fb_error_payload(result: dict) -> dict:
     return nested_error if isinstance(nested_error, dict) else result
 
 
-_WARMUP_NO_WRITE_MSG = "操作号无写权限，请在 Business Manager 给该账户的操作号系统用户授予 Advertiser/管理权限（FB code=100/subcode=33：账户可读但写被拒）"
-
-
-def _fb_error_is_no_write_permission(result) -> bool:
-    """操作号对该账户/对象只读、无写权限（FB code=100 / subcode=33，账户可读但写被拒）。
-    正解是去 BM 给操作号授予写权限，而非当作普通失败反复重试刷屏。兼容 dict 与格式化字符串两种错误。"""
-    if isinstance(result, dict):
-        err = _fb_error_payload(result)
-        try:
-            code = int(err.get("code") or 0)
-            sub = int(err.get("subcode") or err.get("error_subcode") or 0)
-        except (TypeError, ValueError):
-            code, sub = 0, 0
-        return code == 100 and sub == 33
-    return "subcode=33" in str(result or "")
-
-
 def _format_fb_error(result: dict) -> str:
     if not isinstance(result, dict):
         return str(result)
@@ -1535,8 +1518,6 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
             perm_skip = _check_warmup_perm_error(act_id, result)
             if perm_skip:
                 return perm_skip
-            if _fb_error_is_no_write_permission(result):
-                return ("skipped", f"{act_id}: {_WARMUP_NO_WRITE_MSG}")
             return ("error", f"{act_id}: 素材上传失败: {result}")
         image_hash = result
 
@@ -1561,8 +1542,6 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
             perm_skip = _check_warmup_perm_error(act_id, result)
             if perm_skip:
                 return perm_skip
-            if _fb_error_is_no_write_permission(result):
-                return ("skipped", f"{act_id}: {_WARMUP_NO_WRITE_MSG}")
             if code in (190, 200, 294):
                 logger.error(f"warmup: {act_id} campaign 创建权限错误(code={code}): {err_msg}")
                 return ("skipped", f"{act_id}: 权限不足(code={code})")
