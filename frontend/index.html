@@ -8444,6 +8444,7 @@ function markPageStale(name){
 function showPage(name, adCenterModule, _opts){
   if(!_opts||!_opts._fromRestore){window._userNavigated=true;}
   if(APP_PAGES.indexOf(name)<0)name='dashboard';
+  var _origPageName=name;
   if(!canOpenPage(name)){
    toast('当前账号没有权限打开该页面','wa');
    name='dashboard';
@@ -8465,8 +8466,8 @@ function showPage(name, adCenterModule, _opts){
  syncMobileNavForPage(name);
  document.getElementById('tbTitle').textContent=pageTitles[name]||name;
  // 记住当前页，刷新后恢复
- localStorage.setItem('mira_last_page', name);
- if(location.hash!=='#'+name)history.replaceState(null,'','#'+name);
+ localStorage.setItem('mira_last_page', _origPageName);
+ if(location.hash!=='#'+_origPageName)history.replaceState(null,'','#'+_origPageName);
  if(name==='dashboard'){
   if(!dashDateFrom)setDashRange('today');
   else autoLoadPage('dashboard',loadDash,15000);
