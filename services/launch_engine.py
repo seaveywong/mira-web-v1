@@ -30,7 +30,11 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from core.database import get_conn
-from services.execution_safety import note_write_failure, wait_for_write_slot
+from services.execution_safety import (
+    classify_fb_write_error,
+    note_write_failure,
+    wait_for_write_slot,
+)
 from services.token_manager import (
     ACTION_CREATE,
     cooldown_token_by_plain,
@@ -813,6 +817,11 @@ class AutoPilotEngine:
                 "https://www.facebook.com/certification/nondiscrimination 完成认证后再投放。"
                 f"原始错误：{message}"
             )
+
+        # v3.11.154 §17.1：操作号写权限错误 → 清晰中文提示（原始 FB 细节作为次要信息保留）
+        perm = classify_fb_write_error(err)
+        if perm["is_permission"]:
+            return f"{perm['user_message']}（原始错误：{message}）"
 
         parts = []
         if user_title:

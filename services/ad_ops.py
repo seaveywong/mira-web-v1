@@ -9,7 +9,12 @@ import requests
 
 from core.database import get_conn
 from services.guard_engine import _local_per_usd_rate
-from services.execution_safety import account_write_guard, note_write_failure, wait_for_write_slot
+from services.execution_safety import (
+    account_write_guard,
+    classify_fb_write_error,
+    note_write_failure,
+    wait_for_write_slot,
+)
 from services.local_executor import run_local_graph_task
 from services.token_manager import (
     ACTION_PAUSE,
@@ -100,6 +105,10 @@ def _fb_post(path: str, token: str, data: dict, source: str = "", operation: str
         raise AdOpsError("FB API returned non-json response") from exc
     if resp.status_code >= 400 or result.get("error") or result.get("success") is False:
         note_write_failure(token, result, operation=operation)
+        # v3.11.154 §17.1：权限错误 → 清晰中文提示（原始 FB 错误作为次要信息保留）
+        perm = classify_fb_write_error(result)
+        if perm["is_permission"]:
+            raise AdOpsError(f"{perm['user_message']}（原始错误：{_fb_error(result)}）")
         raise AdOpsError(_fb_error(result))
     return result
 

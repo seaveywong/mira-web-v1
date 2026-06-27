@@ -21,7 +21,12 @@ except Exception:  # pragma: no cover - Python <3.9 fallback
 from core.database import get_conn, decrypt_token
 from core.account_access import note_account_read_failure, note_account_read_success
 from core.perf_history import append_perf_snapshot_history
-from services.execution_safety import account_write_guard, note_write_failure, wait_for_write_slot
+from services.execution_safety import (
+    account_write_guard,
+    classify_fb_write_error,
+    note_write_failure,
+    wait_for_write_slot,
+)
 from services.local_executor import run_local_graph_task
 from services.notifier import notify_account, notify_global, notify_team
 
@@ -1135,6 +1140,8 @@ def _pause_token_candidates(account: dict, primary_token: str = "") -> list:
 def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str) -> tuple:
     """Try to pause a target with all available PAUSE tokens before escalating."""
     errors = []
+    perm_failures = 0
+    last_perm_message = ""
     candidates = _pause_token_candidates(account, primary_token)
     for cand in candidates:
         with account_write_guard(account.get("act_id", ""), f"guard_pause:{target_id}"):
@@ -1162,8 +1169,20 @@ def _fb_pause_with_candidates(account: dict, target_id: str, primary_token: str)
             return True, "", cand.get("token") or "", cand.get("label") or cand.get("alias") or "token", cand
         if err:
             errors.append(f"{cand.get('label') or cand.get('alias') or 'token'}: {err}")
+            # v3.11.154 §17.1：分类每个候选的失败，统计权限错误占比
+            perm = classify_fb_write_error(err)
+            if perm["is_permission"]:
+                perm_failures += 1
+                last_perm_message = perm["user_message"]
     labels = ", ".join([str(c.get("label") or "token") for c in candidates]) or "none"
     reason = "; ".join(errors) or "all token candidates failed"
+    # v3.11.154 §17.1：若所有候选都因权限错误失败，给出清晰的中文授权提示（而非裸 subcode 33）
+    if candidates and perm_failures == len(candidates) and last_perm_message:
+        return (
+            False,
+            f"{last_perm_message}（已尝试{len(candidates)}个写入Token均被拒）",
+            primary_token, "", None,
+        )
     return False, f"已尝试{len(candidates)}个写入Token({labels})，均失败：{reason}", primary_token, "", None
 
 

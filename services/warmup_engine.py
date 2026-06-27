@@ -17,7 +17,11 @@ from typing import Tuple, Optional
 from core.auth import is_superadmin
 from core.database import get_conn, decrypt_token
 from core.tenancy import is_operator_user, team_id_for_create, user_id
-from services.execution_safety import note_write_failure, wait_for_write_slot
+from services.execution_safety import (
+    classify_fb_write_error,
+    note_write_failure,
+    wait_for_write_slot,
+)
 from services.guard_engine import _local_per_usd_rate
 from services.token_manager import get_exec_token, ACTION_CREATE, ACTION_READ, ACTION_UPDATE
 from services.notifier import notify_account, notify_global, notify_team
@@ -96,6 +100,9 @@ def _ensure_schema():
         "warmup_campaign_id": "TEXT DEFAULT NULL",
         "warmup_last_spend": "REAL DEFAULT NULL",
         "warmup_last_checked_at": "TEXT DEFAULT NULL",
+        # v3.11.154 §17.1：操作号写权限被拒后进入 24h 冷却，避免每轮扫描重试刷屏
+        "write_perm_blocked_until": "TEXT DEFAULT NULL",
+        "write_perm_block_reason": "TEXT DEFAULT NULL",
     }
     for col, defn in needed.items():
         if col not in cols:
@@ -890,6 +897,76 @@ def _format_fb_error(result: dict) -> str:
     return " | ".join(parts) if parts else str(result)
 
 
+# ── v3.11.154 §17.1：写权限错误标记/冷却/跳过 ──────────────────────────────
+# 当预热某账户遇到操作号写权限错误（账户只读 subcode=33 / 主页无广告权限 subcode=1487202 /
+# 其它 100/200 类权限错误）时，标记该账户 24 小时冷却，扫描期间直接跳过、不再重试刷屏。
+# 冷却到期后自动重试；手动 force 强制预热会先清掉该标记再重试。
+_WARMUP_WRITE_PERM_COOLDOWN_HOURS = 24
+
+
+def _is_write_perm_blocked(account: dict) -> Tuple[bool, str]:
+    """账户是否处于写权限冷却期。返回 (是否冷却中, 原因)。"""
+    until = (account or {}).get("write_perm_blocked_until") or ""
+    if not until:
+        return False, ""
+    try:
+        # 存储为 CST 字符串 'YYYY-MM-DD HH:MM:SS'
+        until_dt = datetime.strptime(str(until)[:19], "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return False, ""
+    now_cst_dt = (datetime.now(timezone.utc) + timedelta(hours=8)).replace(tzinfo=None)
+    if until_dt > now_cst_dt:
+        return True, (account or {}).get("write_perm_block_reason") or "操作号无写权限"
+    return False, ""
+
+
+def _mark_write_perm_blocked(act_id: str, user_message: str) -> None:
+    """标记账户写权限被拒，进入 24 小时冷却。"""
+    now_cst_dt = datetime.now(timezone.utc) + timedelta(hours=_WARMUP_WRITE_PERM_COOLDOWN_HOURS + 8)
+    until = now_cst_dt.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE accounts SET write_perm_blocked_until=?, write_perm_block_reason=? WHERE act_id=?",
+            (until, user_message, act_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    logger.warning(
+        "warmup: %s 操作号写权限被拒，进入 %dh 冷却（%s）",
+        act_id, _WARMUP_WRITE_PERM_COOLDOWN_HOURS, user_message,
+    )
+
+
+def _clear_write_perm_block(act_id: str) -> None:
+    """清除写权限冷却标记（手动 force 强制预热 / BM 授权后重试时调用）。"""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE accounts SET write_perm_blocked_until=NULL, write_perm_block_reason=NULL WHERE act_id=?",
+            (act_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _check_warmup_perm_error(act_id: str, result) -> Optional[Tuple[str, str]]:
+    """检查预热某步的 FB 错误是否为操作号写权限错误。
+
+    命中则：标记账户 24h 冷却 + 返回 ("skipped", "<act_id>: <清晰 user_message>")。
+    未命中返回 None，由调用方按原逻辑处理（普通失败/重试/升级等）。
+    兼容 warmup 内部的 dict result 与已格式化的错误字符串。
+    """
+    cls = classify_fb_write_error(result)
+    if not cls["is_permission"]:
+        return None
+    _mark_write_perm_blocked(act_id, cls["user_message"])
+    return ("skipped", f"{act_id}: {cls['user_message']}")
+
+
+
 def _cleanup_created_objects(act_id: str, token: str, created: list, reason: str, account_name: str = "") -> list:
     """Best-effort rollback for partially-created warmup objects."""
     failures = []
@@ -1398,6 +1475,9 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
     created = []
 
     try:
+        if force:
+            # v3.11.154 §17.1：手动强制重新预热时清掉写权限冷却标记，给 BM 授权后重试的机会
+            _clear_write_perm_block(act_id)
         if not force:
             if _recent_spend_hold_active(account):
                 return ("skipped", _recent_spend_hold_message(account))
@@ -1409,6 +1489,10 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
             if recent_error:
                 logger.warning(f"warmup: {act_id} {recent_error}，跳过预热以避免误创建")
                 return ("skipped", f"{act_id}: 无法确认最近{_WARMUP_RECENT_SPEND_DAYS}天消耗，已跳过预热: {recent_error}")
+            # v3.11.154 §17.1：写权限冷却期内直接跳过，不再每轮重试刷屏
+            blocked, block_reason = _is_write_perm_blocked(account)
+            if blocked:
+                return ("skipped", f"{act_id}: 操作号无写权限，待 BM 授权（{block_reason}）")
         else:
             logger.info(f"warmup: {act_id} 手动强制重新预热，跳过近期消耗保护")
 
@@ -1447,6 +1531,10 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
         # 3. 素材 image_hash
         ok, result = _upload_image_to_fb(act_id, token, asset.get("file_path") or asset.get("file_url", ""))
         if not ok:
+            # v3.11.154 §17.1：先走共享分类器，命中权限错误则清晰提示 + 进入冷却
+            perm_skip = _check_warmup_perm_error(act_id, result)
+            if perm_skip:
+                return perm_skip
             if _fb_error_is_no_write_permission(result):
                 return ("skipped", f"{act_id}: {_WARMUP_NO_WRITE_MSG}")
             return ("error", f"{act_id}: 素材上传失败: {result}")
@@ -1469,6 +1557,10 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
                 return _stop_for_fb_security_hold(
                     act_id, account_name, token, created, "campaign_create", result, campaign_id
                 )
+            # v3.11.154 §17.1：共享分类器（覆盖 1487202 主页广告权限 / 33 账户写 / 通用 100/200）
+            perm_skip = _check_warmup_perm_error(act_id, result)
+            if perm_skip:
+                return perm_skip
             if _fb_error_is_no_write_permission(result):
                 return ("skipped", f"{act_id}: {_WARMUP_NO_WRITE_MSG}")
             if code in (190, 200, 294):
@@ -1512,6 +1604,11 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
                 return _stop_for_fb_security_hold(
                     act_id, account_name, token, created, "adset_create", result, campaign_id
                 )
+            # v3.11.154 §17.1：共享分类器（主页广告权限 1487202 多在此处暴露）
+            perm_skip = _check_warmup_perm_error(act_id, result)
+            if perm_skip:
+                _cleanup_created_objects(act_id, token, created, "adset_create_perm_blocked", account_name)
+                return perm_skip
             _cleanup_created_objects(act_id, token, created, "adset_create_failed", account_name)
             return ("error", f"{act_id}: 创建 adset 失败: {err_msg}")
         adset_id = result.get("id")
@@ -1541,6 +1638,11 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
                 return _stop_for_fb_security_hold(
                     act_id, account_name, token, created, "creative_create", result, campaign_id
                 )
+            # v3.11.154 §17.1：共享分类器（creative 也会触发主页广告权限错误）
+            perm_skip = _check_warmup_perm_error(act_id, result)
+            if perm_skip:
+                _cleanup_created_objects(act_id, token, created, "creative_create_perm_blocked", account_name)
+                return perm_skip
             _cleanup_created_objects(act_id, token, created, "creative_create_failed", account_name)
             return ("error", f"{act_id}: 创建 creative 失败: {err_msg}")
         creative_id = result.get("id")
@@ -1561,6 +1663,11 @@ def _warmup_account(account: dict, force: bool = False) -> Tuple[str, str]:
                 return _stop_for_fb_security_hold(
                     act_id, account_name, token, created, "ad_create", result, campaign_id
                 )
+            # v3.11.154 §17.1：共享分类器（ad 创建同样可能遇到主页广告权限错误）
+            perm_skip = _check_warmup_perm_error(act_id, result)
+            if perm_skip:
+                _cleanup_created_objects(act_id, token, created, "ad_create_perm_blocked", account_name)
+                return perm_skip
             if _fb_error_is_invalid_adset_budget(result):
                 cleanup_failures = _cleanup_created_objects(
                     act_id, token, created, "ad_create_budget_rejected", account_name
