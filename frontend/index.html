@@ -20828,6 +20828,7 @@ function _landingRowActionsHtml(p, link, usageTotal){
  parts.push(_landingActionButton('配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
  parts.push(_landingActionButton('广告入口','showLandingAdLinks('+id+')','btn-g','查看该主链接下的广告入口、绑定关系和跳转池'));
  parts.push(_landingActionButton('统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
+ parts.push(_landingActionButton('🛡 防护自检','runLandingProtectionTest('+id+')','btn-g','模拟访客画像验证当前防护规则是否生效：哪些会被拦截/放行及原因'));
   var more=[];
   if(p.custom_domain)more.push(_landingActionButton('复制正式域名',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制已绑定的正式自定义域名链接'));
   if(canSeeFallback&&p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制系统备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统默认备用域名链接'));
@@ -21876,6 +21877,47 @@ function renderLandingChecks(checks){
   var txt=c.status==='pass'?'通过':(c.status==='warn'?'提醒':'失败');
   return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin:5px 0"><span style="color:'+color+';font-weight:760;min-width:34px">'+txt+'</span><div><b>'+escHtml(_landingHealthText(c.label||c.key||'检查'))+'</b><div style="color:var(--t3);margin-top:2px">'+escHtml(_landingHealthText(c.detail||''))+'</div></div></div>';
  }).join('');
+}
+async function runLandingProtectionTest(id){
+ var p=(_landingPages||[]).find(function(x){return String(x.id)===String(id);});
+ toast('正在模拟访客画像，检查防护规则...','ac');
+ try{
+  var r=await api('POST','/landing-pages/pages/'+id+'/protection-test');
+  var profiles=r.profiles||[];
+  var page=p||{};
+  var url=page.public_url||page.pages_url||'';
+  var head='<div style="font-size:12px;color:var(--t3);margin-bottom:4px">'+escHtml(page.title||'未命名')+(url?(' · '+escHtml(url)):'')+'</div>';
+  var statusLine;
+  if(!r.protection_enabled){
+   statusLine='<div style="font-weight:800;color:var(--wa)">防护未开启</div><div style="font-size:12px;color:var(--t3);margin-top:3px">所有访客都会放行，不会拦截。如需防止网页被扒，请在「配置」里启用防护规则。</div>';
+  }else{
+   var blockedCount=profiles.filter(function(x){return !!x.blocked;}).length;
+   var passCount=profiles.length-blockedCount;
+   statusLine='<div style="font-weight:800;color:'+(blockedCount>0?'var(--ok)':'var(--wa)')+'">'+(blockedCount>0?('防护已开启 · 拦截 '+blockedCount+' / 放行 '+passCount):'防护已开启 · 全部放行')+'</div>'+
+    '<div style="font-size:12px;color:var(--t3);margin-top:3px">检查时间：'+escHtml(r.checked_at||'')+(r.repeat_visitor_block_enabled?' · 已开启防重粉（点击/提交时生效，不在访问拦截内）':'')+'</div>';
+  }
+  var rows=profiles.map(function(x){
+   var ok=!x.blocked;
+   var badge=ok
+    ?'<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:var(--okg);color:var(--ok)">✓ 放行</span>'
+    :'<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:var(--erg);color:var(--er)">✕ 拦截</span>';
+   var reasonText=ok?(x.reason||'符合规则'):(x.reason||'');
+   return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)">'+
+    '<div style="min-width:64px">'+badge+'</div>'+
+    '<div style="flex:1;min-width:0">'+
+     '<div style="font-weight:600;color:var(--t1)">'+escHtml(x.label||'')+'</div>'+
+     (reasonText?('<div style="font-size:12px;color:var(--t3);margin-top:2px;word-break:break-all">'+escHtml(reasonText)+'</div>'):'')+
+    '</div>'+
+   '</div>';
+  }).join('');
+  var html='<div style="font-size:12px;color:var(--t3);margin-bottom:10px">用 6 类典型访客画像（桌面/移动/爬虫/非允许国/调试参数/调试来源）对该页<b>当前防护规则</b>跑一遍线上 Worker 同款判定逻辑。</div>'+
+   '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);margin-bottom:10px">'+head+statusLine+'</div>'+
+   (rows||'<div style="color:var(--t3);padding:8px 0">没有可模拟的画像</div>');
+  showInfo(html,'🛡 防护自检');
+  toast(r.protection_enabled?'防护自检完成':'防护未开启',r.protection_enabled?'ok':'wa');
+ }catch(e){
+  toast('防护自检失败：'+(e.message||e),'er');
+ }
 }
 async function checkLandingHealth(id){
  var p=(_landingPages||[]).find(function(x){return String(x.id)===String(id);});

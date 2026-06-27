@@ -6308,6 +6308,220 @@ def landing_page_health(page_id: int, user=Depends(get_current_user)):
     }
 
 
+# v3.11.149 防护自检：用模拟访客画像对当前 protection_rules 跑一遍 Worker evaluate() 的等价逻辑
+def _protection_ua_meta(ua: str) -> dict:
+    """Port of services/landing_publisher.js uaMeta(): device_type/os/browser/platform."""
+    s = str(ua or "")
+    low = s.lower()
+    if "mobile" in low or "iphone" in low or "android" in low:
+        device = "mobile"
+    elif "ipad" in low or "tablet" in low:
+        device = "tablet"
+    else:
+        device = "desktop"
+    if "iphone" in low or "ipad" in low or "ios" in low:
+        os_name = "iOS"
+    elif "android" in low:
+        os_name = "Android"
+    elif "windows" in low:
+        os_name = "Windows"
+    elif "mac os" in low or "macintosh" in low:
+        os_name = "macOS"
+    elif "linux" in low:
+        os_name = "Linux"
+    else:
+        os_name = "Other"
+    if "edg/" in low:
+        browser = "Edge"
+    elif "chrome" in low or "crios" in low:
+        browser = "Chrome"
+    elif "safari" in low:
+        browser = "Safari"
+    elif "firefox" in low:
+        browser = "Firefox"
+    else:
+        browser = "Other"
+    return {"device_type": device, "os": os_name, "browser": browser, "platform": os_name + "/" + browser}
+
+
+def _protection_source_platform(ua: str, referer: str, query: str) -> str:
+    """Port of sourcePlatform(): detect facebook/instagram/tiktok/google/bing/whatsapp/telegram/unknown."""
+    low_ua = ua.lower()
+    low_ref = str(referer or "").lower()
+    low_q = str(query or "").lower()
+    utm = ""
+    for key in ("utm_source", "source", "src"):
+        m = re.search(rf"[?&]{re.escape(key)}=([^&]*)", low_q)
+        if m:
+            utm = unquote(m.group(1))
+            break
+    blob = " ".join([utm, low_ref, low_ua])
+    has = lambda *names: any(("?" + n + "=" in low_q) or ("&" + n + "=" in low_q) for n in names)
+    if has("fbclid") or re.search(r"facebook|fb\.com|m\.facebook\.com|l\.facebook\.com|lm\.facebook\.com|fb_iab|fban|fbav", blob):
+        return "facebook"
+    if has("igshid") or re.search(r"instagram|instagram\.com|ig_iab", blob):
+        return "instagram"
+    if has("ttclid") or re.search(r"tiktok|tiktok\.com|musical_ly", blob):
+        return "tiktok"
+    if has("gclid") or re.search(r"google|google\.", blob):
+        return "google"
+    if has("msclkid") or re.search(r"bing|bing\.", blob):
+        return "bing"
+    if re.search(r"whatsapp|wa\.me|api\.whatsapp\.com", blob):
+        return "whatsapp"
+    if re.search(r"telegram|t\.me", blob):
+        return "telegram"
+    return "unknown"
+
+
+def _protection_list_hit(items, value: str) -> bool:
+    """Port of listHit(): lowercased substring match."""
+    if not isinstance(items, list):
+        return False
+    hay = str(value or "").lower()
+    if not hay:
+        return False
+    for x in items:
+        if str(x or "").lower() and str(x).lower() in hay:
+            return True
+    return False
+
+
+def _protection_evaluate(rules: dict, ua: str, country: str, referer: str, query: str) -> dict:
+    """Port of services/landing_publisher.js evaluate() — same check order & reasons.
+
+    Returns {'blocked': bool, 'reason': str}. repeat_visitor_block is intentionally
+    NOT evaluated here (it is an event-time check, not a request gate).
+    """
+    if not isinstance(rules, dict):
+        rules = {}
+    country = str(country or "").upper()
+
+    def low_list(key):
+        v = rules.get(key)
+        if isinstance(v, list):
+            return [str(x or "").lower() for x in v if str(x or "").strip()]
+        return []
+
+    allow = [c.upper() for c in low_list("country_allow")]
+    block = [c.upper() for c in low_list("country_block")]
+    source_allow = low_list("source_allow")
+    source = _protection_source_platform(ua, referer, query)
+    meta = _protection_ua_meta(ua)
+
+    if allow and country not in allow:
+        return {"blocked": True, "reason": f"country_not_allowed:{country or '未知'}"}
+    if block and country in block:
+        return {"blocked": True, "reason": f"country_blocked:{country}"}
+    if source_allow and source not in source_allow:
+        return {"blocked": True, "reason": f"source_not_allowed:{source}"}
+    if source in low_list("source_block"):
+        return {"blocked": True, "reason": f"source_blocked:{source}"}
+    if (_protection_list_hit(rules.get("platform_block"), meta["platform"])
+            or _protection_list_hit(rules.get("platform_block"), meta["os"])
+            or _protection_list_hit(rules.get("platform_block"), meta["browser"])):
+        return {"blocked": True, "reason": "platform_blocked"}
+    if _protection_list_hit(rules.get("device_block"), meta["device_type"]):
+        return {"blocked": True, "reason": f"device_blocked:{meta['device_type']}"}
+    if _protection_list_hit(rules.get("ua_block"), ua):
+        return {"blocked": True, "reason": "ua_blocked"}
+    if _protection_list_hit(rules.get("referer_block"), referer):
+        return {"blocked": True, "reason": "referer_blocked"}
+    if _protection_list_hit(rules.get("query_block"), query):
+        return {"blocked": True, "reason": "query_blocked"}
+    required = low_list("required_query")
+    if required:
+        low_q = str(query or "").lower()
+        has_any = any((("?" + k + "=" in low_q) or ("&" + k + "=" in low_q)) for k in required)
+        if not has_any:
+            return {"blocked": True, "reason": "required_query_missing:" + "|".join(required)}
+    return {"blocked": False, "reason": ""}
+
+
+def _protection_test_profiles() -> list:
+    """Fixed set of simulated visitor profiles. UA is what the Worker actually inspects."""
+    return [
+        {
+            "label": "桌面浏览器（美国）",
+            "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "country": "US",
+            "referer": "",
+            "query": "",
+        },
+        {
+            "label": "移动端（美国）",
+            "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+            "country": "US",
+            "referer": "",
+            "query": "",
+        },
+        {
+            "label": "Googlebot 爬虫（美国）",
+            "ua": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "country": "US",
+            "referer": "",
+            "query": "",
+        },
+        {
+            "label": "桌面端非允许国（中国）",
+            "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "country": "CN",
+            "referer": "",
+            "query": "",
+        },
+        {
+            "label": "带 ?preview 调试参数（美国）",
+            "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+            "country": "US",
+            "referer": "",
+            "query": "?preview=1",
+        },
+        {
+            "label": "带 debug referer（美国）",
+            "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+            "country": "US",
+            "referer": "https://debug.example.com/preview",
+            "query": "",
+        },
+    ]
+
+
+@router.post("/pages/{page_id}/protection-test")
+def landing_page_protection_test(page_id: int, user=Depends(get_current_user)):
+    """防护自检：用固定模拟访客画像对该页当前 protection_rules 跑一遍等价于 Worker evaluate() 的判定。"""
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+    finally:
+        conn.close()
+    protection_enabled = bool(page.get("protection_enabled"))
+    raw_rules = _json_loads(page.get("protection_rules") or "{}", {})
+    if not isinstance(raw_rules, dict):
+        raw_rules = {}
+    # Normalize via _safe_rules so the simulation matches what actually got deployed
+    rules = _safe_rules(raw_rules)
+    rvb = rules.get("repeat_visitor_block") if isinstance(rules.get("repeat_visitor_block"), dict) else None
+
+    profiles_out: list[dict[str, Any]] = []
+    for p in _protection_test_profiles():
+        if not protection_enabled:
+            profiles_out.append({"label": p["label"], "blocked": False, "reason": "防护未开启"})
+            continue
+        if not rules:
+            profiles_out.append({"label": p["label"], "blocked": False, "reason": "未配置拦截"})
+            continue
+        verdict = _protection_evaluate(rules, p["ua"], p["country"], p["referer"], p["query"])
+        profiles_out.append({"label": p["label"], "blocked": verdict["blocked"], "reason": verdict["reason"]})
+
+    return {
+        "success": True,
+        "protection_enabled": protection_enabled,
+        "repeat_visitor_block_enabled": bool(rvb and rvb.get("enabled")),
+        "profiles": profiles_out,
+        "checked_at": _now_cst(),
+    }
+
+
 @router.post("/facebook/link-probe")
 def facebook_link_probe(body: LandingFacebookProbeReq, user=Depends(get_current_user)):
     url = str(body.url or "").strip()
