@@ -428,6 +428,7 @@ textarea.fc{resize:vertical;min-height:80px}
 .fh{font-size:11px;color:var(--t3);margin-top:5px}
 .rule-preview{margin-top:12px;padding:10px 14px;background:rgba(10,132,255,.07);border:1px solid rgba(10,132,255,.2);border-radius:8px;font-size:13px;color:var(--t1);line-height:1.55;font-weight:500}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#moAddRule .fr{gap:20px}
 @media(max-width:600px){.fr{grid-template-columns:1fr}}
 /* Toggle */
 .toggle{position:relative;display:inline-block;width:40px;height:22px}
@@ -466,17 +467,17 @@ body.busy::after{content:'';position:fixed;top:0;left:0;height:3px;width:40vw;ba
 .empty{text-align:center;padding:60px 20px;color:var(--t3)}
 .empty-icon{font-size:48px;margin-bottom:16px;opacity:.4}
 /* Rule card */
-.rc{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:10px;display:flex;align-items:flex-start;gap:14px;transition:var(--tr)}
+.rc{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:18px;margin-bottom:14px;display:flex;align-items:flex-start;gap:16px;transition:var(--tr)}
 .rc:hover{border-color:var(--bd2)}
 .rc.dis{opacity:.5}
 .rc-icon{width:38px;height:38px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px}
 .rc-icon.g{background:var(--erg)}
 .rc-icon.s{background:var(--okg)}
 .rc-body{flex:1;min-width:0}
-.rc-title{font-size:14px;font-weight:600;margin-bottom:4px}
+.rc-title{font-size:14px;font-weight:600;margin-bottom:6px}
 .rc-desc{font-size:12px;color:var(--t2);line-height:1.55}
-.rule-explain{margin-top:6px;font-size:12px;color:var(--t2);line-height:1.55;background:rgba(10,132,255,.07);border:1px solid rgba(10,132,255,.16);border-radius:6px;padding:7px 9px}
-.rc-meta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.rule-explain{margin-top:8px;font-size:12px;color:var(--t2);line-height:1.6;background:rgba(10,132,255,.07);border:1px solid rgba(10,132,255,.16);border-radius:6px;padding:9px 12px}
+.rc-meta{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
 .rc-acts{display:flex;align-items:center;gap:6px;flex-shrink:0}
 /* KPI card */
 .kc{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;transition:var(--tr)}
@@ -1894,7 +1895,7 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-runtime-pill.ok{background:#ecfdf5;border-color:#bbf7d0;color:#047857}
 .landing-runtime-pill.warn{background:#fff7ed;border-color:#fed7aa;color:#b45309}
 .landing-runtime-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:12px;align-items:start}
-.landing-runtime-section{border:1px solid #e5e5ea;border-radius:12px;background:#fff;padding:14px;min-width:0;margin-bottom:12px}
+.landing-runtime-section{border:1px solid #e5e5ea;border-radius:12px;background:#fff;padding:16px;min-width:0;margin-bottom:12px}
 .landing-runtime-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
 .landing-runtime-section-title{font-size:14px;font-weight:860;color:#1d1d1f}
 .landing-runtime-section-desc{font-size:12px;color:#6e6e73;line-height:1.45;margin-top:3px}
@@ -1919,7 +1920,7 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-rule-preset:hover{border-color:#0071e3;background:#eef6ff}
 .landing-rule-preset b{display:block;font-size:12px;color:#1d1d1f;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .landing-rule-preset span{display:block;font-size:11px;color:#6e6e73;line-height:1.35}
-.landing-runtime-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.landing-runtime-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .landing-runtime-rules .landing-rule-card{padding:11px}
 .landing-runtime-rules .landing-rule-card .fc{width:100%;min-width:0}
 .landing-runtime-rules .landing-rule-card .fg{min-width:0}
@@ -2331,7 +2332,7 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
 .landing-health-text{font-size:12px;color:var(--t3);line-height:1.55}
 .landing-health-window{font-size:12px;color:var(--t3);white-space:nowrap}
 .landing-metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin:10px 0}
-.landing-metric-card{padding:10px 12px;min-height:60px;border:1px solid var(--bd);border-radius:10px;background:#fff;display:flex;flex-direction:column;justify-content:center;gap:3px}
+.landing-metric-card{padding:12px 14px;min-height:64px;border:1px solid var(--bd);border-radius:10px;background:#fff;display:flex;flex-direction:column;justify-content:center;gap:4px}
 .landing-metric-label{font-size:12px;color:var(--t3)}
 .landing-metric-value{font-size:19px;font-weight:780;margin-top:0;color:var(--t1);line-height:1.1}
 .landing-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0}
@@ -2344,7 +2345,7 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
 .landing-stats-pill-card{min-width:0}
 .landing-stats-pill-card b{font-size:13px;color:var(--t1)}
 .landing-event-list{display:grid;gap:8px;max-height:560px;overflow:auto;padding-right:2px}
-.landing-event-card{border:1px solid var(--bd);border-radius:10px;background:#fff;padding:12px 14px;display:grid;gap:10px}
+.landing-event-card{border:1px solid var(--bd);border-radius:10px;background:#fff;padding:14px 16px;display:grid;gap:12px}
 .landing-event-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .landing-event-title{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-weight:820;color:var(--t1)}
 .landing-event-time{color:var(--t3);font-size:12px}
@@ -2409,6 +2410,8 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
  overflow:hidden!important;
 }
 .modal.modal-wide{width:min(1040px,calc(100vw - 48px))!important}
+.modal.modal-info-logs{width:min(880px,calc(100vw - 48px))!important}
+#moAddRule .modal.modal-lg{width:min(920px,calc(100vw - 48px))!important}
 .modal.modal-xl{width:min(1220px,calc(100vw - 48px))!important}
 .modal.modal-lg,.modal-lg{width:min(860px,calc(100vw - 48px))!important}
 .mc-box{
@@ -2438,7 +2441,7 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
 }
 .modal .mb,.modal .modal-body{
  min-height:0!important;
- padding:18px 20px!important;
+ padding:20px 22px!important;
  overflow:auto!important;
  -webkit-overflow-scrolling:touch!important;
 }
@@ -3125,7 +3128,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 .landing-ad-code-main{font-size:13px;font-weight:850;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .landing-ad-code-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
 .landing-ad-code-note{font-size:11px;color:var(--t3);margin-top:4px}
-.landing-ad-link-log-list{display:grid;gap:10px;max-height:560px;overflow:auto}
+.landing-ad-link-log-list{display:grid;gap:12px;max-height:560px;overflow:auto}
 #page-landing_center .ph h2{line-height:1.25;margin-bottom:0}
 #page-landing_center .ph p{margin-top:7px!important;color:var(--t3)!important;font-size:12.5px!important}
 #page-landing_center .landing-top-actions{gap:6px}
@@ -6374,8 +6377,10 @@ function showInfo(htmlContent, titleText) {
  var isComplex=/<(?:table|thead|tbody|tr|td)\b/i.test(contentText)
   || /class=["'][^"']*(table-wrap|team-table-wrap|landing-perf-grid|landing-page-row|ads-brief-wrap)/i.test(contentText)
   || /min-width\s*:\s*(?:[7-9]\d{2}|1\d{3,})px/i.test(contentText)
-  || /广告入口|广告综合信息|真实效果|发布自检|失败明细|矩阵归属诊断|最近操作/.test(String(titleText||''));
+  || /广告入口|广告综合信息|真实效果|发布自检|失败明细|矩阵归属诊断|最近操作|子码访问日志/.test(String(titleText||''))
+  || /landing-ad-link-log-list|landing-metric-card/.test(contentText);
  var modalClass=isComplex?'modal modal-wide modal-info':'modal modal-info';
+ if(/landing-ad-link-log-list|landing-metric-card/.test(contentText))modalClass='modal modal-info modal-info-logs';
  mo.className = 'mo';
  mo.id = moId;
  mo.innerHTML = '<div class="'+modalClass+'">' +
@@ -21081,7 +21086,7 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
   var cards=[['访问',s.visits||0],['点击次数',s.clicks||0],['点击转化(去重)',s.unique_clicks||0],['跳转',s.redirects||0],['拦截',s.blocks||0],['提交',bt.submit||0],['错误',s.errors||0]];
   var html='<div style="text-align:left">'+
    '<div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:8px">「点击转化(去重)」= 不同访客的按钮点击数（同一访客多次点击只算 1 次），是规则引擎可用的近实时转化信号；「点击次数」含重复点击。</div>'+
-   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:8px;margin-bottom:10px">'+
+   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:10px;margin-bottom:12px">'+
     cards.map(function(x){return '<div class="landing-metric-card"><div class="landing-metric-label">'+x[0]+'</div><div class="landing-metric-value">'+x[1]+'</div></div>';}).join('')+
    '</div>'+
    '<div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">入口码：<code>'+escHtml(slug)+'</code> · 日期：'+escHtml(df)+' 至 '+escHtml(dt)+' · 仅展示最近事件中匹配该入口码的记录。</div>'+
