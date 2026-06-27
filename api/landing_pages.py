@@ -3330,6 +3330,9 @@ def _safe_rules(rules: dict[str, Any]) -> dict[str, Any]:
         normalized = dedupe(normalized)
         if normalized:
             clean[key] = normalized[:80]
+    # v3.11.137 防重粉开关（结构化布尔，非字符串列表）
+    if isinstance(rules.get("repeat_visitor_block"), dict) and rules.get("repeat_visitor_block", {}).get("enabled"):
+        clean["repeat_visitor_block"] = {"enabled": True}
     return clean
 
 
@@ -5912,7 +5915,7 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
         raise HTTPException(status_code=400, detail="访问事件类型不正确")
     decision = _landing_event_decision(event_type, body.decision)
     conn = get_conn()
-    page = conn.execute("SELECT id, ingest_secret, status FROM landing_pages WHERE id=?", (body.page_id,)).fetchone()
+    page = conn.execute("SELECT id, ingest_secret, status, protection_enabled, protection_rules FROM landing_pages WHERE id=?", (body.page_id,)).fetchone()
     if not page or not page["ingest_secret"] or not secrets.compare_digest(str(page["ingest_secret"]), str(body.secret or "")):
         conn.close()
         raise HTTPException(status_code=403, detail="访问日志校验失败")
@@ -5948,6 +5951,23 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
             )
         except Exception:
             logger.exception("landing ad link auto-bind failed: page_id=%s slug=%s ad_id=%s", body.page_id, slug, ad_id)
+    # v3.11.137 防重粉(基础)：仅在转化动作(click/submit)拦截"今日"重复访客；以指纹(ip_hash|ua_hash)
+    # 为身份，命中则记为 block（不计入点击转化，配合 landing_metrics）。容错：任何异常->按原事件正常记录。
+    try:
+        _rvb = _json_loads(page["protection_rules"] or "{}", {})
+        if page["protection_enabled"] and isinstance(_rvb, dict)                 and _rvb.get("repeat_visitor_block", {}).get("enabled")                 and event_type in ("click", "submit") and (body.ip_hash or ua_hash):
+            _fp = "NULLIF(COALESCE(NULLIF(ip_hash,''),'') || '|' || COALESCE(NULLIF(user_agent_hash,''),''), '|')"
+            _prior = conn.execute(
+                "SELECT 1 FROM landing_events WHERE page_id=? AND event_type IN ('click','submit') "
+                "AND decision<>'block' AND date(created_at)=date('now','+8 hours') "
+                "AND (" + _fp + ") IS NOT NULL AND (" + _fp + ")=? LIMIT 1",
+                (body.page_id, (body.ip_hash or "") + "|" + (ua_hash or "")),
+            ).fetchone()
+            if _prior:
+                event_type = "block"
+                decision = "block"
+    except Exception:
+        logger.exception("landing repeat-visitor check failed: page_id=%s", body.page_id)
     conn.execute(
         """INSERT INTO landing_events
            (page_id, event_type, decision, reason, path, target_url, referrer, country, region, city,

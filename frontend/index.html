@@ -4613,6 +4613,7 @@ input:focus, select:focus, textarea:focus {
      <label><input type="checkbox" id="lpFormEnabled"> 表单链接标记</label>
      <label><input type="checkbox" id="lpTrackingEnabled" checked> 边缘统计</label>
      <label><input type="checkbox" id="lpProtectionEnabled" onchange="toggleLandingProtectionRules()"> 启用防护规则</label>
+     <label><input type="checkbox" id="lpRepeatVisitor"> 防重粉（拦截今日重复转化）</label>
      <select class="fc" id="lpRotation" onchange="updateLandingRotationHint()"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
     </div>
     <div class="landing-template-tools">
@@ -22179,7 +22180,7 @@ function landingRuleInputHtml(id,label,value,listId,placeholder,summaryFn,quickV
  '</div>';
 }
 function _landingRulesByPrefix(prefix){
- return {
+ var r={
   country_allow:_lpCsv(prefix+'CountryAllow'),
   country_block:_lpCsv(prefix+'CountryBlock'),
   source_allow:_lpCsv(prefix+'SourceAllow'),
@@ -22191,6 +22192,9 @@ function _landingRulesByPrefix(prefix){
   query_block:_lpCsv(prefix+'QueryBlock'),
   required_query:_lpCsv(prefix+'RequiredQuery')
  };
+ var rv=document.getElementById(prefix+'RepeatVisitor');
+ if(rv&&rv.checked) r.repeat_visitor_block={enabled:true};
+ return r;
 }
 function _setLandingRulesByPrefix(prefix,rules){
  rules=rules||{};
@@ -22214,6 +22218,8 @@ function _setLandingRulesByPrefix(prefix,rules){
    el.value=kind?_landingRuleValuesForInput(raw,kind).join(','):(Array.isArray(raw)?raw.join(','):raw);
   }
  });
+ var _rv=document.getElementById(prefix+'RepeatVisitor');
+ if(_rv) _rv.checked=!!(rules.repeat_visitor_block&&rules.repeat_visitor_block.enabled);
  if(prefix==='lp'){toggleLandingProtectionRules();renderLandingProtectionSummary();}
  if(prefix==='pt')renderProtectionTemplateSummary();
  if(prefix==='rt')toggleLandingRuntimeProtectionRules();
@@ -22610,6 +22616,7 @@ function editLandingRuntimeConfig(pageId){
        '<div class="fg"><label class="fl">运行开关</label><div class="landing-runtime-switches">'+
         '<label class="landing-runtime-switch"><div>边缘统计<span>记录访问、点击和跳转</span></div><input type="checkbox" id="rtTrackingEnabled"></label>'+
         '<label class="landing-runtime-switch"><div>防护规则<span>按规则放行或拦截</span></div><input type="checkbox" id="rtProtectionEnabled" onchange="toggleLandingRuntimeProtectionRules()"></label>'+
+        '<label class="landing-runtime-switch"><div>防重粉<span>拦截今日重复转化</span></div><input type="checkbox" id="rtRepeatVisitor"></label>'+
        '</div></div>'+
       '</div>'+
      '</div>'+
