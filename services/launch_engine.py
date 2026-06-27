@@ -2408,25 +2408,33 @@ class AutoPilotEngine:
                     target_cpa, target_cpa_local, _budget_currency, bid_amount_units,
                 )
 
-        # 出价策略：如果设了 target_cpa 且策略为 COST_CAP/BID_CAP，优先使用 CPA
-        if target_cpa and target_cpa > 0 and bid_strategy in ("COST_CAP", "BID_CAP"):
-            payload["bid_strategy"] = bid_strategy
-            payload["bid_amount"] = bid_amount_units
-        elif target_cpa and target_cpa > 0:
-            # 有 CPA 但策略为自动，使用 COST_CAP
-            payload["bid_strategy"] = "COST_CAP"
-            payload["bid_amount"] = bid_amount_units
-        else:
-            if bid_strategy in ("COST_CAP", "BID_CAP"):
-                logger.warning(
-                    "[AutoPilot] bid_strategy=%s requires target_cpa; fallback to LOWEST_COST_WITHOUT_CAP",
-                    bid_strategy,
-                )
-            elif bid_strategy not in ("", "LOWEST_COST_WITHOUT_CAP"):
-                logger.warning(
-                    "[AutoPilot] unsupported uncapped bid_strategy=%s without target_cpa; use Meta default lowest cost",
-                    bid_strategy,
-                )
+        # 出价策略：CBO 模式下 bid_strategy/bid_amount 由 _create_campaign 在系列级声明，
+        # AdSet 级不能重复设置（否则与系列级策略冲突，触发 FB 错误 1815858 / Invalid parameter）。
+        # ABO 模式下按 target_cpa 决定 AdSet 级出价策略。
+        if budget_mode != "CBO":
+            # 出价策略：如果设了 target_cpa 且策略为 COST_CAP/BID_CAP，优先使用 CPA
+            if target_cpa and target_cpa > 0 and bid_strategy in ("COST_CAP", "BID_CAP"):
+                payload["bid_strategy"] = bid_strategy
+                payload["bid_amount"] = bid_amount_units
+            elif target_cpa and target_cpa > 0:
+                # 有 CPA 但策略为自动，使用 COST_CAP（对应前端「目标成本上限」）
+                payload["bid_strategy"] = "COST_CAP"
+                payload["bid_amount"] = bid_amount_units
+            else:
+                if bid_strategy in ("COST_CAP", "BID_CAP"):
+                    logger.warning(
+                        "[AutoPilot] bid_strategy=%s requires target_cpa; fallback to LOWEST_COST_WITHOUT_CAP",
+                        bid_strategy,
+                    )
+                elif bid_strategy not in ("", "LOWEST_COST_WITHOUT_CAP"):
+                    logger.warning(
+                        "[AutoPilot] unsupported uncapped bid_strategy=%s without target_cpa; use Meta default lowest cost",
+                        bid_strategy,
+                    )
+        # 硬性不变量：bid_strategy=LOWEST_COST_WITHOUT_CAP 时绝不能携带 bid_amount
+        # （FB 会报「竞价策略无法设置竞价金额」错误 code=100/subcode=1815858）。
+        if payload.get("bid_strategy") == "LOWEST_COST_WITHOUT_CAP":
+            payload.pop("bid_amount", None)
 
         # 需要认证国家：按国家设置对应的区域声明类别与身份字段。
         countries = targeting.get("geo_locations", {}).get("countries", [])

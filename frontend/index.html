@@ -2240,6 +2240,8 @@ body.landing-protection-open #page-landing_center .landing-protection-card{
 body.landing-publish-open .landing-drawer-close{display:inline-flex!important}
 body.landing-api-open .landing-api-close{display:inline-flex!important}
 body.landing-protection-open .landing-protection-close{display:inline-flex!important}
+body.landing-publish-open:before,body.landing-api-open:before,body.landing-protection-open:before{pointer-events:none!important}
+body.landing-publish-open main.content,body.landing-api-open main.content,body.landing-protection-open main.content{position:relative!important;z-index:99999!important}
 #page-landing_center .landing-row-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;position:relative;white-space:nowrap}
 #page-landing_center .landing-row-actions>.btn,#page-landing_center .landing-row-more-wrap>.btn{height:32px!important;min-height:32px!important;padding:0 10px!important}
 #page-landing_center .landing-row-more-wrap{position:relative;display:inline-flex}
@@ -2294,7 +2296,7 @@ body.landing-protection-open .landing-protection-close{display:inline-flex!impor
 .landing-ad-more[open] summary{border-color:var(--ac);color:var(--ac);background:var(--acg)}
 .landing-ad-more-menu{position:absolute;right:0;top:38px;z-index:24000;display:grid;gap:6px;min-width:136px;padding:8px;border:1px solid var(--bd);border-radius:10px;background:var(--bg3);box-shadow:var(--sh)}
 .landing-ad-more-menu .btn{width:100%;justify-content:flex-start!important}
-.landing-ad-link-actions{display:flex;flex-wrap:wrap;gap:4px;min-width:128px}
+.landing-ad-link-actions{display:flex;flex-wrap:wrap;gap:4px;min-width:210px;justify-content:flex-end}
 .landing-ad-link-actions .btn{height:30px!important;min-height:30px!important;padding:0 8px!important;justify-content:center;white-space:nowrap}
 .landing-ad-link-actions .primary{grid-column:1/-1}
 .landing-ad-link-actions .danger{color:var(--er)!important;border-color:rgba(230,57,70,.24)!important;background:rgba(230,57,70,.06)!important}
@@ -3104,6 +3106,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 #landingUrlTableBody .landing-url-account{font-weight:760;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #landingUrlTableBody .landing-url-id{display:none}
 .ad-center-module-host #page-landing_center .landing-page-row{grid-template-columns:minmax(260px,.95fr) minmax(360px,1.35fr) minmax(190px,.7fr) minmax(154px,auto)!important;gap:12px!important;padding:13px 14px!important}
+@media(max-width:760px){.ad-center-module-host #page-landing_center .landing-page-row{grid-template-columns:1fr!important;gap:10px!important;padding:12px!important}.ad-center-module-host #page-landing_center .landing-page-row>div:last-child{grid-column:1!important;grid-row:auto!important}.ad-center-module-host #page-landing_center .landing-page-actions{min-width:0!important;grid-template-columns:1fr!important}}
 .ad-center-module-host #page-landing_center .landing-page-title b{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ad-center-module-host #page-landing_center .landing-page-link{min-width:0}
 .ad-center-module-host #page-landing_center .landing-page-url{font-size:12px;line-height:1.45}
@@ -4263,18 +4266,13 @@ input:focus, select:focus, textarea:focus {
       <button class="rtab" data-tab="scale" onclick="switchTab('scale')">拉量策略</button>
      </div>
      <div id="guardPanel">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px">
-       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-g" onclick="openRuleDryRunModal()">规则预演测试</button>
-        <button class="btn btn-g role-hide-viewer" onclick="openGuardAllowanceModal()">当日放行</button>
-       </div>
+      <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:12px;gap:10px">
        <button class="btn btn-p role-hide-viewer" onclick="showAddRule('guard')">+ 添加止损规则</button>
       </div>
       <div id="guardList"></div>
      </div>
      <div id="scalePanel" style="display:none">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px">
-       <button class="btn btn-g" onclick="openRuleDryRunModal()">规则预演测试</button>
+      <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:12px;gap:10px">
        <button class="btn btn-p role-hide-viewer" onclick="showAddRule('scale')">+ 添加拉量策略</button>
       </div>
       <div id="scaleList"></div>
@@ -5487,7 +5485,7 @@ input:focus, select:focus, textarea:focus {
    </div>
 
    <!-- 预览 -->
-   <div id="launchPreview" class="launch-structure-preview">预计创建：<b id="launchPreviewCount">--</b>个广告组 × <b id="launchPreviewAds">--</b>条广告
+   <div id="launchPreview" class="launch-structure-preview">预计结构：<b id="launchPreviewCount">--</b> 个广告组 × <b id="launchPreviewAds">--</b> 条广告
    </div>
    <div id="launchPrecheckTips" style="margin-top:10px;padding:12px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.18);border-radius:var(--rs);font-size:12px;color:var(--t2)"></div>
   </div>
@@ -12109,34 +12107,6 @@ function onPpPageManualInput(val){
 async function reloadPpPages(){
  var sel = document.getElementById('ppPageSel');
  var hint = document.getElementById('ppPageHint');
- if(!_ppCurrentActId){sel.innerHTML='<option value="">请先打开账户配置</option>';return;}
- sel.innerHTML = '<option value="">加载中...</option>';
- if(hint) hint.textContent = '正在从 Facebook 拉取主页列表...';
- try{
-  var r = await api('GET','/accounts/'+_ppCurrentActId+'/fb-pages');
-  var pages = r.pages||[];
-  sel.innerHTML = '<option value="">— 请选择主页 —</option>';
-  pages.forEach(function(p){
-   var opt = document.createElement('option');
-   opt.value = p.id;
-   opt.textContent = p.name + (p.can_use ? '' : ' 不可用');
-   if(!p.can_use){ opt.disabled=true; opt.style.color='#666'; }
-   sel.appendChild(opt);
-  });
-  // 自动选中当前账户已配置的主页
-  var accs = await api('GET','/accounts');
-  var acc = (accs||[]).find(function(a){return a.act_id===_ppCurrentActId;});
-  if(acc && acc.page_id) sel.value = acc.page_id;
-  if(hint) hint.textContent = pages.length + ' 个主页（灰色=不可用或无广告权限）';
- }catch(e){
-  sel.innerHTML = '<option value="">拉取失败</option>';
-  if(hint) hint.textContent = ' 拉取失败：' + e.message;
- }
-}
-
-async function reloadPpPages(){
- var sel = document.getElementById('ppPageSel');
- var hint = document.getElementById('ppPageHint');
  window._ppPageMeta = {};
  if(!_ppCurrentActId){sel.innerHTML='<option value="">请先打开账户配置</option>';return;}
  sel.innerHTML = '<option value="">加载中...</option>';
@@ -12167,7 +12137,13 @@ async function reloadPpPages(){
   }
  }catch(e){
   sel.innerHTML = '<option value="">拉取失败</option>';
-  if(hint) hint.textContent = ' 拉取失败：' + e.message;
+  var _ppErr=String((e&&e.message)||e||'');
+  var _isPerm=/没有可写操作号|可写操作号|权限|400|permission|token/i.test(_ppErr);
+  if(hint){
+   hint.innerHTML=' 拉取失败：'+_ppErr.replace(/</g,'&lt;')+
+    (_isPerm?' <button class="btn btn-g btn-sm" style="margin-left:6px" onclick="closeModal(\'moPagePixel\');showAccountPermissionDiagnostic(\''+_ppCurrentActId+'\')">权限诊断</button>':'');
+  }
+  toast('主页列表拉取失败：'+_ppErr+(_isPerm?'，可点击「权限诊断」检查操作号':''),'wa');
  }
 }
 
@@ -15143,14 +15119,14 @@ async function onLaunchObjectiveChange() {
    tw_page_id:((document.getElementById('launchTwAdvId')||{}).value||'').trim()||null
   });
   if(precheck&&!precheck.pass){
-   if(btn){btn.disabled=false;btn.textContent=' 确认启动';}
+   if(btn){btn.disabled=false;btn.textContent='确认并发布广告';}
    await confirmAsync(
     _renderLaunchPrecheckDialog(precheck)+'<div style="margin-top:12px;padding:10px;background:var(--erg);border-radius:6px;font-size:12px;color:var(--er)">请先修复失败项；失败项不会强制提交，避免创建半残任务。</div>',
     '知道了','关闭',' 铺广告预检未通过'
    );
    return;
   }else if(precheck&&precheck.overall==='warn'){
-   if(btn){btn.disabled=false;btn.textContent=' 确认启动';}
+   if(btn){btn.disabled=false;btn.textContent='确认并发布广告';}
    var warnGo=await confirmAsync(_renderLaunchPrecheckDialog(precheck),'继续铺广告','取消',' 铺广告预检警告');
    if(!warnGo)return;
    if(btn){btn.disabled=true;btn.textContent='启动中...';}
@@ -15232,7 +15208,7 @@ async function onLaunchObjectiveChange() {
   if(btn)btn.style.display='none';
  }catch(e){
   toast('启动失败：'+e.message,'er');
-  if(btn){btn.disabled=false;btn.textContent=' 确认启动';btn.style.display='';}
+  if(btn){btn.disabled=false;btn.textContent='确认并发布广告';btn.style.display='';}
  }
  }
 
@@ -15255,7 +15231,7 @@ function _resetLaunchProgressState(){
  if(confirmBtn){
   confirmBtn.disabled=false;
   confirmBtn.style.display='';
-  confirmBtn.textContent=' 确认启动';
+  confirmBtn.textContent='确认并发布广告';
  }
  var cancelBtn=document.getElementById('btnLaunchCancel');
  if(cancelBtn)cancelBtn.textContent='取消';
@@ -15882,7 +15858,11 @@ async function loadRules(){
   renderScale(scale||[]);
   populateRulesKpiFilter();
   loadGuardObservability();
- }catch(e){}
+ }catch(e){
+  toast('规则加载失败：'+(e.message||e),'er');
+  var _ge=document.getElementById('guardList'); if(_ge)_ge.innerHTML='<div style="padding:24px;text-align:center;color:var(--er)">规则加载失败：'+(String(e.message||e).replace(/</g,'&lt;'))+'<br><button class="btn btn-g btn-sm" style="margin-top:10px" onclick="loadRules()">重试</button></div>';
+  var _se=document.getElementById('scaleList'); if(_se)_se.innerHTML='<div style="padding:24px;text-align:center;color:var(--er)">策略加载失败：'+(String(e.message||e).replace(/</g,'&lt;'))+'</div>';
+ }
 }
 function guardOpsBadge(status){
  status=String(status||'scheduled');
@@ -16481,7 +16461,10 @@ function updateGuardPreview(){
  var ratio=gv('param_ratio',0);
  var days=gv('param_days',2);
  var preview='';
- if(type==='bleed_abs'){preview=scopeLabel+' · '+kpiLabel+'：费用 ≥ $'+val.toFixed(2)+' 且转化=0 → '+actionLabel}
+ if(val<=0&&(type==='cpa_exceed'||type==='consecutive_bad'||type==='bleed_abs'||type==='click_no_conv'||type==='budget_burn_fast'||type==='trend_drop')){
+  preview=scopeLabel+' · '+kpiLabel+'：<span style="color:var(--wa)">请填写目标 CPA / 阈值后再看预览</span> → '+actionLabel;
+ }
+ else if(type==='bleed_abs'){preview=scopeLabel+' · '+kpiLabel+'：费用 ≥ $'+val.toFixed(2)+' 且转化=0 → '+actionLabel}
  else if(type==='cpa_exceed'){var e=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：CPA > $'+e.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）→ '+actionLabel}
  else if(type==='consecutive_bad'){var e2=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：连续'+days+'天 CPA > $'+e2.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）→ '+actionLabel}
  else if(type==='click_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：点击 ≥ '+val.toFixed(0)+' 且转化=0 → '+actionLabel}
@@ -16490,7 +16473,7 @@ function updateGuardPreview(){
  else if(type==='budget_burn_fast'){preview=scopeLabel+' · '+kpiLabel+'：单次巡检消耗增量 > $'+val.toFixed(2)+' → '+actionLabel}
  else if(type==='trend_drop'){preview=scopeLabel+' · '+kpiLabel+'：ROAS跌幅 > '+val.toFixed(0)+'% → '+actionLabel}
  else{preview=scopeLabel+' · '+kpiLabel+'：选择规则类型查看预览'}
- el.textContent=preview;
+ el.innerHTML=preview;
 }
 function updateScalePreview(){
  var type=(document.getElementById('scaleType')||{}).value||'';
@@ -16652,7 +16635,7 @@ async function openTemplateModal(){
   function cardHtml(t){
    var guardCount=(t.guard_rules||[]).length;
    var tags=(t.tags||[]).map(function(g){return'<span class="badge bg-ac" style="font-size:10px">'+g+'</span>'}).join('');
-   return'<div onclick="selectTemplate(\''+t.id+'\')" style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:14px;cursor:pointer;transition:var(--tr)" id="tplCard-'+t.id+'" onmouseover="this.style.borderColor=\'var(--bd2)\'" onmouseout="this.style.borderColor=selectedTplId==t.id?\'var(--ac)\":\'var(--bd)\'">'+
+   return'<div onclick="selectTemplate(\''+t.id+'\')" style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:14px;cursor:pointer;transition:var(--tr)" id="tplCard-'+t.id+'" onmouseover="this.style.borderColor=\'var(--bd2)\'" onmouseout="this.style.borderColor=(window.selectedTplId===\''+t.id+'\')?\'var(--ac)\":\'var(--bd)\'">'+
     '<div style="font-size:13px;font-weight:600;margin-bottom:6px">'+t.name+'</div>'+
     '<div style="font-size:12px;color:var(--t3);margin-bottom:8px">'+(t.description||'')+'</div>'+
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+tags+'</div>'+
@@ -17244,7 +17227,7 @@ async function loadSettings() {
    img_gen_stability_key:1,img_gen_replicate_key:1,img_gen_replicate_model:1
   };
   settingsData = (results[0] || []).filter(function(s){
-   return !deadSettingKeys[s.key] && s.category!=='autopilot' && s.category!=='lifecycle' && s.category!=='img_gen';
+   return !deadSettingKeys[s.key] && s.category!=='autopilot' && s.category!=='lifecycle' && s.category!=='img_gen' && s.key!=='last_admin_activity';
   });
   var providers = results[1] || {};
   var me = results[2];
@@ -17307,7 +17290,7 @@ async function loadSettings() {
 }
 
 function renderSecuritySection(me) {
- return '<div class="ss"><div class="ss-title">安全设置</div>' +
+ return '<div class="ss"><div class="ss-title">账号安全（用户名 / 密码）</div>' +
   '<div class="sg">' +
   '<div class="fg"><label class="fl">修改用户名</label>' +
   '<div style="display:flex;gap:8px;align-items:center">' +
@@ -20586,10 +20569,10 @@ function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  stats=stats||{};
  var buttons=[];
  var macroUrl=adParamUrl||_landingAdMacroUrl(publicUrl);
- if(macroUrl)buttons.push(_landingCopyBtn('复制投放',macroUrl,'btn-p primary'));
+ if(macroUrl)buttons.push(_landingCopyBtn('复制投放链接(含ad参数)',macroUrl,'btn-p primary'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdLinkTargets('+item.id+','+(parseInt(item.page_id||0,10)||0)+',\''+encodeURIComponent(item.slug||'')+'\',\''+encodeURIComponent(JSON.stringify(_landingItemTargets(item)))+'\')">改跳转</button>');
  buttons.push('<button class="btn btn-g btn-sm" onclick="showLandingAdLinkLogs('+(parseInt(item.page_id||0,10)||0)+',\''+encodeURIComponent(item.slug||'')+'\')">日志</button>');
- if(publicUrl)buttons.push(_landingCopyBtn('测试码',publicUrl,'btn-g'));
+ if(publicUrl)buttons.push(_landingCopyBtn('复制测试链接(无参数)',publicUrl,'btn-g'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定')+'</button>');
  if(String(item.ad_id||'').trim()){
   buttons.push('<button class="btn btn-p btn-sm" onclick="jumpToAd(\''+String(item.ad_id||'')+'\',\''+String(item.act_id||'')+'\')" title="在投放中心查看这条广告">→ 查看广告</button>');
@@ -20840,17 +20823,17 @@ function _landingRowActionsHtml(p, link, usageTotal){
   var id=parseInt(p.id||0,10)||0;
   var canSeeFallback=isSuperadminRole();
   var parts=[];
-  if(link)parts.push(_landingActionButton('复制主链接',"copyText('"+encodeURIComponent(link)+"')",'btn-p','复制当前落地页主链接；铺广告会自动生成广告入口链接'));
+  if(link)parts.push(_landingActionButton('复制主链接(无参数)',"copyText('"+encodeURIComponent(link)+"')",'btn-p','复制当前落地页主链接（不含 ad 参数）；铺广告会自动生成广告入口链接'));
   else parts.push('<button class="btn btn-g btn-sm" disabled>无链接</button>');
  parts.push(_landingActionButton('配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
  parts.push(_landingActionButton('广告入口','showLandingAdLinks('+id+')','btn-g','查看该主链接下的广告入口、绑定关系和跳转池'));
+ parts.push(_landingActionButton('统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
   var more=[];
-  if(p.custom_domain)more.push(_landingActionButton('复制自定义域',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制自定义域链接'));
-  if(canSeeFallback&&p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统备用域'));
+  if(p.custom_domain)more.push(_landingActionButton('复制正式域名',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制已绑定的正式自定义域名链接'));
+  if(canSeeFallback&&p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制系统备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统默认备用域名链接'));
  if(p.custom_domain_dns_hint)more.push(_landingActionButton('复制 DNS',"copyText('"+encodeURIComponent(p.custom_domain_dns_hint)+"')",'btn-g','复制自定义域 DNS 配置'));
  more.push(_landingActionButton('重新发布','republishLandingPage('+id+')','btn-g role-hide-viewer','更新线上页面，保留原链接和广告入口'));
  more.push(_landingActionButton('自检','checkLandingHealth('+id+')','btn-g','检查线上访问、直跳和域名状态'));
- more.push(_landingActionButton('统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
  if(usageTotal>0)more.push(_landingActionButton('使用详情','showLandingUsage('+id+')','btn-g','查看哪些账户、任务或广告入口仍在使用该链接'));
  if(p.custom_domain)more.push(_landingActionButton('补齐域名','repairLandingDomain('+id+')','btn-g role-hide-viewer','补齐 DNS、绑定自定义域并在可用后回绑账户'));
  more.push(_landingActionButton('账户投放链接',"showPage('landing_urls')",'btn-g','查看或维护账户绑定的落地页/表单链接'));
@@ -21042,7 +21025,7 @@ function _landingAdLinksHtml(page, links){
   '<div class="landing-ad-link-summary"><span id="landingAdLinksVisibleCount">'+links.length+'</span> / '+links.length+' 条 · 已绑定 '+boundCount+' · 待绑定 '+unboundCount+' · 可清理 '+cleanupCount+' · 专属 '+dedicatedCount+' · 重复 '+reusedCount+' · 全局 '+globalCount+'</div>'+
  '</div>'+
  '<div class="table-wrap" style="max-height:420px;overflow-y:auto;overflow-x:hidden"><table class="landing-ad-link-table">'+
-'<thead><tr><th style="text-align:left;padding:8px 10px;width:124px">广告入口</th><th style="text-align:left;padding:8px 10px;width:232px">绑定对象</th><th style="text-align:left;padding:8px 10px">投放链接</th><th style="text-align:left;padding:8px 10px;width:170px">数据</th><th style="text-align:right;padding:8px 10px;width:138px">操作</th></tr></thead>'+
+'<thead><tr><th style="text-align:left;padding:8px 10px;width:124px">广告入口</th><th style="text-align:left;padding:8px 10px;width:232px">绑定对象</th><th style="text-align:left;padding:8px 10px">投放链接</th><th style="text-align:left;padding:8px 10px;width:170px">数据</th><th style="text-align:right;padding:8px 10px;min-width:220px;width:220px">操作</th></tr></thead>'+
  '<tbody>'+rows+'</tbody></table></div>';
 }
 function filterLandingAdLinkRows(){
@@ -21113,7 +21096,7 @@ async function editLandingAdLinkTargets(linkId,pageId,encodedSlug,encodedTargets
  var targets=[];
  try{targets=JSON.parse(decodeURIComponent(encodedTargets||'%5B%5D'))||[];}catch(e){targets=[];}
  var current=(Array.isArray(targets)?targets:[]).map(function(u){return String(u||'').trim();}).filter(Boolean).join('\n');
- var raw=await promptTextareaAsync('修改跳转链接','入口 '+slug+' 的专属跳转池。每行一个链接；留空则使用落地页全局轮询。保存后线上配置会立即更新。',current,'https://example.com/path\nhttps://example.com/backup');
+ var raw=await promptTextareaAsync('修改跳转链接','⚠️ 此处只修改本入口(子码)的专属跳转池；要改整页轮询请用「配置」。\n\n入口 '+slug+' 的专属跳转池。每行一个链接；留空则使用落地页全局轮询。保存后线上配置会立即更新。',current,'https://example.com/path\nhttps://example.com/backup');
  if(raw==null)return;
  var urls=String(raw||'').split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
  var bad=urls.find(function(u){return !/^https?:\/\//i.test(u);});
@@ -22619,7 +22602,7 @@ function editLandingRuntimeConfig(pageId){
     '<div>'+
      '<div class="landing-runtime-section">'+
       '<div class="landing-runtime-section-head"><div><div class="landing-runtime-section-title">跳转与统计</div><div class="landing-runtime-section-desc">最高频修改项：更换咨询链接、调整轮询、开启访问统计。</div></div></div>'+
-      '<div class="fg"><label class="fl">跳转目标链接</label><textarea class="fc landing-runtime-targets" id="rtTargets" placeholder="每行一个咨询链接 / 外部跳转链接">'+escHtml(urls.join('\n'))+'</textarea><div class="fh">这里改的是运行时跳转目标，不会改变已经复制到广告里的入口短链。</div></div>'+
+      '<div class="fg"><label class="fl">跳转目标链接 <span style="font-size:11px;color:var(--ac)">（整页轮询池）</span></label><textarea class="fc landing-runtime-targets" id="rtTargets" placeholder="每行一个咨询链接 / 外部跳转链接">'+escHtml(urls.join('\n'))+'</textarea><div class="fh">这里改的是<b>整页运行时跳转目标</b>（所有未设专属池的入口共用）；只改某条入口的跳转请在该入口行点「改跳转」。不会改变已经复制到广告里的入口短链。</div></div>'+
       '<div class="landing-form-grid">'+
        '<div class="fg"><label class="fl">轮询方式</label><select class="fc" id="rtRotation"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select><div class="fh">多条链接时建议使用全局顺序轮询，便于均匀分配。</div></div>'+
        '<div class="fg"><label class="fl">运行开关</label><div class="landing-runtime-switches">'+
