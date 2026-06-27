@@ -3668,6 +3668,7 @@ input:focus, select:focus, textarea:focus {
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
        <select class="fc" id="dashAct" style="min-width:130px;max-width:160px;font-size:12px;padding:5px 8px" onchange="localStorage.setItem('mira_dash_act',this.value);loadDash()"><option value="">全部账户</option></select>
+       <button class="btn btn-g btn-sm" type="button" onclick="_openActHub((document.getElementById('dashAct')||{}).value)" title="一键跳转到该账户的所有配置（主页/链接/素材/规则/落地页等）" style="font-size:12px;padding:5px 10px">⚙️ 账户配置</button>
        <select class="fc" id="dashKpi" style="min-width:120px;font-size:12px;padding:5px 8px" onchange="localStorage.setItem('mira_dash_kpi',this.value);loadDash()">
         <option value="">全部类型</option>
         <option value="purchase">购买</option>
@@ -4022,7 +4023,7 @@ input:focus, select:focus, textarea:focus {
         </div>
         <div class="token-zone-actions token-actions">
          <button class="btn btn-g btn-oauth role-hide-viewer" onclick="openMetaOAuthModal()">Meta 官方授权</button>
-         <button class="btn btn-g role-hide-viewer" onclick="openSmartImportAccounts()" title="输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">导入并自动关联</button>
+         <button class="btn btn-p role-hide-viewer" onclick="openSmartImportAccounts()" title="新手推荐：输入账户 ID，系统自动寻找可读取 Token，并补齐同团队/同负责人可用读写 Token 关联">① 导入并自动关联（推荐）</button>
          <button class="btn btn-g role-hide-viewer" onclick="rematchAllAccountTokens(this)" title="扫描已导入账户，自动识别同团队可用 Token 并补齐关联">自动识别关联 Token</button>
          <button class="btn btn-p role-hide-viewer" onclick="openModal('moAddToken')">+ 添加 Token</button>
         </div>
