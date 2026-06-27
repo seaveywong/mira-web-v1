@@ -9495,6 +9495,7 @@ function showAdBrief(adId){
  if(l.public_url)actions+='<button class="btn btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+_adsJs(l.public_url)+'\').then(function(){toast(\'已复制投放链接\',\'ok\')})">复制投放链接</button>';
  actions+='<button class="btn btn-sm" onclick="quickKpi(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\',\''+_adsJs(a.ad_name||'')+'\')">配置 KPI</button>';
  if(l.link_id)actions+='<button class="btn btn-g btn-sm" onclick="_adsOpenLandingData(\''+_adsJs(a.ad_id)+'\')">查看落地数据</button>';
+ if((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)actions+='<button class="btn btn-sm" onclick="jumpToTwPage(\''+_adsJs((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)+'\')">→ 主页库</button>';
  actions+='<button class="btn btn-sm" onclick="_openActHub(\''+_adsJs(a.act_id)+'\')">账户配置中心</button></div>';
  showInfo(_adsLandingBriefHtml(a)+actions,'广告综合信息');
 }
@@ -20519,6 +20520,19 @@ function _landingAdCodeCellHtml(item,attribution){
   '<div class="landing-ad-code-note">'+escHtml(mode)+'</div>'+
  '</div>';
 }
+async function jumpToAd(adId, actId){
+ try{closeAllModals();}catch(e){}
+ showPage('ads');
+ if(actId){try{var sel=document.getElementById('adsAct');if(sel)sel.value=String(actId);}catch(e){}}
+ try{await loadAds({force:false});}catch(e){}
+ try{switchAdsViewTab('ads');}catch(e){}
+ try{var q=document.getElementById('adsQ');if(q){q.value=String(adId||'');filterAds();}}catch(e){}
+}
+function jumpToTwPage(pageId){
+ try{closeAllModals();}catch(e){}
+ showPage('twpages');
+ try{var s=document.getElementById('twPageSearch2');if(s&&pageId)s.value=String(pageId);loadTwCertPages2(false);}catch(e){}
+}
 function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  stats=stats||{};
  var buttons=[];
@@ -20529,6 +20543,7 @@ function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  if(publicUrl)buttons.push(_landingCopyBtn('测试码',publicUrl,'btn-g'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定')+'</button>');
  if(String(item.ad_id||'').trim()){
+  buttons.push('<button class="btn btn-p btn-sm" onclick="jumpToAd(\''+String(item.ad_id||'')+'\',\''+String(item.act_id||'')+'\')" title="在投放中心查看这条广告">→ 查看广告</button>');
   buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
  }else if(_landingAdLinkCanDelete(item,stats)){
   buttons.push('<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="deleteLandingAdLink('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">删除</button>');
