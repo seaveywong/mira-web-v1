@@ -184,6 +184,7 @@ class LandingEventIngest(BaseModel):
     os: Optional[str] = None
     user_agent: Optional[str] = None
     ip_hash: Optional[str] = None
+    mira_vid: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -603,6 +604,13 @@ def _ensure_schema():
             conn.execute("ALTER TABLE landing_asset_bindings ADD COLUMN pixel_name TEXT")
     except Exception:
         logger.exception("landing_asset_bindings schema patch failed")
+    try:
+        # v3.11.156 防重粉(cookie)：landing_events 增加 mira_vid，用于跨 IP 变化识别同一访客。
+        event_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_events)").fetchall()}
+        if "mira_vid" not in event_cols:
+            conn.execute("ALTER TABLE landing_events ADD COLUMN mira_vid TEXT")
+    except Exception:
+        logger.exception("landing_events mira_vid schema patch failed")
     try:
         ad_link_cols = {r["name"] for r in conn.execute("PRAGMA table_info(landing_ad_links)").fetchall()}
         if "target_urls" not in ad_link_cols:
@@ -5980,25 +5988,41 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
             else "date(created_at)=date('now','+8 hours')"
         )
         _win_label = "近{h}小时".format(h=_wh) if (_wh and 1 <= _wh <= 168) else "今日"
-        if page["protection_enabled"] and isinstance(_rvb, dict)                 and _rvb_cfg.get("enabled")                 and event_type in ("click", "submit") and (body.ip_hash or ua_hash):
-            _fp = "NULLIF(COALESCE(NULLIF(ip_hash,''),'') || '|' || COALESCE(NULLIF(user_agent_hash,''),''), '|')"
-            _prior = conn.execute(
-                "SELECT 1 FROM landing_events WHERE page_id=? AND event_type IN ('click','submit') "
-                "AND decision<>'block' AND " + _win_clause + " "
-                "AND (" + _fp + ") IS NOT NULL AND (" + _fp + ")=? LIMIT 1",
-                (body.page_id, (body.ip_hash or "") + "|" + (ua_hash or "")),
-            ).fetchone()
+        # v3.11.156 身份优先级：mira_vid(cookie) > 指纹(ip_hash|ua_hash)。
+        # 有 mira_vid -> 按 (page_id, mira_vid) 匹配，跨 IP 变化仍识别同一访客；
+        # 否则回退指纹（兼容无 cookie 的旧 Worker / 第三方直达事件）。
+        _mira_vid = (str(body.mira_vid or "").strip().lower())[:64]
+        if page["protection_enabled"] and isinstance(_rvb, dict) and _rvb_cfg.get("enabled") and event_type in ("click", "submit"):
+            _prior = None
+            _match_by = ""
+            if _mira_vid:
+                _prior = conn.execute(
+                    "SELECT 1 FROM landing_events WHERE page_id=? AND event_type IN ('click','submit') "
+                    "AND decision<>'block' AND " + _win_clause + " "
+                    "AND COALESCE(NULLIF(mira_vid,''),'')=? LIMIT 1",
+                    (body.page_id, _mira_vid),
+                ).fetchone()
+                _match_by = "cookie"
+            elif body.ip_hash or ua_hash:
+                _fp = "NULLIF(COALESCE(NULLIF(ip_hash,''),'') || '|' || COALESCE(NULLIF(user_agent_hash,''),''), '|')"
+                _prior = conn.execute(
+                    "SELECT 1 FROM landing_events WHERE page_id=? AND event_type IN ('click','submit') "
+                    "AND decision<>'block' AND " + _win_clause + " "
+                    "AND (" + _fp + ") IS NOT NULL AND (" + _fp + ")=? LIMIT 1",
+                    (body.page_id, (body.ip_hash or "") + "|" + (ua_hash or "")),
+                ).fetchone()
+                _match_by = "指纹"
             if _prior:
                 event_type = "block"
                 decision = "block"
-                _evt_reason = "防重粉：{w}重复转化（指纹命中）".format(w=_win_label)
+                _evt_reason = "防重粉：{w}重复转化（{m}命中）".format(w=_win_label, m=_match_by)
     except Exception:
         logger.exception("landing repeat-visitor check failed: page_id=%s", body.page_id)
     conn.execute(
         """INSERT INTO landing_events
            (page_id, event_type, decision, reason, path, target_url, referrer, country, region, city,
-            colo, asn, platform, device_type, browser, os, user_agent_hash, ip_hash, metadata, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            colo, asn, platform, device_type, browser, os, user_agent_hash, ip_hash, mira_vid, metadata, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             body.page_id,
             event_type,
@@ -6018,6 +6042,7 @@ async def ingest_landing_event(body: LandingEventIngest, request: Request):
             _truncate(body.os, 80),
             ua_hash,
             _truncate(body.ip_hash, 128),
+            _truncate((str(body.mira_vid or "").strip().lower()), 64),
             json.dumps(metadata, ensure_ascii=False)[:4000],
             _now_cst(),
         ),

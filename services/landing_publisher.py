@@ -957,6 +957,38 @@ function nextCookie(request, cfg) {
   return 'lp_rt_idx=' + ((current + 1) % urls.length) + '; Path=/; Max-Age=86400; SameSite=Lax';
 }
 
+// v3.11.156 防重粉(cookie)：mira_vid 持久访客身份，跨 IP 变化仍可识别同一访客。
+// 读取入站 cookie；缺失则生成 ~32 字符 hex。返回 {vid, setCookie}（setCookie 仅在新建时非空）。
+function randomVid() {
+  const n = (crypto.getRandomValues && crypto.getRandomValues(new Uint8Array(16))) || null;
+  const bytes = n || new Uint8Array(16);
+  if (!n) for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function miraVid(request) {
+  const cookies = parseCookie(request.headers.get('cookie') || '');
+  const incoming = String(cookies.mira_vid || '').replace(/[^a-f0-9]/gi, '').slice(0, 64);
+  if (incoming.length >= 16) return { vid: incoming, setCookie: '' };
+  const vid = randomVid();
+  const secure = new URL(request.url).protocol === 'https:';
+  const setCookie = 'mira_vid=' + vid + '; Path=/; Max-Age=31536000; SameSite=Lax' + (secure ? '; Secure' : '') + '; HttpOnly';
+  return { vid, setCookie };
+}
+
+// 给一个 Response（或 Promise<Response>）追加 mira_vid 的 Set-Cookie（仅在新种时）。
+// 入站已带 cookie 时不重写，避免每个响应都重发。
+async function withVidCookie(respOrPromise, request) {
+  const resp = await respOrPromise;
+  const _vid = miraVid(request);
+  if (!_vid.setCookie) return resp;
+  const headers = new Headers(resp.headers);
+  const existing = headers.get('set-cookie');
+  if (existing) headers.set('set-cookie', existing + ', ' + _vid.setCookie);
+  else headers.set('set-cookie', _vid.setCookie);
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+}
+
 async function sendEvent(request, event, cfg) {
   cfg = cfg || EDGE_CONFIG;
   if (!cfg.tracking_enabled && event.event_type !== 'block') return;
@@ -965,6 +997,8 @@ async function sendEvent(request, event, cfg) {
     const ua = request.headers.get('user-agent') || '';
     const meta = uaMeta(ua);
     const ip = request.headers.get('cf-connecting-ip') || '';
+    const cookies = parseCookie(request.headers.get('cookie') || '');
+    const miraVid = String(cookies.mira_vid || '').replace(/[^a-f0-9]/gi, '').slice(0, 64);
     const sourceMeta = { source_platform: sourcePlatform(request), ad_slug: adSlugFromRequest(request), ad_id: adIdFromRequest(request) };
     const payload = Object.assign({
       page_id: cfg.page_id,
@@ -977,7 +1011,8 @@ async function sendEvent(request, event, cfg) {
       colo: cf.colo || '',
       asn: cf.asn ? String(cf.asn) : '',
       user_agent: ua,
-      ip_hash: await sha256(ip + ':' + cfg.secret)
+      ip_hash: await sha256(ip + ':' + cfg.secret),
+      mira_vid: miraVid
     }, meta, event || {});
     payload.secret = cfg.secret;
     payload.metadata = Object.assign(sourceMeta, (event && event.metadata) || {}, payload.metadata || {});
@@ -1050,7 +1085,10 @@ export default {
         return blockedResponse('no_target');
       }
       ctx.waitUntil(sendEvent(request, { event_type: 'redirect', decision: 'pass', target_url: target, metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
-      return new Response('', { status: 302, headers: { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' } });
+      const _vidHeaders = { location: target, 'set-cookie': nextCookie(request, cfg), 'cache-control': 'no-store' };
+      const _vid = miraVid(request);
+      if (_vid.setCookie) _vidHeaders['set-cookie'] = _vidHeaders['set-cookie'] + ', ' + _vid.setCookie;
+      return new Response('', { status: 302, headers: _vidHeaders });
     }
     if (url.pathname === '/__edge' || url.pathname.startsWith('/__edge/')) {
       return notFoundResponse();
@@ -1064,7 +1102,7 @@ export default {
       ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass', metadata: { ad_slug: adSlug, ad_id: adId } }, cfg));
       const assetUrl = new URL(request.url);
       assetUrl.pathname = '/';
-      return env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+      return withVidCookie(env.ASSETS.fetch(new Request(assetUrl.toString(), request)), request);
     }
     if (isHtmlRequest(request)) {
       const decision = evaluate(request, cfg);
@@ -1074,9 +1112,13 @@ export default {
       }
       ctx.waitUntil(sendEvent(request, { event_type: 'visit', decision: 'pass' }, cfg));
     }
-    const assetResponse = await env.ASSETS.fetch(request);
+    let assetResponse = await env.ASSETS.fetch(request);
     if (isStaticAssetPath(url.pathname) && (assetResponse.status === 404 || isHtmlFallbackResponse(assetResponse))) {
       return notFoundResponse();
+    }
+    // 只在 HTML 文档响应上种 mira_vid（静态资源不需要访客身份）。
+    if (isHtmlRequest(request) && assetResponse.status === 200) {
+      assetResponse = withVidCookie(Promise.resolve(assetResponse), request);
     }
     return assetResponse;
   }
