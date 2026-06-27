@@ -1,5 +1,6 @@
 import json
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 
 def clean_act_id(value: Any) -> str:
@@ -18,6 +19,112 @@ def _json_loads(raw: Any, default: Any) -> Any:
         return default
 
 
+# ---------------------------------------------------------------------------
+# Consolidated landing-page URL / domain-status helpers.
+#
+# Historically this logic was duplicated in three places with subtle drift
+# (the #7 子码 bug root cause: one copy referenced a phantom column):
+#   - services/launch_engine.py  _landing_link_base / _landing_domain_status_usable
+#   - api/assets.py              _launch_landing_link_base / _launch_domain_status_usable
+#   - services/landing_link_resolver.py (this file) _domain_status_usable / published_page_url
+#
+# These are the single source of truth now; the other modules delegate here.
+# ---------------------------------------------------------------------------
+
+
+def landing_link_base(value: Any) -> str:
+    """Normalise a landing URL to its comparable base (scheme://host).
+
+    Strips trailing ``/a/<slug>`` short-link paths and any trailing slash so
+    that a page's ``pages_url``/``custom_domain`` and an inbound ad URL compare
+    equal. Returns "" for short-link paths (``/a/...``) which cannot be a page
+    base.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "https://" + raw
+    try:
+        parsed = urlparse(raw)
+        if not parsed.netloc:
+            return raw.rstrip("/").lower()
+        path = (parsed.path or "").rstrip("/")
+        if path.startswith("/a/"):
+            return ""
+        if path not in ("", "/"):
+            return raw.rstrip("/").lower()
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    except Exception:
+        return raw.rstrip("/").lower()
+
+
+def domain_status_usable(
+    raw_response: Any,
+    last_error: str = "",
+    *,
+    accept_true_status: bool = True,
+) -> bool:
+    """Decide whether a landing page's custom_domain is usable for serving.
+
+    Mirrors the union of the historic checks: a runtime-usable flag wins
+    immediately; otherwise the recorded ``last_error`` can short-circuit to
+    False, and finally the structured ``domain_status`` payload is inspected
+    for an active/verified-style status token.
+
+    ``accept_true_status`` preserves a real behavioural difference between
+    call-sites and MUST be passed explicitly where the historic default was
+    False: ``launch_engine`` historically did NOT treat the literal token
+    ``"true"`` as a usable status, while ``assets`` and this resolver did.
+    Routing both through this one function with the flag keeps each
+    call-site's exact behaviour while removing the drift that caused #7.
+    """
+    try:
+        raw = raw_response if isinstance(raw_response, dict) else json.loads(raw_response or "{}")
+    except Exception:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    if raw.get("custom_domain_runtime_usable"):
+        return True
+    err = str(last_error or "").strip().lower()
+    if any(token in err for token in ("authentication", "permission", "not authorized", "forbidden", "failed")):
+        return False
+    domain_status = raw.get("domain_status") or raw.get("custom_domain_result")
+    tokens = {"active", "success", "verified", "ready", "ok"}
+    if accept_true_status:
+        tokens = tokens | {"true"}
+    values: list[str] = []
+    if isinstance(domain_status, dict):
+        for key in ("status", "verified", "validation_status", "verification_status", "ssl_status"):
+            value = domain_status.get(key)
+            if value is not None:
+                values.append(str(value).strip().lower())
+    elif domain_status is not None:
+        values.append(str(domain_status).strip().lower())
+    return any(value in tokens for value in values)
+
+
+def resolve_public_url(row: Any, *, accept_true_status: bool = True) -> str:
+    """Return the usable public URL for a landing-page row, or "".
+
+    Custom-domain pages resolve to ``https://<custom_domain>`` only when the
+    domain is verified/usable; otherwise a pages.dev-style ``pages_url``
+    fallback is used. Empty when neither is available.
+    """
+    custom_domain = str(_row_get(row, "custom_domain", "") or "").strip().rstrip("/")
+    pages_url = str(_row_get(row, "pages_url", "") or "").strip().rstrip("/")
+    raw_response = _row_get(row, "raw_response", "")
+    last_error = str(_row_get(row, "last_error", "") or "")
+    if custom_domain and domain_status_usable(raw_response, last_error, accept_true_status=accept_true_status):
+        return f"https://{custom_domain}"
+    if not custom_domain and pages_url:
+        return pages_url
+    return ""
+
+
+# Backwards-compatible internal alias kept for any in-module caller; new code
+# should call ``domain_status_usable`` / ``resolve_public_url`` directly.
 def _domain_status_usable(status: Any, last_error: str = "") -> bool:
     err = str(last_error or "").strip().lower()
     if any(token in err for token in ("authentication", "permission", "not authorized", "forbidden", "failed")):
@@ -45,19 +152,7 @@ def _row_get(row: Any, key: str, default: Any = None) -> Any:
 
 
 def published_page_url(row: Any) -> str:
-    custom_domain = str(_row_get(row, "custom_domain", "") or "").strip().rstrip("/")
-    pages_url = str(_row_get(row, "pages_url", "") or "").strip().rstrip("/")
-    raw_response = _json_loads(_row_get(row, "raw_response", ""), {})
-    last_error = str(_row_get(row, "last_error", "") or "")
-    runtime_usable = bool(isinstance(raw_response, dict) and raw_response.get("custom_domain_runtime_usable"))
-    domain_status = None
-    if isinstance(raw_response, dict):
-        domain_status = raw_response.get("domain_status") or raw_response.get("custom_domain_result")
-    if custom_domain and (runtime_usable or _domain_status_usable(domain_status, last_error)):
-        return f"https://{custom_domain}"
-    if not custom_domain and pages_url:
-        return pages_url
-    return ""
+    return resolve_public_url(row, accept_true_status=True)
 
 
 def find_bound_landing_link(conn, act_id: str, target: str = "landing") -> str:

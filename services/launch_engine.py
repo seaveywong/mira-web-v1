@@ -38,7 +38,13 @@ from services.token_manager import (
     get_matrix_id_for_account,
     wait_for_token_slot_by_plain,
 )
-from services.landing_link_resolver import resolve_account_form_link, resolve_account_landing_link
+from services.landing_link_resolver import (
+    domain_status_usable as _shared_domain_status_usable,
+    landing_link_base as _shared_landing_link_base,
+    resolve_account_form_link,
+    resolve_account_landing_link,
+    resolve_public_url as _shared_resolve_public_url,
+)
 from services.local_executor import run_local_graph_task
 
 logger = logging.getLogger("mira.autopilot")
@@ -3463,23 +3469,11 @@ class AutoPilotEngine:
         conn.close()
 
     def _landing_link_base(self, value: Optional[str]) -> str:
-        raw = (value or "").strip()
-        if not raw:
-            return ""
-        if "://" not in raw:
-            raw = "https://" + raw
-        try:
-            parsed = urlparse(raw)
-            if not parsed.netloc:
-                return raw.rstrip("/").lower()
-            path = (parsed.path or "").rstrip("/")
-            if path.startswith("/a/"):
-                return ""
-            if path not in ("", "/"):
-                return raw.rstrip("/").lower()
-            return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
-        except Exception:
-            return raw.rstrip("/").lower()
+        # Delegates to the shared canonical implementation in
+        # services.landing_link_resolver (consolidates the historic
+        # _launch_landing_link_base / _landing_link_base duplicate that
+        # caused the #7 drift bug). Behaviour unchanged.
+        return _shared_landing_link_base(value)
 
     def _landing_ad_click_url(self, public_url: Optional[str]) -> str:
         raw = str(public_url or "").strip()
@@ -3491,27 +3485,20 @@ class AutoPilotEngine:
         return f"{raw}{separator}ad={{{{ad.id}}}}"
 
     def _landing_domain_status_usable(self, item: dict) -> bool:
+        # Delegates to the shared canonical implementation in
+        # services.landing_link_resolver. ``accept_true_status=False``
+        # preserves this call-site's historic behaviour: it did NOT treat
+        # the literal token "true" as a usable status, unlike the assets.py
+        # / resolver copies. Kept explicit so the drift that caused #7
+        # cannot recur.
         domain = str(item.get("custom_domain") or "").strip()
         if not domain:
             return False
-        raw = self._parse_json_field(item.get("raw_response"), {})
-        if isinstance(raw, dict) and raw.get("custom_domain_runtime_usable"):
-            return True
-        err = str(item.get("last_error") or "").strip().lower()
-        if any(token in err for token in ("authentication", "permission", "not authorized", "forbidden", "failed")):
-            return False
-        status = None
-        if isinstance(raw, dict):
-            status = raw.get("domain_status") or raw.get("custom_domain_result")
-        values = []
-        if isinstance(status, dict):
-            for key in ("status", "verified", "validation_status", "verification_status", "ssl_status"):
-                value = status.get(key)
-                if value is not None:
-                    values.append(str(value).strip().lower())
-        elif status is not None:
-            values.append(str(status).strip().lower())
-        return any(value in {"active", "success", "verified", "ready", "ok"} for value in values)
+        return _shared_domain_status_usable(
+            item.get("raw_response"),
+            item.get("last_error") or "",
+            accept_true_status=False,
+        )
 
     def _match_managed_landing_page_for_url(self, landing_url: Optional[str], published_only: bool = True) -> Optional[dict]:
         target = self._landing_link_base(landing_url)
@@ -3537,12 +3524,11 @@ class AutoPilotEngine:
                 custom_match = bool(custom_url and self._landing_link_base(custom_url) == target)
                 if not pages_match and not custom_match:
                     continue
-                if custom_domain and self._landing_domain_status_usable(item):
-                    item["public_url"] = custom_url.rstrip("/")
-                elif not custom_domain and pages_url:
-                    item["public_url"] = pages_url.rstrip("/")
-                else:
-                    item["public_url"] = ""
+                # public_url decision is delegated to the shared
+                # resolve_public_url helper (services.landing_link_resolver).
+                # accept_true_status=False preserves this call-site's
+                # historic behaviour (see _landing_domain_status_usable).
+                item["public_url"] = _shared_resolve_public_url(item, accept_true_status=False)
                 item["matched_pages_fallback"] = pages_match
                 item["matched_custom_domain"] = custom_match
                 return item
