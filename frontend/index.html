@@ -9418,10 +9418,12 @@ function _syncAdsListView(){
  if(table)table.style.display='';
  try{
   var ac=document.getElementById('adsCount'); if(!ac)return;
+  // Stash the live-source suffix; renderAdsTree appends it when writing the count.
+  ac.dataset.liveSource=_adsLiveSourceText(allAds)||'';
+  var suffix=ac.dataset.liveSource;
   var base=ac.dataset.baseText!==undefined?ac.dataset.baseText:ac.textContent;
   ac.dataset.baseText=base;
-  var src=_adsLiveSourceText(allAds);
-  ac.textContent=base+(src?(' '+src):'');
+  ac.textContent=base+(suffix?(' '+suffix):'');
  }catch(_e){}
 }
 function _adsSwitchButton(a,level){
@@ -23989,7 +23991,8 @@ function renderAdsTree(rows, forceOpen) {
 
   if (!rows || !rows.length) {
     tb.innerHTML = '<tr><td colspan="'+colCount+'"><div class="mira-empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg><br>没有找到符合条件的数据</div></td></tr>';
-    document.getElementById('adsCount').textContent = '共 0 条';
+    document.getElementById('adsCount').dataset.baseText = '共 0 条';
+    document.getElementById('adsCount').textContent = '共 0 条' + (document.getElementById('adsCount').dataset.liveSource||'');
     return;
   }
 
@@ -24100,7 +24103,9 @@ function renderAdsTree(rows, forceOpen) {
 
   tb.innerHTML = html.join('');
   var unitLabel = tab === 'campaigns' ? '个系列' : (tab === 'adsets' ? '个广告组' : '条广告');
-  document.getElementById('adsCount').textContent = '当前视图共 ' + _adsRenderedCount + ' ' + unitLabel;
+  var _acEl=document.getElementById('adsCount');
+  _acEl.dataset.baseText='当前视图共 '+_adsRenderedCount+' '+unitLabel;
+  _acEl.textContent=_acEl.dataset.baseText+(_acEl.dataset.liveSource||'');
   updateAdsBulkBar();
 }
 
