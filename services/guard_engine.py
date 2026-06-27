@@ -2493,6 +2493,211 @@ class GuardEngine:
         if failures and not successes:
             _set_retry_cooldown(f"{act_id}:account", rule_type)
 
+    def _extract_ad_creative_link(self, ad_id: str, token: str, account: dict) -> str:
+        """Fetch the ad's creative destination URL from FB (best-effort).
+
+        Reads ``/{ad_id}?fields=creative{object_story_spec}`` and parses the
+        link out of ``link_data.link`` / ``video_data.call_to_action.value`` /
+        ``photo_data.call_to_action.value``. Returns "" on any failure so the
+        caller can treat "no link" as "not a main-link ad" and never break.
+        """
+        candidate = None
+        try:
+            creative_field = (
+                "creative{object_story_spec}"
+            )
+            # Prefer the local executor when the account has one bound, to
+            # match _verify_status / _fb_pause_with_candidates behaviour.
+            candidates = _pause_token_candidates(account, token)
+            for cand in candidates:
+                if _is_local_candidate(cand):
+                    candidate = cand
+                    break
+            if candidate:
+                result = run_local_graph_task(
+                    candidate,
+                    "graph_get",
+                    account.get("act_id", ""),
+                    {
+                        "path": ad_id,
+                        "params": {"fields": creative_field},
+                        "_progress": "本地读取广告创意链接",
+                    },
+                    timeout_seconds=45,
+                    created_by_name="guard",
+                )
+            else:
+                result = _fb_get(ad_id, token, {"fields": creative_field})
+        except Exception as exc:
+            logger.debug("[Guard] creative link fetch failed for %s: %s", ad_id, _sanitize_error_text(exc))
+            return ""
+
+        creative = result.get("creative") if isinstance(result, dict) else None
+        if isinstance(creative, list) and creative:
+            creative = creative[0]
+        if not isinstance(creative, dict):
+            return ""
+        spec = creative.get("object_story_spec") or {}
+        if not isinstance(spec, dict):
+            return ""
+        # Link ad
+        link_data = spec.get("link_data")
+        if isinstance(link_data, dict):
+            link = str(link_data.get("link") or "").strip()
+            if link:
+                return link
+        # Video / photo ads carry the destination in call_to_action.value
+        for key in ("video_data", "photo_data", "branded_content_data"):
+            block = spec.get(key)
+            if isinstance(block, dict):
+                cta = block.get("call_to_action") or {}
+                if isinstance(cta, dict):
+                    value = cta.get("value") or {}
+                    if isinstance(value, dict):
+                        link = str(value.get("link") or "").strip()
+                        if link:
+                            return link
+                    link = str(cta.get("value") or "").strip()
+                    if link and link.startswith("http"):
+                        return link
+        return ""
+
+    def _detect_and_reserve_untracked_main_link(
+        self, account: dict, ad: dict, token: str,
+        ad_id: str, ad_name: str, adset_id: str, campaign_id: str,
+    ) -> None:
+        """Detect ads whose creative points at a MAIN landing URL (no /a/{slug})
+        and auto-reserve a子码 for them. FB-side URL rewrite is opt-in.
+
+        Fault-tolerant by design: every step is wrapped so a bad URL, a failed
+        page match, or a reservation error can only log + return, never break
+        the surrounding inspection.
+        """
+        try:
+            from services.landing_link_resolver import landing_link_base as _base
+            from services.launch_engine import AutoPilotEngine
+
+            creative_url = self._extract_ad_creative_link(ad_id, token, account)
+            if not creative_url:
+                return
+            # Already a tracked /a/{slug} link? -> nothing to do.
+            if _base(creative_url) == "" and "/a/" in creative_url:
+                return
+            url_base = _base(creative_url)
+            if not url_base:
+                return  # external/non-managed URL or unparseable
+
+            # De-dup: skip if this ad already has a reserved/active子码.
+            try:
+                conn = get_conn()
+                try:
+                    existing = conn.execute(
+                        "SELECT 1 FROM landing_ad_links WHERE ad_id=? AND ad_id<>'' LIMIT 1",
+                        (str(ad_id)[:80],),
+                    ).fetchone()
+                finally:
+                    conn.close()
+                if existing:
+                    return
+            except Exception:
+                # table missing / weird state -> proceed; reserve path is also guarded
+                pass
+
+            engine = AutoPilotEngine()
+            page = engine._find_published_landing_page_for_url(creative_url)
+            if not page:
+                return  # not a managed landing page -> leave alone
+
+            # Reserve a子码 for this ad.
+            act_id = account.get("act_id", "")
+            account_name = (account.get("name") or act_id or "").strip()
+            camp_data = ad.get("campaign") if isinstance(ad.get("campaign"), dict) else {}
+            adset_data = ad.get("adset") if isinstance(ad.get("adset"), dict) else {}
+            reserved = engine._reserve_landing_ad_link(
+                creative_url,
+                act_id,
+                account_name,
+                str(campaign_id or "")[:80],
+                str(camp_data.get("name") or "")[:255],
+                str(adset_id or "")[:80],
+                str(adset_data.get("name") or "")[:255],
+                str(ad_name or "")[:255],
+            )
+            if not reserved:
+                logger.warning(
+                    "[Guard] 广告 %s 使用主链接（未追踪），子码预留失败: %s",
+                    ad_id, creative_url,
+                )
+                return
+            # Bind the ad_id + mark active so the子码 starts tracking this ad.
+            engine._mark_landing_ad_link(reserved, "active", ad_id=str(ad_id or "")[:80])
+            slug = reserved.get("slug") or ""
+            logger.info(
+                "[Guard] 广告 %s 使用主链接（未追踪）%s，已自动生成子码 %s",
+                ad_id, creative_url, slug,
+            )
+            _log_action(
+                act_id, "ad", ad_id, ad_name, "reserve_subcode",
+                "main_link_untracked",
+                f"广告创意使用主链接 {creative_url}（未追踪），已自动生成子码 {slug}",
+                new_value={"slug": slug, "public_url": reserved.get("public_url"), "page_id": reserved.get("page_id")},
+                status="success", operator="system",
+            )
+
+            # ── Optional invasive rewrite: switch the FB creative to the tracked URL.
+            # Off by default; enable via settings key guard_auto_rewrite_ad_url=1.
+            try:
+                do_rewrite = _get_setting("guard_auto_rewrite_ad_url", "0") == "1"
+            except Exception:
+                do_rewrite = False
+            if do_rewrite:
+                try:
+                    tracked_url = engine._landing_ad_click_url(reserved.get("public_url"))
+                    if tracked_url:
+                        ok, err = self._rewrite_ad_creative_url(ad_id, token, account, tracked_url)
+                        if ok:
+                            logger.info("[Guard] 广告 %s 创意链接已改写为子码链接 %s", ad_id, tracked_url)
+                        else:
+                            logger.warning("[Guard] 广告 %s 创意链接改写失败: %s", ad_id, err)
+                except Exception as rw_err:
+                    logger.warning("[Guard] 广告 %s 创意链接改写异常: %s", ad_id, _sanitize_error_text(rw_err))
+        except Exception as exc:
+            logger.warning("[Guard] main-link detect/reserve failed for ad %s: %s", ad_id, _sanitize_error_text(exc))
+
+    def _rewrite_ad_creative_url(self, ad_id: str, token: str, account: dict, tracked_url: str) -> Tuple[bool, str]:
+        """Rewrite an ad's creative destination URL via FB API (UPDATE adcreative).
+
+        Walks the same PAUSE token candidates as the close path so a manage
+        token can perform the write even when the read token is read-only.
+        Returns (ok, err) mirroring _fb_post.
+        """
+        candidates = _pause_token_candidates(account, token)
+        for cand in candidates:
+            with account_write_guard(account.get("act_id", ""), f"guard_rewrite_ad:{ad_id}"):
+                if _is_local_candidate(cand):
+                    try:
+                        result = run_local_graph_task(
+                            cand,
+                            "graph_post",
+                            account.get("act_id", ""),
+                            {
+                                "path": ad_id,
+                                "data": {"link_url": tracked_url},
+                                "_progress": "本地改写广告创意链接",
+                            },
+                            timeout_seconds=60,
+                            created_by_name="guard",
+                        )
+                        ok = bool(result.get("success", True))
+                        err = "" if ok else _sanitize_error_text(result)
+                    except Exception as exc:
+                        ok, err = False, f"本地执行器失败: {_sanitize_error_text(exc)}"
+                else:
+                    ok, err = _fb_post(ad_id, cand["token"], {"link_url": tracked_url}, source=cand.get("source") or "")
+            if ok:
+                return True, ""
+        return False, err or "all rewrite token candidates failed"
+
     def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None, click_map: dict = None):
             from services.kpi_resolver import get_kpi_for_ad
 
@@ -2508,6 +2713,19 @@ class GuardEngine:
             _cannot_spend = {"PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "DELETED", "ARCHIVED", "DISAPPROVED", "WITH_ISSUES"}
             if eff_status in _cannot_spend:
                 return
+
+            # ── FB手动建广告主链接自动子码识别（v3.11.x）─────────────────────────
+            # 用户在 Ads Manager 用主链接（如 https://go.dailyusbrief.xyz/）建的广告
+            # 没有 /a/{slug}，无法追踪。此处检测并自动预留子码（改写为可选）。
+            # 默认关闭，由 settings.guard_auto_reserve_main_link=1 开启；任何异常都只记日志不中断巡检。
+            try:
+                _auto_reserve_on = _get_setting("guard_auto_reserve_main_link", "0") == "1"
+            except Exception:
+                _auto_reserve_on = False
+            if _auto_reserve_on:
+                self._detect_and_reserve_untracked_main_link(
+                    account, ad, token, ad_id, ad_name, adset_id, campaign_id,
+                )
 
             insights = ad.get("insights", {}).get("data", [])
             if not insights:
