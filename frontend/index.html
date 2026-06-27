@@ -3566,7 +3566,7 @@ input:focus, select:focus, textarea:focus {
    <div class="sb-foot">
     <div class="role-operator-only role-non-superadmin-only" style="margin-bottom:10px;background:var(--bg2);border-radius:10px;border:1px solid var(--bd);overflow:hidden">
      <div style="padding:7px 10px;background:rgba(59,130,246,.06);border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:6px">
-      <span style="font-size:11px;font-weight:600;color:var(--t1)">安全守护</span><span style="font-size:10px;color:var(--t3);margin-left:8px" id="inspectCountdown">--</span>
+      <span style="font-size:11px;font-weight:600;color:var(--t1)" title="自动守护总称：巡检广告按规则止损/拉量、落地页镜像备份、账户探活、新号预热。注意：这与侧栏的「防护规则」(落地页访问侧拦截) 是两件事，互不影响。">安全守护</span><span style="font-size:10px;color:var(--t3);margin-left:8px" id="inspectCountdown">--</span>
       <span style="margin-left:auto;display:flex;gap:5px">
        <span id="sbSentinelDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="哨兵"></span>
        <span id="sbMirrorDot" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0" title="镜像"></span>
@@ -3579,7 +3579,7 @@ input:focus, select:focus, textarea:focus {
        <div style="display:flex;align-items:center;gap:5px;min-width:0">
         <div style="line-height:1.3">
          <div style="font-size:11px;color:var(--t1)">哨兵模式</div>
-         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="sentinelHint">-</div>
+         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="sentinelHint">实时巡检·按规则自动止损</div>
         </div>
        </div>
        <span class="tgl-sw"><input type="checkbox" id="toggleSentinel" onchange="toggleSentinelMode()"><span class="tgl-tr"></span></span>
@@ -3588,7 +3588,7 @@ input:focus, select:focus, textarea:focus {
        <div style="display:flex;align-items:center;gap:5px;min-width:0">
         <div style="line-height:1.3">
          <div style="font-size:11px;color:var(--t1)">镜像模式</div>
-         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="mirrorHint">-</div>
+         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="mirrorHint">落地页镜像·原页失效自动切换</div>
         </div>
        </div>
        <span class="tgl-sw"><input type="checkbox" id="toggleMirror" onchange="toggleMirrorMode()"><span class="tgl-tr"></span></span>
@@ -3597,7 +3597,7 @@ input:focus, select:focus, textarea:focus {
        <div style="display:flex;align-items:center;gap:5px;min-width:0">
         <div style="line-height:1.3">
          <div style="font-size:11px;color:var(--t1)">心跳模式</div>
-         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="heartbeatHint">-</div><div style="font-size:10px;color:var(--t3);margin-top:1px" id="heartbeatCountdown"></div>
+         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="heartbeatHint">定时探活账户与 Token</div><div style="font-size:10px;color:var(--t3);margin-top:1px" id="heartbeatCountdown"></div>
         </div>
        </div>
        <span class="tgl-sw"><input type="checkbox" id="toggleHeartbeat" onchange="toggleHeartbeatMode()"><span class="tgl-tr"></span></span>
@@ -3606,7 +3606,7 @@ input:focus, select:focus, textarea:focus {
        <div style="display:flex;align-items:center;gap:5px;min-width:0">
         <div style="line-height:1.3">
          <div style="font-size:11px;color:var(--t1)">预热模式</div>
-         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="warmupHint">-</div>
+         <div style="font-size:11px;color:var(--t3);transition:color .3s" id="warmupHint">新号/新素材轻量预热</div>
         </div>
        </div>
        <span class="tgl-sw"><input type="checkbox" id="toggleWarmup" onchange="toggleWarmupMode()"><span class="tgl-tr"></span></span>
