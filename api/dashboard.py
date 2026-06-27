@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event, Lock, Thread
+import logging
 from core.auth import get_current_user, is_superadmin
 from core.database import get_conn
 from core.account_access import is_read_blocking_status, note_account_read_failure, note_account_read_success
@@ -29,6 +30,7 @@ from services.token_manager import (
 from services.guard_engine import _get_kpi_aliases, _get_kpi_fallback_aliases, _get_setting, _local_per_usd_rate
 from api.landing_pages import _ad_link_stats
 
+logger = logging.getLogger("mira.dashboard")
 router = APIRouter()
 _SUMMARY_CACHE = {}
 _SUMMARY_CACHE_TTL = 30
@@ -989,7 +991,8 @@ def reconcile_completed_meta_spend() -> dict:
                 completed_day = (account_now.date() - timedelta(days=1)).isoformat()
                 exists = conn.execute(
                     """SELECT 1 FROM meta_spend_reconcile_audit
-                       WHERE act_id=? AND snapshot_date=? LIMIT 1""",
+                       WHERE act_id=? AND snapshot_date=?
+                         AND source='scheduled_finalization' LIMIT 1""",
                     (account.get("act_id"), completed_day),
                 ).fetchone()
                 if not exists:
@@ -1024,7 +1027,7 @@ def start_meta_spend_reconciliation_worker() -> None:
             try:
                 reconcile_completed_meta_spend()
             except Exception:
-                pass
+                logger.exception("meta spend reconcile worker iteration failed")
             _META_SPEND_RECONCILE_STOP.wait(3600)
 
     _META_SPEND_RECONCILE_THREAD = Thread(
