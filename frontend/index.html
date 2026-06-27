@@ -3889,6 +3889,7 @@ input:focus, select:focus, textarea:focus {
        <option value="automated">守护中</option>
        <option value="recent_ops">最近操作</option>
       </select>
+      <button class="btn btn-g btn-sm" type="button" onclick="_showAdsStatusLegend()" title="各状态/筛选含义说明" style="font-size:12px;padding:5px 9px">❓ 状态</button>
       <input class="fc" id="adsQ" placeholder="搜索广告名称..." oninput="filterAds()" style="min-width:180px">
      </div>
      <div id="adsBulkBar" class="fb" style="gap:8px;margin-top:8px;display:none">
@@ -20543,6 +20544,27 @@ function _adsGoAssetForAd(adId){
  try{var af=document.getElementById('assetsActFilter');if(af&&actId)af.value=actId;}catch(e){}
  try{var s=document.getElementById('assetsSearch');if(s)s.value=seg;}catch(e){}
  setTimeout(function(){try{loadAssets(true);}catch(e){}},180);
+}
+function _showAdsStatusLegend(){
+ var items=[
+  ['投放中','广告当前 ACTIVE，正在花费'],
+  ['已暂停','广告 PAUSED（手动或规则守护止损）'],
+  ['审核/问题','被 FB 审核中、被拒或未通过'],
+  ['CPA达标','实际 CPA ≤ 目标 CPA（在盈利范围）'],
+  ['CPA偏高','实际 CPA 接近或略超目标（需关注）'],
+  ['CPA超标','实际 CPA 明显超过目标（建议止损）'],
+  ['真实有动作','已回填真实进线 / 成交 > 0'],
+  ['有消耗无真实','有花费但无真实进线（疑似空耗）'],
+  ['有广告短链','已绑定 /a/子码 落地入口'],
+  ['未设KPI','未配置 KPI 目标，无法判定 CPA 好坏'],
+  ['不可写/无Token','无可用写权限操作号，不能改预算 / 关停'],
+  ['守护中','当前被规则引擎止损 / 拉量管控'],
+  ['最近操作','近期被手动操作过的广告']
+ ];
+ var h='<div style="max-height:68vh;overflow:auto;padding:4px 4px">';
+ items.forEach(function(it){h+='<div style="margin-bottom:9px"><b style="color:var(--t1);font-size:13px">'+it[0]+'</b><div style="color:var(--t2);font-size:12.5px;margin-top:2px;line-height:1.5">'+it[1]+'</div></div>';});
+ h+='</div>';
+ showInfo(h,'广告状态 / 筛选说明');
 }
 function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  stats=stats||{};
