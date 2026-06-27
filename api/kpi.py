@@ -17,14 +17,9 @@ from core.tenancy import apply_account_owner_scope, apply_team_scope, assert_row
 router = APIRouter()
 
 
-def _require_operator_user(user):
-    if not isinstance(user, dict) or user.get("role") not in ("superadmin", "admin", "operator"):
-        raise HTTPException(status_code=403, detail="Operator permission required")
-
-
 def _require_superadmin_user(user):
     if not is_superadmin(user):
-        raise HTTPException(status_code=403, detail="Superadmin only")
+        raise HTTPException(status_code=403, detail="仅超管可操作 KPI 配置")
 
 
 def _assert_account_or_global_access(conn, act_id: str, user):
@@ -154,7 +149,8 @@ class BatchKpiIn(BaseModel):
 
 
 @router.get("/fields")
-def get_kpi_fields():
+def get_kpi_fields(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """获取 KPI 字段选项列表（DB驱动，硬编码兜底）"""
     try:
         conn = get_conn()
@@ -194,6 +190,7 @@ _KPI_MIGRATION_LABELS = {
 
 @router.post("/migrate")
 def migrate_kpi_fields(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """迁移 kpi_configs 中旧字段名为简化名称"""
     conn = get_conn()
     total = 0
@@ -211,6 +208,7 @@ def migrate_kpi_fields(user=Depends(get_current_user)):
 
 @router.get("/options")
 def get_kpi_options(user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """返回所有前端下拉框数据（来自 DB kpi_field_options）"""
     _FIELD_TYPE_MAP = {
         "objectives": "objective",
@@ -309,6 +307,7 @@ _OPT_GOALS_BY_OBJECTIVE = {
 
 @router.get("/opt-goals")
 def get_opt_goals(objective: Optional[str] = None, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """
     返回转化目的（optimization_goal）选项。
     支持按 objective 过滤，返回 FB API UPPERCASE 值。
@@ -337,7 +336,9 @@ def get_opt_goals(objective: Optional[str] = None, user=Depends(get_current_user
 
 @router.get("")
 def list_kpi_configs(act_id: Optional[str] = None, level: Optional[str] = None,
+                     page: Optional[int] = None, limit: Optional[int] = None,
                      user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     conn = get_conn()
     query = "SELECT k.* FROM kpi_configs k LEFT JOIN accounts a ON a.act_id = k.act_id WHERE 1=1"
     params = []
@@ -355,6 +356,29 @@ def list_kpi_configs(act_id: Optional[str] = None, level: Optional[str] = None,
         query += " AND " + " AND ".join(scope_where)
         params.extend(scope_params)
     query += " ORDER BY CASE level WHEN 'ad' THEN 1 WHEN 'adset' THEN 2 WHEN 'campaign' THEN 3 ELSE 4 END, created_at DESC"
+
+    # 服务端分页：仅当显式传 page 参数时启用，否则返回全量（向后兼容旧调用方）
+    if page is not None:
+        page = max(1, int(page))
+        eff_limit = 100
+        if limit is not None:
+            eff_limit = max(1, min(500, int(limit)))
+        # 复用 query 的 WHERE 过滤片段计算总数（query 形如 "SELECT k.* ... WHERE 1=1 <filters> ORDER BY ..."）
+        where_part = query.split(" ORDER BY ")[0]
+        count_filter = where_part[where_part.find("WHERE 1=1"):]
+        total = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM kpi_configs k LEFT JOIN accounts a ON a.act_id = k.act_id " + count_filter,
+            params
+        ).fetchone()["cnt"]
+        paged_rows = conn.execute(query + " LIMIT ? OFFSET ?", params + [eff_limit, (page - 1) * eff_limit]).fetchall()
+        conn.close()
+        return {
+            "items": [dict(r) for r in paged_rows],
+            "total": total,
+            "page": page,
+            "limit": eff_limit,
+        }
+    # 无 page 参数：返回全量数组（旧契约，供 onRuleActChange / editKpi.find 等使用）
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -362,6 +386,7 @@ def list_kpi_configs(act_id: Optional[str] = None, level: Optional[str] = None,
 
 @router.get("/summary")
 def get_kpi_summary(act_id: Optional[str] = None, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """
     获取 KPI 配置统计摘要
     返回按账户和 KPI 字段类型分组的统计信息，用于批量操作的预览
@@ -416,7 +441,7 @@ def get_kpi_summary(act_id: Optional[str] = None, user=Depends(get_current_user)
 
 @router.post("")
 def add_kpi_config(body: KpiConfigIn, user=Depends(get_current_user)):
-    _require_operator_user(user)
+    _require_superadmin_user(user)
     label = body.kpi_label
     if not label:
         for opt in KPI_FIELD_OPTIONS:
@@ -443,7 +468,7 @@ def add_kpi_config(body: KpiConfigIn, user=Depends(get_current_user)):
 
 @router.put("/{config_id}")
 def update_kpi_config(config_id: int, body: KpiConfigUpdate, user=Depends(get_current_user)):
-    _require_operator_user(user)
+    _require_superadmin_user(user)
     conn = get_conn()
     _assert_kpi_config_access(conn, config_id, user)
     updates = []
@@ -486,7 +511,7 @@ def update_kpi_config(config_id: int, body: KpiConfigUpdate, user=Depends(get_cu
 
 @router.delete("/{config_id}")
 def delete_kpi_config(config_id: int, user=Depends(get_current_user)):
-    _require_operator_user(user)
+    _require_superadmin_user(user)
     conn = get_conn()
     _assert_kpi_config_access(conn, config_id, user)
     conn.execute("DELETE FROM kpi_configs WHERE id=?", (config_id,))
@@ -497,7 +522,7 @@ def delete_kpi_config(config_id: int, user=Depends(get_current_user)):
 
 @router.post("/batch-cpa")
 def batch_set_cpa(body: BatchCpaIn, user=Depends(get_current_user)):
-    _require_operator_user(user)
+    _require_superadmin_user(user)
     """
     批量设置目标 CPA
     支持按账户、KPI字段类型、层级、或指定ID列表进行批量操作
@@ -567,7 +592,7 @@ def batch_set_cpa(body: BatchCpaIn, user=Depends(get_current_user)):
 
 @router.post("/batch-kpi")
 def batch_set_kpi(body: BatchKpiIn, user=Depends(get_current_user)):
-    _require_operator_user(user)
+    _require_superadmin_user(user)
     """
     批量设置 KPI 字段
     支持按账户、层级、或指定ID列表进行批量操作
@@ -640,8 +665,7 @@ def batch_set_kpi(body: BatchKpiIn, user=Depends(get_current_user)):
 
 @router.post("/ai-analyze")
 def ai_analyze_kpi(background_tasks: BackgroundTasks, user=Depends(get_current_user)):
-    if not is_superadmin(user):
-        raise HTTPException(status_code=403, detail="Superadmin only")
+    _require_superadmin_user(user)
     """
     对所有 rule/default 来源的 KPI 配置重新进行 AI 分析和纠偏（后台异步执行）。
     AI 会评估每条推断的合理性，对置信度低的记录直接更新为 AI 建议的字段。
@@ -662,7 +686,7 @@ def ai_analyze_kpi(background_tasks: BackgroundTasks, user=Depends(get_current_u
 @router.post("/auto-scan/{act_id}")
 def auto_scan_kpi(act_id: str, background_tasks: BackgroundTasks,
                   user=Depends(get_current_user)):
-    _require_operator_user(user)
+    _require_superadmin_user(user)
     """
     触发广告级KPI自动扫描预设
     - 不覆盖人工配置
@@ -882,6 +906,7 @@ def _run_ai_enhance(act_id: str):
 
 @router.get("/auto-scan/{act_id}/result")
 def get_scan_result(act_id: str, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """获取最近一次KPI扫描结果"""
     import json
     conn = get_conn()
@@ -900,13 +925,15 @@ def get_scan_result(act_id: str, user=Depends(get_current_user)):
 
 # ── 路由别名 ──
 @router.get("/list")
-def list_kpi_alias(act_id: str = None, user=Depends(get_current_user)):
-    return list_kpi_configs(act_id=act_id, user=user)
+def list_kpi_alias(act_id: str = None, page: Optional[int] = None, limit: Optional[int] = None,
+                   user=Depends(get_current_user)):
+    return list_kpi_configs(act_id=act_id, page=page, limit=limit, user=user)
 
 
 # ─── KPI 目标 ID 联动下拉（从 FB API 实时拉取）─────────────────
 @router.get("/targets")
 def get_kpi_targets(act_id: str, level: str, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """根据账户和层级，从 FB API 实时拉取可选目标列表"""
     import requests as req
     from core.database import decrypt_token
@@ -1150,6 +1177,7 @@ def _clear_guard_cache():
 
 @router.get("/trace/{ad_id}")
 def get_kpi_trace(ad_id: str, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """返回单个广告的 KPI 决策链"""
     conn = get_conn()
 
@@ -1351,6 +1379,7 @@ def ai_auto_map_unknown_types(user=Depends(get_current_user)):
 
 @router.get("/diagnose/{act_id}/{ad_id}")
 def diagnose_ad(act_id: str, ad_id: str, user=Depends(get_current_user)):
+    _require_superadmin_user(user)
     """诊断广告：查看FB原始数据、KPI解析、别名匹配、成效归因、规则匹配"""
     import json
     from core.database import decrypt_token

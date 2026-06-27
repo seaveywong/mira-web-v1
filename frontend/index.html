@@ -15512,15 +15512,16 @@ function _setLaunchProgress(pct, msg, status, data){
 
 // ── KPI ──
 var kpiTabCurrent='all';
-var kpiListPage=0, KPI_PAGE_SIZE=100;
+var kpiListPage=1, KPI_PAGE_SIZE=100, kpiTotal=0;
 function switchKpiTab(tab){
  kpiTabCurrent=tab;
- kpiListPage=0;
  document.querySelectorAll('.kpi-tab').forEach(function(t){t.classList.remove('active')});
  document.querySelectorAll('.kpi-tab').forEach(function(t){
   if(t.getAttribute('onclick')&&t.getAttribute('onclick').includes("'"+tab+"'"))t.classList.add('active');
  });
- renderKpiList();
+ // tab 切换 = 服务端 level 过滤改变，重新拉首页
+ if(document.getElementById('kpiList'))loadKpi();
+ else renderKpiList();
 }
 
 async function runAiAnalyze(){
@@ -15546,15 +15547,18 @@ async function loadKpi(){
  var el=document.getElementById('kpiList');
  el.innerHTML='<div style="text-align:center;padding:40px;color:var(--t3)"><div class="spin" style="margin:0 auto 12px"></div>加载中...</div>';
  try{
-  // 性能：kpiAct 为空时默认选第一个账户，避免一次拉取全部 2636 条 KPI。
+  // 性能：kpiAct 为空时默认选第一个账户，避免一次拉取全部 KPI。
   var _kpiActEl=document.getElementById('kpiAct');
   if(_kpiActEl&&!_kpiActEl.value&&window.accounts&&window.accounts.length){
    _kpiActEl.value=window.accounts[0].act_id;
   }
   var a=_kpiActEl&&_kpiActEl.value||'';
-  var q=a?'?act_id='+a:'';
-  var results=await Promise.all([api('GET','/kpi'+q),api('GET','/kpi/fields'),api('GET','/accounts')]);
-  kpiAllData=results[0]||[];
+  // 服务端分页 + 服务端 level 过滤：首页拉 KPI_PAGE_SIZE 条，loadMoreKpi 拉后续页
+  var results=await Promise.all([api('GET','/kpi'+kpiQueryParams(a,1)),api('GET','/kpi/fields'),api('GET','/accounts')]);
+  var pageObj=results[0]||{};
+  kpiAllData=pageObj.items||[];
+  kpiTotal=pageObj.total||kpiAllData.length;
+  kpiListPage=1;
   kpiFields=results[1]||[];
   // 建立账户ID->名称映射表
   var accts=results[2]||[];
@@ -15563,9 +15567,30 @@ async function loadKpi(){
   // 填充KPI字段下拉
   var kpiFieldSel=document.getElementById('kpiFieldSel');
   if(kpiFieldSel)kpiFieldSel.innerHTML=kpiFields.map(function(f){return'<option value="'+(f.key||f.value||'')+'">'+(f.label||f.key||f.value||'')+'</option>'}).join('');
-  kpiListPage=0;
   renderKpiList();
  }catch(e){el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>加载失败：'+e.message+'</p></div>'}
+}
+// 构造服务端分页查询串：page/limit + 可选 act_id + 可选 level（tab 过滤走服务端）
+function kpiQueryParams(actId, page){
+ var p='?page='+page+'&limit='+KPI_PAGE_SIZE;
+ if(actId)p+='&act_id='+actId;
+ if(kpiTabCurrent&&kpiTabCurrent!=='all')p+='&level='+kpiTabCurrent;
+ return p;
+}
+async function loadMoreKpi(){
+ // 服务端分页：拉取下一页并追加
+ if(kpiAllData.length>=kpiTotal)return;
+ var moreEl=document.querySelector('.kpi-load-more');
+ if(moreEl){moreEl.innerHTML='<div class="spin" style="margin:0 auto;width:18px;height:18px"></div>';}
+ try{
+  var a=document.getElementById('kpiAct')&&document.getElementById('kpiAct').value||'';
+  var nextPage=kpiListPage+1;
+  var res=await api('GET','/kpi'+kpiQueryParams(a,nextPage));
+  var items=(res&&res.items)||[];
+  if(items.length){kpiAllData=kpiAllData.concat(items);kpiListPage=nextPage;}
+  if(res&&typeof res.total==='number')kpiTotal=res.total;
+  renderKpiList();
+ }catch(e){toast('加载更多失败：'+e.message,'er');if(moreEl){/* 重新渲染恢复按钮 */renderKpiList();}}
 }
 
 function renderKpiList(){
@@ -15575,11 +15600,9 @@ function renderKpiList(){
   el.innerHTML='<div class="empty"><div class="empty-icon"></div><p>暂无 KPI 配置<br>点击「自动扫描预设」快速批量配置，或手动添加</p></div>';
   return;
  }
- var visibleCount=Math.min(data.length, (kpiListPage+1)*KPI_PAGE_SIZE);
- var pageData=data.slice(0, visibleCount);
  var lvMap={account:{label:'账户级',cls:'bg-mu'},campaign:{label:'Campaign',cls:'bg-cy'},adset:{label:'广告组',cls:'bg-pu'},ad:{label:'广告级',cls:'bg-ac'}};
  var srcMap={manual:'<span class="badge bg-ok">人工</span>',auto:'<span class="badge bg-wa">自动推断</span>',rule:'<span class="badge bg-wa">自动推断</span>',history:'<span class="badge bg-wa">历史推断</span>',default:'<span class="badge bg-mu">默认</span>',ai:'<span class="badge bg-pu">AI分析</span>'};
- el.innerHTML=pageData.map(function(k){
+ el.innerHTML=data.map(function(k){
   var lv=lvMap[k.level]||{label:k.level,cls:'bg-mu'};
   var actName=(window._kpiActMap&&window._kpiActMap[k.act_id])||displayActId(k.act_id)||'';
   var field=String(k.kpi_field||'');
@@ -15617,19 +15640,16 @@ function renderKpiList(){
    '</div>'+
    '</div>';
  }).join('');
- if(data.length>visibleCount){
+ // 服务端分页的「加载更多」按钮：kpiTotal 已按当前 act_id+level(tab) 精确计数
+ if(kpiAllData.length<kpiTotal){
   var moreEl=document.createElement('div');
   moreEl.className='kpi-load-more';
   moreEl.style.cssText='text-align:center;padding:12px;margin-top:10px';
-  var rem=data.length-visibleCount;
+  var rem=kpiTotal-kpiAllData.length;
   moreEl.innerHTML='<button class="btn btn-g btn-sm" onclick="loadMoreKpi()" style="min-width:160px">加载更多（剩余 '+rem+' 条）</button>';
   el.appendChild(moreEl);
  }
  updateGuardPreview();
-}
-function loadMoreKpi(){
- kpiListPage++;
- renderKpiList();
 }
 
 function showAddKpi(){
