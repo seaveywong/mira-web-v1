@@ -13198,6 +13198,7 @@ async function batchRestoreSelected(){
 }
 async function openAssetDuplicates(){
  try{
+  var _od=document.getElementById('moAssetDuplicates');if(_od)_od.remove();
   var r=await api('GET','/assets/duplicates?limit=100');
   var groups=(r&&r.groups)||[];
   var mo=document.createElement('div');
@@ -13231,6 +13232,7 @@ async function openAssetDuplicates(){
 function openBatchOrganizeAssets(){
  var ids=getSelectedAssetIds();
  if(!ids.length){toast('请先选择素材','wa');return;}
+ var _od=document.getElementById('moAssetBatchOrganize');if(_od)_od.remove();
  var mo=document.createElement('div');
  mo.className='mo';
  mo.id='moAssetBatchOrganize';
@@ -14219,7 +14221,7 @@ function updateLaunchStructurePreview(){
  var e=_getLaunchBudgetEstimate();
  var hasPlan=(window._launchPreviewPlan&&window._launchPreviewPlan.loaded);
  if(!hasPlan){
-  el.innerHTML='预计结构：<b id="launchPreviewCount">--</b> 个广告组 × <b id="launchPreviewAds">--</b> 条广告';
+  el.innerHTML='预计结构：<b id="launchPreviewCount">--</b> 个广告组 × <b id="launchPreviewAds">--</b> 条广告 <span style="color:var(--ac);font-weight:400">（请先在上方选择素材）</span>';
   return;
  }
   el.innerHTML=[
