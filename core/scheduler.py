@@ -16,6 +16,7 @@ _scheduler = None
 
 _guard_lock = threading.Lock()
 _warmup_lock = threading.Lock()
+_warmup_page_sync_lock = threading.Lock()
 _job_state_lock = threading.Lock()
 _job_state = {}
 
@@ -603,6 +604,14 @@ def run_warmup_check():
     return _run_tracked_job("warmup_check", "预热扫描", _work, lock=_warmup_lock)
 
 
+def run_warmup_page_sync():
+    def _work():
+        from services.warmup_engine import sync_active_operation_pages
+        return sync_active_operation_pages()
+
+    return _run_tracked_job("warmup_page_sync", "主页自动同步", _work, lock=_warmup_page_sync_lock)
+
+
 def start_scheduler():
     global _scheduler
     try:
@@ -625,6 +634,7 @@ def start_scheduler():
     _scheduler.add_job(run_storage_cleanup, CronTrigger(hour=3, minute=0), id="storage_cleanup", replace_existing=True)
     # Token-账户自动发现（每6小时）
     _scheduler.add_job(run_token_account_discovery, IntervalTrigger(hours=6), id="token_discover", replace_existing=True)
+    _scheduler.add_job(run_warmup_page_sync, IntervalTrigger(hours=6), id="warmup_page_sync", replace_existing=True)
      # v3.3: 账户状态自动同步（30分钟）
     _scheduler.add_job(run_account_status_sync, IntervalTrigger(minutes=30), id="account_sync", replace_existing=True)
     # 修复: 汇率自动更新（每天凌晨 2 点）
@@ -665,7 +675,7 @@ def start_scheduler():
         warmup_interval = 30
     _scheduler.add_job(run_warmup_check, IntervalTrigger(minutes=warmup_interval), id="warmup_check", replace_existing=True)
     _scheduler.start()
-    logger.info(f"调度器启动 v3.10.0: 安检间隔={interval_min}分钟 | 操作号心跳={heartbeat_min}分钟 | 素材打分=每日1点 | 账户状态同步=30分钟 | Token自动发现=6小时 | 汇率更新=每日2点 | 数据回流=每小时 | 评分反馈环=每日2:30 | 哨兵={sentinel_min}分钟 | 心跳={hb_interval}分钟 | 预热={warmup_interval}分钟")
+    logger.info(f"调度器启动 v3.10.0: 安检间隔={interval_min}分钟 | 操作号心跳={heartbeat_min}分钟 | 素材打分=每日1点 | 账户状态同步=30分钟 | Token自动发现/主页同步=6小时 | 汇率更新=每日2点 | 数据回流=每小时 | 评分反馈环=每日2:30 | 哨兵={sentinel_min}分钟 | 心跳={hb_interval}分钟 | 预热={warmup_interval}分钟")
 
 def trigger_guard_now():
     """手动触发一次巡检（异步）"""

@@ -5,61 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>隐私政策 - Privacy Policy</title>
   <style>
-    :root {
-      --bg: #f8f9fa;
-      --card-bg: #ffffff;
-      --text: #1a1a2e;
-      --text-secondary: #555;
-      --accent: #1877f2;
-      --border: #e0e0e0;
-      --radius: 8px;
-    }
+    :root { --bg: #f8f9fa; --card-bg: #ffffff; --text: #1a1a2e; --text-secondary: #555; --accent: #1877f2; --border: #e0e0e0; --radius: 8px; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.7;
-      padding: 20px;
-    }
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-      background: var(--card-bg);
-      padding: 48px 40px;
-      border-radius: var(--radius);
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-    }
-    h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; padding: 20px; }
+    .container { max-width: 800px; margin: 0 auto; background: var(--card-bg); padding: 48px 40px; border-radius: var(--radius); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
     .update-date { color: var(--text-secondary); font-size: 14px; margin-bottom: 32px; }
-    h2 {
-      font-size: 20px;
-      font-weight: 600;
-      margin-top: 36px;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid var(--accent);
-    }
-    h3 { font-size: 16px; font-weight: 600; margin-top: 20px; margin-bottom: 8px; color: var(--text); }
+    h2 { font-size: 20px; font-weight: 600; margin-top: 36px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); }
     p { margin-bottom: 12px; color: var(--text-secondary); }
     ul { margin: 8px 0 16px 24px; color: var(--text-secondary); }
     li { margin-bottom: 6px; }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .en { color: #888; font-style: italic; }
-    .contact-box {
-      background: #f0f7ff;
-      border: 1px solid #cce0ff;
-      border-radius: var(--radius);
-      padding: 20px 24px;
-      margin-top: 16px;
-    }
+    .contact-box { background: #f0f7ff; border: 1px solid #cce0ff; border-radius: var(--radius); padding: 20px 24px; margin-top: 16px; }
     .contact-box p { margin-bottom: 4px; color: #333; }
-    @media (max-width: 600px) {
-      .container { padding: 28px 20px; }
-      h1 { font-size: 22px; }
-      h2 { font-size: 17px; }
-    }
+    @media (max-width: 600px) { .container { padding: 28px 20px; } h1 { font-size: 22px; } h2 { font-size: 17px; } }
   </style>
 </head>
 <body>
@@ -68,105 +28,51 @@
 <h1>隐私政策</h1>
 <p class="update-date">最后更新日期：2026 年 6 月 26 日 &nbsp;|&nbsp; 生效日期：2026 年 6 月 26 日</p>
 
-<p>欢迎使用我们的服务。本隐私政策说明我们如何收集、使用、存储和保护您的信息。请仔细阅读。</p>
-
-<h2>1. 我们收集的信息</h2>
-
-<h3>1.1 您主动提供的信息</h3>
+<h2>1. 我们收集哪些信息</h2>
+<p>通过 Meta 官方 OAuth 授权或系统用户授权，我们在您授予的权限范围内获取以下数据：</p>
 <ul>
-  <li><strong>账户信息</strong>：用户名、加密密码、角色（超管/管理员/运营/观察员）、团队归属。</li>
-  <li><strong>Meta 授权数据</strong>：通过 Meta OAuth 或系统用户授权后，我们获取您授予权限范围内的广告账户 ID、广告系列/广告组/广告数据、主页信息、像素数据。</li>
-  <li><strong>配置信息</strong>：您设置的投放规则、守护规则、预算阈值、Telegram 通知配置、落地页配置。</li>
+  <li><strong>广告账户信息</strong>：广告账户 ID、账户名称、时区、币种、账户状态。</li>
+  <li><strong>广告投放数据</strong>：广告系列、广告组、广告的配置与状态；消耗、展示、点击、转化等绩效指标。</li>
+  <li><strong>主页与像素</strong>：与广告账户关联的 Facebook 主页信息、Meta Pixel 数据。</li>
+  <li><strong>账户信息</strong>：用户名（加密存储）、角色、团队归属，用于系统访问控制。</li>
+</ul>
+<p>我们<strong>不</strong>存储您的 Facebook / Meta 账户密码，<strong>不</strong>收集广告受众的个人身份信息。</p>
+
+<h2>2. 我们如何使用这些信息</h2>
+<ul>
+  <li>通过 Meta Ads API 创建、管理、监控您的广告投放。</li>
+  <li>基于您设定的预算和消耗阈值执行自动化规则（关停、预警）。</li>
+  <li>在系统仪表盘展示广告效果数据，辅助投放决策。</li>
+  <li>登录安全防护与操作审计。</li>
+</ul>
+<p>我们<strong>不会</strong>将数据用于广告定向、用户画像，也不会出售或出租给第三方。</p>
+
+<h2>3. 数据共享</h2>
+<ul>
+  <li>广告创建、修改等写操作通过 Meta 官方 API 发送至 Meta 服务器。</li>
+  <li>不向任何第三方出售、出租或披露您的账户和广告数据。</li>
+  <li>除法律强制要求外，未经您的同意不向其他方提供数据。</li>
 </ul>
 
-<h3>1.2 我们自动收集的信息</h3>
+<h2>4. 数据安全</h2>
 <ul>
-  <li><strong>广告投放数据</strong>：从 Meta Ads API 获取的广告账户消耗、展示、点击、转化等绩效指标。</li>
-  <li><strong>操作日志</strong>：您在本系统内的操作记录（创建广告、修改规则、绑定落地页等），用于审计和问题排查。</li>
-  <li><strong>访问日志</strong>：登录时间、IP 地址、操作来源，用于安全防护和登录锁定。</li>
-  <li><strong>落地页跳转日志</strong>：通过本系统生成的广告跳转链接的访问与点击记录（最多保留 7 天）。</li>
-</ul>
-
-<h3>1.3 我们不收集的信息</h3>
-<ul>
-  <li>我们不存储您的 Meta / Facebook 账户密码。</li>
-  <li>我们不收集广告受众（终端消费者）的个人身份信息。</li>
-  <li>我们不通过 Cookie 追踪用户在广告落地页上的行为。</li>
-</ul>
-
-<h2>2. 信息的使用方式</h2>
-<p>我们收集的信息仅用于以下目的：</p>
-<ul>
-  <li><strong>服务提供</strong>：通过 Meta Ads API 创建、管理、监控您的广告投放。</li>
-  <li><strong>规则守护</strong>：基于您设定的预算、消耗、转化等阈值，自动执行关停、预警等规则。</li>
-  <li><strong>数据分析</strong>：在系统仪表盘中展示广告效果数据，帮助您优化投放策略。</li>
-  <li><strong>安全防护</strong>：登录锁定、异常检测、操作审计，保护您的账户安全。</li>
-  <li><strong>通知发送</strong>：通过 Telegram 等渠道向您发送规则触发、预算告警等通知。</li>
-</ul>
-<p>我们<strong>不会</strong>将您的数据用于自动化决策以外的目的，也<strong>不会</strong>用于广告定向或用户画像。</p>
-
-<h2>3. 信息的共享与披露</h2>
-<ul>
-  <li><strong>Meta 平台</strong>：本系统通过 Meta Ads API 进行操作，您创建广告、修改预算等写操作通过 Meta 官方 API 发送至 Meta 服务器。</li>
-  <li><strong>Cloudflare</strong>：落地页发布功能使用 Cloudflare Pages / DNS 服务，您上传的落地页内容托管于 Cloudflare 的 CDN 网络。</li>
-  <li><strong>不向第三方出售数据</strong>：我们不出售、出租或以其他方式向第三方披露您的个人信息和广告数据。</li>
-  <li><strong>法律要求</strong>：仅在法律法规、司法程序要求时，我们才可能依法提供相关数据。</li>
-</ul>
-
-<h2>4. 数据存储与安全</h2>
-<ul>
-  <li><strong>存储位置</strong>：数据存储在受访问控制的服务器中（通过安全 Shell 和防火墙保护）。</li>
-  <li><strong>加密</strong>：密码使用 SHA-256 哈希存储（不可反查），API Token 等敏感凭证在数据库中加密保存。</li>
-  <li><strong>访问控制</strong>：按团队和角色隔离数据访问权限。运营人员只能查看分配给自己的账户数据。</li>
-  <li><strong>日志保留</strong>：落地页访问/跳转日志最多保留 7 天后自动清理。</li>
+  <li>密码使用 SHA-256 哈希（不可反查）。</li>
+  <li>API Token 等凭证加密存储。</li>
+  <li>数据访问按团队和角色隔离。</li>
 </ul>
 
 <h2>5. 数据保留与删除</h2>
 <ul>
-  <li><strong>账户数据</strong>：在您主动删除账户或终止使用服务前保留。</li>
-  <li><strong>广告消耗快照</strong>：即使广告账户从当前列表移除，历史消耗快照仍保留用于历史查询和对账。</li>
-  <li><strong>数据删除权利</strong>：您可以随时要求删除您的账户及关联数据。请通过下方联系方式联系我们，我们将在 30 个工作日内处理。</li>
-  <li><strong>Meta 数据回收</strong>：您可以在 Facebook 账户设置中随时取消本系统的授权（OAuth / 系统用户权限），取消后本系统将无法继续访问您的广告账户。</li>
+  <li>在您主动删除账户或终止使用前保留数据。</li>
+  <li>您可以随时要求删除账户及关联数据，我们将在 30 个工作日内处理。</li>
+  <li>您可以随时在 Facebook 设置中取消本应用的 OAuth / 系统用户授权，取消后我们将无法继续访问您的广告账户。</li>
 </ul>
-
-<h2>6. 用户权利</h2>
-<p>根据适用的数据保护法律，您享有以下权利：</p>
-<ul>
-  <li><strong>访问权</strong>：了解我们持有哪些与您相关的数据。</li>
-  <li><strong>更正权</strong>：要求更正不准确的个人数据。</li>
-  <li><strong>删除权</strong>：要求删除您的个人数据（受限于法律保留要求）。</li>
-  <li><strong>限制处理权</strong>：要求限制对您数据的处理。</li>
-  <li><strong>数据可携带权</strong>：要求以结构化、通用格式获取您的数据副本。</li>
-  <li><strong>撤回同意权</strong>：随时撤回对数据处理的同意（如 Meta OAuth 授权）。</li>
-</ul>
-<p>如需行使以上权利，请通过下方联系方式联系我们。</p>
-
-<h2>7. Cookie 与追踪技术</h2>
-<ul>
-  <li>本系统后台使用基于 Token 的认证（JWT），不使用 Cookie 存储会话。</li>
-  <li>广告落地页使用服务端跳转统计，不使用第三方追踪 Cookie。</li>
-  <li>我们不使用 Google Analytics、Facebook Pixel 等第三方追踪服务来追踪管理员/运营人员在本系统的行为。</li>
-</ul>
-
-<h2>8. 第三方服务</h2>
-<p>本系统依赖以下第三方服务，请同时参阅其隐私政策：</p>
-<ul>
-  <li><strong>Meta / Facebook</strong>：广告投放和广告数据通过 Meta Ads API 进行。参阅 <a href="https://www.facebook.com/policy.php" target="_blank">Meta 隐私政策</a>。</li>
-  <li><strong>Cloudflare</strong>：落地页通过 Cloudflare Pages 发布和 CDN 加速。参阅 <a href="https://www.cloudflare.com/privacypolicy/" target="_blank">Cloudflare 隐私政策</a>。</li>
-</ul>
-
-<h2>9. 国际数据传输</h2>
-<p>您的数据可能存储和处理在您所在国家/地区以外的服务器上。我们采取合理措施确保数据在任何传输目的地均受到适当保护。</p>
-
-<h2>10. 政策更新</h2>
-<p>我们可能不时更新本隐私政策。重大变更将通过系统内通知或电子邮件告知。继续使用本服务即表示您同意修订后的政策。</p>
 
 <div class="contact-box">
-<h2>11. 联系我们</h2>
-<p>如果您对本隐私政策有任何疑问、意见或请求，请通过以下方式联系我们：</p>
-<p>📧 邮箱：seaveywong@gmail.com</p>
-<p>🌐 网站：https://shouhu.asia/</p>
-<p>我们将在 30 个工作日内回复您的请求。</p>
+<h2>6. 联系我们</h2>
+<p>如有隐私相关问题或数据删除请求，请联系：</p>
+<p>📧 seaveywong@gmail.com</p>
+<p>🌐 https://shouhu.asia/</p>
 </div>
 
 <hr style="border:none;border-top:1px solid var(--border);margin:40px 0 20px;">
@@ -174,49 +80,41 @@
 <h1>Privacy Policy</h1>
 <p class="update-date">Last Updated: June 26, 2026 &nbsp;|&nbsp; Effective: June 26, 2026</p>
 
-<p>This privacy policy explains how our advertising management platform collects, uses, stores, and protects your information.</p>
-
 <h2>Data Collection</h2>
-<p>We collect the following types of data through Meta's official OAuth and API:</p>
+<p>Through Meta OAuth or System User authorization, we access within your granted permissions:</p>
 <ul>
-  <li><strong>Account information</strong>: username, encrypted password, role, team affiliation.</li>
-  <li><strong>Meta advertising data</strong>: ad account IDs, campaigns, ad sets, ads, performance metrics, Page info — accessed via Meta Ads API under your granted permissions.</li>
-  <li><strong>Configuration data</strong>: rules, budget thresholds, notification settings.</li>
-  <li><strong>Operational logs</strong>: login records, actions performed, for security auditing.</li>
+  <li>Ad account ID, name, timezone, currency, status.</li>
+  <li>Campaign, ad set, and ad configurations; spend, impressions, clicks, conversions.</li>
+  <li>Facebook Page info and Meta Pixel data associated with ad accounts.</li>
+  <li>Username (hashed), role, team affiliation for access control.</li>
 </ul>
+<p>We do <strong>not</strong> store your Facebook password or collect end-user personal information.</p>
 
-<h2>How We Use Data</h2>
+<h2>Data Usage</h2>
 <ul>
-  <li>To create, manage, and monitor advertising campaigns via Meta Ads API.</li>
-  <li>To execute automated rules (pause, alert) based on your thresholds.</li>
-  <li>To display performance analytics in the dashboard.</li>
-  <li>To secure your account (login lockout, anomaly detection).</li>
+  <li>Create, manage, and monitor advertising campaigns via Meta Ads API.</li>
+  <li>Execute automated rules (pause, alert) based on your thresholds.</li>
+  <li>Display performance analytics.</li>
+  <li>Login security and audit logging.</li>
 </ul>
+<p>We do <strong>not</strong> use data for ad targeting, profiling, or sell it to third parties.</p>
 
 <h2>Data Sharing</h2>
 <ul>
-  <li>We do <strong>not</strong> sell, rent, or share your data with third parties.</li>
-  <li>Data is transmitted to Meta's servers via their official API for ad operations.</li>
-  <li>Landing pages are published via Cloudflare Pages (see Cloudflare's privacy policy).</li>
+  <li>Ad operations are sent to Meta servers via their official API.</li>
+  <li>We do not sell, rent, or disclose your data to any third party.</li>
 </ul>
 
-<h2>Data Security & Retention</h2>
+<h2>Security & Deletion</h2>
 <ul>
-  <li>Passwords are SHA-256 hashed (irreversible).</li>
-  <li>API tokens are encrypted at rest.</li>
+  <li>Passwords are SHA-256 hashed; tokens are encrypted at rest.</li>
   <li>Data access is isolated by team and role.</li>
-  <li>Landing page access logs are auto-purged after 7 days.</li>
-  <li>You may request deletion of your data at any time (allow up to 30 business days).</li>
+  <li>You may request deletion of your data at any time (up to 30 business days).</li>
+  <li>Revoke OAuth / System User permissions in your Facebook settings at any time to stop data access.</li>
 </ul>
-
-<h2>Your Rights</h2>
-<p>You have the right to access, correct, delete, and port your data, and to withdraw consent at any time by revoking OAuth permissions in your Facebook settings.</p>
-
-<h2>Cookies</h2>
-<p>Our admin panel uses JWT-based authentication and does not use tracking cookies. Ad landing pages do not use third-party tracking cookies.</p>
 
 <h2>Contact</h2>
-<p>For privacy-related inquiries: <strong>seaveywong@gmail.com</strong><br>
+<p>For privacy inquiries or data deletion: <strong>seaveywong@gmail.com</strong><br>
 Website: https://shouhu.asia/</p>
 
 </div>

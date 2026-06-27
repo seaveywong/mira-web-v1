@@ -293,6 +293,24 @@ app.include_router(settings_router,  prefix="/api/system",   tags=["system"])
 async def health():
     return {"status": "ok", "version": APP_VERSION}
 
+# ── 服务条款（公开，无需登录，用于 Facebook App Review）──────────────────
+@app.get("/terms")
+async def terms():
+    return FileResponse(
+        os.path.join(FRONTEND, "terms.html"),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+# ── 用户数据删除说明（公开，无需登录，用于 Facebook App Review）──────────
+@app.get("/data-deletion")
+async def data_deletion():
+    return FileResponse(
+        os.path.join(FRONTEND, "data-deletion.html"),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # 隐私政策（公开，无需登录，用于 Facebook App Review）
 @app.get("/privacy")
 async def privacy():

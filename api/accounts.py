@@ -4809,6 +4809,15 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
 @router.put("/tw-certified-pages/{page_db_id}")
 def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_current_user)):
     """更新台湾认证主页（支持更新 matrix_id、token_id、verified_identity_id 等字段）"""
+    def optional_nonnegative_int(value, label: str):
+        if value in (None, ""):
+            return None
+        try:
+            return max(0, int(value))
+        except Exception:
+            raise HTTPException(400, f"{label} 必须是非负整数")
+    fan_count = optional_nonnegative_int(body.get("page_fan_count"), "粉丝数") if "page_fan_count" in body else None
+    followers_count = optional_nonnegative_int(body.get("page_followers_count"), "关注数") if "page_followers_count" in body else None
     conn = get_conn()
     assert_row_access(conn, "tw_certified_pages", page_db_id, user, allow_unassigned=False)
     updates, params = [], []
@@ -4816,6 +4825,14 @@ def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_curre
         updates.append("page_name=?"); params.append(body["page_name"])
     if "note" in body:
         updates.append("note=?"); params.append(body["note"])
+    if "page_category" in body:
+        updates.append("page_category=?"); params.append((body.get("page_category") or "").strip() or None)
+    if "page_fan_count" in body:
+        updates.append("page_fan_count=?")
+        params.append(fan_count)
+    if "page_followers_count" in body:
+        updates.append("page_followers_count=?")
+        params.append(followers_count)
     if "verified_identity_id" in body:
         verified_identity_id = _normalize_verified_identity_input(body.get("verified_identity_id"))
         updates.append("verified_identity_id=?")

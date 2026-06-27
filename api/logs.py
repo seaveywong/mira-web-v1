@@ -65,7 +65,7 @@ def _safe_job_health():
         data = get_scheduler_health() or {}
     except Exception as e:
         return {"running": False, "jobs": [], "error": str(e)}
-    wanted = {"guard", "sentinel_patrol", "heartbeat_check", "warmup_check", "op_heartbeat", "account_sync"}
+    wanted = {"guard", "sentinel_patrol", "heartbeat_check", "warmup_check", "warmup_page_sync", "op_heartbeat", "account_sync"}
     jobs = [j for j in data.get("jobs", []) if j.get("id") in wanted]
     return {"running": bool(data.get("running")), "jobs": jobs}
 
