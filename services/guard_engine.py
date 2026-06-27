@@ -315,6 +315,12 @@ def _fb_post(path: str, token: str, data: dict, source: str = "") -> Tuple[bool,
             if subcode == 3498005:
                 suffix = "FB限制广告级状态修改，已按兜底逻辑升级处理"
             note_write_failure(token, result, operation=f"guard:{path}")
+            # v3.11.156 §17.3：权限错误走共享分类器，把清晰的中文 user_message 透出给所有
+            # 调用方（非 pause 调用方此前只拿到 "权限拒绝(code=…, subcode=…): <raw FB>"）。
+            # 原始 FB 文本作为次要细节保留，便于排查。
+            _perm = classify_fb_write_error(result)
+            if _perm["is_permission"] and _perm["user_message"]:
+                return False, f"{_perm['user_message']}（{suffix} {code_part}：{msg}）"
             return False, f"{suffix}({code_part}): {msg}"
         note_write_failure(token, result, operation=f"guard:{path}")
         return False, f"API错误({code_part}): {msg}"

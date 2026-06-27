@@ -31,6 +31,8 @@ from urllib.parse import urlparse
 
 from core.database import get_conn
 from services.execution_safety import (
+    PERM_KIND_ACCOUNT_WRITE,
+    PERM_KIND_PAGE_ADS,
     classify_fb_write_error,
     note_write_failure,
     wait_for_write_slot,
@@ -491,6 +493,14 @@ class AutoPilotEngine:
         lower = str(err_msg or "").lower()
         if self._is_app_development_mode_error(err_msg):
             return True
+        # v3.11.156 §17.2：账户写权限/主页广告权限错误属于"操作号对该账户/主页无权限"，
+        # 轮换到下一个 CREATE Token 不会改变结果（所有同矩阵 Token 都无该权限），
+        # 直接 fail-fast，由上层 _fmt_launch_err 把清晰的中文提示透出。
+        # 注意：PAUSE/manage-token 兜底走 guard_engine._fb_pause_with_candidates，
+        # 不经过此函数，manage fallback 不受影响。
+        _perm = classify_fb_write_error(err_msg)
+        if _perm["is_permission"] and _perm["kind"] in (PERM_KIND_ACCOUNT_WRITE, PERM_KIND_PAGE_ADS):
+            return False
         if any(
             token in lower
             for token in (
