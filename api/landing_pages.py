@@ -6456,6 +6456,12 @@ def landing_page_stats(
         {"source": key, "cnt": value}
         for key, value in sorted(source_counter.items(), key=lambda item: item[1], reverse=True)[:20]
     ]
+    _fp = "NULLIF(COALESCE(NULLIF(ip_hash,''),'') || '|' || COALESCE(NULLIF(user_agent_hash,''),''), '|')"
+    unique_clicks = conn.execute(
+        "SELECT COUNT(*) FROM (SELECT DISTINCT " + _fp + " AS fp FROM landing_events WHERE "
+        + event_where + " AND event_type='click' AND (" + _fp + ") IS NOT NULL)",
+        params,
+    ).fetchone()[0]
     conn.close()
     return {
         "success": True,
@@ -6467,6 +6473,7 @@ def landing_page_stats(
             "visits": by_type.get("visit", 0),
             "blocks": by_type.get("block", 0),
             "clicks": by_type.get("click", 0),
+            "unique_clicks": unique_clicks,
             "redirects": by_type.get("redirect", 0),
             "errors": by_type.get("error", 0),
         },

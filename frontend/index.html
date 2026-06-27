@@ -21087,9 +21087,12 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
     '<div class="landing-event-reason"><b style="color:var(--t1)">结果：</b>'+escHtml(result)+'</div>'+
    '</div>';
   }).join('');
+  var s=r.summary||{},bt=r.by_type||{};
+  var cards=[['访问',s.visits||0],['点击次数',s.clicks||0],['点击转化(去重)',s.unique_clicks||0],['跳转',s.redirects||0],['拦截',s.blocks||0],['提交',bt.submit||0],['错误',s.errors||0]];
   var html='<div style="text-align:left">'+
-   '<div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:10px">'+
-    [['访问',counts.visit],['点击',counts.click],['跳转',counts.redirect],['拦截',counts.block],['提交',counts.submit],['错误',counts.error]].map(function(x){return '<div class="landing-metric-card"><div class="landing-metric-label">'+x[0]+'</div><div class="landing-metric-value">'+x[1]+'</div></div>';}).join('')+
+   '<div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:8px">「点击转化(去重)」= 不同访客的按钮点击数（同一访客多次点击只算 1 次），是规则引擎可用的近实时转化信号；「点击次数」含重复点击。</div>'+
+   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:8px;margin-bottom:10px">'+
+    cards.map(function(x){return '<div class="landing-metric-card"><div class="landing-metric-label">'+x[0]+'</div><div class="landing-metric-value">'+x[1]+'</div></div>';}).join('')+
    '</div>'+
    '<div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">入口码：<code>'+escHtml(slug)+'</code> · 日期：'+escHtml(df)+' 至 '+escHtml(dt)+' · 仅展示最近事件中匹配该入口码的记录。</div>'+
    '<div class="landing-ad-link-log-list">'+(rows||'<div class="landing-event-empty">该入口最近没有访问日志</div>')+'</div>'+
