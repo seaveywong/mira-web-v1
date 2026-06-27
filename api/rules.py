@@ -613,7 +613,7 @@ def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user
         ).fetchall()
     else:
         if is_superadmin(user):
-            rows = []
+            rows = conn.execute("SELECT * FROM guard_rules ORDER BY id DESC").fetchall()
         elif (user or {}).get("role") == "admin":
             team_id = team_id_for_create(user)
             rows = conn.execute(
@@ -1094,7 +1094,7 @@ def list_scale_rules(act_id: Optional[str] = None, user=Depends(get_current_user
         ).fetchall()
     else:
         if is_superadmin(user):
-            rows = []
+            rows = conn.execute("SELECT * FROM scale_rules ORDER BY id DESC").fetchall()
         elif (user or {}).get("role") == "admin":
             team_id = team_id_for_create(user)
             rows = conn.execute(
