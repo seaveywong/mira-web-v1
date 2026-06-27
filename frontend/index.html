@@ -6240,6 +6240,7 @@ function confirmAsync(htmlContent, okText, cancelText, titleText) {
 }
 
 // ── promptAsync: Promise 版 prompt ───────────────────────────────────────────
+function confirmDialog(msg, okText, cancelText, titleText){ return confirmAsync(msg, okText, cancelText, titleText); }
 function promptAsync(title, label, defaultVal, placeholder) {
  placeholder = placeholder || label || '';
  return new Promise(function(resolve) {
