@@ -4746,12 +4746,12 @@ input:focus, select:focus, textarea:focus {
      <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px"><select class="fc" id="lpTemplate"></select><button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="openLandingTemplateManager()">模板管理</button></div><div class="fh">模板决定页面内容；统计、跳转和防护规则由发布配置执行。已发布页面要换内容，需要重新发布一次。</div></div>
      <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind" onchange="onLandingKindChanged()"><option value="landing">普通落地页：先展示页面，点击按钮后跳转</option><option value="form">表单投放链接：打开后直接跳转</option></select><div class="fh" id="lpKindHint">普通落地页会先展示页面内容，用户点击按钮后再跳转到目标链接。</div></div>
+      <div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">支持多个 Pixel 资产分开维护；选择后只填入当前发布配置，不会影响其他落地页。</div></div>
     </div>
-    <div class="fg" style="margin-top:4px"><button type="button" class="btn btn-g" id="lpAdvancedToggle" style="width:100%;font-size:12px;text-align:left;padding:8px 12px" onclick="toggleLpAdvanced()">高级设置（项目名 / Pixel）▾</button></div>
+    <div class="fg" style="margin-top:4px"><button type="button" class="btn btn-g" id="lpAdvancedToggle" style="width:100%;font-size:12px;text-align:left;padding:8px 12px" onclick="toggleLpAdvanced()">高级（项目名）▾</button></div>
     <div id="lpAdvancedPanel" style="display:none">
      <div class="landing-form-grid" style="margin-top:8px">
       <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
-      <div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">支持多个 Pixel 资产分开维护；选择后只填入当前发布配置，不会影响其他落地页。</div></div>
      </div>
     </div>
    </div>
@@ -4802,6 +4802,7 @@ input:focus, select:focus, textarea:focus {
        <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="lpCountryAllow" list="landingCountryOptions" oninput="renderLandingProtectionSummary()" onblur="normalizeLandingCountryInput('lpCountryAllow','renderLandingProtectionSummary')" placeholder="US,VN,TH；空=不限制"><div class="landing-rule-field-help">支持多个国家，用逗号、空格、分号或换行分隔。只填允许国家时，不在列表内的访问会被拦截。</div><div class="landing-rule-quick"><button type="button" onclick="appendLandingRuleValue('lpCountryAllow','US','renderLandingProtectionSummary',true)">US</button><button type="button" onclick="appendLandingRuleValue('lpCountryAllow','AU','renderLandingProtectionSummary',true)">AU</button><button type="button" onclick="appendLandingRuleValue('lpCountryAllow','SG','renderLandingProtectionSummary',true)">SG</button><button type="button" onclick="appendLandingRuleValue('lpCountryAllow','VN','renderLandingProtectionSummary',true)">VN</button><button type="button" onclick="appendLandingRuleValue('lpCountryAllow','TH','renderLandingProtectionSummary',true)">TH</button></div></div>
        <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="lpCountryBlock" list="landingCountryOptions" oninput="renderLandingProtectionSummary()" onblur="normalizeLandingCountryInput('lpCountryBlock','renderLandingProtectionSummary')" placeholder="CN,RU"><div class="landing-rule-field-help">命中这里的国家会直接拦截；如果同时配置允许国家，允许名单优先判断。</div><div class="landing-rule-quick"><button type="button" onclick="appendLandingRuleValue('lpCountryBlock','CN','renderLandingProtectionSummary',true)">CN</button><button type="button" onclick="appendLandingRuleValue('lpCountryBlock','RU','renderLandingProtectionSummary',true)">RU</button><button type="button" onclick="appendLandingRuleValue('lpCountryBlock','IN','renderLandingProtectionSummary',true)">IN</button><button type="button" onclick="appendLandingRuleValue('lpCountryBlock','BR','renderLandingProtectionSummary',true)">BR</button></div></div>
       </div>
+      <details class="lp-rules-advanced" style="grid-column:1/-1;margin-top:12px"><summary style="cursor:pointer;font-weight:600;font-size:12px;padding:8px 0;color:var(--t2)">更多拦截规则（设备 / 平台 / UA / 来源 / 参数）</summary>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">设备与环境</div>
        <div class="landing-rule-card-desc">用于排除明确不投放的设备或异常 UA，避免过度配置。</div>
@@ -4818,6 +4819,7 @@ input:focus, select:focus, textarea:focus {
        <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="lpQueryBlock" list="landingQueryOptions" oninput="renderLandingProtectionSummary()" placeholder="preview,debug"></div>
        <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="lpRequiredQuery" list="landingRequiredQueryOptions" oninput="renderLandingProtectionSummary()" placeholder="utm_source 或 fbclid"></div>
       </div>
+     </details>
      </div>
      <div id="lpProtectionSummary" class="landing-rule-summary"></div>
     </div>
@@ -20972,7 +20974,7 @@ function toggleLpAdvanced(){
  if(!p)return;
  var open=p.style.display==='none';
  p.style.display=open?'block':'none';
- if(b)b.textContent=open?'高级设置（项目名 / Pixel）▴':'高级设置（项目名 / Pixel）▾';
+ if(b)b.textContent=open?'高级（项目名）▴':'高级（项目名）▾';
 }
 document.addEventListener('click',function(ev){
  if(ev.target&&ev.target.closest&&ev.target.closest('.landing-row-actions'))return;
