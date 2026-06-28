@@ -1816,7 +1816,9 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-domain-rule{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.45;color:#515154}
 .landing-domain-rule b{color:#1d1d1f;min-width:64px}
 .landing-domain-dot{width:8px;height:8px;border-radius:50%;background:#0071e3;flex:0 0 8px;margin-top:5px}
-.landing-domain-picker{display:grid;grid-template-columns:minmax(0,1fr) 170px auto;gap:8px}
+.landing-domain-picker{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.landing-domain-picker>input{flex:1 1 200px;min-width:140px}
+.landing-domain-picker>select{width:170px;max-width:100%}
 .landing-domain-picker .btn{height:38px!important;min-height:38px!important;white-space:nowrap}
 .landing-domain-library{display:grid;gap:12px}
 .landing-domain-list{display:grid;gap:8px}
@@ -1901,12 +1903,13 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-runtime-section-title{font-size:14px;font-weight:860;color:#1d1d1f}
 .landing-runtime-section-desc{font-size:12px;color:#6e6e73;line-height:1.45;margin-top:3px}
 .landing-runtime-controlbar{
-  display:grid;
-  grid-template-columns:minmax(220px,1fr) repeat(3,minmax(92px,auto));
+  display:flex;
+  flex-wrap:wrap;
   gap:8px;
   align-items:center;
   margin-bottom:10px;
 }
+.landing-runtime-controlbar>select{flex:1 1 220px;min-width:160px;}
 .landing-runtime-controlbar .btn{
   min-width:92px;
   justify-content:center;
@@ -4865,7 +4868,7 @@ input:focus, select:focus, textarea:focus {
      <option value="unchecked">未自检</option>
      </select>
      <button class="btn btn-g btn-sm role-hide-viewer" onclick="refreshLandingDomains()" title="批量补齐 DNS、绑定自定义域；域名可用后会自动回绑原账户链接">补齐全部域名</button>
-     <button class="btn btn-g btn-sm role-hide-viewer" onclick="republishStaleLandingPages()" title="只重新发布线上运行代码落后的页面；保留子码和统计">重发旧包</button>
+     <button class="btn btn-g btn-sm role-hide-viewer" onclick="republishStaleLandingPages()" title="只重新发布线上运行代码落后的页面；保留子码和统计">同步过期页面</button>
      <button class="btn btn-g btn-sm role-hide-viewer" onclick="checkVisibleLandingHealth()" title="按当前筛选逐个检查线上链接、表单直跳和自定义域">自检当前筛选</button>
   </div>
   <div class="landing-page-cards" id="landingPagesList" data-empty="0"><div class="landing-empty-mini" style="padding:32px;text-align:center;color:var(--t3)">加载中…</div></div>
@@ -21187,7 +21190,7 @@ function renderLandingPages(){
     '<div class="lpcard-stat"><span>子码</span><b>'+_cs.total+'</b><small>专属 '+_cs.unique+' · 共用 '+_cs.reused+'</small></div>'+
     '<div class="lpcard-stat"><span>已绑账户</span><b>'+bound.length+'</b><small>'+urls.length+' 个跳转</small></div>'+
     '<div class="lpcard-stat"><span>统计/防护</span><b>'+(p.tracking_enabled?'开':'关')+' / '+(p.protection_enabled?'开':'关')+'</b><small>'+escHtml(pixelName||(p.pixel_id?('Pixel '+_maskLandingPixelId(p.pixel_id)):'未配 Pixel'))+'</small></div>'+
-    (_cs.total?'<div class="lpcard-stat lpcard-stat-links"><button type="button" class="lpcard-expand" onclick="toggleLpcardAdLinks('+id+',this)"><span class="lpcard-expand-ic">▾</span> 查看 '+_cs.total+' 个投放链接</button></div>':'<div class="lpcard-stat lpcard-stat-links"><span class="lpcard-stat-empty">暂无子码，点下方"生成投放链接"</span></div>')+
+    (_cs.total?'<div class="lpcard-stat lpcard-stat-links"><button type="button" class="lpcard-expand" onclick="toggleLpcardAdLinks('+id+',this)"><span class="lpcard-expand-ic">▾</span> 查看投放链接</button></div>':'<div class="lpcard-stat lpcard-stat-links"><span class="lpcard-stat-empty">暂无子码，点下方"生成投放链接"</span></div>')+
    '</div>'+
    '<div class="lpcard-adlinks" id="lpcardAdLinks_'+id+'" data-loaded="0" style="display:none"></div>'+
    '<div class="lpcard-actions">'+
