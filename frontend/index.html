@@ -1836,7 +1836,7 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 .landing-asset-hero-desc{font-size:12px;color:#6e6e73;line-height:1.55}
 .landing-asset-hero-pill{flex:0 0 auto;height:28px;display:inline-flex;align-items:center;padding:0 10px;border-radius:999px;background:#eef6ff;border:1px solid #cfe5ff;color:#075aa8;font-size:12px;font-weight:760}
 .landing-asset-basic{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.landing-asset-modules{display:grid;grid-template-columns:1.1fr .9fr 1fr;gap:12px;margin-bottom:0}
+.landing-asset-modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:0}
 .landing-asset-module{border:1px solid #e5e5ea;border-radius:14px;background:#fff;padding:14px;min-width:0;box-shadow:0 1px 2px rgba(0,0,0,.035)}
 .landing-asset-module-title{font-size:13px;font-weight:850;color:#1d1d1f;margin-bottom:4px}
 .landing-asset-module-desc{font-size:11px;color:#6e6e73;line-height:1.45;margin-bottom:12px}
@@ -9641,7 +9641,7 @@ function _adsLandingBriefHtml(a){
   _adsBriefCard('KPI 回传',_adsBriefText(String(a.conversions||0)+' / '+kpiLabel),a.target_cpa?('目标 CPA $'+Number(a.target_cpa).toFixed(2)):'未设目标 CPA',a.kpi_field?'ok':'warn',false)+
   _adsBriefCard('落地页入口',_adsBriefText(landingTitle),landingSub,l.slug?'ok':'warn',false)+
   _adsBriefCard('真实成交 / 进线',_adsBriefText(String(confirmedSales)+' / '+String(trueCount)),metricMode+' · 确认进线 '+confirmedActions+(l.result_date?' · '+l.result_date:''),trueCount>0?'ok':'',false)+
-  _adsBriefCard('投放链接',_adsBriefText(l.public_url||(a.account_landing_url||a.landing_url||''),'未绑定'),'广告实际应使用子码链接，不直接投投放链接',(l.public_url||(a.account_landing_url||a.landing_url))?'ok':'warn',true)+
+  _adsBriefCard('投放链接',_adsBriefText(l.public_url||(a.account_landing_url||a.landing_url||''),'未绑定'),'广告实际应使用子码链接，不直接用投放链接',(l.public_url||(a.account_landing_url||a.landing_url))?'ok':'warn',true)+
   _adsBriefCard('当前跳转',targetHtml,targets.length?'该广告子码专属跳转':'未配置时继承投放链接默认跳转',targets.length?'ok':'warn',true)+
  '</div>';
  return '<div class="ads-brief-wrap">'+hero+grid+'</div>';
@@ -13972,7 +13972,7 @@ async function showLaunchAccountLinks(){
    '<td style="padding:8px 10px;text-align:right;white-space:nowrap;vertical-align:top"><button class="btn btn-p btn-sm role-hide-viewer" onclick="saveLaunchAccountLink(\''+_adsJs(aid)+'\')">保存</button><br><button class="btn btn-g btn-sm" style="margin-top:4px" onclick="copyLaunchAdLinkTemplate(\''+_adsJs(aid)+'\')" title="复制 /a/子码?ad={{ad.id}} 投放链接模板">复制投放链接</button></td>'+
   '</tr>';
  }).join('');
- var html='<div style="text-align:left"><div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">在这里直接配置各账户的<b>投放链接</b>（可从落地页库选，或填地址），点保存即生效。铺广告会按账户读取，并自动生成广告级子码 <code>/a/子码?ad={{ad.id}}</code> 回绑广告——不是直接投投放链接。</div>'+
+ var html='<div style="text-align:left"><div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:10px">在这里直接配置各账户的<b>投放链接</b>（可从落地页库选，或填地址），点保存即生效。铺广告会按账户读取，并自动生成广告级子码 <code>/a/子码?ad={{ad.id}}</code> 回绑广告——不是直接用投放链接。</div>'+
   '<div class="table-wrap" style="max-height:520px;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px 10px">账户</th><th style="text-align:left;padding:8px 10px">投放链接（落地页）</th><th style="text-align:left;padding:8px 10px">表单链接</th><th style="text-align:right;padding:8px 10px">操作</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
  showInfo(html,'账户投放链接');
 }
