@@ -5183,6 +5183,19 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
                 pass
             skipped += 1
     conn2.commit()
+    # Auto-clean: delete pages no longer accessible (not in latest scan result)
+    cleaned_inaccessible = 0
+    _scanned_ids = set(seen_pages.keys())
+    if _scanned_ids:
+        _cw, _cp = [], []
+        apply_team_scope(_cw, _cp, user, "team_id", include_unassigned=False)
+        _ph = ",".join("?" for _ in _scanned_ids)
+        _cur = conn2.execute(
+            "DELETE FROM tw_certified_pages WHERE page_id NOT IN (" + _ph + ") AND " + " AND ".join(_cw),
+            list(_scanned_ids) + _cp,
+        )
+        cleaned_inaccessible = _cur.rowcount
+        conn2.commit()
     conn2.close()
 
     return {
@@ -5194,6 +5207,7 @@ def scan_tw_certified_pages(user=Depends(get_current_user)):
         "auto_identified": auto_identified,
         "auto_probe_failed": auto_probe_failed,
         "skipped_existing": skipped,
+        "cleaned_inaccessible": cleaned_inaccessible,
         "pages": [
             {
                 "page_id": pg["page_id"],
