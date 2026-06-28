@@ -4344,6 +4344,28 @@ def landing_edge_runtime_config(body: LandingRuntimeConfigReq):
         conn.close()
 
 
+class LandingPageMetaPatch(BaseModel):
+    title: Optional[str] = None
+
+
+@router.patch("/pages/{page_id}")
+def update_landing_page_meta(page_id: int, body: LandingPageMetaPatch, request: Request, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_page_access(conn, page_id, user)
+        title = (body.title or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="名称不能为空")
+        conn.execute("UPDATE landing_pages SET title=? WHERE id=?", (title[:120], page_id))
+        conn.commit()
+        return {"ok": True, "title": title[:120]}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.patch("/pages/{page_id}/runtime-config")
 def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch, request: Request, user=Depends(get_current_user)):
     conn = get_conn()

@@ -4740,6 +4740,7 @@ input:focus, select:focus, textarea:focus {
      <button class="btn btn-g btn-sm" type="button" onclick="openLandingAssetBindingModal()">管理预设</button>
      <button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveLandingAssetBindingFromPublish()">当前配置存为预设</button>
     </div>
+    <div class="fh" style="margin:6px 0 0">选预设=一键填入下方各项；直接改下方字段不会影响已保存的预设。</div>
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：落地页-日期-版本"></div>
      <div class="fg"><label class="fl">自定义域名（建议填写）</label><div class="landing-domain-picker"><input class="fc" id="lpCustomDomain" list="landingDomainDatalist" placeholder="例如：go.example.com"><select class="fc" id="lpDomainSelect" onchange="applyLandingDomainFromSelect(this.value)"><option value="">从域名库选择</option></select><button class="btn btn-g btn-sm" type="button" onclick="generateLandingRandomSubdomain('lpCustomDomain')">随机子域名</button></div><datalist id="landingDomainDatalist"></datalist><div class="fh">优先使用子域名；根域名通常只作为生成子域名的来源。保存发布时仍会校验域名状态。</div></div>
@@ -21048,6 +21049,7 @@ function _landingRowActionsHtml(p, link, usageTotal){
   parts.push(_landingActionButton('配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','改跳转/统计/防护规则'));
   if(link)parts.push(_landingActionButton('投放链接管理','showLandingAdLinks('+id+')','btn-g','查看子码、绑定与跳转池'));
   var more=[];
+  more.push(_landingActionButton('改名','renameLandingPage('+id+')','btn-g','修改落地页名称'));
   if(link)more.push(_landingActionButton('复制投放链接(无参数)',"copyText('"+encodeURIComponent(link)+"')",'btn-g','复制当前落地页投放链接（不含 ad 参数）；铺广告会自动生成子码链接'));
   if(p.custom_domain)more.push(_landingActionButton('复制正式域名',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制已绑定的正式自定义域名链接'));
   if(canSeeFallback&&p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制系统备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统默认备用域名链接'));
@@ -23255,6 +23257,7 @@ async function publishLandingPage(){
  if(!payload.token_id){toast('请先添加发布通道 API','wa');return;}
  if(!payload.title){toast('请填写发布名称','wa');return;}
  if(!payload.target_urls.length){toast('请至少填写一个按钮跳转链接','wa');return;}
+ if(!payload.pixel_id){if(!await confirmAsync('未配置 Pixel，页面将无法统计访问与转化。确定继续发布？'))return;}
  var ok=await preflightLandingPage(false);
  if(!ok){toast('发布前检查未通过，请先处理红色项','er');return;}
  try{
@@ -23272,6 +23275,18 @@ async function publishLandingPage(){
   markPageStale('landing_center');
  await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}
+}
+async function renameLandingPage(id){
+ var p=(_landingPages||[]).find(function(x){return String(x.id)===String(id);})||{};
+ var name=await promptAsync('修改落地页名称','请输入新名称',p.title||'','如：落地页-日期-版本');
+ name=(name||'').trim();
+ if(!name||name===(p.title||''))return;
+ try{
+  await api('PATCH','/landing-pages/pages/'+id,{title:name});
+  toast('已改名','ok');
+  markPageStale('landing_center');
+  await loadLandingCenter(true);
+ }catch(e){}
 }
 function closeLandingAssetBindingModal(){
  closeModal('moLandingAssetBinding');
