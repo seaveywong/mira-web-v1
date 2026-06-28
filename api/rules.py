@@ -595,6 +595,36 @@ class EmergencyPauseRequest(BaseModel):
 
 # ── 止损规则 ──────────────────────────────────────────────────────────────
 
+@router.get("/guard/pause-reason")
+def get_guard_pause_reason(target_id: str, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        tid = (target_id or "").strip()
+        if not tid:
+            raise HTTPException(status_code=400, detail="缺少广告 ID")
+        team_sql = ""
+        params = [tid]
+        if not is_superadmin(user):
+            tid_team = team_id_for_create(user)
+            if tid_team is not None:
+                team_sql = " AND team_id=?"
+                params.append(tid_team)
+            else:
+                team_sql = " AND 1=0"
+        rows = conn.execute(
+            """SELECT level, target_id, target_name, act_id, trigger_type, trigger_detail,
+                      status, error_msg, created_at
+               FROM action_logs
+               WHERE target_id=? AND action_type='pause'""" + team_sql + """
+               ORDER BY created_at DESC LIMIT 5""",
+            params,
+        ).fetchall()
+        events = [dict(r) for r in rows]
+        return {"found": bool(events), "events": events}
+    finally:
+        conn.close()
+
+
 @router.get("/guard")
 def list_guard_rules(act_id: Optional[str] = None, user=Depends(get_current_user)):
     conn = get_conn()

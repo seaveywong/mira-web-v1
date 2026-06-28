@@ -9657,10 +9657,29 @@ function quickFillAdLandingResult(adId){
  if(!l.link_id){showInfo('当前广告还没有绑定子码，无法回填到专属子码。请先绑定落地页子码。','未绑定子码');return;}
  editLandingAdResult(Number(l.link_id),encodeURIComponent(l.slug||''),Number(l.confirmed_actions||0),Number(l.confirmed_sales||0),Number(l.confirmed_revenue||0),encodeURIComponent(l.result_note||''),encodeURIComponent(l.result_date||''));
 }
+async function viewAdPauseReason(adId){
+ var a=_adsFind(adId)||{};
+ try{
+  var r=await api('GET','/rules/guard/pause-reason?target_id='+encodeURIComponent(adId));
+  var evs=(r&&r.events)||[];
+  if(!evs.length){showInfo('未找到该广告的系统止损记录。<br><span style="color:var(--t3);font-size:12px">可能是上级广告组/系列被升级暂停、手动暂停，或 FB 侧暂停。</span>','未找到停因');return;}
+  var typeMap={guard:'巡检止损',rule:'规则触发',kpi:'KPI 止损',system:'系统',emergency:'紧急暂停',user:'手动暂停',cpa_exceed:'CPA 超标',bleed_abs:'空耗',consecutive_bad:'连续超标',click_no_conv:'有点击无转化',low_ctr_no_conv:'低 CTR 无转化',reach_no_conv:'有曝光无转化',budget_burn_fast:'消耗过快',trend_drop:'趋势下跌'};
+  var levelMap={campaign:'广告系列',adset:'广告组',ad:'广告'};
+  var rows=evs.map(function(e){
+   var cls=e.status==='success'?'bg-er':'bg-wa';
+   return '<div style="border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px;text-align:left">'+
+    '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap"><span class="badge '+cls+'">'+escHtml(levelMap[e.level]||e.level||'广告')+'</span><span class="badge bg-mu">'+escHtml(typeMap[e.trigger_type]||e.trigger_type||'系统')+'</span>'+(e.status!=='success'?'<span class="badge bg-wa">未成功</span>':'')+'</div>'+
+    (e.trigger_detail?('<div style="font-size:13px;margin-bottom:4px">'+escHtml(e.trigger_detail)+'</div>'):'')+
+    '<div style="font-size:11px;color:var(--t3)">'+escHtml(e.created_at||'')+(e.error_msg?(' . '+escHtml(e.error_msg)):'')+'</div></div>';
+  }).join('');
+  showInfo('<div style="font-size:12px;color:var(--t2);margin-bottom:8px">广告 <b>'+escHtml(a.ad_name||adId)+'</b> 的近期暂停记录：</div>'+rows,'广告停因');
+ }catch(e){toast('查询停因失败：'+(e.message||e),'er');}
+}
 function showAdBrief(adId){
  var a=_adsFind(adId);
  if(!a){toast('广告数据已过期，请刷新','wa');return;}
  var l=a.landing||{},actions='<div class="ads-brief-actions">';
+ if(/PAUSED/i.test(a.effective_status||a.status||''))actions+='<button class="btn btn-g btn-sm" data-adid="'+_adsJs(a.ad_id)+'" onclick="viewAdPauseReason(this.dataset.adid)">查看停因</button>';
  if(l.link_id)actions+='<button class="btn btn-g btn-sm role-hide-viewer" onclick="quickEditAdLandingLink(\''+_adsJs(a.ad_id)+'\')">修改广告跳转</button>';
  if(l.link_id)actions+='<button class="btn btn-p btn-sm role-hide-viewer" onclick="quickFillAdLandingResult(\''+_adsJs(a.ad_id)+'\')">回填真实数据</button>';
  if(l.public_url)actions+='<button class="btn btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+_adsJs(l.public_url)+'\').then(function(){toast(\'已复制投放链接\',\'ok\')})">复制投放链接</button>';
