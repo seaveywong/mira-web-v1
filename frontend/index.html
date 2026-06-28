@@ -2020,7 +2020,7 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
 }
 #page-logs td:nth-child(2),#page-logs td:nth-child(3){white-space:normal!important;word-break:break-word!important}
 
-#twPagesList2 .tw-page-table,#twPagesList .tw-page-table{min-width:1320px!important;table-layout:fixed!important}
+#twPagesList2 .tw-page-table,#twPagesList .tw-page-table{min-width:0!important;table-layout:fixed!important}
 #twPagesList2 .tw-page-table col:nth-child(8),#twPagesList .tw-page-table col:nth-child(8){width:250px!important}
 #twPagesList2 .tw-page-table td:nth-child(8),#twPagesList .tw-page-table td:nth-child(8){
  white-space:normal!important;word-break:break-word!important;overflow:visible!important;text-overflow:clip!important;line-height:1.45!important
@@ -2189,7 +2189,7 @@ select.fc option{background:#fff;color:#1d1d1f}
 .landing-gen-summary{font-size:12px;color:#515154;line-height:1.6;padding:8px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;margin-bottom:10px}
 .landing-gen-summary b{color:#1e3a8a}
 @media(max-width:520px){.landing-gen-result-row{grid-template-columns:1fr auto}.landing-gen-result-row .landing-gen-tracked{grid-column:1/-1}}
-.landing-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.landing-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;overflow-x:auto;-webkit-overflow-scrolling:touch}
 .landing-top-actions .fc{height:36px!important}
 .landing-top-actions .btn{height:36px!important;min-height:36px!important}
 .landing-subnav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:4px;background:#ececf1;border-radius:999px;width:max-content;max-width:100%}
@@ -2368,6 +2368,39 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
 .landing-stats-pill-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px}
 .landing-stats-pill-card{min-width:0}
 .landing-stats-pill-card b{font-size:13px;color:var(--t1)}
+/* ── openQuickLinkGen landing/form radio toggle (UX batch) ── */
+.qlink-mode-row{display:flex;align-items:center;gap:14px;margin-bottom:10px;font-size:13px}
+.qlink-mode-row label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-weight:600;color:var(--t2)}
+.qlink-mode-row input[type=radio]{margin:0;cursor:pointer}
+.qlink-sec{display:none}
+body.qlink-mode-landing .qlink-sec-landing{display:block}
+body.qlink-mode-form .qlink-sec-form{display:block}
+
+/* ── landing logs/stats filter bar (UX batch) ── */
+.landing-evfilter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
+.landing-evfilter-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%}
+.landing-evfilter-row+.landing-evfilter-row{margin-top:4px}
+.landing-evfilter-lbl{font-size:11px;color:var(--t3);margin-right:2px;white-space:nowrap}
+.landing-evfilter-pill{height:26px;min-height:26px;padding:0 10px;font-size:11px;font-weight:700;border-radius:999px;border:1px solid var(--bd);background:#fff;color:var(--t2);cursor:pointer;white-space:nowrap}
+.landing-evfilter-pill:hover{background:#f0f4ff}
+.landing-evfilter-pill.on{background:#0071e3;border-color:#0071e3;color:#fff}
+.landing-evfilter-chip{height:24px;min-height:24px;padding:0 9px;font-size:11px;border-radius:999px;border:1px solid var(--bd);background:#fff;color:var(--t2);cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.landing-evfilter-chip:hover{background:#f0f4ff}
+.landing-evfilter-chip.on{background:#1e3a8a;border-color:#1e3a8a;color:#fff}
+.landing-evfilter-chip .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.7}
+/* status visibility: when a modal/panel has et-filter-only-XXX, hide non-matching event cards */
+.modal-info-logs.et-filter-visit .landing-event-card:not([data-et="visit"]),
+.modal-info-logs.et-filter-click .landing-event-card:not([data-et="click"]),
+.modal-info-logs.et-filter-redirect .landing-event-card:not([data-et="redirect"]),
+.modal-info-logs.et-filter-block .landing-event-card:not([data-et="block"]),
+.modal-info-logs.et-filter-error .landing-event-card:not([data-et="error"]),
+.modal-info-logs.et-filter-pass .landing-event-card:not([data-et="pass"]):not([data-et="redirect"]){display:none}
+#landingStatsPanel.et-filter-visit .landing-event-card:not([data-et="visit"]),
+#landingStatsPanel.et-filter-click .landing-event-card:not([data-et="click"]),
+#landingStatsPanel.et-filter-redirect .landing-event-card:not([data-et="redirect"]),
+#landingStatsPanel.et-filter-block .landing-event-card:not([data-et="block"]),
+#landingStatsPanel.et-filter-error .landing-event-card:not([data-et="error"]),
+#landingStatsPanel.et-filter-pass .landing-event-card:not([data-et="pass"]):not([data-et="redirect"]){display:none}
 .landing-event-list{display:grid;gap:8px;max-height:560px;overflow:auto;padding-right:2px}
 .landing-event-card{border:1px solid var(--bd);border-left-width:4px;border-radius:10px;background:#fff;padding:14px 16px;display:grid;gap:12px}
 .landing-event-card[data-et="redirect"]{border-left-color:var(--ok)}
@@ -2421,8 +2454,9 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
 @media(max-width:640px){
  .landing-filterbar{grid-template-columns:1fr}
  .landing-perf-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
- .landing-top-actions{justify-content:flex-start}
- .landing-top-actions .fc,.landing-top-actions .btn{flex:1 1 160px}
+ #page-landing_center .ph .landing-top-actions{justify-content:flex-start;flex-wrap:nowrap!important;overflow-x:auto;padding-bottom:6px}
+ #page-landing_center .ph .landing-top-actions .fc,#page-landing_center .ph .landing-top-actions .btn{flex:0 1 auto!important;white-space:nowrap}
+ #page-landing_center .ph .landing-top-actions::-webkit-scrollbar{height:6px}
 }
 
 /* Modal ergonomics: tables and detail panes should not be squeezed into narrow alerts. */
@@ -3196,7 +3230,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 #page-ads .ads-table tr.ads-ad-row td{background:#fff!important}
 #page-ads .ads-table .td-id{max-width:220px}
 #page-twpages .tw-page-table-wrap{overflow-x:auto;border:1px solid var(--bd);border-radius:12px;background:#fff}
-#page-twpages .tw-page-table{width:100%;min-width:1240px;table-layout:fixed;border-collapse:collapse}
+#page-twpages .tw-page-table{width:100%;min-width:0;table-layout:fixed;border-collapse:collapse}
 #page-twpages .tw-page-table th{padding:10px 12px;background:#f7f8fa;color:var(--t3);font-size:11px;text-align:left;white-space:nowrap}
 #page-twpages .tw-page-table td{padding:10px 12px;border-top:1px solid #edf0f4;vertical-align:middle;font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #page-twpages .tw-page-table th:nth-child(1){width:190px}
@@ -3213,7 +3247,7 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 .tw-page-table-verified{color:var(--ok);font-size:11px}
 .tw-page-table-missing{color:var(--wa);font-size:11px}
 .tw-page-table-actions{display:flex;justify-content:flex-end;gap:5px}
-.tw-page-table-actions .btn{height:26px!important;min-height:26px!important;padding:0 8px!important;font-size:11px!important}
+.tw-page-table-actions .btn{height:32px!important;min-height:32px!important;padding:0 10px!important;font-size:11px!important}
 #page-twpages .tw-add-panel{padding:14px;border:1px solid var(--bd);border-radius:12px;background:#fbfcfe}
 #page-twpages .tw-add-grid{gap:12px 16px}
 @media(max-width:900px){#page-ads .ads-context-bar{align-items:stretch}#page-twpages .tw-page-table-wrap{border-radius:10px}}
@@ -3968,7 +4002,7 @@ input:focus, select:focus, textarea:focus {
       </div>
       <div class="ads-tabs-actions">
        <button class="btn btn-p btn-sm" onclick="openLaunchFromAdCenter()" title="直接打开铺广告向导，素材在向导内选择" style="font-size:12px;padding:5px 10px;">🚀 铺广告</button>
-       <button class="btn btn-g btn-sm" onclick="openQuickLinkGen()" title="生成投放链接，用于手动上广告时复制到FB" style="font-size:12px;padding:5px 10px;">🔗 生成投放链接</button>
+       <button class="btn btn-g btn-sm" onclick="openQuickLinkGen()" title="查看/复制账户绑定的投放链接" style="font-size:12px;padding:5px 10px;">📋 复制投放链接</button>
        <button class="btn btn-g btn-sm" onclick="openQuickImportAccount()" title="导入新广告账户并自动匹配Token" style="font-size:12px;padding:5px 10px;">＋ 导入账户</button>
       </div>
      </div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:56px">目标CPA</th><th style="width:50px">ROAS</th><th style="width:44px">KPI</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr></thead>
@@ -4386,46 +4420,6 @@ input:focus, select:focus, textarea:focus {
        </select>
       </div>
       <div id="twPagesList2" style="margin-bottom:14px"><span class="spin"></span>加载中...</div>
-      <div class="tw-add-panel">
-      <div class="ss-title">添加主页</div>
-      <div class="tw-add-grid">
-       <div class="fg tw-add-page-id">
-        <label class="fl">主页 ID <span class="req">*</span></label>
-        <input class="fc" id="twNewPageId2" placeholder="如：1020399831162841" onblur="autoFetchTwPageName2(this.value)">
-       </div>
-       <div class="fg tw-add-matrix">
-        <label class="fl">归属矩阵</label>
-        <select class="fc" id="twNewMatrix2" onchange="onMatrixSelectChanged('twNewMatrix2','twNewMatrixCustom2');autoFetchTwPageName2(document.getElementById('twNewPageId2').value)">
-         <option value="">-- 选择矩阵 --</option>
-         <option value="1">矩阵 1</option>
-         <option value="2">矩阵 2</option>
-        </select>
-        <input class="fc" id="twNewMatrixCustom2" type="number" min="1" step="1" placeholder="或输入新的矩阵编号" style="margin-top:6px" oninput="onMatrixCustomChanged('twNewMatrix2','twNewMatrixCustom2')">
-        <div style="font-size:11px;color:var(--t3);margin-top:4px">可直接输入新的矩阵编号，不受预设矩阵限制</div>
-       </div>
-       <div class="fg tw-add-token">
-        <label class="fl">对应 Token <span style="font-size:11px;color:var(--t3)">(有主页管理权限)</span></label>
-        <select class="fc" id="twNewToken2" onchange="autoFetchTwPageName2(document.getElementById('twNewPageId2').value)">
-         <option value="">-- 选择 Token --</option>
-        </select>
-       </div>
-       <div class="fg tw-add-name">
-        <label class="fl">主页名称 <span style="font-size:11px;color:var(--t3)" id="twNameHint2">(失焦后自动获取)</span></label>
-        <input class="fc" id="twNewPageName2" placeholder="如：品牌主页名称">
-       </div>
-       <div class="fg tw-add-verified">
-        <label class="fl">受益者 / Verified ID <span style="font-size:11px;color:var(--t3)" id="twVerifiedIdHint2">(扫描时自动探测，也可手动填写)</span></label>
-        <input class="fc" id="twNewVerifiedId2" placeholder="如：1483822239783037">
-       </div>
-       <div class="fg tw-add-note">
-        <label class="fl">备注（可选）</label>
-        <input class="fc" id="twNewPageNote2" placeholder="可选，说明主页用途或负责人">
-       </div>
-       <div class="tw-add-action">
-        <button class="btn btn-p role-hide-viewer" onclick="addTwCertPage2()">添加主页</button>
-       </div>
-      </div>
-      </div>
      </div>
     </div>
     <!-- 预热素材管理页面 -->
@@ -9561,7 +9555,7 @@ function _adsLandingBriefHtml(a){
   _adsBriefCard('KPI 回传',_adsBriefText(String(a.conversions||0)+' / '+kpiLabel),a.target_cpa?('目标 CPA $'+Number(a.target_cpa).toFixed(2)):'未设目标 CPA',a.kpi_field?'ok':'warn',false)+
   _adsBriefCard('落地页入口',_adsBriefText(landingTitle),landingSub,l.slug?'ok':'warn',false)+
   _adsBriefCard('真实成交 / 进线',_adsBriefText(String(confirmedSales)+' / '+String(trueCount)),metricMode+' · 确认进线 '+confirmedActions+(l.result_date?' · '+l.result_date:''),trueCount>0?'ok':'',false)+
-  _adsBriefCard('投放链接',_adsBriefText(l.public_url),'广告实际应使用子码链接，不直接投主链接',l.public_url?'ok':'warn',true)+
+  _adsBriefCard('投放链接',_adsBriefText(l.public_url||(a.account_landing_url||a.landing_url||''),'未绑定'),'广告实际应使用子码链接，不直接投主链接',(l.public_url||(a.account_landing_url||a.landing_url))?'ok':'warn',true)+
   _adsBriefCard('当前跳转',targetHtml,targets.length?'该广告子码专属跳转':'未配置时继承主链接默认跳转',targets.length?'ok':'warn',true)+
  '</div>';
  return '<div class="ads-brief-wrap">'+hero+grid+'</div>';
@@ -21170,6 +21164,59 @@ async function showLandingAdLinks(pageId){
   toast('加载投放链接失败：'+(e.message||e),'er');
  }
 }
+// ── landing logs/stats filter bar helpers (UX batch) ──
+function _landingEvFilterHtml(scope, ctx){
+  // scope: 'logs' or 'stats'; ctx: object with {pageId, slug} or {id}
+  var dataAttr = '';
+  if(scope==='logs'){ dataAttr=' data-page="'+escHtml(String((ctx&&ctx.pageId)||''))+'" data-slug="'+escHtml(String((ctx&&ctx.slug)||''))+'"'; }
+  else { dataAttr=' data-pid="'+escHtml(String((ctx&&ctx.id)||''))+'"'; }
+  // _scopeLit renders as the quoted JS literal inside the onclick attribute, e.g. 'logs'
+  var _scopeLit = "'"+(scope==='logs'?'logs':'stats')+"'";
+  var _click = ' onclick="_landingEvFilterDays(this,'+_scopeLit+')"';
+  return '<div class="landing-evfilter"'+dataAttr+'>'+
+   '<div class="landing-evfilter-row">'+
+    '<span class="landing-evfilter-lbl">日期</span>'+
+    '<button class="landing-evfilter-pill" data-days="1"'+_click+'>今日</button>'+
+    '<button class="landing-evfilter-pill on" data-days="3"'+_click+'>近3天</button>'+
+    '<button class="landing-evfilter-pill" data-days="7"'+_click+'>近7天</button>'+
+    '<button class="landing-evfilter-pill" data-days="30"'+_click+'>近30天</button>'+
+   '</div>'+
+   '<div class="landing-evfilter-row">'+
+    '<span class="landing-evfilter-lbl">状态</span>'+
+    '<button class="landing-evfilter-chip on" data-et="" onclick="_landingEvFilterEt(this)">全部</button>'+
+    '<button class="landing-evfilter-chip" data-et="pass" onclick="_landingEvFilterEt(this)"><span class="dot"></span>通过</button>'+
+    '<button class="landing-evfilter-chip" data-et="block" onclick="_landingEvFilterEt(this)"><span class="dot"></span>拦截</button>'+
+    '<button class="landing-evfilter-chip" data-et="click" onclick="_landingEvFilterEt(this)"><span class="dot"></span>点击</button>'+
+    '<button class="landing-evfilter-chip" data-et="redirect" onclick="_landingEvFilterEt(this)"><span class="dot"></span>跳转</button>'+
+    '<button class="landing-evfilter-chip" data-et="error" onclick="_landingEvFilterEt(this)"><span class="dot"></span>错误</button>'+
+   '</div>'+
+  '</div>';
+}
+function _landingEvFilterEt(btn){
+  var bar=btn.closest('.landing-evfilter'); if(!bar)return;
+  var et=btn.getAttribute('data-et')||'';
+  bar.querySelectorAll('.landing-evfilter-chip').forEach(function(c){c.classList.toggle('on', c===btn);});
+  // find the modal-info-logs ancestor OR the stats panel
+  var modal=bar.closest('.modal-info-logs')||document.getElementById('landingStatsPanel');
+  if(!modal)return;
+  ['visit','click','redirect','block','error','pass'].forEach(function(k){
+    modal.classList.remove('et-filter-'+k);
+  });
+  if(et){ modal.classList.add('et-filter-'+et); }
+}
+function _landingEvFilterDays(btn, scope){
+  var bar=btn.closest('.landing-evfilter'); if(!bar)return;
+  bar.querySelectorAll('.landing-evfilter-pill').forEach(function(c){c.classList.toggle('on', c===btn);});
+  var n=parseInt(btn.getAttribute('data-days')||'7',10)||7;
+  var df=_landingDateValue(n-1), dt=_landingDateValue(0);
+  if(scope==='logs'){
+    var pageId=bar.getAttribute('data-page'), slug=bar.getAttribute('data-slug');
+    if(pageId&&slug){ showLandingAdLinkLogs(pageId, encodeURIComponent(slug)); }
+  }else{
+    var pid=bar.getAttribute('data-pid');
+    if(pid){ showLandingStats(pid, df, dt); }
+  }
+}
 async function showLandingAdLinkLogs(pageId,encodedSlug){
  var slug=decodeURIComponent(encodedSlug||'');
  if(!pageId||!slug){toast('缺少入口信息','wa');return;}
@@ -21197,6 +21244,7 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
   var s=r.summary||{},bt=r.by_type||{};
   var cards=[['访问',s.visits||0],['点击次数',s.clicks||0],['点击转化(去重)',s.unique_clicks||0],['跳转',s.redirects||0],['拦截',s.blocks||0],['提交',bt.submit||0],['错误',s.errors||0]];
   var html='<div style="text-align:left">'+
+   _landingEvFilterHtml('logs',{pageId:pageId,slug:slug})+
    '<div style="font-size:12px;color:var(--t3);line-height:1.6;margin-bottom:8px">「点击转化(去重)」= 不同访客的按钮点击数（同一访客多次点击只算 1 次），是规则引擎可用的近实时转化信号；「点击次数」含重复点击。</div>'+
    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:10px;margin-bottom:12px">'+
     cards.map(function(x){return '<div class="landing-metric-card"><div class="landing-metric-label">'+x[0]+'</div><div class="landing-metric-value">'+x[1]+'</div></div>';}).join('')+
@@ -21230,7 +21278,11 @@ async function editLandingAdLinkTargets(linkId,pageId,encodedSlug,encodedTargets
  }
 }
 async function createLandingAdLinks(pageId){
- var raw=await promptAsync('生成投放链接（手动投放用子码）','输入本次要生成的投放子码数量。一个 /a/子码 对应一条 FB 广告；下一步填写的多个跳转地址会作为每个子码自己的轮询池，不会拆成多个子码。','1','1-200');
+ var _pg=(_landingPages||[]).find(function(p){return String(p.id)===String(pageId);})||{};
+ var _pgTitle=_pg.title||_pg.name||_pg.slug||('页面 '+pageId);
+ var _pgKind=String(_pg.link_kind||'landing')==='form'?'表单直跳':'普通落地页';
+ var _banner='正在为「'+_pgTitle+'」生成子码 · 类型：'+_pgKind+'（继承自主链接）。\n输入本次要生成的投放子码数量。一个 /a/子码 对应一条 FB 广告；下一步填写的多个跳转地址会作为每个子码自己的轮询池，不会拆成多个子码。';
+ var raw=await promptAsync('生成投放链接（手动投放用子码）',_banner,'1','1-200');
  if(raw==null)return;
  var count=parseInt(String(raw).trim(),10)||0;
  if(count<1||count>200){toast('数量需要在 1-200 之间','wa');return;}
@@ -23387,6 +23439,7 @@ async function showLandingStats(id,dateFrom,dateTo){
   if(panel)panel.innerHTML=
    '<div class="landing-stats-head"><div><div class="landing-stats-title">访问统计与日志 · '+escHtml((r.page||{}).title||'')+'</div><div class="landing-stats-sub">访问/跳转按北京时间记录；事件保留 '+_landingRetentionDays()+' 天，可精确查看其中任意一天。</div></div><button class="btn btn-g btn-sm" onclick="hideLandingStats()">关闭</button></div>'+
    '<div class="fb" style="margin:10px 0 12px"><input class="fc" type="date" id="landingStatsFrom" value="'+escHtml(r.date_from||df)+'"><span style="font-size:12px;color:var(--t3)">至</span><input class="fc" type="date" id="landingStatsTo" value="'+escHtml(r.date_to||dt)+'"><button class="btn btn-p btn-sm" onclick="showLandingStats('+id+',document.getElementById(\'landingStatsFrom\').value,document.getElementById(\'landingStatsTo\').value)">查询</button><button class="btn btn-g btn-sm" onclick="showLandingStats('+id+',_landingDateValue(0),_landingDateValue(0))">今日</button><button class="btn btn-g btn-sm" onclick="showLandingStats('+id+',_landingDateValue(1),_landingDateValue(1))">昨日</button></div>'+
+   _landingEvFilterHtml('stats',{id:id})+
    '<div class="landing-stats-info-grid">'+
     '<div class="landing-stats-info-card"><div>'+pageKind+'</div><div class="landing-stats-link" title="'+escHtml(pageUrl)+'">主链接：'+(pageUrl?escHtml(pageUrl):'--')+'</div></div>'+
     '<div class="landing-stats-info-card"><div class="landing-metric-label">账户绑定字段</div><div style="font-size:16px;font-weight:800;margin-top:4px">'+escHtml(bindText)+'</div></div>'+
@@ -24311,30 +24364,44 @@ async function openQuickLinkGen() {
     var formEff = acc.form_link_effective || formLink;
     html += '<div style="font-size:13px;color:var(--t2);margin-bottom:10px">账户 <b>'+escHtml(displayActIdClean(actId))+'</b>'+(acc.name?'（'+escHtml(acc.name)+'）':'')+'</div>';
 
+    // mode radio: landing vs form (which generated link to show)
+    var _modeOn = 'onclick=\'_setQlinkMode(this.value)\'';
+    html += '<div class="qlink-mode-row"><span style="color:var(--t3);font-size:12px">我要生成的是：</span>';
+    html += '<label><input type="radio" name="qlinkMode" value="landing" checked '+_modeOn+'>落地页链接</label>';
+    html += '<label><input type="radio" name="qlinkMode" value="form" '+_modeOn+' '+(formEff?'':'disabled title="该账户未绑定表单链接"')+'>表单链接</label></div>';
+
     // ① 改跳转链接：编辑账户绑定的落地页主链接 / 表单链接
     html += '<div style="border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px">';
     html += '<div style="font-weight:600;font-size:13px;margin-bottom:8px">跳转链接设置（新建广告默认使用）</div>';
+    html += '<div class="qlink-sec qlink-sec-landing">';
     html += '<label style="font-size:12px;color:var(--t3)">落地页主链接</label>';
     html += '<input class="fc" id="qlinkLanding" type="url" value="'+escHtml(landingUrl)+'" placeholder="https://域名/a/子码" style="width:100%;margin:4px 0 8px;font-size:12px">';
+    html += '</div>';
+    html += '<div class="qlink-sec qlink-sec-form">';
     html += '<label style="font-size:12px;color:var(--t3)">表单链接（潜在客户广告，可选）</label>';
     html += '<input class="fc" id="qlinkForm" type="url" value="'+escHtml(formLink)+'" placeholder="https://..." style="width:100%;margin:4px 0 8px;font-size:12px">';
+    html += '</div>';
     html += '<button class="btn btn-p btn-sm role-hide-viewer" onclick="saveQuickLinkAccount(\''+_adsJs(actId)+'\')">保存跳转并刷新</button>';
     html += '</div>';
 
-    // ② 生成可复制的广告级投放链接
-    var links = [];
-    if (landingEff) links.push({label:'落地页广告链接', url:_appendAdMacro(landingEff)});
-    if (formEff) links.push({label:'表单广告链接', url:_appendAdMacro(formEff)});
-    if (links.length) {
-      html += '<div style="margin-bottom:12px">';
-      links.forEach(function(L){
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px">';
-        html += '<div style="min-width:0"><b style="font-size:12px">'+escHtml(L.label)+'</b><br><code style="font-size:11px;color:var(--t3);word-break:break-all">'+escHtml(L.url)+'</code></div>';
-        html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(L.url)+'\')" style="flex-shrink:0">📋 复制</button>';
-        html += '</div>';
-      });
-      html += '</div>';
-    } else {
+    // ② 生成可复制的广告级投放链接 (each wrapped in a mode section so only the selected one shows)
+    if (landingEff) {
+      var _lu = _appendAdMacro(landingEff);
+      html += '<div class="qlink-sec qlink-sec-landing" style="margin-bottom:12px">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px">';
+      html += '<div style="min-width:0"><b style="font-size:12px">落地页广告链接</b><br><code style="font-size:11px;color:var(--t3);word-break:break-all">'+escHtml(_lu)+'</code></div>';
+      html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(_lu)+'\')" style="flex-shrink:0">📋 复制</button>';
+      html += '</div></div>';
+    }
+    if (formEff) {
+      var _fu = _appendAdMacro(formEff);
+      html += '<div class="qlink-sec qlink-sec-form" style="margin-bottom:12px">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px">';
+      html += '<div style="min-width:0"><b style="font-size:12px">表单广告链接</b><br><code style="font-size:11px;color:var(--t3);word-break:break-all">'+escHtml(_fu)+'</code></div>';
+      html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(_fu)+'\')" style="flex-shrink:0">📋 复制</button>';
+      html += '</div></div>';
+    }
+    if (!landingEff && !formEff) {
       html += '<div style="padding:12px;background:var(--wag);border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--t2)">该账户还没有绑定跳转链接。在上方填写并保存后，即可生成可复制的广告投放链接。</div>';
     }
 
@@ -24351,6 +24418,12 @@ async function openQuickLinkGen() {
   html += '</div>';
 
   showInfo(html, '生成投放链接');
+  _setQlinkMode('landing');
+}
+function _setQlinkMode(mode){
+  document.body.classList.remove('qlink-mode-landing','qlink-mode-form');
+  document.body.add && 0; // no-op guard for old engines
+  document.body.classList.add('qlink-mode-' + (mode==='form'?'form':'landing'));
 }
 async function saveQuickLinkAccount(actId){
   var lu=((document.getElementById('qlinkLanding')||{}).value||'').trim();
