@@ -47,7 +47,7 @@ function applyPlacementPreset(preset) {
  }
 }
 
-// ── 投放设置模版（localStorage） ──
+// ── 投放设置模板（localStorage） ──
 var _LAUNCH_TPL_KEY = 'mira_launch_templates';
 function _getLaunchTplStore() {
  try { return JSON.parse(localStorage.getItem(_LAUNCH_TPL_KEY) || '{}'); } catch(e) { return {}; }
@@ -110,18 +110,18 @@ function _applyLaunchSettings(obj) {
   if(typeof updateLaunchStructurePreview==='function')updateLaunchStructurePreview();
 }
 async function saveLaunchTemplate() {
- var name = await promptAsync(' 保存投放设置模版', '请输入模版名称', '', '例如：标准投放配置、仅动态版位');
+ var name = await promptAsync(' 保存投放设置模板', '请输入模板名称', '', '例如：标准投放配置、仅动态版位');
  if(!name || !name.trim()) return;
  name = name.trim();
  var store = _getLaunchTplStore();
  store[name] = _captureLaunchSettings();
  _saveLaunchTplStore(store);
- toast('模版「' + name + '」已保存 ', 'ok');
+ toast('模板「' + name + '」已保存 ', 'ok');
 }
 function loadLaunchTemplate() {
  var store = _getLaunchTplStore();
  var keys = Object.keys(store);
- if(!keys.length) { toast('还没有保存任何模版，请先点「存模版」', 'wa'); return; }
+ if(!keys.length) { toast('还没有保存任何模板，请先点「存模板」', 'wa'); return; }
  // 构建选择弹窗
  var listHtml = keys.map(function(k,i){
   var ek = k.replace(/'/g, '&#39;');
@@ -136,9 +136,9 @@ function loadLaunchTemplate() {
  mo.style.cssText = 'display:flex;z-index:9999';
  mo.id = 'moLaunchTpl';
  mo.innerHTML = '<div class="mc-box" style="max-width:420px;width:90%">' +
-  '<div class="mh"><h3>投放设置模版</h3><button class="mc" onclick="document.getElementById(\'moLaunchTpl\').remove()">×</button></div>' +
+  '<div class="mh"><h3>投放设置模板</h3><button class="mc" onclick="document.getElementById(\'moLaunchTpl\').remove()">×</button></div>' +
   '<div style="padding:16px">' +
-  '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">点击模版名称或「应用」按钮加载设置（不影响账户选择）</div>' +
+  '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">点击模板名称或「应用」按钮加载设置（不影响账户选择）</div>' +
   listHtml +
   '</div></div>';
  document.body.appendChild(mo);
@@ -149,16 +149,16 @@ function applyLaunchTpl(name) {
  _applyLaunchSettings(store[name]);
  var mo = document.getElementById('moLaunchTpl');
  if(mo) mo.remove();
- toast('已应用模版「' + name + '」', 'ok');
+ toast('已应用模板「' + name + '」', 'ok');
 }
 function deleteLaunchTpl(name) {
- showConfirm('确认删除模版「' + name + '」？', function(){
+ showConfirm('确认删除模板「' + name + '」？', function(){
   var store = _getLaunchTplStore();
   delete store[name];
   _saveLaunchTplStore(store);
   var mo = document.getElementById('moLaunchTpl');
   if(mo) mo.remove();
-  toast('模版已删除', 'ok');
+  toast('模板已删除', 'ok');
   loadLaunchTemplate();
  });
 }
@@ -3728,7 +3728,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-sec-title">自动化</div>
     <div class="nav-item" onclick="showPage('assets')"><span class="nav-icon"></span>素材库</div>
     <!-- 预热素材库暂时停用 v3.0.7 -->
-    <div class="nav-item ad-center-migrated-nav" onclick="showPage('templates')"><span class="nav-icon"></span>广告模版库</div>
+    <div class="nav-item ad-center-migrated-nav" onclick="showPage('templates')"><span class="nav-icon"></span>广告模板库</div>
     <div class="nav-item ad-center-migrated-nav" onclick="showPage('landing_urls')"><span class="nav-icon"></span>账户投放链接</div>
     <div class="nav-item ad-center-migrated-nav" onclick="showPage('landing_center')"><span class="nav-icon"></span>落地页工作台</div>
     <!-- 铺放中心暂时停用 v3.0.7 -->
@@ -4026,7 +4026,7 @@ input:focus, select:focus, textarea:focus {
       <div class="ad-center-nav">
        <button class="ad-center-card active" data-ad-center-tab="ads" onclick="switchAdCenterModule('ads')"><div><b>广告总览</b><span>系列、组、广告、预算、KPI 与跳转</span></div><em>AD</em></button>
        <button class="ad-center-card" data-ad-center-tab="accounts" onclick="switchAdCenterModule('accounts')"><div><b>广告账户</b><span>导入账户、Token、操作号和 Pixel 状态</span></div><em>AC</em></button>
-       <button class="ad-center-card" data-ad-center-tab="templates" onclick="switchAdCenterModule('templates')"><div><b>广告模版库</b><span>消息模板、Lead Form 模板和复用配置</span></div><em>TP</em></button>
+       <button class="ad-center-card" data-ad-center-tab="templates" onclick="switchAdCenterModule('templates')"><div><b>广告模板库</b><span>消息模板、Lead Form 模板和复用配置</span></div><em>TP</em></button>
        <button class="ad-center-card" data-ad-center-tab="links" onclick="switchAdCenterModule('links')"><div><b>账户投放链接</b><span>维护账户主链接 / 表单链接，铺广告自动读取</span></div><em>URL</em></button>
        <button class="ad-center-card" data-ad-center-tab="landing" onclick="switchAdCenterModule('landing')"><div><b>落地页工作台</b><span>落地页、子码、跳转、真实进线和防护日志</span></div><em>LP</em></button>
        <button class="ad-center-card" data-ad-center-tab="pages" onclick="switchAdCenterModule('pages')"><div><b>主页库</b><span>主页状态、类型、粉丝规模、Verified ID</span></div><em>PG</em></button>
@@ -4115,13 +4115,13 @@ input:focus, select:focus, textarea:focus {
         <option value="alert">预警</option>
         <option value="kpi_scan">KPI扫描</option>
         <option value="emergency">紧急暂停</option>
-        <option value="escalate">升级关闭</option>
+        <option value="escalate">升级暂停</option>
        </select>
        <select class="fc" id="logStatus" onchange="onLogFilterChanged()">
         <option value="">全部状态</option>
         <option value="success">成功</option>
         <option value="failed">失败</option>
-        <option value="escalated">升级关闭</option>
+        <option value="escalated">升级暂停</option>
         <option value="dry_run">模拟</option>
        </select>
        <input class="fc" type="date" id="logDateFrom" onchange="onLogFilterChanged()" title="开始日期">
@@ -4453,31 +4453,31 @@ input:focus, select:focus, textarea:focus {
       <div id="scaleList"></div>
      </div>
     </div>
-    <!-- Ad Templates 广告模版库 -->
+    <!-- Ad Templates 广告模板库 -->
     <div class="page" id="page-templates">
      <div class="ph">
-      <div><h2>广告模版库</h2><p>管理消息模版和表单模版，支持跨主页复用，铺广告时直接选用</p></div>
+      <div><h2>广告模板库</h2><p>管理消息模板和表单模板，支持跨主页复用，铺广告时直接选用</p></div>
      </div>
      <!-- Tab 切换 -->
      <div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--bd);padding-bottom:0">
-      <button class="btn" id="tplTabMsg" onclick="switchTplTab('msg')" style="border-radius:6px 6px 0 0;border-bottom:2px solid var(--ac);color:var(--ac);background:var(--bg2);padding:8px 18px;font-size:13px">消息模版</button>
-      <button class="btn" id="tplTabForm" onclick="switchTplTab('form')" style="border-radius:6px 6px 0 0;border-bottom:2px solid transparent;color:var(--t2);background:transparent;padding:8px 18px;font-size:13px">表单模版</button>
+      <button class="btn" id="tplTabMsg" onclick="switchTplTab('msg')" style="border-radius:6px 6px 0 0;border-bottom:2px solid var(--ac);color:var(--ac);background:var(--bg2);padding:8px 18px;font-size:13px">消息模板</button>
+      <button class="btn" id="tplTabForm" onclick="switchTplTab('form')" style="border-radius:6px 6px 0 0;border-bottom:2px solid transparent;color:var(--t2);background:transparent;padding:8px 18px;font-size:13px">表单模板</button>
      </div>
 
-     <!-- 消息模版面板 -->
+     <!-- 消息模板面板 -->
      <div id="tplPanelMsg">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-       <div style="color:var(--t2);font-size:13px">欢迎消息模版库，选择消息类转化目的时可直接选用。系统会自动将模版转为 FB 标准格式。</div>
-       <button class="btn btn-p role-hide-viewer" onclick="openMsgTemplateModal()">新建消息模版</button>
+       <div style="color:var(--t2);font-size:13px">欢迎消息模板库，选择消息类转化目的时可直接选用。系统会自动将模板转为 FB 标准格式。</div>
+       <button class="btn btn-p role-hide-viewer" onclick="openMsgTemplateModal()">新建消息模板</button>
       </div>
       <div id="msgTemplateList"><div style="text-align:center;color:var(--t3);padding:40px">加载中...</div></div>
      </div>
 
-     <!-- 表单模版面板 -->
+     <!-- 表单模板面板 -->
      <div id="tplPanelForm" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-       <div style="color:var(--t2);font-size:13px">表单模版库，铺广告时选用模版，系统自动在目标主页创建 Lead Form（需 pages_manage_ads 权限）。</div>
-       <button class="btn btn-p role-hide-viewer" onclick="openLeadFormTemplateModal()">新建表单模版</button>
+       <div style="color:var(--t2);font-size:13px">表单模板库，铺广告时选用模板，系统自动在目标主页创建 Lead Form（需 pages_manage_ads 权限）。</div>
+       <button class="btn btn-p role-hide-viewer" onclick="openLeadFormTemplateModal()">新建表单模板</button>
       </div>
       <div id="leadFormTemplateList"><div style="text-align:center;color:var(--t3);padding:40px">加载中...</div></div>
      </div>
@@ -5238,7 +5238,7 @@ input:focus, select:focus, textarea:focus {
   <div class="mb">
    <div class="info-box" style="margin-bottom:14px;font-size:12px">
      <b>操作号优先执行所有操作（包括关闭）</b>。多个操作号按优先级轮询，某个号失效后自动切到下一个。
-    只有全部操作号均失效时，系统才允许管理号执行「关闭」操作（山底保指），但绝不使用管理号执行新建或修改。
+    只有全部操作号均失效时，系统才允许管理号执行「关闭」操作，但绝不使用管理号执行新建或修改。
    </div>
    <!-- 当前操作号列表 -->
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -5505,8 +5505,8 @@ input:focus, select:focus, textarea:focus {
     <div style="display:flex;gap:6px;align-items:center">
      <button class="btn btn-g" style="flex:1;font-size:12px;text-align:left;padding:8px 12px" onclick="toggleLaunchAdvanced()" id="btnLaunchAdvanced">高级设置（出价策略、受众结构）▼
      </button>
-     <button type="button" class="btn btn-g" style="font-size:11px;padding:6px 10px;white-space:nowrap" onclick="saveLaunchTemplate()" title="保存当前版位/语言/目标设置为模版">存模版</button>
-     <button type="button" class="btn btn-g" style="font-size:11px;padding:6px 10px;white-space:nowrap" onclick="loadLaunchTemplate()" title="加载已保存的投放设置模版">模版</button>
+     <button type="button" class="btn btn-g" style="font-size:11px;padding:6px 10px;white-space:nowrap" onclick="saveLaunchTemplate()" title="保存当前版位/语言/目标设置为模板">存模板</button>
+     <button type="button" class="btn btn-g" style="font-size:11px;padding:6px 10px;white-space:nowrap" onclick="loadLaunchTemplate()" title="加载已保存的投放设置模板">模板</button>
     </div>
    </div>
    <div id="launchAdvancedPanel" style="display:none">
@@ -5561,33 +5561,33 @@ input:focus, select:focus, textarea:focus {
       <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：填写后用这条；否则依次取 素材绑定 &gt; 账户主链接 &gt; 系统默认。主链接会自动为每条广告生成子码并回绑。</div>
       <div id="launchLinkStatusPanel"></div>
      </div>
-    <!-- 消息模版：选择消息类转化目的时显示 -->
+    <!-- 消息模板：选择消息类转化目的时显示 -->
     <div class="fg" id="launchMsgTemplateRow" style="margin-bottom:12px;display:none">
-     <label class="fl">欢迎消息模版 <span style="color:#6b7280;font-size:11px">（可选）</span>
-       <a href="#" onclick="showPage('templates');closeModal('moLaunchCampaign');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模版库</a>
+     <label class="fl">欢迎消息模板 <span style="color:#6b7280;font-size:11px">（可选）</span>
+       <a href="#" onclick="showPage('templates');closeModal('moLaunchCampaign');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模板库</a>
      </label>
      <div style="display:flex;gap:8px;align-items:center">
       <select class="fc" id="launchMsgTemplate" style="flex:1">
        <option value="">— 留空 = 系统自动生成（含 3 个快捷回复按钮）—</option>
       </select>
-      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadMsgTemplatesForLaunch()" title="刷新模版列表">刷新</button>
+      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadMsgTemplatesForLaunch()" title="刷新模板列表">刷新</button>
      </div>
-     <div style="font-size:11px;color:var(--t3);margin-top:4px">留空时系统自动生成欢迎消息。可在「广告模版库」中预先创建消息模版，铺广告时直接选用。</div>
+     <div style="font-size:11px;color:var(--t3);margin-top:4px">留空时系统自动生成欢迎消息。可在「广告模板库」中预先创建消息模板，铺广告时直接选用。</div>
     </div>
-    <!-- Lead Form 模版：选择即时表单转化目的时显示 -->
+    <!-- Lead Form 模板：选择即时表单转化目的时显示 -->
     <div class="fg" id="launchLeadFormRow" style="margin-bottom:12px;display:none">
-     <label class="fl">潜在客户表单模版 <span style="color:#6b7280;font-size:11px">（可选）</span>
-       <a href="#" onclick="showPage('templates');closeModal('moLaunchCampaign');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模版库</a>
+     <label class="fl">潜在客户表单模板 <span style="color:#6b7280;font-size:11px">（可选）</span>
+       <a href="#" onclick="showPage('templates');closeModal('moLaunchCampaign');return false" style="color:var(--ac);font-size:11px;margin-left:8px">+ 管理模板库</a>
      </label>
      <div style="display:flex;gap:8px;align-items:center">
       <select class="fc" id="launchLeadFormId" style="flex:1">
        <option value="">— 留空 = 系统自动创建表单（AI 生成内容）—</option>
       </select>
       <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="diagnoseLaunchLeadForm()" title="诊断主页 Lead Form 权限">诊断</button>
-      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadLeadFormTemplatesForLaunch()" title="刷新模版列表">刷新</button>
+      <button class="btn btn-g" style="white-space:nowrap;font-size:12px;padding:6px 10px" onclick="loadLeadFormTemplatesForLaunch()" title="刷新模板列表">刷新</button>
      </div>
      <div style="font-size:11px;color:var(--t3);margin-top:4px" id="launchLeadFormHint">留空时系统自动用 AI 生成表单内容并在主页创建（需 <code>pages_manage_ads</code>权限）。
-      可在「广告模版库」中预先配置表单字段，选择后优先使用模版。
+      可在「广告模板库」中预先配置表单字段，选择后优先使用模板。
      </div>
     </div>
     <!-- 行动号召按钮（CTA）-->
@@ -5901,13 +5901,13 @@ input:focus, select:focus, textarea:focus {
  </div>
 </div>
 
-<!-- 消息模版弹窗 -->
+<!-- 消息模板弹窗 -->
 <div class="mo" id="moMsgTemplate">
  <div class="modal" style="max-width:560px">
-  <div class="mh"><h3 id="msgTplModalTitle">新建消息模版</h3><button class="mc" onclick="closeModal('moMsgTemplate')">×</button></div>
+  <div class="mh"><h3 id="msgTplModalTitle">新建消息模板</h3><button class="mc" onclick="closeModal('moMsgTemplate')">×</button></div>
   <div class="mb">
    <div class="fg">
-    <label class="fl">模版名称 <span class="req">*</span></label>
+    <label class="fl">模板名称 <span class="req">*</span></label>
     <input class="fc" id="msgTplName" placeholder="如：咨询欢迎消息">
    </div>
    <div class="fg">
@@ -5942,23 +5942,23 @@ input:focus, select:focus, textarea:focus {
    </div>
    <div class="fg">
     <label class="fl">备注</label>
-    <input class="fc" id="msgTplNote" placeholder="可选，便于识别此模版的用途">
+    <input class="fc" id="msgTplNote" placeholder="可选，便于识别此模板的用途">
    </div>
   </div>
   <div class="mf">
    <button class="btn btn-g" onclick="closeModal('moMsgTemplate')">取消</button>
-   <button class="btn btn-p" onclick="saveMsgTemplate()">保存模版</button>
+   <button class="btn btn-p" onclick="saveMsgTemplate()">保存模板</button>
   </div>
  </div>
 </div>
 
-<!-- 表单模版弹窗 -->
+<!-- 表单模板弹窗 -->
 <div class="mo" id="moLeadFormTemplate">
  <div class="modal" style="max-width:600px">
-  <div class="mh"><h3 id="leadFormTplModalTitle">新建表单模版</h3><button class="mc" onclick="closeModal('moLeadFormTemplate')">×</button></div>
+  <div class="mh"><h3 id="leadFormTplModalTitle">新建表单模板</h3><button class="mc" onclick="closeModal('moLeadFormTemplate')">×</button></div>
   <div class="mb">
    <div class="fg">
-    <label class="fl">模版名称 <span class="req">*</span></label>
+    <label class="fl">模板名称 <span class="req">*</span></label>
     <input class="fc" id="lfTplName" placeholder="如：标准联系表单">
    </div>
    <div class="fg">
@@ -6041,7 +6041,7 @@ input:focus, select:focus, textarea:focus {
   </div>
   <div class="mf">
    <button class="btn btn-g" onclick="closeModal('moLeadFormTemplate')">取消</button>
-   <button class="btn btn-p" onclick="saveLeadFormTemplate()">保存模版</button>
+   <button class="btn btn-p" onclick="saveLeadFormTemplate()">保存模板</button>
   </div>
  </div>
 </div>
@@ -6354,6 +6354,7 @@ function showGlossary(){
   {t:"投放与链接",items:[
    ["落地页","广告点击后用户到达的页面，由系统发布到 CDN / 自定义域名。"],
    ["投放链接","账户绑定的默认落地页地址，铺广告时自动带入。"],
+   ["主链接","落地页发布后的页面基础地址（即该页投放链接的基础）；系统在其下为每条广告生成子码（广告入口）。"],
    ["广告入口 / 子码","系统为每条广告生成的 /a/子码 可追踪链接，创建后会自动回绑广告 ID。"],
    ["Pixel","Meta 转化跟踪像素，用于统计转化。"],
    ["CTA","广告按钮的行动号召，如 立即购买、了解更多。"]
@@ -6364,7 +6365,8 @@ function showGlossary(){
    ["镜像","给落地页做备份，原页失效时自动切换。"],
    ["心跳","定时探活账户与 Token，失联即告警。"],
    ["预热","对新账户/新素材做轻量操作，降低封号风险。"],
-   ["防护规则","落地页访问侧的拦截（屏蔽地区/可疑流量）。与自动守护是两件事，互不影响。"]
+   ["防护规则","落地页访问侧的拦截（屏蔽地区/可疑流量）。与自动守护是两件事，互不影响。"],
+   ["暂停 / 止损 / 升级暂停","止损规则命中后系统会暂停广告；若广告级暂停失败，自动升级到广告组或广告系列再暂停（即升级暂停）。这些都属于“暂停”，不会删除广告。"]
   ]}
  ];
  var h='<div style="max-height:68vh;overflow:auto;padding:4px 4px">';
@@ -8345,7 +8347,7 @@ function trimFutureHourlyTrend(labels,seriesList){
 
 // ── Page Navigation ──
 var APP_PAGES=['dashboard','ads','logs','tokens','accounts','assets','templates','landing_urls','landing_center','kpi','kpi_mapping','rules','twpages','team_admin','settings'];
-var pageTitles={dashboard:'数据看板',ads:'投放中心',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',kpi_mapping:'KPI 映射',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模版库',twpages:'主页库',landing_urls:'账户投放链接',landing_center:'落地页工作台'};
+var pageTitles={dashboard:'数据看板',ads:'投放中心',logs:'操作日志',tokens:'Token 管理',accounts:'广告账户',kpi:'KPI 配置',kpi_mapping:'KPI 映射',rules:'规则引擎',settings:'系统设置',team_admin:'团队管理',assets:'素材库',templates:'广告模板库',twpages:'主页库',landing_urls:'账户投放链接',landing_center:'落地页工作台'};
 var AD_CENTER_PAGE_MODULES={accounts:'accounts',templates:'templates',landing_urls:'links',landing_center:'landing',twpages:'pages'};
 var AD_CENTER_MODULE_PAGES={accounts:'accounts',templates:'templates',links:'landing_urls',landing:'landing_center',pages:'twpages'};
 var AD_CENTER_MODULE_TEXT={
@@ -9394,7 +9396,7 @@ function _adsParseJson(s){
  try{return JSON.parse(s);}catch(e){return null;}
 }
 function _adsLogActionLabel(t){
- return {manual_pause:'手动暂停',manual_resume:'手动开启',manual_budget:'手动调预算',pause:'自动暂停',emergency:'紧急暂停',escalate:'升级关闭'}[t]||t||'操作';
+ return {manual_pause:'手动暂停',manual_resume:'手动开启',manual_budget:'手动调预算',pause:'自动暂停',emergency:'紧急暂停',escalate:'升级暂停'}[t]||t||'操作';
 }
 function _adsLogToOp(l){
  if(!l||!l.target_id)return null;
@@ -10209,8 +10211,8 @@ async function loadLogs(){
   var total=Number(d.total||0);
   var tb=document.getElementById('logsBody');
   var sb={success:'bg-ok',failed:'bg-er',escalated:'bg-wa',skipped:'bg-mu',dry_run:'bg-cy'};
-  var sl={success:'成功',failed:'失败',escalated:'升级关闭',skipped:'跳过',dry_run:'模拟'};
-  var al={pause:'暂停广告',manual_pause:'手动暂停',manual_resume:'手动开启',manual_budget:'手动调预算',increase_budget:'加量',alert:'预警',kpi_scan:'KPI扫描',emergency:'紧急暂停',reduce_budget:'降预算',escalate:'升级关闭'};
+  var sl={success:'成功',failed:'失败',escalated:'升级暂停',skipped:'跳过',dry_run:'模拟'};
+  var al={pause:'暂停广告',manual_pause:'手动暂停',manual_resume:'手动开启',manual_budget:'手动调预算',increase_budget:'加量',alert:'预警',kpi_scan:'KPI扫描',emergency:'紧急暂停',reduce_budget:'降预算',escalate:'升级暂停'};
   if(!logs.length)tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:30px">该日期和筛选条件下暂无日志</td></tr>';
   else tb.innerHTML=logs.map(function(l){
    var detail=l.trigger_detail||l.trigger_reason||'--';
@@ -14517,13 +14519,13 @@ async function onLaunchObjectiveChange() {
     convGoalRow.style.display = '';
    }
   }
-  // 消息互动目标：直接显示消息模版行（不依赖转化目的联动）
+  // 消息互动目标：直接显示消息模板行（不依赖转化目的联动）
   var msgTemplateRow = document.getElementById('launchMsgTemplateRow');
   if (msgTemplateRow) {
    if (_getLaunchGoalMeta(obj, convGoalSel ? convGoalSel.value : '').isMessage) {
     msgTemplateRow.style.display = '';
     loadMsgTemplatesForLaunch();
-    // 自动展开高级设置面板（消息模版在里面）
+    // 自动展开高级设置面板（消息模板在里面）
     var advPanel = document.getElementById('launchAdvancedPanel');
     var advBtn = document.getElementById('btnLaunchAdvanced');
     if (advPanel && advPanel.style.display === 'none') {
@@ -14580,7 +14582,7 @@ async function onLaunchObjectiveChange() {
  function _updateLaunchLeadFormHint(meta) {
   var hint = document.getElementById('launchLeadFormHint');
   if (!hint) return;
-  var baseHtml = '留空时系统自动用 AI 生成表单内容并在主页创建（需 <code>pages_manage_ads</code>权限）。可在「广告模版库」中预先配置表单字段，选择后优先使用模版。';
+  var baseHtml = '留空时系统自动用 AI 生成表单内容并在主页创建（需 <code>pages_manage_ads</code>权限）。可在「广告模板库」中预先配置表单字段，选择后优先使用模板。';
   if (!meta || !meta.isLead) {
    hint.innerHTML = baseHtml;
    return;
@@ -14588,7 +14590,7 @@ async function onLaunchObjectiveChange() {
   var leadFormEl = document.getElementById('launchLeadFormId');
   var selectedLeadForm = leadFormEl ? (leadFormEl.value || '').trim() : '';
   if (selectedLeadForm) {
-   hint.innerHTML = '已选择现成表单模版，本次不会要求当前主页具备自动创建 Lead 表单权限。';
+   hint.innerHTML = '已选择现成表单模板，本次不会要求当前主页具备自动创建 Lead 表单权限。';
    return;
   }
   var landingEl = document.getElementById('launchLandingUrl');
@@ -14605,7 +14607,7 @@ async function onLaunchObjectiveChange() {
   }
   var pageMeta = _getLaunchPageMeta(pageIdVal);
   if (pageMeta && pageMeta.lead_form_can_create === false) {
-   hint.innerHTML = '当前主页缺少 <code>pages_manage_ads</code>权限，不能自动创建 Lead 表单。请换主页、换有权限 Token，或直接选择现成表单模版。';
+   hint.innerHTML = '当前主页缺少 <code>pages_manage_ads</code>权限，不能自动创建 Lead 表单。请换主页、换有权限 Token，或直接选择现成表单模板。';
    return;
   }
   if (pageMeta && pageMeta.lead_form_can_create === true) {
@@ -16099,7 +16101,7 @@ function renderGuardOpsStats(summary){
  el.innerHTML=[
   guardOpsStat('暂停尝试',String(attempts),'含广告/组/系列','info'),
   guardOpsStat('广告级成功',String(adSuccess),adFailed?'广告级失败 '+adFailed:'直接关闭成功','ok'),
-  guardOpsStat('升级关闭',String(escalated),escalated?'需要复盘是否为 FB 限制':'暂无升级','warn'),
+  guardOpsStat('升级暂停',String(escalated),escalated?'需要复盘是否为 FB 限制':'暂无升级','warn'),
   guardOpsStat('失败分类',String(summary.failed||0),failText,summary.failed?'danger':'ok')
  ].join('');
 }
@@ -16131,7 +16133,7 @@ async function loadGuardObservability(){
  var replayEl=document.getElementById('guardOpsReplay');
  if(!healthEl&&!statsEl&&!replayEl)return;
  if(healthEl)healthEl.innerHTML='<div style="color:var(--t3)">加载中...</div>';
- if(statsEl)statsEl.innerHTML=guardOpsStat('暂停尝试','--','加载中','info')+guardOpsStat('广告级成功','--','','ok')+guardOpsStat('升级关闭','--','','warn')+guardOpsStat('失败分类','--','','danger');
+ if(statsEl)statsEl.innerHTML=guardOpsStat('暂停尝试','--','加载中','info')+guardOpsStat('广告级成功','--','','ok')+guardOpsStat('升级暂停','--','','warn')+guardOpsStat('失败分类','--','','danger');
  if(replayEl)replayEl.innerHTML='<div style="color:var(--t3)">加载中...</div>';
  var act=(document.getElementById('rulesAct')||{}).value||'';
  var qs='?limit=180';
@@ -16905,10 +16907,10 @@ async function saveCurrentAsTemplate(){
  try{var r=await api('POST','/rules/templates/save-current',{name:name,description:desc,act_id:actId||null});toast('已保存为模板「'+name+'」','ok');closeModal('moSaveTpl');}catch(e){toast('保存失败: '+e.message,'er')}
 }
 
-// ── Ad Templates 广告模版库 ──
+// ── Ad Templates 广告模板库 ──
 var _tplTab='msg'; // 当前 tab
-var _editMsgTplId=null; // 正在编辑的消息模版 ID
-var _editLfTplId=null; // 正在编辑的表单模版 ID
+var _editMsgTplId=null; // 正在编辑的消息模板 ID
+var _editLfTplId=null; // 正在编辑的表单模板 ID
 
 function loadTemplatesPage(){
  switchTplTab(_tplTab);
@@ -16926,13 +16928,13 @@ function switchTplTab(tab){
  else loadLeadFormTemplates();
 }
 
-// ── 消息模版 ──
+// ── 消息模板 ──
 async function loadMsgTemplates(){
  var el=document.getElementById('msgTemplateList');
  el.innerHTML='<div style="text-align:center;color:var(--t3);padding:30px">加载中...</div>';
  try{
   var list=await api('GET','/ad-templates/message');
-  if(!list||list.length===0){el.innerHTML='<div style="text-align:center;color:var(--t3);padding:40px">暂无消息模版，点击「新建消息模版」创建第一个</div>';return;}
+  if(!list||list.length===0){el.innerHTML='<div style="text-align:center;color:var(--t3);padding:40px">暂无消息模板，点击「新建消息模板」创建第一个</div>';return;}
   el.innerHTML=list.map(function(t){
    var btns=[];
    try{btns=JSON.parse(t.buttons||'[]');}catch(e){}
@@ -16956,7 +16958,7 @@ async function loadMsgTemplates(){
 
 function openMsgTemplateModal(id){
  _editMsgTplId=id||null;
- document.getElementById('msgTplModalTitle').textContent=id?' 编辑消息模版':' 新建消息模版';
+ document.getElementById('msgTplModalTitle').textContent=id?' 编辑消息模板':' 新建消息模板';
  if(!id){
   document.getElementById('msgTplName').value='';
   document.getElementById('msgTplGreeting').value='';
@@ -16975,7 +16977,7 @@ async function editMsgTemplate(id){
  try{
   var t=await api('GET','/ad-templates/message/'+id);
   _editMsgTplId=id;
-  document.getElementById('msgTplModalTitle').textContent=' 编辑消息模版';
+  document.getElementById('msgTplModalTitle').textContent=' 编辑消息模板';
   document.getElementById('msgTplName').value=t.name||'';
   document.getElementById('msgTplGreeting').value=t.greeting||'';
   document.getElementById('msgTplNote').value=t.note||'';
@@ -17012,7 +17014,7 @@ async function saveMsgTemplate(){
  var greeting=document.getElementById('msgTplGreeting').value.trim();
  var dest=document.getElementById('msgTplDestination').value;
  var note=document.getElementById('msgTplNote').value.trim();
- if(!name){toast('请填写模版名称','wa');return;}
+ if(!name){toast('请填写模板名称','wa');return;}
  // 问候语可选，留空时不发送 welcome_message
  var btns=[];
  document.getElementById('msgTplButtons').querySelectorAll('.btn-row input').forEach(function(inp){
@@ -17023,10 +17025,10 @@ async function saveMsgTemplate(){
  try{
   if(_editMsgTplId){
    await api('PUT','/ad-templates/message/'+_editMsgTplId,payload);
-   toast('消息模版已更新','ok');
+   toast('消息模板已更新','ok');
   }else{
    await api('POST','/ad-templates/message',payload);
-   toast('消息模版已创建','ok');
+   toast('消息模板已创建','ok');
   }
   closeModal('moMsgTemplate');
   loadMsgTemplates();
@@ -17034,7 +17036,7 @@ async function saveMsgTemplate(){
 }
 
 async function deleteMsgTemplate(id,name){
- showConfirm('确认删除消息模版「'+name+'」？', async function(){
+ showConfirm('确认删除消息模板「'+name+'」？', async function(){
   try{
    await api('DELETE','/ad-templates/message/'+id);
    toast('已删除','ok');
@@ -17043,7 +17045,7 @@ async function deleteMsgTemplate(id,name){
  });
 }
 
-// 铺广告弹窗中加载消息模版下拉
+// 铺广告弹窗中加载消息模板下拉
 function loadMsgTemplatesForLaunch(){
  api('GET','/ad-templates/message').then(function(list){
   var sel=document.getElementById('launchMsgTemplate');
@@ -17059,13 +17061,13 @@ function loadMsgTemplatesForLaunch(){
  }).catch(function(){});
 }
 
-// ── 表单模版 ──
+// ── 表单模板 ──
 async function loadLeadFormTemplates(){
  var el=document.getElementById('leadFormTemplateList');
  el.innerHTML='<div style="text-align:center;color:var(--t3);padding:30px">加载中...</div>';
  try{
   var list=await api('GET','/ad-templates/lead-form');
-  if(!list||list.length===0){el.innerHTML='<div style="text-align:center;color:var(--t3);padding:40px">暂无表单模版，点击「新建表单模版」创建第一个</div>';return;}
+  if(!list||list.length===0){el.innerHTML='<div style="text-align:center;color:var(--t3);padding:40px">暂无表单模板，点击「新建表单模板」创建第一个</div>';return;}
   el.innerHTML=list.map(function(t){
    var qs=[];
    try{qs=JSON.parse(t.questions||'[]');}catch(e){}
@@ -17073,7 +17075,7 @@ async function loadLeadFormTemplates(){
     '<div style="display:flex;justify-content:space-between;align-items:flex-start">'+
     '<div>'+
     '<div style="font-weight:600;font-size:14px;color:var(--t1)">'+escH(t.name)+'</div>'+
-    '<div style="font-size:12px;color:var(--t3);margin-top:2px">表单模版 &nbsp;·&nbsp; '+t.locale+' &nbsp;·&nbsp; 创建于 '+t.created_at.slice(0,10)+'</div>'+
+    '<div style="font-size:12px;color:var(--t3);margin-top:2px">表单模板 &nbsp;·&nbsp; '+t.locale+' &nbsp;·&nbsp; 创建于 '+t.created_at.slice(0,10)+'</div>'+
     '</div>'+
     '<div style="display:flex;gap:6px">'+
     '<button class="btn btn-g role-hide-viewer" style="font-size:12px;padding:4px 10px" onclick="editLeadFormTemplate('+t.id+')">编辑</button>'+
@@ -17089,7 +17091,7 @@ async function loadLeadFormTemplates(){
 
 function openLeadFormTemplateModal(id){
  _editLfTplId=id||null;
- document.getElementById('leadFormTplModalTitle').textContent=id?' 编辑表单模版':' 新建表单模版';
+ document.getElementById('leadFormTplModalTitle').textContent=id?' 编辑表单模板':' 新建表单模板';
  if(!id){
   document.getElementById('lfTplName').value='';
   document.getElementById('lfTplHeadline').value='立即了解详情';
@@ -17125,7 +17127,7 @@ async function editLeadFormTemplate(id){
  try{
   var t=await api('GET','/ad-templates/lead-form/'+id);
   _editLfTplId=id;
-  document.getElementById('leadFormTplModalTitle').textContent=' 编辑表单模版';
+  document.getElementById('leadFormTplModalTitle').textContent=' 编辑表单模板';
   document.getElementById('lfTplName').value=t.name||'';
   document.getElementById('lfTplHeadline').value=t.headline||'';
   document.getElementById('lfTplDescription').value=t.description||'';
@@ -17195,7 +17197,7 @@ async function saveLeadFormTemplate(){
  var name=document.getElementById('lfTplName').value.trim();
  var headline=document.getElementById('lfTplHeadline').value.trim();
  var privacyUrl=document.getElementById('lfTplPrivacyUrl').value.trim();
- if(!name){toast('请填写模版名称','wa');return;}
+ if(!name){toast('请填写模板名称','wa');return;}
  if(!headline){toast('请填写表单标题','wa');return;}
  if(!privacyUrl){toast('请填写隐私政策链接','wa');return;}
  var qs=[];
@@ -17240,10 +17242,10 @@ async function saveLeadFormTemplate(){
  try{
   if(_editLfTplId){
    await api('PUT','/ad-templates/lead-form/'+_editLfTplId,payload);
-   toast('表单模版已更新','ok');
+   toast('表单模板已更新','ok');
   }else{
    await api('POST','/ad-templates/lead-form',payload);
-   toast('表单模版已创建','ok');
+   toast('表单模板已创建','ok');
   }
   closeModal('moLeadFormTemplate');
   loadLeadFormTemplates();
@@ -17251,7 +17253,7 @@ async function saveLeadFormTemplate(){
 }
 
 async function deleteLeadFormTemplate(id,name){
- showConfirm('确认删除表单模版「'+name+'」？', async function(){
+ showConfirm('确认删除表单模板「'+name+'」？', async function(){
   try{
    await api('DELETE','/ad-templates/lead-form/'+id);
    toast('已删除','ok');
@@ -17260,7 +17262,7 @@ async function deleteLeadFormTemplate(id,name){
  });
 }
 
-// 铺广告弹窗中加载表单模版下拉
+// 铺广告弹窗中加载表单模板下拉
 function loadLeadFormTemplatesForLaunch(){
  api('GET','/ad-templates/lead-form').then(function(list){
   var sel=document.getElementById('launchLeadFormId');
