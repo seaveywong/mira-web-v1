@@ -4580,7 +4580,7 @@ input:focus, select:focus, textarea:focus {
    <div class="landing-toolbar-row landing-toolbar-row-more" id="landingToolbarMore" style="display:none">
     <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()" title="落地页访问侧拦截规则"> 防护规则</button>
     <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()" title="可用域名与 DNS 状态"> 域名库</button>
-    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()" title="Pixel / 域名 / 跳转预设"> 资产预设</button>
+    <button class="btn btn-g role-hide-viewer" onclick="openAssetLibraryModal()" title="像素 / 域名 / 防护模板 库"> 资产库</button>
     <button class="btn btn-g" onclick="scrollLandingApiPanel()" title="发布通道 API Token"> API</button>
     <button class="btn btn-g" onclick="downloadLandingTemplateReference()" title="下载页面模板规范包"> 模板包</button>
     <button class="btn btn-g" onclick="showPage('landing_urls')" title="账户绑定的默认落地页/表单链接"> 账户绑定</button>
@@ -23337,6 +23337,124 @@ function _landingAssetBindingRowsHtml(){
   '</div>';
  }).join('');
 }
+
+async function loadLandingLibraries(){
+ try{
+  var results=await Promise.all([
+   api('GET','/landing-pages/pixels').catch(function(){return [];}),
+   api('GET','/landing-pages/saved-domains').catch(function(){return [];}),
+   api('GET','/landing-pages/domains').catch(function(){return {domains:[]};})
+  ]);
+  window._landingPixelsLib=results[0]||[];
+  window._landingSavedDomains=results[1]||[];
+  var saved=(results[1]||[]);
+  var disc=((results[2]||{}).domains)||[];
+  var byHost={};
+  saved.forEach(function(d){byHost[d.domain]={domain:d.domain,label:d.label,source:'manual',usage_count:d.usage_count||0,id:d.id};});
+  disc.forEach(function(d){var h=d.domain||d.host||''; if(h&&!byHost[h])byHost[h]={domain:h,label:'',source:'discovered',usage_count:0,id:null};});
+  window._landingDomainLib=Object.keys(byHost).sort().map(function(k){return byHost[k];});
+ }catch(e){ window._landingPixelsLib=[]; window._landingSavedDomains=[]; window._landingDomainLib=[]; }
+}
+function _alTabsHtml(active){
+ return '<div style="display:flex;gap:8px;margin-bottom:14px">'+
+  ['pixel','domain','template'].map(function(t){
+   var labels={pixel:'像素库',domain:'域名库',template:'防护模板库'};
+   var on=t===active;
+   return '<button class="btn btn-sm al-tab" data-tab="'+t+'" onclick="switchAssetLibTab(\''+t+'\')" style="'+(on?'background:var(--ac);color:#fff;border-color:var(--ac)':'')+'">'+labels[t]+'</button>';
+  }).join('')+'</div>';
+}
+function _assetLibPixelsHtml(){
+ var list=window._landingPixelsLib||[];
+ var rows=list.map(function(p){
+  return '<tr><td style="padding:8px 6px"><b>'+escHtml(p.pixel_name||('(未命名)'))+'</b></td>'+
+   '<td style="padding:8px 6px;font-family:monospace;font-size:12px;color:var(--t2)">'+_maskLandingPixelId(p.pixel_id)+'</td>'+
+   '<td style="padding:8px 6px;color:var(--t3);font-size:12px">'+(p.note?escHtml(p.note):'')+'</td>'+
+   '<td style="padding:8px 6px"><span class="badge '+(p.usage_count>0?'bg-ok':'bg-mu')+'" title="使用此像素的主链接数">'+p.usage_count+' 个主链接</span></td>'+
+   '<td style="padding:8px 6px;text-align:right"><button class="btn btn-g btn-sm danger" data-pid="'+p.id+'" data-name="'+escHtml(p.pixel_name||p.pixel_id)+'" data-usage="'+p.usage_count+'" onclick="deleteLandingPixel(this.dataset)">删除</button></td></tr>';
+ }).join('');
+ return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:12px;color:var(--t3)">共 '+list.length+' 个像素。发布主链接时从这里选；改名/删除只影响库，已发布页面不受影响。</span><button class="btn btn-p btn-sm" onclick="addLandingPixelForm()">添加像素</button></div>'+
+  '<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--t3);font-size:12px"><th style="padding:6px">名称</th><th style="padding:6px">Pixel 编号</th><th style="padding:6px">备注</th><th style="padding:6px">用量</th><th style="padding:6px;text-align:right">操作</th></tr></thead><tbody>'+
+  (rows||'<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--t3)">暂无像素，点"添加像素"</td></tr>')+
+  '</tbody></table>';
+}
+function _assetLibDomainsHtml(){
+ var list=window._landingDomainLib||[];
+ var rows=list.map(function(d){
+  var srcBadge=d.source==='manual'?'<span class="badge bg-ac">手动</span>':'<span class="badge bg-mu">发现</span>';
+  var act=d.source==='manual'?'<button class="btn btn-g btn-sm danger" data-did="'+(d.id||'')+'" data-host="'+escHtml(d.domain)+'" onclick="deleteLandingSavedDomain(this.dataset)">删除</button>':'<span style="font-size:11px;color:var(--t3)">系统发现</span>';
+  return '<tr><td style="padding:8px 6px;font-family:monospace;font-size:12px">'+escHtml(d.domain)+'</td><td style="padding:8px 6px">'+(d.label?escHtml(d.label):'')+'</td><td style="padding:8px 6px">'+srcBadge+'</td><td style="padding:8px 6px;text-align:right">'+act+'</td></tr>';
+ }).join('');
+ return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:12px;color:var(--t3)">系统自动发现的域名 + 手动补充，共 '+list.length+' 个。发布主链接时从这里选。</span><button class="btn btn-p btn-sm" onclick="addLandingSavedDomainForm()">添加域名</button></div>'+
+  '<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--t3);font-size:12px"><th style="padding:6px">域名</th><th style="padding:6px">标签</th><th style="padding:6px">来源</th><th style="padding:6px;text-align:right">操作</th></tr></thead><tbody>'+
+  (rows||'<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--t3)">暂无域名</td></tr>')+
+  '</tbody></table>';
+}
+function _assetLibTemplatesHtml(){
+ return '<div style="font-size:13px;color:var(--t2);line-height:1.7;margin-bottom:14px">防护规则模板用于"套用"到主链接的运行时防护规则（单页）。在这里管理常用规则组合。</div>'+
+  '<button class="btn btn-p btn-sm" onclick="closeModal(\'moAssetLibrary\');openLandingTemplateManager()">打开防护模板管理</button>';
+}
+function switchAssetLibTab(tab){
+ document.querySelectorAll('#moAssetLibrary .al-tab').forEach(function(b){
+  var on=b.getAttribute('data-tab')===tab;
+  b.style.background=on?'var(--ac)':''; b.style.color=on?'#fff':''; b.style.borderColor=on?'var(--ac)':'';
+ });
+ var body=document.getElementById('alTabBody'); if(!body)return;
+ if(tab==='pixel')body.innerHTML=_assetLibPixelsHtml();
+ else if(tab==='domain')body.innerHTML=_assetLibDomainsHtml();
+ else body.innerHTML=_assetLibTemplatesHtml();
+}
+function openAssetLibraryModal(tab){
+ var mo=document.getElementById('moAssetLibrary');
+ if(mo&&mo.parentNode)mo.remove();
+ mo=document.createElement('div');mo.className='mo';mo.id='moAssetLibrary';mo.dataset.dynamicModal='1';
+ mo.innerHTML='<div class="modal" style="max-width:780px">'+
+  '<div class="mh"><h3>资产库</h3><button class="mc" onclick="closeModal(\'moAssetLibrary\')">×</button></div>'+
+  '<div class="mb" style="padding:16px 20px;max-height:72vh;overflow:auto">'+_alTabsHtml(tab||'pixel')+'<div id="alTabBody"></div></div></div>';
+ document.body.appendChild(mo);openModal('moAssetLibrary');
+ loadLandingLibraries().then(function(){switchAssetLibTab(tab||'pixel');});
+}
+function addLandingPixelForm(){
+ var html='<div style="text-align:left">'+
+  '<div class="fg"><label class="fl">Pixel 编号</label><input class="fc" id="alPixelId" placeholder="粘贴 FB Pixel ID"></div>'+
+  '<div class="fg"><label class="fl">名称（便于识别）</label><input class="fc" id="alPixelName" placeholder="如：主像素 / 某地区像素"></div>'+
+  '<div class="fg"><label class="fl">备注（可选）</label><input class="fc" id="alPixelNote" placeholder=""></div></div>';
+ confirmAsync(html,'添加','取消','添加像素').then(async function(ok){
+  if(!ok)return;
+  var pid=(document.getElementById('alPixelId')||{}).value||'';
+  var name=(document.getElementById('alPixelName')||{}).value||'';
+  var note=(document.getElementById('alPixelNote')||{}).value||'';
+  if(!pid.trim()){toast('请填写 Pixel 编号','wa');return;}
+  try{ await api('POST','/landing-pages/pixels',{pixel_id:pid.trim(),pixel_name:name.trim(),note:note.trim()}); toast('已添加','ok'); await loadLandingLibraries(); switchAssetLibTab('pixel'); }catch(e){}
+ });
+}
+function deleteLandingPixel(ds){
+ var name=ds.name, usage=parseInt(ds.usage||0,10), pid=ds.pid;
+ var msg='确认从像素库删除「'+escHtml(name)+'」？'+(usage>0?('<br><br><span style="color:var(--wa)">'+usage+' 个主链接仍在用。<b>已发布页面不受影响</b>（保留其值），仅下次发布不再可选。</span>'):'');
+ confirmAsync(msg,'删除','取消','删除像素').then(async function(ok){
+  if(!ok)return;
+  try{ await api('DELETE','/landing-pages/pixels/'+pid, null, {silent:true}); toast('已删除','ok'); await loadLandingLibraries(); switchAssetLibTab('pixel'); }catch(e){ toast('删除失败：'+(e.message||e),'er'); }
+ });
+}
+function addLandingSavedDomainForm(){
+ var html='<div style="text-align:left">'+
+  '<div class="fg"><label class="fl">域名</label><input class="fc" id="alDomHost" placeholder="go.example.com"></div>'+
+  '<div class="fg"><label class="fl">标签（可选）</label><input class="fc" id="alDomLabel" placeholder="如：主域 / 某地区"></div></div>';
+ confirmAsync(html,'添加','取消','添加域名').then(async function(ok){
+  if(!ok)return;
+  var host=(document.getElementById('alDomHost')||{}).value||'';
+  var label=(document.getElementById('alDomLabel')||{}).value||'';
+  if(!host.trim()){toast('请填写域名','wa');return;}
+  try{ await api('POST','/landing-pages/saved-domains',{domain:host.trim(),label:label.trim()}); toast('已添加','ok'); await loadLandingLibraries(); switchAssetLibTab('domain'); }catch(e){}
+ });
+}
+function deleteLandingSavedDomain(ds){
+ var host=ds.host, did=ds.did;
+ confirmAsync('确认从域名库删除「'+escHtml(host)+'」？<br><br><span style="color:var(--t3);font-size:12px">仅从库移除，已发布页面不受影响。</span>','删除','取消','删除域名').then(async function(ok){
+  if(!ok)return;
+  try{ await api('DELETE','/landing-pages/saved-domains/'+did, null, {silent:true}); toast('已删除','ok'); await loadLandingLibraries(); switchAssetLibTab('domain'); }catch(e){ toast('删除失败：'+(e.message||e),'er'); }
+ });
+}
+
 function openLandingAssetBindingModal(editId){
  var b=editId?_landingAssetBindingById(editId):null;
  var pageOptions='<option value="">不关联已有落地页</option>'+(_landingPages||[]).filter(function(p){return p.status!=='archived';}).map(function(p){
