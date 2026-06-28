@@ -2189,9 +2189,14 @@ select.fc option{background:#fff;color:#1d1d1f}
 .landing-gen-summary{font-size:12px;color:#515154;line-height:1.6;padding:8px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;margin-bottom:10px}
 .landing-gen-summary b{color:#1e3a8a}
 @media(max-width:520px){.landing-gen-result-row{grid-template-columns:1fr auto}.landing-gen-result-row .landing-gen-tracked{grid-column:1/-1}}
-.landing-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.landing-top-actions .fc{height:36px!important}
-.landing-top-actions .btn{height:36px!important;min-height:36px!important}
+.landing-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;overflow:visible}
+.landing-top-actions .fc{height:36px!important;white-space:nowrap;overflow:visible}
+.landing-top-actions .btn{height:36px!important;min-height:36px!important;white-space:nowrap;overflow:visible}
+@media(max-width:760px){.landing-top-actions{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap}.landing-top-actions::-webkit-scrollbar{height:6px}}
+.landing-toolbar-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.landing-toolbar-row-primary{flex:1 1 auto;justify-content:flex-end}
+.landing-toolbar-row-more{width:100%;border-top:1px dashed var(--bd);padding-top:8px;margin-top:6px}
+.landing-toolbar-more-toggle{flex:0 0 auto;white-space:nowrap}
 .landing-subnav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:4px;background:#ececf1;border-radius:999px;width:max-content;max-width:100%}
 .landing-subnav .btn{height:30px!important;min-height:30px!important;padding:0 12px!important;background:transparent!important;border:0!important;color:#424245!important}
 .landing-subnav .btn:first-child{background:#fff!important;color:#1d1d1f!important;box-shadow:0 1px 2px rgba(0,0,0,.10)!important}
@@ -2454,8 +2459,9 @@ body.qlink-mode-form .qlink-sec-form{display:block}
 @media(max-width:640px){
  .landing-filterbar{grid-template-columns:1fr}
  .landing-perf-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
- #page-landing_center .ph .landing-top-actions{justify-content:flex-start;flex-wrap:nowrap!important;overflow-x:auto;padding-bottom:6px}
- #page-landing_center .ph .landing-top-actions .fc,#page-landing_center .ph .landing-top-actions .btn{flex:0 1 auto!important;white-space:nowrap}
+ #page-landing_center .ph .landing-top-actions{justify-content:flex-start;flex-wrap:wrap;overflow:visible;padding-bottom:6px}
+ #page-landing_center .ph .landing-top-actions .fc,#page-landing_center .ph .landing-top-actions .btn{flex:0 1 auto!important;white-space:nowrap;overflow:visible}
+ #page-landing_center .ph .landing-toolbar-row-more{flex-wrap:wrap}
  #page-landing_center .ph .landing-top-actions::-webkit-scrollbar{height:6px}
 }
 
@@ -3233,6 +3239,9 @@ body.landing-protection-open #page-landing_center .landing-card-head{
 #page-twpages .tw-page-table{width:100%;min-width:0;table-layout:fixed;border-collapse:collapse}
 #page-twpages .tw-page-table th{padding:10px 12px;background:#f7f8fa;color:var(--t3);font-size:11px;text-align:left;white-space:nowrap}
 #page-twpages .tw-page-table td{padding:10px 12px;border-top:1px solid #edf0f4;vertical-align:middle;font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-twpages .tw-page-table td:last-child{overflow:visible;white-space:normal}
+#page-twpages .tw-page-table-actions{flex-wrap:wrap;justify-content:flex-end;min-width:fit-content}
+#page-twpages .tw-page-table-actions .btn{min-width:fit-content;white-space:nowrap;overflow:visible;font-size:12px!important;line-height:1.2}
 #page-twpages .tw-page-table th:nth-child(1){width:190px}
 #page-twpages .tw-page-table th:nth-child(2){width:92px}
 #page-twpages .tw-page-table th:nth-child(3){width:138px}
@@ -4489,27 +4498,32 @@ input:focus, select:focus, textarea:focus {
  <div class="ph">
   <div><h2>落地页工作台</h2><p>发布主链接、生成投放子码（/a/子码）、复制去 FB 投放、查看统计并回填真实结果</p></div>
   <div class="landing-top-actions">
-   <select class="fc" id="landingPerfDays" style="width:130px;height:36px" onchange="setLandingPerfDays(this.value)">
-   <option value="1">今日真实效果</option>
-   <option value="3">近 3 天</option>
-   <option value="7" selected>近 7 天</option>
-   <option value="14">近 14 天</option>
-   <option value="30">近 30 天</option>
-   <option value="90">近 90 天</option>
-  </select>
-   <input class="fc" id="landingPerfDateFrom" type="date" style="width:138px;height:36px" title="访问日志开始日期">
-   <span style="font-size:12px;color:var(--t3)">至</span>
-   <input class="fc" id="landingPerfDateTo" type="date" style="width:138px;height:36px" title="访问日志结束日期">
-   <button class="btn btn-g" onclick="applyLandingPerfDateRange()">按日期查看</button>
-   <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:36px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
-   <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
-   <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
-   <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">防护规则</button>
-   <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()">域名库</button>
-   <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">资产预设</button>
-   <button class="btn btn-g" onclick="scrollLandingApiPanel()">API</button>
-   <button class="btn btn-g" onclick="downloadLandingTemplateReference()">模板包</button>
-   <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
+   <div class="landing-toolbar-row landing-toolbar-row-primary">
+    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
+    <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
+    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
+   </div>
+   <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false">⚙️ 更多配置 ▾</button>
+   <div class="landing-toolbar-row landing-toolbar-row-more" id="landingToolbarMore" style="display:none">
+    <select class="fc" id="landingPerfDays" style="width:130px;height:36px" onchange="setLandingPerfDays(this.value)">
+    <option value="1">今日真实效果</option>
+    <option value="3">近 3 天</option>
+    <option value="7" selected>近 7 天</option>
+    <option value="14">近 14 天</option>
+    <option value="30">近 30 天</option>
+    <option value="90">近 90 天</option>
+    </select>
+    <input class="fc" id="landingPerfDateFrom" type="date" style="width:138px;height:36px" title="访问日志开始日期">
+    <span style="font-size:12px;color:var(--t3)">至</span>
+    <input class="fc" id="landingPerfDateTo" type="date" style="width:138px;height:36px" title="访问日志结束日期">
+    <button class="btn btn-g" onclick="applyLandingPerfDateRange()">按日期查看</button>
+    <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:36px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
+    <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">防护规则</button>
+    <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()">域名库</button>
+    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">资产预设</button>
+    <button class="btn btn-g" onclick="scrollLandingApiPanel()">API</button>
+    <button class="btn btn-g" onclick="downloadLandingTemplateReference()">模板包</button>
+   </div>
   </div>
  </div>
  <div class="landing-flow-manual">
@@ -4652,12 +4666,17 @@ input:focus, select:focus, textarea:focus {
     </div>
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：落地页-日期-版本"></div>
-     <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
      <div class="fg"><label class="fl">自定义域名（建议填写）</label><div class="landing-domain-picker"><input class="fc" id="lpCustomDomain" list="landingDomainDatalist" placeholder="例如：go.example.com"><select class="fc" id="lpDomainSelect" onchange="applyLandingDomainFromSelect(this.value)"><option value="">从域名库选择</option></select><button class="btn btn-g btn-sm" type="button" onclick="generateLandingRandomSubdomain('lpCustomDomain')">随机子域名</button></div><datalist id="landingDomainDatalist"></datalist><div class="fh">优先使用子域名；根域名通常只作为生成子域名的来源。保存发布时仍会校验域名状态。</div></div>
      <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px"><select class="fc" id="lpTemplate"></select><button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="openLandingTemplateManager()">模板管理</button></div><div class="fh">模板决定页面内容；统计、跳转和防护规则由发布配置执行。已发布页面要换内容，需要重新发布一次。</div></div>
-     <div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">支持多个 Pixel 资产分开维护；选择后只填入当前发布配置，不会影响其他落地页。</div></div>
      <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind" onchange="onLandingKindChanged()"><option value="landing">普通落地页：先展示页面，点击按钮后跳转</option><option value="form">表单投放链接：打开后直接跳转</option></select><div class="fh" id="lpKindHint">普通落地页会先展示页面内容，用户点击按钮后再跳转到目标链接。</div></div>
+    </div>
+    <div class="fg" style="margin-top:4px"><button type="button" class="btn btn-g" id="lpAdvancedToggle" style="width:100%;font-size:12px;text-align:left;padding:8px 12px" onclick="toggleLpAdvanced()">高级设置（项目名 / Pixel）▾</button></div>
+    <div id="lpAdvancedPanel" style="display:none">
+     <div class="landing-form-grid" style="margin-top:8px">
+      <div class="fg"><label class="fl">项目名（可空）</label><input class="fc" id="lpProject" placeholder="留空自动生成"></div>
+      <div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">支持多个 Pixel 资产分开维护；选择后只填入当前发布配置，不会影响其他落地页。</div></div>
+     </div>
     </div>
    </div>
    <div class="landing-form-section">
@@ -18007,7 +18026,7 @@ async function editTwPageProfile(id){
   '<div style="font-size:12px;color:var(--t3);line-height:1.6">这里维护 Mira 侧展示与投放匹配信息；不会修改 Facebook 主页后台资料。粉丝/关注数如果 Meta 权限无法读取，可手动补齐方便识别。</div>'+
   '<div class="landing-result-modal-grid">'+
    '<div class="fg"><label class="fl">主页名称</label><input class="fc" id="twEditName" value="'+escHtml(p.page_name||'')+'"></div>'+
-   '<div class="fg"><label class="fl">主页类型</label><input class="fc" id="twEditCategory" value="'+escHtml(p.page_category||'')+'" placeholder="例如 Health/Beauty、Shopping"></div>'+
+   '<div class="fg"><label class="fl">主页类型</label><input class="fc" id="twEditCategory" list="twCategoryOptions" value="'+escHtml(p.page_category||'')+'" placeholder="选择或输入类型"><datalist id="twCategoryOptions"><option value="品牌商品"><option value="数字服务"><option value="娱乐媒体"><option value="本地商家"><option value="社区组织"><option value="其他"></datalist></div>'+
    '<div class="fg"><label class="fl">粉丝数</label><input class="fc" id="twEditFanCount" type="number" min="0" step="1" value="'+escHtml(_twCountInputValue(p.page_fan_count))+'"></div>'+
    '<div class="fg"><label class="fl">关注数</label><input class="fc" id="twEditFollowersCount" type="number" min="0" step="1" value="'+escHtml(_twCountInputValue(p.page_followers_count))+'"></div>'+
    '<div class="fg wide"><label class="fl">备注</label><input class="fc" id="twEditNote" value="'+escHtml(p.note||'')+'" placeholder="用途、负责人或投放说明"></div>'+
@@ -20687,10 +20706,12 @@ function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  if(String(item.ad_id||'').trim()){
   buttons.push('<button class="btn btn-p btn-sm" onclick="jumpToAd(\''+String(item.ad_id||'')+'\',\''+String(item.act_id||'')+'\')" title="在投放中心查看这条广告">→ 查看广告</button>');
   buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
+  buttons.push('<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="clearLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+')" title="清空已回填的真实进线/成交数据">清除</button>');
  }else if(_landingAdLinkCanDelete(item,stats)){
   buttons.push('<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="deleteLandingAdLink('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">删除</button>');
  }else{
   buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
+  buttons.push('<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="clearLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+')" title="清空已回填的真实进线/成交数据">清除</button>');
  }
  return '<div class="landing-ad-link-actions">'+buttons.join('')+'</div>';
 }
@@ -20860,6 +20881,17 @@ function scrollLandingApiPanel(){
 function closeLandingRowMenus(){
  document.querySelectorAll('.landing-row-more.open').forEach(function(el){el.classList.remove('open')});
 }
+function toggleLandingToolbarMore(btn){
+ if(!btn)return;
+ var more=document.getElementById('landingToolbarMore');
+ if(!more)return;
+ var open=more.style.display==='none';
+ more.style.display=open?'flex':'none';
+ if(btn){
+  btn.setAttribute('aria-expanded',open?'true':'false');
+  btn.textContent=open?'⚙️ 更多配置 ▴':'⚙️ 更多配置 ▾';
+ }
+}
 function toggleLandingMoreMenu(ev,id){
  if(ev&&ev.stopPropagation)ev.stopPropagation();
  var el=document.getElementById('landingMore_'+id);
@@ -20867,6 +20899,14 @@ function toggleLandingMoreMenu(ev,id){
  var willOpen=!el.classList.contains('open');
  closeLandingRowMenus();
  if(willOpen)el.classList.add('open');
+}
+function toggleLpAdvanced(){
+ var p=document.getElementById('lpAdvancedPanel');
+ var b=document.getElementById('lpAdvancedToggle');
+ if(!p)return;
+ var open=p.style.display==='none';
+ p.style.display=open?'block':'none';
+ if(b)b.textContent=open?'高级设置（项目名 / Pixel）▴':'高级设置（项目名 / Pixel）▾';
 }
 document.addEventListener('click',function(ev){
  if(ev.target&&ev.target.closest&&ev.target.closest('.landing-row-actions'))return;
@@ -21811,6 +21851,30 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
  if(actionsEl)actionsEl.oninput=updateLandingResultPreviewCost;
  mo.style.display='flex';
  loadLandingResultPreview(linkId,false);
+}
+async function clearLandingAdResult(linkId, encodedSlug, actions, sales){
+ var slug=decodeURIComponent(encodedSlug||'');
+ var hasData=(Number(actions||0)+Number(sales||0))>0;
+ var msg='确认清除该广告入口<b>'+(slug||('链接 '+linkId))+'</b> 的所有已回填真实数据？<br>'+
+   '<span style="color:var(--t3);font-size:12px">清除后该入口将恢复为“未回填”状态，真实成本会重新按 FB 成效口径展示。此操作不可恢复。</span>';
+ if(!hasData){
+   msg='该入口当前没有有效回填数据。仍然清除全部回填记录？<br>'+
+     '<span style="color:var(--t3);font-size:12px">入口：<b>'+(slug||('链接 '+linkId))+'</b></span>';
+ }
+ showConfirm('<div style="text-align:left;line-height:1.7">'+msg+'</div>', function(){
+   (async function(){
+     try{
+       await api('DELETE','/landing-pages/ad-links/'+linkId+'/result');
+       toast('已清除回填数据','ok');
+       if(isPageVisible('landing_center'))await loadLandingCenter(true);
+       if(document.getElementById('page-ads')&&document.getElementById('page-ads').classList.contains('active'))await loadAds();
+     }catch(e){
+       var msg=(e&&e.message)||String(e||'');
+       if(/404|not found/i.test(msg)){toast('清除接口暂未就绪（后端待上线），请稍后再试','wa');}
+       else{toast('清除失败：'+msg,'er');}
+     }
+   })();
+ });
 }
 async function saveLandingAdResult(linkId, encodedSlug){
  var slug=decodeURIComponent(encodedSlug||'');
@@ -24327,12 +24391,13 @@ function _adsMoreActions(rep, level) {
     btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();quickKpi(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\',\''+_adsJs(rep.ad_name||'')+'\')" title="KPI配置">🎯</button>');
     btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();showAdBrief(\''+_adsJs(id)+'\')" title="广告详情">ℹ️</button>');
     if (rep.landing && rep.landing.link_id) {
-      btns.push('<button class="ads-inline-btn icon" style="color:var(--wa)" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改跳转链接">🔗</button>');
+      // 已有子码：改跳转（编辑现有子码专属跳转池）
+      btns.push('<button class="ads-inline-btn" style="color:var(--wa)" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改该广告入口的专属跳转链接">🔗 改跳转</button>');
       btns.push('<button class="ads-inline-btn icon" style="color:var(--ok)" onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(id)+'\')" title="回填真实数据">📝</button>');
       btns.push('<button class="ads-inline-btn icon" style="color:var(--ac)" onclick="event.stopPropagation();_adsOpenLandingData(\''+_adsJs(id)+'\')" title="查看该广告的落地页访问日志/数据">📊</button>');
     } else {
-      // 未绑定子码的广告：始终给一个「绑定跳转」入口
-      btns.push('<button class="ads-inline-btn icon" style="color:var(--t3)" onclick="event.stopPropagation();quickBindAdLandingLink(\''+_adsJs(id)+'\')" title="绑定落地页广告入口（绑定后可改跳转/回填）">🔗</button>');
+      // 未绑定子码：生成新子码并绑定（绑定后才能改跳转/回填）
+      btns.push('<button class="ads-inline-btn" style="color:var(--t3)" onclick="event.stopPropagation();quickBindAdLandingLink(\''+_adsJs(id)+'\')" title="为该广告生成专属子码入口（绑定后可改跳转/回填）">🔗 绑定子码</button>');
     }
   }
 
