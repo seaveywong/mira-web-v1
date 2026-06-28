@@ -4699,6 +4699,28 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
     return {"success": True, "page": item, "requires_republish_once": bool(item.get("requires_republish_once")), "asset_republished": False}
 
 
+@router.get("/ad-links/lookup")
+def lookup_ad_link_by_ad_id(ad_id: str, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        tid = (ad_id or "").strip()
+        if not tid:
+            raise HTTPException(status_code=400, detail="请填写广告 ID")
+        where = ["l.ad_id=?", "l.status!='archived'"]
+        params = [tid]
+        sw, sp = _scope_where(user, "l")
+        where.extend(sw); params.extend(sp)
+        rows = conn.execute(
+            "SELECT l.id, l.slug, l.ad_id, l.act_id, l.ad_name, l.target_urls, l.status, l.page_id, l.public_url, p.title AS page_title "
+            "FROM landing_ad_links l LEFT JOIN landing_pages p ON p.id=l.page_id "
+            "WHERE " + " AND ".join(where) + " ORDER BY l.id DESC LIMIT 20",
+            params,
+        ).fetchall()
+        return {"found": bool(rows), "items": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
 @router.get("/pages/{page_id}/ad-links")
 def list_landing_ad_links(page_id: int, user=Depends(get_current_user)):
     conn = get_conn()

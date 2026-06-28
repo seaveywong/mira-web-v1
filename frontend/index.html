@@ -4578,6 +4578,7 @@ input:focus, select:focus, textarea:focus {
  <div class="ph landing-ph">
   <div class="landing-ph-title"><h2>落地页工作台</h2><p>发布投放链接 › 生成子码 › 复制去 FB › 监控 › 回填结果</p></div>
   <div class="landing-top-actions">
+   <input class="fc" id="landingAdIdLookup" placeholder="按广告 ID 查短链" style="width:180px;height:34px" title="输入广告 ID 查它绑定的子码短链" onkeydown="if(event.key==='Enter')lookupLandingAdLinkByAdId(this.value)">
    <button class="btn btn-p landing-cta-publish role-hide-viewer" onclick="openLandingPublishDrawer()"> 发布新链接</button>
    <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false"> 配置 ▾</button>
    <div class="landing-toolbar-row landing-toolbar-row-more" id="landingToolbarMore" style="display:none">
@@ -23401,6 +23402,22 @@ function switchAssetLibTab(tab){
  if(tab==='pixel')body.innerHTML=_assetLibPixelsHtml();
  else if(tab==='domain')body.innerHTML=_assetLibDomainsHtml();
  else body.innerHTML=_assetLibTemplatesHtml();
+}
+async function lookupLandingAdLinkByAdId(adId){
+ adId=(adId||'').trim(); if(!adId){toast('请输入广告 ID','wa');return;}
+ try{
+  var r=await api('GET','/landing-pages/ad-links/lookup?ad_id='+encodeURIComponent(adId));
+  var items=(r&&r.items)||[];
+  if(!items.length){showInfo('未找到广告 <b>'+escHtml(adId)+'</b> 绑定的子码。可能该广告还未绑定，或子码已归档。','未找到');return;}
+  var rows=items.map(function(x){
+   var short=(x.public_url||('/a/'+(x.slug||'')));
+   return '<div style="border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px;text-align:left">'+
+    '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap"><span class="badge bg-ac">'+escHtml(x.slug||'')+'</span><span class="badge '+(x.status==='active'?'bg-ok':'bg-mu')+'">'+escHtml(x.status||'')+'</span></div>'+
+    '<div style="font-family:monospace;font-size:12px;word-break:break-all"><a href="'+escHtml(short)+'" target="_blank" style="color:var(--ac)">'+escHtml(short)+'</a></div>'+
+    '<div style="font-size:11px;color:var(--t3);margin-top:4px">所属：'+escHtml(x.page_title||('落地页 '+x.page_id))+(x.ad_name?(' . '+escHtml(x.ad_name)):'')+'</div></div>';
+  }).join('');
+  showInfo('<div style="font-size:12px;color:var(--t2);margin-bottom:8px">广告 <b>'+escHtml(adId)+'</b> 绑定了 '+items.length+' 个子码：</div>'+rows,'广告 '+adId+' 的短链');
+ }catch(e){}
 }
 function openAssetLibraryModal(tab){
  var mo=document.getElementById('moAssetLibrary');
