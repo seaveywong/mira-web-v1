@@ -136,7 +136,7 @@ function loadLaunchTemplate() {
  mo.style.cssText = 'display:flex;z-index:9999';
  mo.id = 'moLaunchTpl';
  mo.innerHTML = '<div class="mc-box" style="max-width:420px;width:90%">' +
-  '<div class="mh"><h3>投放设置模版</h3><button class="mc" onclick="document.getElementById(\'moLaunchTpl\').remove()">✕</button></div>' +
+  '<div class="mh"><h3>投放设置模版</h3><button class="mc" onclick="document.getElementById(\'moLaunchTpl\').remove()">×</button></div>' +
   '<div style="padding:16px">' +
   '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">点击模版名称或「应用」按钮加载设置（不影响账户选择）</div>' +
   listHtml +
@@ -3712,7 +3712,7 @@ input:focus, select:focus, textarea:focus {
  <div class="layout">
   <div class="sb-overlay" id="sbOverlay" onclick="closeSidebar()"></div>
   <aside class="sidebar" id="sidebar">
-   <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
+   <button class="sb-close-btn" onclick="closeSidebar()">×</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
 <div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.159</div></div>
@@ -3742,7 +3742,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item role-superadmin-only" onclick="showPage('settings')"><span class="nav-icon"></span>系统设置</div>
    </nav>
    <div class="sb-foot">
-    <button type="button" onclick="showGlossary()" style="display:block;width:100%;margin-bottom:10px;padding:8px 10px;background:var(--bgh);border:1px solid var(--bd);border-radius:8px;color:var(--t1);font-size:12px;font-weight:600;cursor:pointer">📖 术语说明（新手帮助）</button>
+    <button type="button" onclick="showGlossary()" style="display:block;width:100%;margin-bottom:10px;padding:8px 10px;background:var(--bgh);border:1px solid var(--bd);border-radius:8px;color:var(--t1);font-size:12px;font-weight:600;cursor:pointer"> 术语说明（新手帮助）</button>
     <div class="role-operator-only role-non-superadmin-only" style="margin-bottom:10px;background:var(--bg2);border-radius:10px;border:1px solid var(--bd);overflow:hidden">
      <div style="padding:7px 10px;background:rgba(59,130,246,.06);border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:6px">
       <span style="font-size:11px;font-weight:600;color:var(--t1)" title="自动守护总称：巡检广告按规则止损/拉量、落地页镜像备份、账户探活、新号预热。注意：这与侧栏的「防护规则」(落地页访问侧拦截) 是两件事，互不影响。">安全守护</span><span style="font-size:10px;color:var(--t3);margin-left:8px" id="inspectCountdown">--</span>
@@ -3831,7 +3831,7 @@ input:focus, select:focus, textarea:focus {
     <!-- Dashboard -->
     <div class="page active" id="page-dashboard">
      <div id="dashOnboard" style="display:none;margin:12px 0;padding:18px 20px;background:var(--bg2);border:1px solid var(--bd);border-radius:12px">
-      <div style="font-weight:700;font-size:15px;margin-bottom:6px">👋 欢迎使用 Mira，三步开始投放</div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px"> 欢迎使用 Mira，三步开始投放</div>
       <div style="color:var(--t2);font-size:13px;margin-bottom:12px">系统会全程引导：先导入广告账户与操作号 Token，再去投放中心铺广告，最后用落地页追踪每条广告的进线。</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
        <button type="button" onclick="showPage('tokens')" style="background:var(--ac);color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">① 导入 Token / 账户</button>
@@ -3846,7 +3846,7 @@ input:focus, select:focus, textarea:focus {
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
        <select class="fc" id="dashAct" style="min-width:130px;max-width:160px;font-size:12px;padding:5px 8px" onchange="localStorage.setItem('mira_dash_act',this.value);loadDash()"><option value="">全部账户</option></select>
-       <button class="btn btn-g btn-sm" type="button" onclick="_openActHub((document.getElementById('dashAct')||{}).value)" title="一键跳转到该账户的所有配置（主页/链接/素材/规则/落地页等）" style="font-size:12px;padding:5px 10px">⚙️ 账户配置</button>
+       <button class="btn btn-g btn-sm" type="button" onclick="_openActHub((document.getElementById('dashAct')||{}).value)" title="一键跳转到该账户的所有配置（主页/链接/素材/规则/落地页等）" style="font-size:12px;padding:5px 10px"> 账户配置</button>
        <select class="fc" id="dashKpi" style="min-width:120px;font-size:12px;padding:5px 8px" onchange="localStorage.setItem('mira_dash_kpi',this.value);loadDash()">
         <option value="">全部类型</option>
         <option value="purchase">购买</option>
@@ -3945,7 +3945,7 @@ input:focus, select:focus, textarea:focus {
         <span>止损明细（所选日期，去重）</span>
         <div style="display:flex;gap:8px;align-items:center">
          <span id="pauseDetailMeta" style="font-size:12px;color:var(--t3)"></span>
-         <button class="btn btn-g btn-sm" onclick="togglePauseDetail()">✕ 关闭</button>
+         <button class="btn btn-g btn-sm" onclick="togglePauseDetail()">× 关闭</button>
         </div>
        </div>
        <div class="table-wrap"><table>
@@ -3959,7 +3959,7 @@ input:focus, select:focus, textarea:focus {
       <div class="card">
        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
         <span id="accDetailTitle">各账户明细</span>
-        <button class="btn btn-g btn-sm" onclick="closeAccDetail()">✕ 关闭</button>
+        <button class="btn btn-g btn-sm" onclick="closeAccDetail()">× 关闭</button>
        </div>
        <div class="table-wrap"><table>
         <thead id="accDetailHead"><tr><th>账户名称</th><th>货币</th><th>时区</th><th>消耗 (USD)</th><th>转化</th><th>CPA (USD)</th><th>ROAS</th><th>状态</th></tr></thead>
@@ -4031,14 +4031,14 @@ input:focus, select:focus, textarea:focus {
        <button class="ad-center-card" data-ad-center-tab="pages" onclick="switchAdCenterModule('pages')"><div><b>主页库</b><span>主页状态、类型、粉丝规模、Verified ID</span></div><em>PG</em></button>
       </div>
       <div class="ad-center-strip">
-       <strong>当前工作台：</strong><small>从账户层级向下查看广告系列 → 广告组 → 广告；单条广告可直接改跳转、回填真实数据、配置 KPI。</small>
+       <strong>当前工作台：</strong><small>从账户层级向下查看广告系列 › 广告组 › 广告；单条广告可直接改跳转、回填真实数据、配置 KPI。</small>
       </div>
      </div>
      <div id="adCenterAdsPane">
      <div class="fb ads-context-bar" style="flex-wrap:wrap;gap:8px">
       <select class="fc" id="adsAct" onchange="onAdsAccountChanged()" style="min-width:220px"><option value="">选择广告账户</option></select>
       <button class="btn btn-g btn-sm" type="button" onclick="viewAllAdsAccounts()">查看全部账户</button>
-      <button class="btn btn-g btn-sm" type="button" onclick="_openActHub()" title="一键跳转到该账户的主页/链接/素材/规则/操作号等配置">⚙️ 账户配置</button>
+      <button class="btn btn-g btn-sm" type="button" onclick="_openActHub()" title="一键跳转到该账户的主页/链接/素材/规则/操作号等配置"> 账户配置</button>
       <!-- 日期范围筛选 -->
       <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
        <span style="font-size:12px;color:var(--t3);white-space:nowrap">日期：</span>
@@ -4067,7 +4067,7 @@ input:focus, select:focus, textarea:focus {
        <option value="automated">守护中</option>
        <option value="recent_ops">最近操作</option>
       </select>
-      <button class="btn btn-g btn-sm" type="button" onclick="_showAdsStatusLegend()" title="各状态/筛选含义说明" style="font-size:12px;padding:5px 9px">❓ 状态</button>
+      <button class="btn btn-g btn-sm" type="button" onclick="_showAdsStatusLegend()" title="各状态/筛选含义说明" style="font-size:12px;padding:5px 9px"> 状态</button>
       <input class="fc" id="adsQ" placeholder="搜索广告名称 / ID / 系列名..." oninput="filterAds()" style="min-width:180px">
      </div>
      <div id="adsBulkBar" class="fb" style="gap:8px;margin-top:8px;display:none">
@@ -4078,13 +4078,13 @@ input:focus, select:focus, textarea:focus {
      </div>
      <div class="ads-tabs-container" id="adsViewTabs">
       <div class="ads-tabs-left">
-       <button class="ads-tab-btn active" onclick="switchAdsViewTab('campaigns')">📁 广告系列</button>
-       <button class="ads-tab-btn" onclick="switchAdsViewTab('adsets')">📦 广告组</button>
-       <button class="ads-tab-btn" onclick="switchAdsViewTab('ads')">📰 广告</button>
+       <button class="ads-tab-btn active" onclick="switchAdsViewTab('campaigns')"> 广告系列</button>
+       <button class="ads-tab-btn" onclick="switchAdsViewTab('adsets')"> 广告组</button>
+       <button class="ads-tab-btn" onclick="switchAdsViewTab('ads')"> 广告</button>
       </div>
       <div class="ads-tabs-actions">
-       <button class="btn btn-p btn-sm" onclick="openLaunchFromAdCenter()" title="直接打开铺广告向导，素材在向导内选择" style="font-size:12px;padding:5px 10px;">🚀 铺广告</button>
-       <button class="btn btn-g btn-sm" onclick="openQuickLinkGen()" title="查看/复制账户绑定的投放链接" style="font-size:12px;padding:5px 10px;">📋 复制投放链接</button>
+       <button class="btn btn-p btn-sm" onclick="openLaunchFromAdCenter()" title="直接打开铺广告向导，素材在向导内选择" style="font-size:12px;padding:5px 10px;"> 铺广告</button>
+       <button class="btn btn-g btn-sm" onclick="openQuickLinkGen()" title="查看/复制账户绑定的投放链接" style="font-size:12px;padding:5px 10px;"> 复制投放链接</button>
        <button class="btn btn-g btn-sm" onclick="openQuickImportAccount()" title="导入新广告账户并自动匹配Token" style="font-size:12px;padding:5px 10px;">＋ 导入账户</button>
       </div>
      </div><div class="card ads-table-card" id="adsTableCard" style="padding:0"><div class="table-wrap"><table class="ads-table"><thead id="adsTableHead"><tr><th style="width:28px">开关</th><th style="width:28px"><input type="checkbox" id="adsSelectAll" onchange="toggleSelectAllAds(this.checked)"></th><th>名称</th><th style="width:60px">状态</th><th style="width:70px">预算</th><th style="width:80px">消耗</th><th style="width:38px">转化</th><th style="width:38px">真实</th><th style="width:56px">CPA</th><th style="width:56px">目标CPA</th><th style="width:50px">ROAS</th><th style="width:44px">KPI</th><th style="width:44px">评分</th><th style="width:130px">操作</th></tr></thead>
@@ -4355,11 +4355,11 @@ input:focus, select:focus, textarea:focus {
      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;padding:12px 16px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs)">
       <span style="font-size:12px;color:var(--t3);font-weight:600">优先级：</span>
       <span class="badge bg-ac">广告级（最高）</span>
-      <span style="color:var(--t3);font-size:12px">→</span>
+      <span style="color:var(--t3);font-size:12px">›</span>
       <span class="badge bg-pu">广告组级</span>
-      <span style="color:var(--t3);font-size:12px">→</span>
+      <span style="color:var(--t3);font-size:12px">›</span>
       <span class="badge bg-cy">Campaign级</span>
-      <span style="color:var(--t3);font-size:12px">→</span>
+      <span style="color:var(--t3);font-size:12px">›</span>
       <span class="badge bg-mu">账户级（兜底）</span>
       <span style="color:var(--t3);font-size:12px;margin-left:8px">来源：</span>
       <span class="badge bg-ok">人工配置</span>
@@ -4390,7 +4390,7 @@ input:focus, select:focus, textarea:focus {
     <!-- KPI Mapping -->
     <div class="page" id="page-kpi_mapping">
      <div class="ph">
-      <div><h2>KPI 映射管理</h2><p>管理 KPI 类型 → FB action_type 映射，审核未知类型</p></div>
+      <div><h2>KPI 映射管理</h2><p>管理 KPI 类型 › FB action_type 映射，审核未知类型</p></div>
       <div class="ph-acts">
        <button class="btn btn-g" onclick="loadKpiMapping()">刷新</button>
       </div>
@@ -4569,18 +4569,18 @@ input:focus, select:focus, textarea:focus {
 <!-- Page: 落地页工作台 -->
 <div class="page" id="page-landing_center">
  <div class="ph landing-ph">
-  <div class="landing-ph-title"><h2>落地页工作台</h2><p>发布主链接 → 生成子码 → 复制去 FB → 监控 → 回填结果</p></div>
+  <div class="landing-ph-title"><h2>落地页工作台</h2><p>发布主链接 › 生成子码 › 复制去 FB › 监控 › 回填结果</p></div>
   <div class="landing-top-actions">
-   <button class="btn btn-p landing-cta-publish role-hide-viewer" onclick="openLandingPublishDrawer()">🔗 发布新链接</button>
-   <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false">⚙️ 配置 ▾</button>
+   <button class="btn btn-p landing-cta-publish role-hide-viewer" onclick="openLandingPublishDrawer()"> 发布新链接</button>
+   <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false"> 配置 ▾</button>
    <div class="landing-toolbar-row landing-toolbar-row-more" id="landingToolbarMore" style="display:none">
-    <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()" title="落地页访问侧拦截规则">🛡 防护规则</button>
-    <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()" title="可用域名与 DNS 状态">🌐 域名库</button>
-    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()" title="Pixel / 域名 / 跳转预设">📦 资产预设</button>
-    <button class="btn btn-g" onclick="scrollLandingApiPanel()" title="发布通道 API Token">🔌 API</button>
-    <button class="btn btn-g" onclick="downloadLandingTemplateReference()" title="下载页面模板规范包">📦 模板包</button>
-    <button class="btn btn-g" onclick="showPage('landing_urls')" title="账户绑定的默认落地页/表单链接">🔗 账户绑定</button>
-    <button class="btn btn-g" onclick="loadLandingCenter(true)" title="重新拉取链接库">🔄 刷新</button>
+    <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()" title="落地页访问侧拦截规则"> 防护规则</button>
+    <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()" title="可用域名与 DNS 状态"> 域名库</button>
+    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()" title="Pixel / 域名 / 跳转预设"> 资产预设</button>
+    <button class="btn btn-g" onclick="scrollLandingApiPanel()" title="发布通道 API Token"> API</button>
+    <button class="btn btn-g" onclick="downloadLandingTemplateReference()" title="下载页面模板规范包"> 模板包</button>
+    <button class="btn btn-g" onclick="showPage('landing_urls')" title="账户绑定的默认落地页/表单链接"> 账户绑定</button>
+    <button class="btn btn-g" onclick="loadLandingCenter(true)" title="重新拉取链接库"> 刷新</button>
     <span class="landing-toolbar-sep"></span>
     <select class="fc" id="landingPerfDays" style="width:130px;height:34px" onchange="setLandingPerfDays(this.value)" title="真实效果统计窗口">
     <option value="1">今日真实效果</option>
@@ -4610,7 +4610,7 @@ input:focus, select:focus, textarea:focus {
   <button type="button" class="landing-flow-stage" onclick="landingFlowFocus('record')"><span class="landing-flow-num">5</span><div><b>回填真实数据</b><small>按真实进线算成本</small></div></button>
  </div>
  <div class="landing-onboarding-hint" id="landingOnboardingHint" style="display:none">
-  <span class="landing-onboarding-hint-text">手动投放：先<b>发布一个落地页</b> → 点行内 <b>🔗 生成投放链接</b> 生成子码 → 复制带 <code>?ad=&#123;&#123;ad.id&#125;&#125;</code> 的链接去 FB 投放</span>
+  <span class="landing-onboarding-hint-text">手动投放：先<b>发布一个落地页</b> › 点行内 <b> 生成投放链接</b> 生成子码 › 复制带 <code>?ad=&#123;&#123;ad.id&#125;&#125;</code> 的链接去 FB 投放</span>
   <button type="button" class="landing-onboarding-hint-close" onclick="dismissLandingOnboardingHint()" title="我知道了">×</button>
  </div>
  <details class="landing-guide-details">
@@ -4620,11 +4620,11 @@ input:focus, select:focus, textarea:focus {
    <div class="landing-guide-title">手动投放照这 4 步走</div>
    <div class="landing-guide-steps">
     <div class="landing-guide-step"><b>1</b><span>先发布一个落地页</span><small>选域名、模板、跳转链接和统计规则。</small></div>
-    <div class="landing-guide-step"><b>2</b><span>点“🔗 生成投放链接”生成子码</span><small>在落地页行内点该按钮，一条 FB 广告一个 /a/子码。</small></div>
+    <div class="landing-guide-step"><b>2</b><span>点“ 生成投放链接”生成子码</span><small>在落地页行内点该按钮，一条 FB 广告一个 /a/子码。</small></div>
     <div class="landing-guide-step"><b>3</b><span>复制带 ad 参数的链接去 FB</span><small>结果弹窗里点“复制”，粘贴到 FB 广告管理器的目标 URL。</small></div>
     <div class="landing-guide-step"><b>4</b><span>看统计 / 回填真实结果</span><small>没回填时看 FB 成效；有回填时按真实进线算成本。</small></div>
    </div>
-   <div class="landing-guide-note"><b>说明：</b><span>手动投放流程：行内 <b>🔗 生成投放链接</b> 会生成 <code>/a/子码?ad={{ad.id}}</code> 并弹出可复制的完整链接；FB 会自动用广告 ID 替换 <code>{{ad.id}}</code>，把访问归因到具体广告。一条子码只对应一条 FB 广告。</span></div>
+   <div class="landing-guide-note"><b>说明：</b><span>手动投放流程：行内 <b> 生成投放链接</b> 会生成 <code>/a/子码?ad={{ad.id}}</code> 并弹出可复制的完整链接；FB 会自动用广告 ID 替换 <code>{{ad.id}}</code>，把访问归因到具体广告。一条子码只对应一条 FB 广告。</span></div>
    <div class="landing-quick-actions">
     <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布落地页</button>
     <button class="btn btn-g" onclick="showPage('landing_urls')">绑定到账户</button>
@@ -4771,7 +4771,7 @@ input:focus, select:focus, textarea:focus {
      <select class="fc" id="lpRepeatVisitorWindow" title="防重粉判定窗口" style="width:120px;flex:0 0 120px;padding:0 8px"><option value="">今日</option><option value="6">近6小时</option><option value="24">近24小时</option><option value="168">近7天</option></select>
      <select class="fc" id="lpRotation" onchange="updateLandingRotationHint()"><option value="sequential">全局顺序轮询</option><option value="random">随机轮询</option><option value="first">固定第一个</option></select>
     </div>
-    <div style="margin:6px 0 0;font-size:11.5px;color:#6e6e73;line-height:1.5">同一访客(指纹)今日已点击/提交过 → 再次转化会被记为拦截，防止刷量刷转化；按 ip+ua 指纹识别，清 cookie/换设备可绕过（基础防刷）。</div>
+    <div style="margin:6px 0 0;font-size:11.5px;color:#6e6e73;line-height:1.5">同一访客(指纹)今日已点击/提交过 › 再次转化会被记为拦截，防止刷量刷转化；按 ip+ua 指纹识别，清 cookie/换设备可绕过（基础防刷）。</div>
     <div class="landing-template-tools">
      <select class="fc" id="lpProtectionTemplate" onchange="applyProtectionTemplateToPrefix(this.value,'lp')"><option value="">选择防护规则模板</option></select>
      <button class="btn btn-g btn-sm" type="button" onclick="openLandingProtectionDrawer()">管理模板</button>
@@ -4833,7 +4833,7 @@ input:focus, select:focus, textarea:focus {
     <p>每个卡片是一个已发布的落地页；点"生成投放链接"为每条 FB 广告生成子码。</p>
    </div>
    <div class="landing-filter-toggle-wrap">
-    <button type="button" class="btn btn-g btn-sm" onclick="toggleLandingFilterBar(this)" aria-expanded="true">🔍 筛选 ▾</button>
+    <button type="button" class="btn btn-g btn-sm" onclick="toggleLandingFilterBar(this)" aria-expanded="true"> 筛选 ▾</button>
    </div>
   </div>
   <div class="landing-filterbar" id="landingFilterBar">
@@ -5025,7 +5025,7 @@ input:focus, select:focus, textarea:focus {
    <button class="mobile-more-item" onclick="showPage('tokens');setMobileNav('');toggleMobileMoreMenu()"><span></span>Token 管理</button>
    <button class="mobile-more-item role-admin-only" onclick="showPage('team_admin');setMobileNav('');toggleMobileMoreMenu()"><span></span>团队管理</button>
    <button class="mobile-more-item role-superadmin-only" onclick="showPage('settings');setMobileNav('settings');toggleMobileMoreMenu()"><span></span>系统设置</button>
-   <button class="mobile-more-item" onclick="toggleMobileMoreMenu()" style="color:var(--t3)"><span>✕</span>取消</button>
+   <button class="mobile-more-item" onclick="toggleMobileMoreMenu()" style="color:var(--t3)"><span>×</span>取消</button>
   </div>
  </div>
 </div>
@@ -5033,7 +5033,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Add Token -->
 <div class="mo" id="moAddToken">
  <div class="modal">
-  <div class="mh"><h3>添加 Token</h3><button class="mc" onclick="closeModal('moAddToken')">✕</button></div>
+  <div class="mh"><h3>添加 Token</h3><button class="mc" onclick="closeModal('moAddToken')">×</button></div>
   <div class="mb">
    <div class="info-box" style="margin-bottom:12px">
     保存后系统会自动扫描同团队 / 同负责人已导入账户，能管理该账户的 Token 会自动补齐关联；无需再点到单个 Token 里手动匹配。
@@ -5053,7 +5053,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Import Accounts -->
 <div class="mo" id="moMetaOAuth">
  <div class="modal modal-lg">
-  <div class="mh"><h3>Meta 官方授权中心</h3><button class="mc" onclick="closeModal('moMetaOAuth')">✕</button></div>
+  <div class="mh"><h3>Meta 官方授权中心</h3><button class="mc" onclick="closeModal('moMetaOAuth')">×</button></div>
   <div class="mb" id="metaOAuthBody">
    <div style="text-align:center;padding:30px;color:var(--t3)"><div class="spin" style="margin:0 auto 12px"></div>加载授权配置...</div>
   </div>
@@ -5066,7 +5066,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Import Accounts -->
 <div class="mo" id="moImport">
  <div class="modal modal-lg">
-  <div class="mh"><h3 id="importTitle">导入广告账户</h3><button class="mc" onclick="closeModal('moImport')">✕</button></div>
+  <div class="mh"><h3 id="importTitle">导入广告账户</h3><button class="mc" onclick="closeModal('moImport')">×</button></div>
   <div class="mb">
    <div class="info-box" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
     <div style="min-width:260px;flex:1">
@@ -5111,7 +5111,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Add KPI -->
 <div class="mo" id="moAddKpi">
  <div class="modal">
-  <div class="mh"><h3 id="kpiMTitle">添加 KPI 配置</h3><button class="mc" onclick="closeModal('moAddKpi')">✕</button></div>
+  <div class="mh"><h3 id="kpiMTitle">添加 KPI 配置</h3><button class="mc" onclick="closeModal('moAddKpi')">×</button></div>
   <div class="mb">
    <div class="fg"><label class="fl">账户 <span class="req">*</span></label><select class="fc" id="kpiActSel" onchange="loadKpiTargets()"></select></div>
    <div class="fg"><label class="fl">配置层级 <span class="req">*</span></label>
@@ -5144,7 +5144,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Auto Scan -->
 <div class="mo" id="moAutoScan">
  <div class="modal modal-lg">
-  <div class="mh"><h3>KPI 自动扫描预设</h3><button class="mc" onclick="closeModal('moAutoScan')">✕</button></div>
+  <div class="mh"><h3>KPI 自动扫描预设</h3><button class="mc" onclick="closeModal('moAutoScan')">×</button></div>
   <div class="mb">
    <div class="info-box">扫描账户下所有活跃广告，根据广告目标、优化目标、历史数据自动推断 KPI 字段并写入配置（广告级）。<br>
     <strong style="color:var(--t1)">已人工配置的 KPI 不会被覆盖。</strong>AI 已启用时同步进行 AI 增强分析。
@@ -5170,7 +5170,7 @@ input:focus, select:focus, textarea:focus {
     <h3>主页 / 像素配置</h3>
     <div style="font-size:12px;color:var(--t3);margin-top:2px">账户：<code id="ppActId"></code></div>
    </div>
-   <button class="mc" onclick="closeModal('moPagePixel')">✕</button>
+   <button class="mc" onclick="closeModal('moPagePixel')">×</button>
   </div>
   <div class="mb">
    <div class="info-box" style="margin-bottom:14px;font-size:12px">铺广告时系统将使用此处配置的主页和像素。灰色选项表示该主页/像素不可用或权限不足。
@@ -5211,7 +5211,7 @@ input:focus, select:focus, textarea:focus {
       <option value="">— 不使用台湾声明（非台湾投放）—</option>
      </select>
     </div>
-    <div style="font-size:11px;color:var(--t3);margin-top:4px">投放台湾地区广告时 Facebook 强制要求。认证身份需在 FB 后台完成验证后，在「系统设置→台湾认证身份」中录入。
+    <div style="font-size:11px;color:var(--t3);margin-top:4px">投放台湾地区广告时 Facebook 强制要求。认证身份需在 FB 后台完成验证后，在「系统设置›台湾认证身份」中录入。
     </div>
    </div>
   </div>
@@ -5229,7 +5229,7 @@ input:focus, select:focus, textarea:focus {
     <h3>操作号池配置</h3>
     <div style="font-size:12px;color:var(--t3);margin-top:2px">账户：<code id="opPoolActId"></code></div>
    </div>
-   <button class="mc" onclick="closeModal('moOpPool')">✕</button>
+   <button class="mc" onclick="closeModal('moOpPool')">×</button>
   </div>
   <div class="mb">
    <div class="info-box" style="margin-bottom:14px;font-size:12px">
@@ -5269,7 +5269,7 @@ input:focus, select:focus, textarea:focus {
  <div class="modal modal-lg" style="max-width:680px">
   <div class="mh">
    <div><h3 id="assetDetailTitle">素材详情</h3></div>
-   <button class="mc" onclick="closeModal('moAssetDetail')">✕</button>
+   <button class="mc" onclick="closeModal('moAssetDetail')">×</button>
   </div>
   <div class="mb" id="assetDetailBody" style="max-height:70vh;overflow-y:auto">
    <div style="text-align:center;padding:30px;color:var(--t3)">加载中...</div>
@@ -5282,9 +5282,9 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Launch Campaign (v3.3 一键铺广告 - 含投放参数) -->
 <div class="mira-drawer" id="moLaunchCampaign">
  <div class="modal modal-lg" style="max-width:640px">
-  <div class="mira-drawer-header"><div class="mira-drawer-title">🚀 投放中心 - 智能铺广告向导</div><button class="mira-drawer-close" onclick="closeMiraDrawer('moLaunchCampaign')">✕</button></div><div class="mira-drawer-content">
+  <div class="mira-drawer-header"><div class="mira-drawer-title"> 投放中心 - 智能铺广告向导</div><button class="mira-drawer-close" onclick="closeMiraDrawer('moLaunchCampaign')">×</button></div><div class="mira-drawer-content">
   <div class="mb" style="overflow-y:auto;max-height:75vh">
-   <div class="info-box" style="margin-bottom:14px;font-size:12px">系统将自动使用操作号创建 Campaign → AdSet × 受众 → Ad × 文案，全程无需人工干预。广告上线后由巡检引擎接管，空消耗自动止损。
+   <div class="info-box" style="margin-bottom:14px;font-size:12px">系统将自动使用操作号创建 Campaign › AdSet × 受众 › Ad × 文案，全程无需人工干预。广告上线后由巡检引擎接管，空消耗自动止损。
    </div>
    <input type="hidden" id="launchAssetId">
 
@@ -5613,7 +5613,7 @@ input:focus, select:focus, textarea:focus {
        <option value="BOOK_TRAVEL">Book Travel（立即预订）</option>
       </optgroup>
      </select>
-     <div style="font-size:11px;color:var(--t3);margin-top:3px" id="launchCtaHint">选「自动」时系统根据转化目的自动推断：消息类广告→Send Message，有落地页→Shop Now，其他→Learn More</div>
+     <div style="font-size:11px;color:var(--t3);margin-top:3px" id="launchCtaHint">选「自动」时系统根据转化目的自动推断：消息类广告›Send Message，有落地页›Shop Now，其他›Learn More</div>
     </div>
     <div class="fg" id="launchTwAdvRow" style="margin-bottom:12px;display:none">
      <label class="fl"> 认证主页 / Verified ID <span class="req">*</span></label>
@@ -5655,7 +5655,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Batch CPA -->
 <div class="mo" id="moBatchCpa">
  <div class="modal modal-lg">
-  <div class="mh"><h3>批量设置目标 CPA</h3><button class="mc" onclick="closeModal('moBatchCpa')">✕</button></div>
+  <div class="mh"><h3>批量设置目标 CPA</h3><button class="mc" onclick="closeModal('moBatchCpa')">×</button></div>
   <div class="mb">
    <div class="info-box" style="margin-bottom:16px">批量为 KPI 配置设置目标 CPA（单次转化费用上限）。可按账户、KPI 字段类型、层级筛选范围。<br>
     <strong style="color:var(--wa)">默认不覆盖人工配置的记录。</strong>
@@ -5715,7 +5715,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Add Rule -->
 <div class="mo" id="moAddRule">
  <div class="modal modal-lg">
-  <div class="mh"><h3 id="ruleMTitle">添加止损规则</h3><button class="mc" onclick="closeModal('moAddRule')">✕</button></div>
+  <div class="mh"><h3 id="ruleMTitle">添加止损规则</h3><button class="mc" onclick="closeModal('moAddRule')">×</button></div>
   <div class="mb">
    <div class="fr">
     <div class="fg"><label class="fl">账户 <span style="color:var(--t4);font-size:11px;font-weight:400">（不选=当前运营名下全部账户）</span></label><select class="fc" id="ruleAct" onchange="onRuleActChange();updateGuardPreview();updateScalePreview()"></select></div>
@@ -5789,7 +5789,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Emergency -->
 <div class="mo" id="moEmg">
  <div class="modal modal-lg">
-  <div class="mh"><h3>全局紧急暂停</h3><button class="mc" onclick="closeModal('moEmg')">✕</button></div>
+  <div class="mh"><h3>全局紧急暂停</h3><button class="mc" onclick="closeModal('moEmg')">×</button></div>
   <div class="mb">
    <div class="warn-box"> <strong>此操作将暂停所有账户下的全部活跃广告！</strong><br>执行前将自动扫描将要关闭的数量，执行后逐条核验是否真实关闭，失败的记录并提示人工处理。</div>
    <div class="fr">
@@ -5824,7 +5824,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Template -->
 <div class="mo" id="moTemplate">
  <div class="modal modal-lg">
-  <div class="mh"><h3>一键套用规则模板</h3><button class="mc" onclick="closeModal('moTemplate')">✕</button></div>
+  <div class="mh"><h3>一键套用规则模板</h3><button class="mc" onclick="closeModal('moTemplate')">×</button></div>
   <div class="mb">
    <div style="margin-bottom:16px">
     <label class="fl">应用到账户 <span style="font-size:11px;color:var(--t3);font-weight:400">（可多选；不选=当前运营名下全部账户）</span></label>
@@ -5855,7 +5855,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Custom Template -->
 <div class="mo" id="moCustomTpl">
  <div class="modal modal-lg">
-  <div class="mh"><h3>自定义模板管理</h3><button class="mc" onclick="closeModal('moCustomTpl')">✕</button></div>
+  <div class="mh"><h3>自定义模板管理</h3><button class="mc" onclick="closeModal('moCustomTpl')">×</button></div>
   <div class="mb">
    <!-- 操作说明 -->
    <div style="margin-bottom:16px;padding:14px 16px;background:var(--acg);border:1px solid rgba(59,130,246,.25);border-radius:8px">
@@ -5864,20 +5864,20 @@ input:focus, select:focus, textarea:focus {
      <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg2);border-radius:6px;font-size:12px;color:var(--t2)">
       <span style="width:20px;height:20px;border-radius:50%;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">1</span>在「规则引擎」中配置好当前账户的所有规则
      </div>
-     <span style="color:var(--t3);font-size:16px;align-self:center">→</span>
+     <span style="color:var(--t3);font-size:16px;align-self:center">›</span>
      <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg2);border-radius:6px;font-size:12px;color:var(--t2)">
       <span style="width:20px;height:20px;border-radius:50%;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">2</span>点「保存当前规则为模板」，输入模板名称
      </div>
-     <span style="color:var(--t3);font-size:16px;align-self:center">→</span>
+     <span style="color:var(--t3);font-size:16px;align-self:center">›</span>
      <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg2);border-radius:6px;font-size:12px;color:var(--t2)">
       <span style="width:20px;height:20px;border-radius:50%;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">3</span>在此页面查看已保存的模板
      </div>
-     <span style="color:var(--t3);font-size:16px;align-self:center">→</span>
+     <span style="color:var(--t3);font-size:16px;align-self:center">›</span>
      <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg2);border-radius:6px;font-size:12px;color:var(--t2)">
       <span style="width:20px;height:20px;border-radius:50%;background:var(--ok);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">4</span>在「套用模板」中选择模板并应用到其他账户
      </div>
     </div>
-    <div style="margin-top:10px;font-size:11px;color:var(--t3)">ℹ 模板将包含当前账户的所有止损规则和拉量规则，应用后可在目标账户中单独调整参数</div>
+    <div style="margin-top:10px;font-size:11px;color:var(--t3)"> 模板将包含当前账户的所有止损规则和拉量规则，应用后可在目标账户中单独调整参数</div>
    </div>
    <div id="customTplContent"></div>
   </div>
@@ -5887,7 +5887,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Save Template -->
 <div class="mo" id="moSaveTpl">
  <div class="modal">
-  <div class="mh"><h3>将当前规则存为模板</h3><button class="mc" onclick="closeModal('moSaveTpl')">✕</button></div>
+  <div class="mh"><h3>将当前规则存为模板</h3><button class="mc" onclick="closeModal('moSaveTpl')">×</button></div>
   <div class="mb">
    <div class="info-box">将当前账户下的所有规则打包为模板，���存后可在「套用推荐模板」中选择并应用到其他账户。</div>
    <div class="fg"><label class="fl">模板名称 <span class="req">*</span></label><input class="fc" id="saveTplName" placeholder="如：我的电商止损方案"></div>
@@ -5900,7 +5900,7 @@ input:focus, select:focus, textarea:focus {
 <!-- 消息模版弹窗 -->
 <div class="mo" id="moMsgTemplate">
  <div class="modal" style="max-width:560px">
-  <div class="mh"><h3 id="msgTplModalTitle">新建消息模版</h3><button class="mc" onclick="closeModal('moMsgTemplate')">✕</button></div>
+  <div class="mh"><h3 id="msgTplModalTitle">新建消息模版</h3><button class="mc" onclick="closeModal('moMsgTemplate')">×</button></div>
   <div class="mb">
    <div class="fg">
     <label class="fl">模版名称 <span class="req">*</span></label>
@@ -5951,7 +5951,7 @@ input:focus, select:focus, textarea:focus {
 <!-- 表单模版弹窗 -->
 <div class="mo" id="moLeadFormTemplate">
  <div class="modal" style="max-width:600px">
-  <div class="mh"><h3 id="leadFormTplModalTitle">新建表单模版</h3><button class="mc" onclick="closeModal('moLeadFormTemplate')">✕</button></div>
+  <div class="mh"><h3 id="leadFormTplModalTitle">新建表单模版</h3><button class="mc" onclick="closeModal('moLeadFormTemplate')">×</button></div>
   <div class="mb">
    <div class="fg">
     <label class="fl">模版名称 <span class="req">*</span></label>
@@ -6045,7 +6045,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Mirror Snapshot Modal -->
 <div class="mo" id="moMirrorSnapshot">
  <div class="modal" style="max-width:560px">
-  <div class="mh"><h3>镜像快照</h3><button class="mc" onclick="closeModal('moMirrorSnapshot')">✕</button></div>
+  <div class="mh"><h3>镜像快照</h3><button class="mc" onclick="closeModal('moMirrorSnapshot')">×</button></div>
   <div class="mb" id="mirrorSnapshotBody" style="max-height:60vh;overflow-y:auto">
    <div style="text-align:center;padding:20px;color:var(--t3)"><span class="spin"></span>加载中...</div>
   </div>
@@ -6059,7 +6059,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Modal: Spend Cap -->
 <div class="mo" id="moSpendCap">
  <div class="modal" style="max-width:440px">
-  <div class="mh"><h3>设置消费上限</h3><button class="mc" onclick="closeModal('moSpendCap')">✕</button></div>
+  <div class="mh"><h3>设置消费上限</h3><button class="mc" onclick="closeModal('moSpendCap')">×</button></div>
   <div class="mb">
    <div class="info-box" style="margin-bottom:14px;font-size:12px">通过 <b>Facebook API</b>直接设置账户 <code>spend_cap</code>，FB 平台强制执行。API 只支持设置明确限额；移除上限请到 Meta 后台人工处理。
    </div>
@@ -6294,9 +6294,9 @@ function toast(msg,type){
  var c=document.getElementById('toastC');
  if(!c){console.warn('toastC not found');return;}
  var t=document.createElement('div');
- var icons={ok:'',er:'',ac:'ℹ',wa:''};
+ var icons={ok:'',er:'',ac:'',wa:''};
  t.className='toast t-'+type;
- t.innerHTML='<span>'+(icons[type]||'ℹ')+'</span><span></span>';
+ t.innerHTML='<span>'+(icons[type]||'')+'</span><span></span>';
  t.lastChild.textContent=msg;
  c.appendChild(t);
  setTimeout(function(){
@@ -6375,7 +6375,7 @@ function showGlossary(){
  var moId="moGlossary";
  var mo=document.getElementById(moId);
  if(!mo){mo=document.createElement("div");mo.id=moId;mo.className="mo";document.body.appendChild(mo);}
- mo.innerHTML='<div class="modal" style="max-width:560px;width:94%"><div class="mh"><h3 style="margin:0;font-size:16px">📖 术语说明</h3><button class="mc" onclick="closeModal(\'moGlossary\')">✕</button></div><div class="mb" style="padding:16px 20px">'+h+'</div></div>';
+ mo.innerHTML='<div class="modal" style="max-width:560px;width:94%"><div class="mh"><h3 style="margin:0;font-size:16px"> 术语说明</h3><button class="mc" onclick="closeModal(\'moGlossary\')">×</button></div><div class="mb" style="padding:16px 20px">'+h+'</div></div>';
  openModal(moId);
 }
 function showConfirm(msg, onOk) {
@@ -6437,7 +6437,7 @@ function promptAsync(title, label, defaultVal, placeholder) {
   mo.id = moId;
   mo.innerHTML = '<div class="modal" style="max-width:420px;width:92%">' +
    '<div class="mh"><h3 style="margin:0;font-size:15px">' + title + '</h3>' +
-   '<button class="mc" id="' + moId + '_x">✕</button></div>' +
+   '<button class="mc" id="' + moId + '_x">×</button></div>' +
    '<div class="mb" style="padding:20px 24px">' +
    (label ? '<label class="fl" style="margin-bottom:8px;font-size:13px">' + label + '</label>' : '') +
    '<input class="fc" id="' + inputId + '" type="text" value="' + (defaultVal !== null && defaultVal !== undefined ? defaultVal : '') + '" placeholder="' + placeholder + '" style="width:100%;box-sizing:border-box">' +
@@ -6474,7 +6474,7 @@ function promptTextareaAsync(title, label, defaultVal, placeholder) {
   mo.id = moId;
   mo.innerHTML = '<div class="modal" style="max-width:520px;width:92%">' +
    '<div class="mh"><h3 style="margin:0;font-size:15px">' + title + '</h3>' +
-   '<button class="mc" id="' + moId + '_x">✕</button></div>' +
+   '<button class="mc" id="' + moId + '_x">×</button></div>' +
    '<div class="mb" style="padding:20px 24px">' +
    (label ? '<label class="fl" style="margin-bottom:8px;font-size:13px">' + label + '</label>' : '') +
    '<textarea class="fc" id="' + inputId + '" rows="7" placeholder="' + escHtml(placeholder) + '" style="width:100%;box-sizing:border-box;resize:vertical">' + escHtml(defaultVal || '') + '</textarea>' +
@@ -6511,7 +6511,7 @@ function showInfo(htmlContent, titleText) {
  mo.id = moId;
  mo.innerHTML = '<div class="'+modalClass+'">' +
   '<div class="mh"><h3 style="margin:0;font-size:15px">' + escHtml(titleText) + '</h3>' +
-  '<button class="mc" onclick="' + closeJs + '">✕</button></div>' +
+  '<button class="mc" onclick="' + closeJs + '">×</button></div>' +
   '<div class="mb" style="font-size:13px;line-height:1.7;color:var(--t1)">' + htmlContent + '</div>' +
   '<div class="mf"><button class="btn btn-p" onclick="' + closeJs + '">确定</button></div>' +
   '</div>';
@@ -8237,7 +8237,7 @@ function openDashboardAllowances(){
  var mo=document.getElementById('moDashboardAllowance');
  if(!mo){mo=document.createElement('div');mo.id='moDashboardAllowance';mo.className='mo';document.body.appendChild(mo);}
  mo.innerHTML='<div class="modal modal-lg" style="max-width:980px">'+
-  '<div class="mh"><div><h3>今日放行广告</h3><div class="fh" id="dashboardAllowanceMeta">加载中...</div></div><button class="mc" onclick="closeModal(&quot;moDashboardAllowance&quot;)">✕</button></div>'+
+  '<div class="mh"><div><h3>今日放行广告</h3><div class="fh" id="dashboardAllowanceMeta">加载中...</div></div><button class="mc" onclick="closeModal(&quot;moDashboardAllowance&quot;)">×</button></div>'+
   '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
    '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">'+
     '<div class="fh">这些广告在账户本地日期当天会跳过规则止损。撤销后，下一次巡检恢复正常监管。</div>'+
@@ -8345,7 +8345,7 @@ var pageTitles={dashboard:'数据看板',ads:'投放中心',logs:'操作日志',
 var AD_CENTER_PAGE_MODULES={accounts:'accounts',templates:'templates',landing_urls:'links',landing_center:'landing',twpages:'pages'};
 var AD_CENTER_MODULE_PAGES={accounts:'accounts',templates:'templates',links:'landing_urls',landing:'landing_center',pages:'twpages'};
 var AD_CENTER_MODULE_TEXT={
- ads:'从账户层级向下查看广告系列 → 广告组 → 广告；单条广告可直接改跳转、回填真实数据、配置 KPI。',
+ ads:'从账户层级向下查看广告系列 › 广告组 › 广告；单条广告可直接改跳转、回填真实数据、配置 KPI。',
  accounts:'账户资产、Token、操作号和 Pixel 状态统一维护；完成后可直接回到广告总览查看投放结果。',
  templates:'消息模板和 Lead Form 模板在这里维护；铺广告弹窗会直接读取可用模板。',
  links:'账户默认投放链接 / 表单链接在这里维护；铺广告时自动生成广告级子码入口。',
@@ -9104,7 +9104,7 @@ function setAdsRange(days){
  loadAds();
 }
 function _renderAdsAccountPrompt(){
- var message='<div class="onboarding-empty-state"><h3>👋 欢迎来到投放中心</h3><p style="color:var(--t3);margin-bottom:20px;">三步完成您的首次广告投放</p><div class="onboarding-step active"><b>1</b> <span>在“授权中心”绑定 Meta OAuth 操作号</span></div><div class="onboarding-step"><b>2</b> <span>在“落地页工作台”绑定您的第一个落地页</span></div><div class="onboarding-step"><b>3</b> <span>选择一个账户，点击右侧“一键铺广告”</span></div></div>';
+ var message='<div class="onboarding-empty-state"><h3> 欢迎来到投放中心</h3><p style="color:var(--t3);margin-bottom:20px;">三步完成您的首次广告投放</p><div class="onboarding-step active"><b>1</b> <span>在“授权中心”绑定 Meta OAuth 操作号</span></div><div class="onboarding-step"><b>2</b> <span>在“落地页工作台”绑定您的第一个落地页</span></div><div class="onboarding-step"><b>3</b> <span>选择一个账户，点击右侧“一键铺广告”</span></div></div>';
  var body=document.getElementById('adsBody');
  // board 视图已下线，欢迎引导改为在表格区整行展示
  if(body)body.innerHTML='<tr><td colspan="14" style="padding:24px">'+message+'</td></tr>';
@@ -9656,8 +9656,8 @@ function showAdBrief(adId){
  if(l.public_url)actions+='<button class="btn btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+_adsJs(l.public_url)+'\').then(function(){toast(\'已复制投放链接\',\'ok\')})">复制投放链接</button>';
  actions+='<button class="btn btn-sm" onclick="quickKpi(\''+_adsJs(a.ad_id)+'\',\''+_adsJs(a.act_id)+'\',\''+_adsJs(a.ad_name||'')+'\')">配置 KPI</button>';
  if(l.link_id)actions+='<button class="btn btn-g btn-sm" onclick="_adsOpenLandingData(\''+_adsJs(a.ad_id)+'\')">查看落地数据</button>';
- actions+='<button class="btn btn-sm" onclick="_adsGoAssetForAd(\''+_adsJs(a.ad_id)+'\')" title="按广告名里的素材码搜索素材库">🎨 素材</button>';
- if((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)actions+='<button class="btn btn-sm" onclick="jumpToTwPage(\''+_adsJs((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)+'\')">→ 主页库</button>';
+ actions+='<button class="btn btn-sm" onclick="_adsGoAssetForAd(\''+_adsJs(a.ad_id)+'\')" title="按广告名里的素材码搜索素材库"> 素材</button>';
+ if((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)actions+='<button class="btn btn-sm" onclick="jumpToTwPage(\''+_adsJs((a.page_brief&&a.page_brief.page_id)||a.fb_page_id)+'\')">› 主页库</button>';
  actions+='<button class="btn btn-sm" onclick="_openActHub(\''+_adsJs(a.act_id)+'\')">账户配置中心</button></div>';
  showInfo(_adsLandingBriefHtml(a)+actions,'广告综合信息');
 }
@@ -10669,7 +10669,7 @@ function buildTokenPermissionBadges(t){
    :status==='missing'
    ?'background:rgba(239,68,68,.10);color:#dc2626;border:1px solid rgba(239,68,68,.22)'
    :'background:rgba(245,158,11,.12);color:#d97706;border:1px solid rgba(245,158,11,.24)';
-  var icon=status==='granted'?'✓':status==='missing'?'×':'?';
+  var icon=status==='granted'?'':status==='missing'?'×':'?';
   return'<span class="badge" title="'+detail+'" style="'+style+'">'+icon+' '+label+'</span>';
  }).join('');
  updateGuardPreview();
@@ -11078,7 +11078,7 @@ async function createLocalTokenRegistration(){
   mo.className='mo';
   mo.id='moLocalTokenBind';
   mo.innerHTML='<div class="modal" style="max-width:560px;width:92%">'+
-   '<div class="mh"><h3 style="margin:0;font-size:15px">本地执行器</h3><button class="mc" onclick="closeModal(\'moLocalTokenBind\')">✕</button></div>'+
+   '<div class="mh"><h3 style="margin:0;font-size:15px">本地执行器</h3><button class="mc" onclick="closeModal(\'moLocalTokenBind\')">×</button></div>'+
    '<div class="mb">'+
      '<div class="info-box" style="margin-bottom:12px">先下载并安装 Chrome 插件，再用下面的一次性激活码绑定当前浏览器。激活码只可使用一次；绑定成功后插件会保存节点身份，后续无需重复输入。</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn btn-p" onclick="downloadLocalTokenExtension()">下载 Chrome 插件</button><button class="btn btn-g" onclick="loadLocalTokenNodes()">刷新节点</button></div>'+
@@ -11099,7 +11099,7 @@ function openLocalExecutorTaskModal(){
  mo.className='mo';
  mo.id='moLocalExecutorTask';
  mo.innerHTML='<div class="modal" style="max-width:560px;width:92%">'+
-  '<div class="mh"><h3 style="margin:0;font-size:15px">本地 API 自检</h3><button class="mc" onclick="closeModal(\'moLocalExecutorTask\')">✕</button></div>'+
+  '<div class="mh"><h3 style="margin:0;font-size:15px">本地 API 自检</h3><button class="mc" onclick="closeModal(\'moLocalExecutorTask\')">×</button></div>'+
    '<div class="mb">'+
     '<div class="info-box" style="margin-bottom:12px">创建一个纯 API 自检任务：让已激活的 Chrome 执行器读取指定广告账户状态，用于验证本地执行器、账户权限和团队归属是否匹配。</div>'+
    '<div class="fg"><label class="fl">广告账户 ID</label><input class="fc" id="localExecutorActId" placeholder="例如 785770423307490"></div>'+
@@ -11337,7 +11337,7 @@ async function editTk(id, aliasEncoded, currentType, currentSource, noteEncoded,
  mo.className = 'mo';
  mo.id = moId;
  mo.innerHTML = '<div class="modal" style="max-width:560px;width:92%">'+
-  '<div class="mh"><h3 style="margin:0;font-size:15px">更新 Token</h3><button class="mc" onclick="closeModal(\''+moId+'\')">✕</button></div>'+
+  '<div class="mh"><h3 style="margin:0;font-size:15px">更新 Token</h3><button class="mc" onclick="closeModal(\''+moId+'\')">×</button></div>'+
   '<div class="mb">'+
    '<div style="font-size:12px;color:var(--t3);margin-bottom:12px">用于重新授权新的 Access Token，保留原 Token 记录和关联关系。</div>'+
    '<div class="fg"><label class="fl">别名</label><input class="fc" id="'+aliasId+'" value="'+escHtml(alias)+'" placeholder="便于识别"></div>'+
@@ -11446,7 +11446,7 @@ async function changeTkType(id,current){
   var moId='moTkType_'+Date.now();
   var mo=document.createElement('div');mo.className='mo';mo.id=moId;
   mo.innerHTML='<div class="modal" style="max-width:380px;width:92%">'+
-   '<div class="mh"><h3 style="margin:0;font-size:15px">修改 Token 类型</h3><button class="mc">✕</button></div>'+
+   '<div class="mh"><h3 style="margin:0;font-size:15px">修改 Token 类型</h3><button class="mc">×</button></div>'+
    '<div class="mb" style="padding:16px 20px"><div style="font-size:12px;color:var(--t3);margin-bottom:10px">当前类型：<strong>'+(current==='manage'?'管理号':current==='operate'?'操作号':'个人号')+'</strong></div>'+
    _tkTypeKeys.map(function(k){return '<button class="btn btn-g" style="width:100%;text-align:left;margin-bottom:8px;padding:10px 14px;font-size:13px" id="tkTypeBtn_'+k+'">'+_tkTypeMap[k]+'</button>';}).join('')+
    '</div></div>';
@@ -11477,7 +11477,7 @@ async function changeTkSource(id,current,currentType){
   var moId='moTkSource_'+Date.now();
   var mo=document.createElement('div');mo.className='mo';mo.id=moId;
   mo.innerHTML='<div class="modal" style="max-width:380px;width:92%">'+
-   '<div class="mh"><h3 style="margin:0;font-size:15px">修改 Token 来源</h3><button class="mc">✕</button></div>'+
+   '<div class="mh"><h3 style="margin:0;font-size:15px">修改 Token 来源</h3><button class="mc">×</button></div>'+
    '<div class="mb" style="padding:16px 20px"><div style="font-size:12px;color:var(--t3);margin-bottom:10px">当前来源：<strong>'+escHtml(getTokenSourceLabel(current))+'</strong>'+(currentType==='operate'?'<br><span style="color:#d97706">操作号必须保持 System User 或 Meta 官方授权来源</span>':'')+'</div>'+
    sourceKeys.map(function(k){return '<button class="btn btn-g" style="width:100%;text-align:left;margin-bottom:8px;padding:10px 14px;font-size:13px" id="tkSourceBtn_'+k+'">'+sourceMap[k]+'</button>';}).join('')+
    '</div></div>';
@@ -11671,7 +11671,7 @@ function toggleAcc(id,imp){
  if(selAccs.has(id))selAccs.delete(id);else selAccs.add(id);
  document.querySelectorAll('.api-item[data-id="'+id+'"]').forEach(function(el){
   el.classList.toggle('sel',selAccs.has(id));
-  el.querySelector('.api-chk').textContent=selAccs.has(id)?'✓':'';
+  el.querySelector('.api-chk').textContent=selAccs.has(id)?'':'';
  });
  document.getElementById('selCount').textContent='已选 '+selAccs.size+' 个';
  document.getElementById('btnImport').disabled=selAccs.size===0;
@@ -12625,7 +12625,7 @@ function _renderAssetCard(a){
  var _sv=scoreView.value;
  var _sg=scoreView.label||'';
  var _src=scoreView.source?scoreView.source+' ':'';
- var scoreHtml=scoreView.hasScore?'<span class="badge '+(_sv>=72?'bg-ok':_sv>=40?'bg-wa':'bg-er')+'" title="'+(scoreView.source==='实投'?'基于历史消耗、转化、CPA、ROAS 和点击信号':'AI 冷启动质量评分')+'">⭐ '+Math.round(_sv)+' '+_src+(_sg||'')+'</span>':'';
+ var scoreHtml=scoreView.hasScore?'<span class="badge '+(_sv>=72?'bg-ok':_sv>=40?'bg-wa':'bg-er')+'" title="'+(scoreView.source==='实投'?'基于历史消耗、转化、CPA、ROAS 和点击信号':'AI 冷启动质量评分')+'"> '+Math.round(_sv)+' '+_src+(_sg||'')+'</span>':'';
  var aiDone=a.upload_status==='ai_done'||(Array.isArray(a.ai_headlines)&&a.ai_headlines.length>0);
  var displayName=a.display_name||a.file_name||'';
  var warmupAsset=isWarmupAssetName(a);
@@ -13162,7 +13162,7 @@ function openAiAnalyzeModal(assetId){
   var raw=asset.target_countries;
   assetCountries=Array.isArray(raw)?raw:(typeof raw==='string'?raw.split(',').map(function(s){return s.trim().toUpperCase();}):[]);
  }
- // 国家→语言映射
+ // 国家›语言映射
  var _countryLangMap={
   'US':'en','GB':'en','CA':'en','AU':'en','NZ':'en','IE':'en',
   'ES':'es','MX':'es','AR':'es','CO':'es','PE':'es','CL':'es','VE':'es',
@@ -13215,7 +13215,7 @@ function openAiAnalyzeModal(assetId){
  var mo=document.createElement('div');
  mo.className='mo';mo.id='moAiAnalyze';mo.style.zIndex='9999';
  mo.innerHTML='<div class="modal" style="max-width:500px">'+
-  '<div class="mh"><h3>AI 视觉分析设置</h3><button class="mc" onclick="closeAiAnalyzeModal()">✕</button></div>'+
+  '<div class="mh"><h3>AI 视觉分析设置</h3><button class="mc" onclick="closeAiAnalyzeModal()">×</button></div>'+
   '<div class="mb">'+html+'</div>'+
   '<div class="mf">'+
    '<button class="btn btn-g" onclick="closeAiAnalyzeModal()">取消</button>'+
@@ -13327,7 +13327,7 @@ async function openAssetDuplicates(){
   mo.id='moAssetDuplicates';
   var body='';
   if(!groups.length){
-   body='<div class="empty"><div class="empty-icon">✓</div><p>当前没有发现重复素材</p></div>';
+   body='<div class="empty"><div class="empty-icon"></div><p>当前没有发现重复素材</p></div>';
   }else{
    body='<div style="display:grid;gap:10px;max-height:60vh;overflow:auto">'+groups.map(function(g){
     return '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:10px 12px">'+
@@ -13342,7 +13342,7 @@ async function openAssetDuplicates(){
    }).join('')+'</div>';
   }
   mo.innerHTML='<div class="modal" style="max-width:720px">'+
-   '<div class="mh"><h3>重复素材检查</h3><button class="mc" onclick="closeModal(&quot;moAssetDuplicates&quot;)">✕</button></div>'+
+   '<div class="mh"><h3>重复素材检查</h3><button class="mc" onclick="closeModal(&quot;moAssetDuplicates&quot;)">×</button></div>'+
    '<div class="mb">'+body+'</div>'+
    '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moAssetDuplicates&quot;)">关闭</button></div>'+
   '</div>';
@@ -13358,7 +13358,7 @@ function openBatchOrganizeAssets(){
  mo.className='mo';
  mo.id='moAssetBatchOrganize';
  mo.innerHTML='<div class="modal" style="max-width:520px">'+
-  '<div class="mh"><h3>批量整理素材</h3><button class="mc" onclick="closeModal(&quot;moAssetBatchOrganize&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>批量整理素材</h3><button class="mc" onclick="closeModal(&quot;moAssetBatchOrganize&quot;)">×</button></div>'+
   '<div class="mb">'+
    '<div style="font-size:13px;color:var(--t2);margin-bottom:12px">已选 '+ids.length+' 个素材。留空的字段不会修改。</div>'+
    '<div class="fg"><label class="fl">素材组</label><input class="fc" id="batchAssetFolder" placeholder="例如：素材组-区域-用途"></div>'+
@@ -13511,7 +13511,7 @@ async function openAssetDetail(assetId){
 
   // ── 评分理由 ────────────────────────────────────────────────────────────
   if(scoreReason){
-   html+='<div><div style="font-size:12px;color:var(--t3);margin-bottom:6px">⭐ 评分理由</div>';
+   html+='<div><div style="font-size:12px;color:var(--t3);margin-bottom:6px"> 评分理由</div>';
    html+='<div style="background:var(--bg2);padding:10px 12px;border-radius:var(--rs);font-size:13px;color:var(--t2);line-height:1.6">'+scoreReason+'</div></div>';
   }
   if(usage){
@@ -14038,7 +14038,7 @@ function onLaunchActChange(actId){
   if(!pages.length){
    pageSel.innerHTML='<option value="">— 操作号未管理可投放主页 —</option>';
    window._launchPageMeta={};
-   if(pageHint){pageHint.innerHTML='⚠️ 当前操作号(系统用户)在 Facebook 上没有可投放主页（/me/accounts 为空）。请在 Business Manager 把主页以「广告」权限分享给该操作号系统用户后重试。';pageHint.style.color='var(--wa)';}
+   if(pageHint){pageHint.innerHTML=' 当前操作号(系统用户)在 Facebook 上没有可投放主页（/me/accounts 为空）。请在 Business Manager 把主页以「广告」权限分享给该操作号系统用户后重试。';pageHint.style.color='var(--wa)';}
    _renderLaunchChecklist();
    return;
   }
@@ -14218,7 +14218,7 @@ function renderLaunchAssetSummary(){
  var id=Number((document.getElementById('launchAssetId')||{}).value||0);
  var a=(_assetsData||[]).find(function(x){return x.id===id;});
  if(!a){
-  el.innerHTML='<div class="las-empty"><span>⚠️ 未选择素材</span><button class="btn btn-p btn-sm" onclick="pickLaunchAsset()">选择素材</button></div>';
+  el.innerHTML='<div class="las-empty"><span> 未选择素材</span><button class="btn btn-p btn-sm" onclick="pickLaunchAsset()">选择素材</button></div>';
   return;
  }
  var thumb=a.thumb_url||(a.file_type==='image'?a.file_url:'')||'';
@@ -14733,7 +14733,7 @@ async function onLaunchObjectiveChange() {
    } else if (meta.isLead) {
     hint.textContent = '即时表单广告建议使用自动或 SIGN_UP，避免按钮文案与转化路径不一致。';
    } else {
-    hint.textContent = '选「自动」时系统根据转化目的自动推断：消息类广告→Send Message，有落地页→Shop Now，其他→Learn More';
+    hint.textContent = '选「自动」时系统根据转化目的自动推断：消息类广告›Send Message，有落地页›Shop Now，其他›Learn More';
    }
   }
  }
@@ -14757,9 +14757,9 @@ async function onLaunchObjectiveChange() {
   var itemHtml = [];
   function addItem(state, label, desc) {
    var styles = {
-    ok: ['#166534', '#dcfce7', '✅'],
-    warn: ['#92400e', '#fef3c7', '⚠️'],
-    fail: ['#b91c1c', '#fee2e2', '❌']
+    ok: ['#166534', '#dcfce7', ''],
+    warn: ['#92400e', '#fef3c7', ''],
+    fail: ['#b91c1c', '#fee2e2', '']
    };
    var cfg = styles[state] || styles.warn;
    itemHtml.push(
@@ -14816,7 +14816,7 @@ async function onLaunchObjectiveChange() {
    }
   }
   var header = '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">' +
-   '<div style="font-size:12px;font-weight:700;color:var(--t1)">🚦 发布前自检 <span style="font-weight:400;color:var(--t3)">✅就绪 / ⚠️注意 / ❌会被拦截</span></div>' +
+   '<div style="font-size:12px;font-weight:700;color:var(--t1)"> 发布前自检 <span style="font-weight:400;color:var(--t3)">就绪 / 注意 / 会被拦截</span></div>' +
    '<div style="font-size:11px;color:var(--t3)">' + (selectedIds.length ? ('当前已选 ' + selectedIds.length + ' 个账户') : '尚未选择账户') + '</div>' +
   '</div>';
   box.innerHTML = header + itemHtml.join('');
@@ -14865,9 +14865,9 @@ async function onLaunchObjectiveChange() {
 
   function addItem(state, label, desc) {
    var styles = {
-    ok: ['#166534', '#dcfce7', '✅'],
-    warn: ['#92400e', '#fef3c7', '⚠️'],
-    fail: ['#b91c1c', '#fee2e2', '❌']
+    ok: ['#166534', '#dcfce7', ''],
+    warn: ['#92400e', '#fef3c7', ''],
+    fail: ['#b91c1c', '#fee2e2', '']
    };
    var cfg = styles[state] || styles.warn;
    itemHtml.push(
@@ -14968,7 +14968,7 @@ async function onLaunchObjectiveChange() {
    }
   }
   var header = '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">' +
-   '<div style="font-size:12px;font-weight:700;color:var(--t1)">🚦 发布前自检 <span style="font-weight:400;color:var(--t3)">✅就绪 / ⚠️注意 / ❌会被拦截</span></div>' +
+   '<div style="font-size:12px;font-weight:700;color:var(--t1)"> 发布前自检 <span style="font-weight:400;color:var(--t3)">就绪 / 注意 / 会被拦截</span></div>' +
    '<div style="font-size:11px;color:var(--t3)">' + (selectedIds.length ? ('当前已选 ' + selectedIds.length + ' 个账户') : '尚未选择账户') + '</div>' +
   '</div>';
  box.innerHTML = header + itemHtml.join('');
@@ -15553,15 +15553,15 @@ function _launchFriendlyHint(text){
  var t=String(text||'');
  function box(s){return '<div style="font-weight:700;margin-bottom:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fdba74;border-radius:6px;color:#9a3412">'+s+'</div>';}
  if(/authenticate your account|access your account without permission|本人验证|身份验证/i.test(t))
-  return box('🔒 账户被 FB 安全锁定：请用有权限的 FB 账号打开 <b>Ads Manager</b> 进入该广告账户完成<b>身份验证</b>，再重新投放（已有广告不受影响）。');
+  return box(' 账户被 FB 安全锁定：请用有权限的 FB 账号打开 <b>Ads Manager</b> 进入该广告账户完成<b>身份验证</b>，再重新投放（已有广告不受影响）。');
  if(/Bid Amount Required|bid_amount/i.test(t))
-  return box('💰 出价策略需要出价金额：请填写<b>目标 CPA</b>，或把出价策略改为<b>最低成本（自动）</b>。');
+  return box(' 出价策略需要出价金额：请填写<b>目标 CPA</b>，或把出价策略改为<b>最低成本（自动）</b>。');
  if(/subcode=33|does not support this operation|missing permissions|权限拒绝/i.test(t))
-  return box('🔑 操作号无写权限：请在 <b>Business Manager</b> 给操作号(系统用户)授予该<b>账户/主页</b>的广告写权限。');
+  return box(' 操作号无写权限：请在 <b>Business Manager</b> 给操作号(系统用户)授予该<b>账户/主页</b>的广告写权限。');
  if(/image_hash|creative|object_story|无素材|asset|素材/i.test(t))
-  return box('🖼 素材/创意问题：请确认素材已上传成功、AI 文案已生成；必要时换一个素材重试。');
+  return box(' 素材/创意问题：请确认素材已上传成功、AI 文案已生成；必要时换一个素材重试。');
  if(/budget|预算/i.test(t))
-  return box('📉 预算问题：请检查日预算是否达到该账户币种的最低投放金额。');
+  return box(' 预算问题：请检查日预算是否达到该账户币种的最低投放金额。');
  return '';
 }
 function _setLaunchProgress(pct, msg, status, data){
@@ -16168,7 +16168,7 @@ function openGuardAllowanceModal(){
  var mo=document.getElementById('moGuardAllowance');
  if(!mo){mo=document.createElement('div');mo.id='moGuardAllowance';mo.className='mo';document.body.appendChild(mo);}
  mo.innerHTML='<div class="modal modal-lg" style="max-width:780px">'+
-  '<div class="mh"><h3>当日广告放行</h3><button class="mc" onclick="closeModal(&quot;moGuardAllowance&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>当日广告放行</h3><button class="mc" onclick="closeModal(&quot;moGuardAllowance&quot;)">×</button></div>'+
   '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
    '<div style="display:grid;grid-template-columns:1.3fr .7fr;gap:10px">'+
     '<div class="fg"><label class="fl">账户</label><select class="fc" id="allowAct" onchange="loadGuardAllowances()">'+guardAllowanceAccountOptions(selected)+'</select></div>'+
@@ -16332,7 +16332,7 @@ function openRuleDryRunModal(){
  var mo=document.getElementById('moRuleDryRun');
  if(!mo){mo=document.createElement('div');mo.id='moRuleDryRun';mo.className='mo';document.body.appendChild(mo);}
  mo.innerHTML='<div class="modal modal-lg" style="max-width:860px">'+
-  '<div class="mh"><h3>规则预演测试</h3><button class="mc" onclick="closeModal(&quot;moRuleDryRun&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>规则预演测试</h3><button class="mc" onclick="closeModal(&quot;moRuleDryRun&quot;)">×</button></div>'+
   '<div class="mb" style="display:flex;flex-direction:column;gap:12px">'+
   '<div style="display:grid;grid-template-columns:1.2fr .8fr 1.2fr .7fr;gap:10px;align-items:end">'+
   '<div class="fg"><label class="fl">账户 ID（可选）</label><input class="fc" id="dryActId" value="'+escHtml(displayActId(selected))+'" placeholder="123456"></div>'+
@@ -16453,9 +16453,9 @@ function populateGuardTypes(){
 function populateScaleTypes(){
  var sel=document.getElementById('scaleType');if(!sel)return;
  var types=(rulesMeta.scale_types&&rulesMeta.scale_types.length)?rulesMeta.scale_types:[
-  {value:'slow_scale',label:'稳健拉量',desc:'CPA≤目标80%+连续2天+≥3转化 → 每次+15%预算',defaults:{cpa_ratio:0.8,min_conversions:3,consecutive_days:2,scale_pct:0.15}},
-  {value:'fast_scale',label:'快速拉量',desc:'CPA≤目标70%+连续1天+≥5转化 → 每次+25%预算',defaults:{cpa_ratio:0.7,min_conversions:5,consecutive_days:1,scale_pct:0.25}},
-  {value:'roas_scale',label:'ROAS 拉量',desc:'CPA≤目标90%+ROAS≥3.0+≥3转化 → 每次+20%预算',defaults:{cpa_ratio:0.9,min_conversions:3,consecutive_days:1,scale_pct:0.2,roas_threshold:3.0}}
+  {value:'slow_scale',label:'稳健拉量',desc:'CPA≤目标80%+连续2天+≥3转化 › 每次+15%预算',defaults:{cpa_ratio:0.8,min_conversions:3,consecutive_days:2,scale_pct:0.15}},
+  {value:'fast_scale',label:'快速拉量',desc:'CPA≤目标70%+连续1天+≥5转化 › 每次+25%预算',defaults:{cpa_ratio:0.7,min_conversions:5,consecutive_days:1,scale_pct:0.25}},
+  {value:'roas_scale',label:'ROAS 拉量',desc:'CPA≤目标90%+ROAS≥3.0+≥3转化 › 每次+20%预算',defaults:{cpa_ratio:0.9,min_conversions:3,consecutive_days:1,scale_pct:0.2,roas_threshold:3.0}}
  ];
  sel.innerHTML=types.map(function(t){return'<option value="'+t.value+'">'+t.label+'</option>'}).join('');
  onScaleType();
@@ -16646,16 +16646,16 @@ function updateGuardPreview(){
  var days=gv('param_days',2);
  var preview='';
  if(val<=0&&(type==='cpa_exceed'||type==='consecutive_bad'||type==='bleed_abs'||type==='click_no_conv'||type==='budget_burn_fast'||type==='trend_drop')){
-  preview=scopeLabel+' · '+kpiLabel+'：<span style="color:var(--wa)">请填写目标 CPA / 阈值后再看预览</span> → '+actionLabel;
+  preview=scopeLabel+' · '+kpiLabel+'：<span style="color:var(--wa)">请填写目标 CPA / 阈值后再看预览</span> › '+actionLabel;
  }
- else if(type==='bleed_abs'){preview=scopeLabel+' · '+kpiLabel+'：费用 ≥ $'+val.toFixed(2)+' 且转化=0 → '+actionLabel}
- else if(type==='cpa_exceed'){var e=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：CPA > $'+e.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）→ '+actionLabel}
- else if(type==='consecutive_bad'){var e2=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：连续'+days+'天 CPA > $'+e2.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）→ '+actionLabel}
- else if(type==='click_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：点击 ≥ '+val.toFixed(0)+' 且转化=0 → '+actionLabel}
- else if(type==='low_ctr_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：消耗 ≥ $'+val.toFixed(2)+' + CTR ≤ '+ratio.toFixed(2)+'% + 转化=0 → '+actionLabel}
- else if(type==='reach_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：覆盖 ≥ '+val.toFixed(0)+' + 消耗 ≥ $'+ratio.toFixed(2)+' + 转化=0 → '+actionLabel}
+ else if(type==='bleed_abs'){preview=scopeLabel+' · '+kpiLabel+'：费用 ≥ $'+val.toFixed(2)+' 且转化=0 › '+actionLabel}
+ else if(type==='cpa_exceed'){var e=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：CPA > $'+e.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）› '+actionLabel}
+ else if(type==='consecutive_bad'){var e2=val*ratio;preview=scopeLabel+' · '+kpiLabel+'：连续'+days+'天 CPA > $'+e2.toFixed(2)+'（目标$'+val.toFixed(2)+' × '+ratio.toFixed(1)+'倍）› '+actionLabel}
+ else if(type==='click_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：点击 ≥ '+val.toFixed(0)+' 且转化=0 › '+actionLabel}
+ else if(type==='low_ctr_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：消耗 ≥ $'+val.toFixed(2)+' + CTR ≤ '+ratio.toFixed(2)+'% + 转化=0 › '+actionLabel}
+ else if(type==='reach_no_conv'){preview=scopeLabel+' · '+kpiLabel+'：覆盖 ≥ '+val.toFixed(0)+' + 消耗 ≥ $'+ratio.toFixed(2)+' + 转化=0 › '+actionLabel}
  else if(type==='budget_burn_fast'){preview=scopeLabel+' · '+kpiLabel+'：单次巡检消耗增量 > $'+val.toFixed(2)+' → '+actionLabel}
- else if(type==='trend_drop'){preview=scopeLabel+' · '+kpiLabel+'：ROAS跌幅 > '+val.toFixed(0)+'% → '+actionLabel}
+ else if(type==='trend_drop'){preview=scopeLabel+' · '+kpiLabel+'：ROAS跌幅 > '+val.toFixed(0)+'% › '+actionLabel}
  else{preview=scopeLabel+' · '+kpiLabel+'：选择规则类型查看预览'}
  el.innerHTML=preview;
 }
@@ -16677,7 +16677,7 @@ function updateScalePreview(){
  var maxB=(mbEl&&mbEl.value)?'，上限$'+parseFloat(mbEl.value).toFixed(2)+' USD':'';
  var roEl=document.getElementById('sp_roas_threshold');
  var roasPart=(roEl&&roEl.value)?' + ROAS≥'+parseFloat(roEl.value).toFixed(1):'';
- el.textContent=scopeLabel+' · '+kpiLabel+'：CPA ≤ 目标×'+(r*100).toFixed(0)+'% + ≥'+mc.toFixed(0)+'转化 + 连续'+cd.toFixed(0)+'天'+roasPart+' → 加'+(sp*100).toFixed(0)+'%预算'+maxB;
+ el.textContent=scopeLabel+' · '+kpiLabel+'：CPA ≤ 目标×'+(r*100).toFixed(0)+'% + ≥'+mc.toFixed(0)+'转化 + 连续'+cd.toFixed(0)+'天'+roasPart+' › 加'+(sp*100).toFixed(0)+'%预算'+maxB;
 }
 function onGuardType(){
  var type=document.getElementById('guardType')&&document.getElementById('guardType').value;
@@ -19964,7 +19964,7 @@ function openLandingTemplateManager(){
  mo.id='moLandingTemplateManager';
  mo.dataset.dynamicModal='1';
  mo.innerHTML='<div class="modal" style="max-width:920px">'+
-  '<div class="mh"><h3>落地页模板管理</h3><button class="mc" onclick="closeModal(&quot;moLandingTemplateManager&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>落地页模板管理</h3><button class="mc" onclick="closeModal(&quot;moLandingTemplateManager&quot;)">×</button></div>'+
   '<div class="mb landing-asset-modal-shell">'+
    '<div class="landing-asset-hero"><div><div class="landing-asset-hero-title">上传符合系统规范的页面包</div><div class="landing-asset-hero-desc">模板只负责页面内容。Pixel、跳转链接、统计、防护规则由发布配置接管。</div></div><button class="btn btn-g btn-sm" onclick="downloadLandingTemplateReference()">下载规范包</button></div>'+
    '<div class="landing-asset-basic">'+
@@ -20765,7 +20765,7 @@ function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  buttons.push('<button class="btn btn-g btn-sm" onclick="showLandingAdLinkLogs('+(parseInt(item.page_id||0,10)||0)+',\''+encodeURIComponent(item.slug||'')+'\')">日志</button>');
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定')+'</button>');
  if(String(item.ad_id||'').trim()){
-  buttons.push('<button class="btn btn-p btn-sm" onclick="jumpToAd(\''+String(item.ad_id||'')+'\',\''+String(item.act_id||'')+'\')" title="在投放中心查看这条广告">→ 查看广告</button>');
+  buttons.push('<button class="btn btn-p btn-sm" onclick="jumpToAd(\''+String(item.ad_id||'')+'\',\''+String(item.act_id||'')+'\')" title="在投放中心查看这条广告">› 查看广告</button>');
   buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+','+(stats.confirmed_revenue||0)+',\''+encodeURIComponent(stats.confirmed_result_note||'')+'\',\''+encodeURIComponent(stats.confirmed_result_date||'')+'\')">回填</button>');
   buttons.push('<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="clearLandingAdResult('+item.id+',\''+encodeURIComponent(item.slug||'')+'\','+(stats.confirmed_actions||0)+','+(stats.confirmed_sales||0)+')" title="清空已回填的真实进线/成交数据">清除</button>');
  }else if(_landingAdLinkCanDelete(item,stats)){
@@ -20950,7 +20950,7 @@ function toggleLandingToolbarMore(btn){
  more.style.display=open?'flex':'none';
  if(btn){
   btn.setAttribute('aria-expanded',open?'true':'false');
-  btn.textContent=open?'⚙️ 更多配置 ▴':'⚙️ 更多配置 ▾';
+  btn.textContent=open?' 更多配置 ▴':' 更多配置 ▾';
  }
 }
 function toggleLandingMoreMenu(ev,id){
@@ -21035,10 +21035,10 @@ function _landingRowActionsHtml(p, link, usageTotal){
   var canSeeFallback=isSuperadminRole();
   var parts=[];
   // PRIMARY: 生成投放链接（手动投放用子码）— most important action for the manual workflow
-  parts.push(_landingActionButton('🔗 生成投放链接','createLandingAdLinks('+id+')','btn-p landing-cta-gen role-hide-viewer','生成 1-200 条 /a/子码 投放链接（一个子码对应一条 FB 广告），并在结果里复制带 ad 参数的完整链接'));
-  parts.push(_landingActionButton('📊 统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
-  parts.push(_landingActionButton('🛡 防护自检','runLandingProtectionTest('+id+')','btn-g','模拟访客画像验证当前防护规则是否生效：哪些会被拦截/放行及原因'));
-  parts.push(_landingActionButton('⚙️ 配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
+  parts.push(_landingActionButton(' 生成投放链接','createLandingAdLinks('+id+')','btn-p landing-cta-gen role-hide-viewer','生成 1-200 条 /a/子码 投放链接（一个子码对应一条 FB 广告），并在结果里复制带 ad 参数的完整链接'));
+  parts.push(_landingActionButton(' 统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
+  parts.push(_landingActionButton(' 防护自检','runLandingProtectionTest('+id+')','btn-g','模拟访客画像验证当前防护规则是否生效：哪些会被拦截/放行及原因'));
+  parts.push(_landingActionButton(' 配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
   if(link)parts.push(_landingActionButton('投放链接管理','showLandingAdLinks('+id+')','btn-g','查看该主链接下已生成的子码、绑定关系、跳转池和效果'));
   var more=[];
   if(link)more.push(_landingActionButton('复制主链接(无参数)',"copyText('"+encodeURIComponent(link)+"')",'btn-g','复制当前落地页主链接（不含 ad 参数）；铺广告会自动生成广告入口链接'));
@@ -21123,7 +21123,7 @@ function renderLandingPages(){
   if(p.custom_domain_dns_result){
    var dns=p.custom_domain_dns_result||{};
    var dnsAction={created:'已创建',updated:'已更新',unchanged:'无需变更'}[dns.action]||(dns.action||'已检查');
-   linkHtml+='<div style="font-size:11px;color:var(--ok);margin-top:3px">DNS 自动化：'+escHtml(dnsAction)+' CNAME → '+escHtml(dns.target||p.custom_domain_cname_target||'')+'</div>';
+   linkHtml+='<div style="font-size:11px;color:var(--ok);margin-top:3px">DNS 自动化：'+escHtml(dnsAction)+' CNAME › '+escHtml(dns.target||p.custom_domain_cname_target||'')+'</div>';
   }
   if(isSuperadminRole()&&p.custom_domain&&pagesUrl&&link!==pagesUrl&&domainRuntimeOk){
    linkHtml+='<div style="font-size:11px;color:var(--t3);margin-top:3px">备用域: '+escHtml(pagesUrl)+'</div>';
@@ -21176,7 +21176,7 @@ function renderLandingPages(){
 
 function _landingEmptyState(){
  return '<div class="landing-empty">'+
-   '<div class="landing-empty-ic">🔗</div>'+
+   '<div class="landing-empty-ic"></div>'+
    '<div class="landing-empty-title">还没有发布任何落地页</div>'+
    '<div class="landing-empty-desc">发布第一个落地页后，就能为每条 FB 广告生成 /a/子码 投放链接，并统计访问、跳转与回填真实结果。</div>'+
    '<div class="landing-empty-steps">'+
@@ -21184,7 +21184,7 @@ function _landingEmptyState(){
     '<div class="landing-empty-step"><b>2</b><div><b>生成投放子码</b><small>一条 FB 广告对应一个 /a/子码</small></div></div>'+
     '<div class="landing-empty-step"><b>3</b><div><b>复制去 FB 投放</b><small>粘贴带 ad 参数的链接到广告管理器</small></div></div>'+
    '</div>'+
-   '<button class="btn btn-p role-hide-viewer landing-empty-btn" onclick="landingFlowFocus(\'publish\')">🔗 发布第一个落地页</button>'+
+   '<button class="btn btn-p role-hide-viewer landing-empty-btn" onclick="landingFlowFocus(\'publish\')"> 发布第一个落地页</button>'+
   '</div>';
 }
 async function toggleLpcardAdLinks(pageId,btn){
@@ -21232,7 +21232,7 @@ async function toggleLpcardAdLinks(pageId,btn){
        '<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="clearLandingAdResult('+x.id+',\''+slug+'\','+ca+','+cs+')" title="清空已回填的真实进线/成交数据">清除</button>'+
      '</div>'+
     '</div>';
-  }).join(''):'<div class="lpcard-adempty">还没有投放子码。点卡片下方"🔗 生成投放链接"为每条 FB 广告生成一个 /a/子码。</div>';
+  }).join(''):'<div class="lpcard-adempty">还没有投放子码。点卡片下方" 生成投放链接"为每条 FB 广告生成一个 /a/子码。</div>';
  }catch(e){
   box.innerHTML='<div style="padding:12px;color:var(--er);font-size:12px">加载失败：'+escHtml(e.message||e)+'</div>';
   box.setAttribute('data-loaded','0');
@@ -21252,7 +21252,7 @@ function landingFlowFocus(step){
  }else if(step==='stats'){
   var sp=document.getElementById('landingStatsPanel');
   if(sp&&sp.style.display!=='none'&&sp.innerHTML){sp.scrollIntoView({behavior:'smooth',block:'start'});_landingPulse(sp);}
-  else if(typeof toast==='function')toast('点击某个卡片的"📊 统计"查看访问与拦截数据','info');
+  else if(typeof toast==='function')toast('点击某个卡片的" 统计"查看访问与拦截数据','info');
  }else if(step==='record'){
   var rc=document.querySelector('.landing-record-card');
   if(rc){rc.scrollIntoView({behavior:'smooth',block:'start'});_landingPulse(rc);}
@@ -21458,7 +21458,7 @@ async function editLandingAdLinkTargets(linkId,pageId,encodedSlug,encodedTargets
  var targets=[];
  try{targets=JSON.parse(decodeURIComponent(encodedTargets||'%5B%5D'))||[];}catch(e){targets=[];}
  var current=(Array.isArray(targets)?targets:[]).map(function(u){return String(u||'').trim();}).filter(Boolean).join('\n');
- var raw=await promptTextareaAsync('修改跳转链接','⚠️ 此处只修改本入口(子码)的专属跳转池；要改整页轮询请用「配置」。\n\n入口 '+slug+' 的专属跳转池。每行一个链接；留空则使用落地页全局轮询。保存后线上配置会立即更新。',current,'https://example.com/path\nhttps://example.com/backup');
+ var raw=await promptTextareaAsync('修改跳转链接',' 此处只修改本入口(子码)的专属跳转池；要改整页轮询请用「配置」。\n\n入口 '+slug+' 的专属跳转池。每行一个链接；留空则使用落地页全局轮询。保存后线上配置会立即更新。',current,'https://example.com/path\nhttps://example.com/backup');
  if(raw==null)return;
  var urls=String(raw||'').split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
  var bad=urls.find(function(u){return !/^https?:\/\//i.test(u);});
@@ -21664,7 +21664,7 @@ function openLandingBulkBindModal(pageId){
  mo.className='mo';
  mo.id='moLandingBulkBind';
  mo.innerHTML='<div class="modal" style="max-width:760px">'+
-  '<div class="mh"><h3>批量绑定广告</h3><button class="mc" onclick="closeModal(&quot;moLandingBulkBind&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>批量绑定广告</h3><button class="mc" onclick="closeModal(&quot;moLandingBulkBind&quot;)">×</button></div>'+
   '<div class="mb">'+
    '<div class="landing-result-context">按当前未绑定广告入口顺序绑定：第 1 行广告绑定第 1 个未绑定入口，第 2 行绑定第 2 个。每个入口只绑定一条广告。账户 ID 可选；不填时系统会尝试从缓存匹配，匹配不到也会先保存广告 ID。</div>'+
    '<div class="landing-help" id="landingBulkBindHint" style="margin:10px 0">当前可绑定广告入口 '+links.length+' 条。</div>'+
@@ -21848,7 +21848,7 @@ async function openLandingAdIdentityModal(linkId, encodedSlug){
  mo.className='mo';
  mo.id='moLandingAdIdentity';
  mo.innerHTML='<div class="modal" style="max-width:760px">'+
-  '<div class="mh"><h3>绑定广告信息</h3><button class="mc" onclick="closeModal(&quot;moLandingAdIdentity&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>绑定广告信息</h3><button class="mc" onclick="closeModal(&quot;moLandingAdIdentity&quot;)">×</button></div>'+
   '<div class="mb" id="landingAdIdentityBody"><div style="color:var(--t3);font-size:13px">正在读取广告入口绑定信息...</div></div>'+
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingAdIdentity&quot;)">取消</button><button class="btn btn-p" id="landingAdIdentitySaveBtn" type="button">保存并刷新</button></div>'+
  '</div>';
@@ -21983,7 +21983,7 @@ async function editLandingAdResult(linkId, encodedSlug, actions, sales, revenue,
  mo.className='mo';
  mo.id='moLandingResult';
  mo.innerHTML='<div class="modal" style="max-width:680px">'+
-  '<div class="mh"><h3>回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingResult&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingResult&quot;)">×</button></div>'+
   '<div class="mb">'+
    '<div class="landing-result-context">广告入口：<b>'+escHtml(slug||String(linkId))+'</b><br>真实进线会优先用于该日期的广告真实成本；无有效进线时填 0，并在备注里写清原因。</div>'+
    '<div class="landing-result-preview" id="landingResultPreview"><div style="color:var(--t3);font-size:13px">正在读取对应广告和消耗...</div></div>'+
@@ -22058,7 +22058,7 @@ async function importLandingAdResults(){
  mo.className='mo';
  mo.id='moLandingBulkResult';
  mo.innerHTML='<div class="modal" style="max-width:820px">'+
-  '<div class="mh"><h3>批量回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingBulkResult&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>批量回填真实结果</h3><button class="mc" onclick="closeModal(&quot;moLandingBulkResult&quot;)">×</button></div>'+
   '<div class="mb">'+
   '<div class="landing-result-context">每行一条：日期,入口码或广告ID,真实进线,购买/成交,收入,备注。日期可省略，省略时默认今天；入口码和广告ID都可以匹配。</div>'+
    '<textarea class="fc landing-result-bulk-area" id="landingBulkResultText" placeholder="'+_landingResultToday()+',m7K2Qp,2,1,39.9,有效咨询&#10;123456789012345,0,0,0,无有效进线"></textarea>'+
@@ -22331,8 +22331,8 @@ async function runLandingProtectionTest(id){
   var rows=profiles.map(function(x){
    var ok=!x.blocked;
    var badge=ok
-    ?'<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:var(--okg);color:var(--ok)">✓ 放行</span>'
-    :'<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:var(--erg);color:var(--er)">✕ 拦截</span>';
+    ?'<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:var(--okg);color:var(--ok)"> 放行</span>'
+    :'<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:var(--erg);color:var(--er)">× 拦截</span>';
    var reasonText=ok?(x.reason||'符合规则'):(x.reason||'');
    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)">'+
     '<div style="min-width:64px">'+badge+'</div>'+
@@ -22345,7 +22345,7 @@ async function runLandingProtectionTest(id){
   var html='<div style="font-size:12px;color:var(--t3);margin-bottom:10px">用 6 类典型访客画像（桌面/移动/爬虫/非允许国/调试参数/调试来源）对该页<b>当前防护规则</b>跑一遍线上 Worker 同款判定逻辑。</div>'+
    '<div style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);margin-bottom:10px">'+head+statusLine+'</div>'+
    (rows||'<div style="color:var(--t3);padding:8px 0">没有可模拟的画像</div>');
-  showInfo(html,'🛡 防护自检');
+  showInfo(html,' 防护自检');
   toast(r.protection_enabled?'防护自检完成':'防护未开启',r.protection_enabled?'ok':'wa');
  }catch(e){
   toast('防护自检失败：'+(e.message||e),'er');
@@ -22476,7 +22476,7 @@ function showLandingUsage(id){
  mo.className='mo';
  mo.id='moLandingUsage';
  mo.innerHTML='<div class="modal" style="max-width:720px">'+
-  '<div class="mh"><h3>使用详情</h3><button class="mc" onclick="closeModal(&quot;moLandingUsage&quot;)">✕</button></div>'+
+  '<div class="mh"><h3>使用详情</h3><button class="mc" onclick="closeModal(&quot;moLandingUsage&quot;)">×</button></div>'+
   '<div class="mb"><div style="font-size:12px;color:var(--t3);margin-bottom:12px">'+escHtml(p.title||'未命名')+' · '+escHtml(p.public_url||p.pages_url||'')+'</div>'+body+'</div>'+
   '<div class="mf"><button class="btn btn-g" onclick="closeModal(&quot;moLandingUsage&quot;)">关闭</button></div>'+
  '</div>';
@@ -23070,7 +23070,7 @@ function editLandingRuntimeConfig(pageId){
  mo.id='moLandingRuntime';
  mo.dataset.dynamicModal='1';
  mo.innerHTML='<div class="modal landing-runtime-modal">'+
-  '<div class="mh"><h3>落地页运行配置</h3><button class="mc" onclick="closeLandingRuntimeModal()">✕</button></div>'+
+  '<div class="mh"><h3>落地页运行配置</h3><button class="mc" onclick="closeLandingRuntimeModal()">×</button></div>'+
   '<div class="mb">'+
    '<div class="landing-runtime-hero">'+
     '<div><div class="landing-runtime-title">'+escHtml(p.title||'未命名落地页')+'</div><div class="landing-runtime-sub">这里修改运行时跳转、统计和防护规则。广告入口短链不变；支持动态配置的页面通常约 30 秒内读取新配置。</div><div class="landing-runtime-sub" style="margin-top:4px">最后保存：'+escHtml(runtimeSavedAt)+' · 保存后最晚约 30 秒生效</div></div>'+
@@ -23093,7 +23093,7 @@ function editLandingRuntimeConfig(pageId){
         '<label class="landing-runtime-switch"><div>防重粉<span>拦截重复转化</span></div><input type="checkbox" id="rtRepeatVisitor"></label>'+
         '<select class="fc" id="rtRepeatVisitorWindow" title="防重粉判定窗口" style="width:130px"><option value="">今日</option><option value="6">近6小时</option><option value="24">近24小时</option><option value="168">近7天</option></select>'+
        '</div></div>'+
-      '<div style="margin:6px 0 0;font-size:11.5px;color:#6e6e73;line-height:1.5">同一访客(指纹)今日已点击/提交过 → 再次转化会被记为拦截，防止刷量刷转化；按 ip+ua 指纹识别，清 cookie/换设备可绕过（基础防刷）。</div>'+
+      '<div style="margin:6px 0 0;font-size:11.5px;color:#6e6e73;line-height:1.5">同一访客(指纹)今日已点击/提交过 › 再次转化会被记为拦截，防止刷量刷转化；按 ip+ua 指纹识别，清 cookie/换设备可绕过（基础防刷）。</div>'+
       '</div>'+
      '</div>'+
      '<details class="landing-runtime-assets"><summary>页面资产：域名、Pixel、模板</summary><div class="landing-runtime-assets-body">'+
@@ -23318,7 +23318,7 @@ function openLandingAssetBindingModal(editId){
  mo.id='moLandingAssetBinding';
  mo.dataset.dynamicModal='1';
  mo.innerHTML='<div class="modal" style="max-width:1040px">'+
-  '<div class="mh"><h3>资产预设</h3><button class="mc" onclick="closeLandingAssetBindingModal()">✕</button></div>'+
+  '<div class="mh"><h3>资产预设</h3><button class="mc" onclick="closeLandingAssetBindingModal()">×</button></div>'+
   '<div class="mb landing-asset-modal-shell">'+
    '<div class="landing-asset-hero"><div><div class="landing-asset-hero-title">把常用投放资产保存成组合</div><div class="landing-asset-hero-desc">发布新链接或修改已发布项目时直接套用。预设只会填入当前表单，不会覆盖其他落地页。</div></div><span class="landing-asset-hero-pill">域名 · Pixel · 跳转 · 防护规则</span></div>'+
    '<input type="hidden" id="abEditingId" value="'+escHtml(b?String(b.id):'')+'">'+
@@ -23799,7 +23799,7 @@ async function changeTkMatrix(id, currentMatrix) {
   var customId = moId + '_custom';
   var mo=document.createElement('div');mo.className='mo';mo.id=moId;
   mo.innerHTML='<div class="modal" style="max-width:340px;width:92%">'+
-   '<div class="mh"><h3 style="margin:0;font-size:15px">修改矩阵归属</h3><button class="mc" id="'+moId+'_x">✕</button></div>'+
+   '<div class="mh"><h3 style="margin:0;font-size:15px">修改矩阵归属</h3><button class="mc" id="'+moId+'_x">×</button></div>'+
    '<div class="mb" style="padding:16px 20px"><div style="font-size:12px;color:var(--t3);margin-bottom:10px">当前：<strong>'+(cur?'矩阵'+cur:'未分配')+'</strong></div>'+
    _matOpts.map(function(o){return '<button class="btn btn-g" style="width:100%;text-align:left;margin-bottom:8px;padding:10px 14px;font-size:13px" id="matBtn_'+moId+'_'+o.v+'">'+o.label+'</button>';}).join('')+
    '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd)">'+
@@ -24335,14 +24335,14 @@ function switchAdsViewTab(tab) {
   filterAds();
 }
 
-// 跨 Tab 下钻过滤：点击系列名→过滤到该系列的广告组；点击组名→过滤到该组的广告。
+// 跨 Tab 下钻过滤：点击系列名›过滤到该系列的广告组；点击组名›过滤到该组的广告。
 function applyAdsFilter(key, value, targetTab, event) {
   if (event && event.preventDefault) event.preventDefault();
   window._adsDrillFilter = { key: key, value: value };
   switchAdsViewTab(targetTab || 'ads');
 }
 
-// 清除下钻过滤（面包屑 ✕ 调用）
+// 清除下钻过滤（面包屑 × 调用）
 function clearAdsFilter() {
   window._adsDrillFilter = null;
   if (typeof filterAds === 'function') filterAds();
@@ -24364,7 +24364,7 @@ function renderAdsTree(rows, forceOpen) {
       if (fKey === 'campaign_id') displayVal = rows[0].campaign_name || fVal;
       if (fKey === 'adset_id') displayVal = rows[0].adset_name || fVal;
     }
-    breadcrumbHtml = '<div class="breadcrumb-bar" style="display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--ac);color:var(--ac);font-size:13px;"><b>🔍 ' + fLabel + ':</b>&nbsp;' + escHtml(displayVal) + '&nbsp;<button onclick="clearAdsFilter()" style="background:none;border:none;color:var(--ac);font-weight:bold;cursor:pointer;font-size:14px;padding:0;">✕</button></div>';
+    breadcrumbHtml = '<div class="breadcrumb-bar" style="display:inline-flex;align-items:center;margin-bottom:12px;padding:6px 12px;background:rgba(24,144,255,0.08);border-radius:6px;border:1px dashed var(--ac);color:var(--ac);font-size:13px;"><b> ' + fLabel + ':</b>&nbsp;' + escHtml(displayVal) + '&nbsp;<button onclick="clearAdsFilter()" style="background:none;border:none;color:var(--ac);font-weight:bold;cursor:pointer;font-size:14px;padding:0;">×</button></div>';
   }
   var bc = document.getElementById('adsDrillBreadcrumb');
   if (!bc) { var tc = document.getElementById('adsViewTabs'); if (tc) { bc = document.createElement('div'); bc.id = 'adsDrillBreadcrumb'; tc.parentNode.insertBefore(bc, tc.nextSibling); } }
@@ -24466,7 +24466,7 @@ function renderAdsTree(rows, forceOpen) {
          var _entryBadge=_isShared
            ? '<span class="badge bg-wa" style="font-size:10px" title="该广告入口子码被多条广告共用'+(_attCount>1?('（'+_attCount+' 条）'):'')+'，按广告统计可能不精确">共用入口'+(_attCount>1?(' ×'+_attCount):'')+'</span>'
            : '<span class="badge bg-ok" style="font-size:10px" title="该广告有专属入口子码，可按广告精确统计真实进线">专属入口</span>';
-         adNameHtml += '<div style="margin-top:6px;font-size:11px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">🔗 <a href="/a/'+escHtml(a.landing.slug)+'?ad='+escHtml(a.ad_id)+'" target="_blank" style="color:var(--ac);text-decoration:none">'+escHtml(a.landing.slug)+'</a>'+_entryBadge+'</div>';
+         adNameHtml += '<div style="margin-top:6px;font-size:11px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"> <a href="/a/'+escHtml(a.landing.slug)+'?ad='+escHtml(a.ad_id)+'" target="_blank" style="color:var(--ac);text-decoration:none">'+escHtml(a.landing.slug)+'</a>'+_entryBadge+'</div>';
       }
 
       html.push('<td>'+adNameHtml+'</td>');
@@ -24512,7 +24512,7 @@ function _openActHub(actId){
  h+=b('KPI 配置',"_closeHub();_hubGo('kpi','kpiAct',loadKpi)",'账户 KPI 目标');
  h+=b('操作号 / Token',"_closeHub();openOpPoolModal(window._hubActId)",'操作号绑定与池');
  h+=b('权限诊断',"_closeHub();showAccountPermissionDiagnostic(window._hubActId)",'Token/主页写权限检查'); h+=b('落地页工作台',"_closeHub();_hubGo('landing_center')",'发布 / 管理落地页与广告入口'); h+=b('操作日志',"_closeHub();_hubGo('logs')",'该账户最近操作记录'); h+=b('团队管理',"_closeHub();_hubGo('team_admin')",'团队成员与资源归属');
- h+=b('🚀 为该账户铺广告',"_closeHub();openLaunchFromAdCenter()",'打开铺广告向导（自动预选）');
+ h+=b(' 为该账户铺广告',"_closeHub();openLaunchFromAdCenter()",'打开铺广告向导（自动预选）');
  h+='</div>';
  showInfo(h,'账户配置中心 · '+shortId);
 }
@@ -24535,24 +24535,24 @@ function _adsMoreActions(rep, level) {
   var btns = [];
 
   if (level === 'campaign') {
-    btns.push('<button class="ads-inline-btn primary" onclick="event.stopPropagation();applyAdsFilter(\'campaign_id\',\''+_adsJs(id)+'\',\'adsets\')">查看广告组 →</button>');
+    btns.push('<button class="ads-inline-btn primary" onclick="event.stopPropagation();applyAdsFilter(\'campaign_id\',\''+_adsJs(id)+'\',\'adsets\')">查看广告组 ›</button>');
   }
   if (level === 'adset') {
-    btns.push('<button class="ads-inline-btn primary" onclick="event.stopPropagation();applyAdsFilter(\'adset_id\',\''+_adsJs(id)+'\',\'ads\')">查看广告 →</button>');
+    btns.push('<button class="ads-inline-btn primary" onclick="event.stopPropagation();applyAdsFilter(\'adset_id\',\''+_adsJs(id)+'\',\'ads\')">查看广告 ›</button>');
   }
 
   if (level === 'ad') {
-    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();showDiagnose(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\')" title="广告诊断">🩺</button>');
-    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();quickKpi(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\',\''+_adsJs(rep.ad_name||'')+'\')" title="KPI配置">🎯</button>');
-    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();showAdBrief(\''+_adsJs(id)+'\')" title="广告详情">ℹ️</button>');
+    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();showDiagnose(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\')" title="广告诊断"></button>');
+    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();quickKpi(\''+_adsJs(id)+'\',\''+_adsJs(actId)+'\',\''+_adsJs(rep.ad_name||'')+'\')" title="KPI配置"></button>');
+    btns.push('<button class="ads-inline-btn icon" onclick="event.stopPropagation();showAdBrief(\''+_adsJs(id)+'\')" title="广告详情"></button>');
     if (rep.landing && rep.landing.link_id) {
       // 已有子码：改跳转（编辑现有子码专属跳转池）
-      btns.push('<button class="ads-inline-btn" style="color:var(--wa)" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改该广告入口的专属跳转链接">🔗 改跳转</button>');
-      btns.push('<button class="ads-inline-btn icon" style="color:var(--ok)" onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(id)+'\')" title="回填真实数据">📝</button>');
-      btns.push('<button class="ads-inline-btn icon" style="color:var(--ac)" onclick="event.stopPropagation();_adsOpenLandingData(\''+_adsJs(id)+'\')" title="查看该广告的落地页访问日志/数据">📊</button>');
+      btns.push('<button class="ads-inline-btn" style="color:var(--wa)" onclick="event.stopPropagation();quickEditAdLandingLink(\''+_adsJs(id)+'\')" title="修改该广告入口的专属跳转链接"> 改跳转</button>');
+      btns.push('<button class="ads-inline-btn icon" style="color:var(--ok)" onclick="event.stopPropagation();quickFillAdLandingResult(\''+_adsJs(id)+'\')" title="回填真实数据"></button>');
+      btns.push('<button class="ads-inline-btn icon" style="color:var(--ac)" onclick="event.stopPropagation();_adsOpenLandingData(\''+_adsJs(id)+'\')" title="查看该广告的落地页访问日志/数据"></button>');
     } else {
       // 未绑定子码：生成新子码并绑定（绑定后才能改跳转/回填）
-      btns.push('<button class="ads-inline-btn" style="color:var(--t3)" onclick="event.stopPropagation();quickBindAdLandingLink(\''+_adsJs(id)+'\')" title="为该广告生成专属子码入口（绑定后可改跳转/回填）">🔗 绑定子码</button>');
+      btns.push('<button class="ads-inline-btn" style="color:var(--t3)" onclick="event.stopPropagation();quickBindAdLandingLink(\''+_adsJs(id)+'\')" title="为该广告生成专属子码入口（绑定后可改跳转/回填）"> 绑定子码</button>');
     }
   }
 
@@ -24611,7 +24611,7 @@ async function openQuickLinkGen() {
       html += '<div class="qlink-sec qlink-sec-landing" style="margin-bottom:12px">';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px">';
       html += '<div style="min-width:0"><b style="font-size:12px">落地页广告链接</b><br><code style="font-size:11px;color:var(--t3);word-break:break-all">'+escHtml(_lu)+'</code></div>';
-      html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(_lu)+'\')" style="flex-shrink:0">📋 复制</button>';
+      html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(_lu)+'\')" style="flex-shrink:0"> 复制</button>';
       html += '</div></div>';
     }
     if (formEff) {
@@ -24619,7 +24619,7 @@ async function openQuickLinkGen() {
       html += '<div class="qlink-sec qlink-sec-form" style="margin-bottom:12px">';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px">';
       html += '<div style="min-width:0"><b style="font-size:12px">表单广告链接</b><br><code style="font-size:11px;color:var(--t3);word-break:break-all">'+escHtml(_fu)+'</code></div>';
-      html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(_fu)+'\')" style="flex-shrink:0">📋 复制</button>';
+      html += '<button class="btn btn-p btn-sm" onclick="copyText(\''+encodeURIComponent(_fu)+'\')" style="flex-shrink:0"> 复制</button>';
       html += '</div></div>';
     }
     if (!landingEff && !formEff) {
@@ -24628,14 +24628,14 @@ async function openQuickLinkGen() {
 
     // ③ 回传真实数据 / 单条广告改跳转：均按广告进行
     html += '<div style="border-top:1px solid var(--bd);padding-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
-    html += '<button class="btn btn-g btn-sm" onclick="closeAllModals();showPage(\'ads\',\'ads\');switchAdsViewTab(\'ads\');toast(\'在「广告」页签点某条广告的 📝 回填真实数据 / 🔗 改该广告跳转\',\'ok\')">↩ 回传真实数据 / 改单条广告跳转</button>';
+    html += '<button class="btn btn-g btn-sm" onclick="closeAllModals();showPage(\'ads\',\'ads\');switchAdsViewTab(\'ads\');toast(\'在「广告」页签点某条广告的  回填真实数据 /  改该广告跳转\',\'ok\')">↩ 回传真实数据 / 改单条广告跳转</button>';
     html += '<button class="btn btn-g btn-sm" onclick="closeAllModals();showPage(\'landing_urls\')">批量管理账户投放链接</button>';
     html += '</div>';
   } catch(e) {
     html += '<div style="color:var(--er)">加载账户投放链接失败: '+escHtml(e.message||e)+'</div>';
   }
 
-  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px;margin-top:10px">💡 手动建广告时，把链接里的 <code>{{ad.id}}</code> 替换为 FB 动态宏，投出后 Mira 会自动回绑广告 ID。<b>回传真实数据</b>与<b>单条广告改跳转</b>需针对具体广告，请到「广告」页签按广告操作。</div>';
+  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px;margin-top:10px"> 手动建广告时，把链接里的 <code>{{ad.id}}</code> 替换为 FB 动态宏，投出后 Mira 会自动回绑广告 ID。<b>回传真实数据</b>与<b>单条广告改跳转</b>需针对具体广告，请到「广告」页签按广告操作。</div>';
   html += '</div>';
 
   showInfo(html, '生成投放链接');
@@ -24670,14 +24670,14 @@ async function openQuickImportAccount() {
 
     if (!manageTokens.length) {
       html += '<div style="padding:16px;background:var(--erg);border-radius:8px;font-size:13px;color:var(--er)">';
-      html += '❌ 没有找到可用的管理号 Token。请先在「Token 管理」中添加。';
+      html += ' 没有找到可用的管理号 Token。请先在「Token 管理」中添加。';
       html += '</div>';
     } else {
       html += '<div style="max-height:250px;overflow-y:auto;margin-bottom:12px">';
       manageTokens.forEach(function(tk) {
         html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px">';
         html += '<div><b style="font-size:13px">'+escHtml(tk.token_alias||tk.token_name||'Token #'+tk.id)+'</b><br><span style="font-size:11px;color:var(--t3)">'+escHtml(tk.token_source||'system_user')+'</span></div>';
-        html += '<button class="btn btn-p btn-sm" onclick="doQuickImportAccounts('+tk.id+')" style="flex-shrink:0">📥 扫描导入</button>';
+        html += '<button class="btn btn-p btn-sm" onclick="doQuickImportAccounts('+tk.id+')" style="flex-shrink:0"> 扫描导入</button>';
         html += '</div>';
       });
       html += '</div>';
@@ -24686,7 +24686,7 @@ async function openQuickImportAccount() {
     html += '<div style="color:var(--er)">加载 Token 失败: '+escHtml(e.message||e)+'</div>';
   }
 
-  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px">💡 导入后系统会自动匹配操作号 Token 到对应账户。</div>';
+  html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px"> 导入后系统会自动匹配操作号 Token 到对应账户。</div>';
   html += '</div>';
   showInfo(html, '导入广告账户');
 }
@@ -24725,7 +24725,7 @@ async function openQuickLaunch() {
 
     if (!launchable.length) {
       var emptyHtml = '<div style="text-align:center;padding:30px 10px">';
-      emptyHtml += '<div style="font-size:40px;margin-bottom:12px">📦</div>';
+      emptyHtml += '<div style="font-size:40px;margin-bottom:12px"></div>';
       emptyHtml += '<div style="font-size:14px;font-weight:600;color:var(--t1);margin-bottom:8px">还没有可铺广告的素材</div>';
       emptyHtml += '<div style="font-size:12px;color:var(--t3);margin-bottom:16px">需要先在素材库上传图片/视频，并让 AI 分析生成文案</div>';
       emptyHtml += '<button class="btn btn-p" onclick="closeModal(\'moInfo\');showPage(\'assets\')" style="margin-top:6px">去素材库上传</button>';
@@ -24744,13 +24744,13 @@ async function openQuickLaunch() {
       var typeLabel = a.file_type === 'video' ? '视频' : '图片';
       var countryLabel = (a.target_countries && Array.isArray(a.target_countries)) ? a.target_countries.slice(0,3).join(',') : (a.target_countries || '未设国家');
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:6px;cursor:pointer" onclick="closeAllModals();openLaunchModal('+a.id+')">';
-      html += '<div style="width:48px;height:48px;flex-shrink:0;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:20px">'+(thumb?'<img src="'+escHtml(thumb)+'" style="width:100%;height:100%;object-fit:cover">':'📷')+'</div>';
+      html += '<div style="width:48px;height:48px;flex-shrink:0;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:20px">'+(thumb?'<img src="'+escHtml(thumb)+'" style="width:100%;height:100%;object-fit:cover">':'')+'</div>';
       html += '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(name)+'</div><div style="font-size:11px;color:var(--t3);margin-top:2px">'+typeLabel+' · '+escHtml(countryLabel)+'</div></div>';
-      html += '<span style="color:var(--ac);font-size:12px;font-weight:600;flex-shrink:0">铺广告 →</span>';
+      html += '<span style="color:var(--ac);font-size:12px;font-weight:600;flex-shrink:0">铺广告 ›</span>';
       html += '</div>';
     });
     html += '</div>';
-    html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px">💡 素材需要在素材库中上传并完成 AI 文案分析后才能铺广告。没看到想要的？<a href="#" onclick="closeAllModals();showPage(\'assets\');return false" style="color:var(--ac)">去素材库</a></div>';
+    html += '<div style="font-size:11px;color:var(--t3);border-top:1px solid var(--bd);padding-top:10px"> 素材需要在素材库中上传并完成 AI 文案分析后才能铺广告。没看到想要的？<a href="#" onclick="closeAllModals();showPage(\'assets\');return false" style="color:var(--ac)">去素材库</a></div>';
     html += '</div>';
     showInfo(html, '选择素材铺广告');
   } catch(e) {
