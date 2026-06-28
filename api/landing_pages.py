@@ -393,6 +393,55 @@ def _ensure_schema():
         CREATE INDEX IF NOT EXISTS idx_landing_asset_bindings_scope ON landing_asset_bindings(team_id, owner_user_id, status);
         CREATE INDEX IF NOT EXISTS idx_landing_asset_bindings_page ON landing_asset_bindings(landing_page_id);
 
+        CREATE TABLE IF NOT EXISTS landing_pixels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pixel_id TEXT NOT NULL,
+            pixel_name TEXT,
+            note TEXT,
+            status TEXT DEFAULT 'active',
+            team_id INTEGER,
+            owner_user_id INTEGER,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now','+8 hours')),
+            updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_landing_pixels_scope ON landing_pixels(team_id, owner_user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_landing_pixels_id ON landing_pixels(pixel_id);
+
+        CREATE TABLE IF NOT EXISTS landing_domains (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL,
+            label TEXT,
+            note TEXT,
+            source TEXT DEFAULT 'manual',
+            status TEXT DEFAULT 'active',
+            team_id INTEGER,
+            owner_user_id INTEGER,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now','+8 hours')),
+            updated_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_landing_domains_scope ON landing_domains(team_id, owner_user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_landing_domains_host ON landing_domains(domain);
+
+        INSERT INTO landing_pixels (pixel_id, pixel_name, team_id, owner_user_id, created_by)
+        SELECT DISTINCT ab.pixel_id, ab.pixel_name, ab.team_id, ab.owner_user_id, 'migration'
+        FROM landing_asset_bindings ab
+        WHERE COALESCE(ab.pixel_id,'')!='' AND NOT EXISTS (SELECT 1 FROM landing_pixels lp WHERE lp.pixel_id=ab.pixel_id);
+        INSERT INTO landing_pixels (pixel_id, pixel_name, team_id, owner_user_id, created_by)
+        SELECT DISTINCT p.pixel_id, '', p.team_id, p.owner_user_id, 'migration'
+        FROM landing_pages p
+        WHERE COALESCE(p.pixel_id,'')!='' AND NOT EXISTS (SELECT 1 FROM landing_pixels lp WHERE lp.pixel_id=p.pixel_id);
+        INSERT INTO landing_domains (domain, label, source, team_id, owner_user_id, created_by)
+        SELECT DISTINCT ab.custom_domain, ab.name, 'manual', ab.team_id, ab.owner_user_id, 'migration'
+        FROM landing_asset_bindings ab
+        WHERE COALESCE(ab.custom_domain,'')!='' AND NOT EXISTS (SELECT 1 FROM landing_domains ld WHERE ld.domain=ab.custom_domain);
+        INSERT INTO landing_domains (domain, label, source, team_id, owner_user_id, created_by)
+        SELECT DISTINCT p.custom_domain, p.title, 'manual', p.team_id, p.owner_user_id, 'migration'
+        FROM landing_pages p
+        WHERE COALESCE(p.custom_domain,'')!='' AND NOT EXISTS (SELECT 1 FROM landing_domains ld WHERE ld.domain=p.custom_domain);
+
+
         CREATE TABLE IF NOT EXISTS landing_pages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -3979,6 +4028,191 @@ def delete_landing_protection_template(template_id: int, user=Depends(get_curren
         )
         conn.commit()
         return {"success": True, "archived": True, "id": template_id}
+    finally:
+        conn.close()
+
+
+
+class LandingPixelReq(BaseModel):
+    pixel_id: str
+    pixel_name: Optional[str] = ""
+    note: Optional[str] = ""
+    team_id: Optional[int] = None
+
+
+class LandingDomainReq(BaseModel):
+    domain: str
+    label: Optional[str] = ""
+    note: Optional[str] = ""
+    team_id: Optional[int] = None
+
+
+def _public_pixel(row) -> dict:
+    item = dict(row)
+    item["usage_count"] = int(item.get("usage_count") or 0)
+    return item
+
+
+def _public_saved_domain(row) -> dict:
+    item = dict(row)
+    item["usage_count"] = int(item.get("usage_count") or 0)
+    return item
+
+
+def _assert_pixel_access(conn, pk: int, user) -> dict:
+    row = conn.execute("SELECT * FROM landing_pixels WHERE id=? AND status='active'", (pk,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="像素不存在")
+    item = dict(row)
+    if is_superadmin(user):
+        return item
+    tid = team_id_for_create(user)
+    if item.get("team_id") != tid:
+        raise HTTPException(status_code=403, detail="像素属于其他团队")
+    if is_operator_user(user) and item.get("owner_user_id") not in (None, user_id(user)):
+        raise HTTPException(status_code=403, detail="像素属于其他运营")
+    return item
+
+
+def _assert_saved_domain_access(conn, pk: int, user) -> dict:
+    row = conn.execute("SELECT * FROM landing_domains WHERE id=? AND status='active'", (pk,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="域名不存在")
+    item = dict(row)
+    if is_superadmin(user):
+        return item
+    tid = team_id_for_create(user)
+    if item.get("team_id") != tid:
+        raise HTTPException(status_code=403, detail="域名属于其他团队")
+    if is_operator_user(user) and item.get("owner_user_id") not in (None, user_id(user)):
+        raise HTTPException(status_code=403, detail="域名属于其他运营")
+    return item
+
+
+@router.get("/pixels")
+def list_landing_pixels(user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        scope_where, scope_params = _scope_where(user, "lp")
+        rows = conn.execute(
+            "SELECT lp.*, "
+            "(SELECT COUNT(*) FROM landing_pages p WHERE p.pixel_id=lp.pixel_id AND p.status!='archived') AS usage_count, "
+            "tm.name AS team_name, COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name "
+            "FROM landing_pixels lp "
+            "LEFT JOIN teams tm ON tm.id=lp.team_id "
+            "LEFT JOIN users ou ON ou.id=lp.owner_user_id "
+            "WHERE " + " AND ".join(["lp.status='active'"] + scope_where) + " ORDER BY lp.id DESC LIMIT 500",
+            scope_params,
+        ).fetchall()
+        return [_public_pixel(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@router.post("/pixels")
+def create_landing_pixel(body: LandingPixelReq, user=Depends(get_current_user)):
+    pixel_id = (body.pixel_id or "").strip()
+    if not pixel_id:
+        raise HTTPException(status_code=400, detail="请填写 Pixel 编号")
+    pixel_name = (body.pixel_name or "").strip()[:120]
+    note = (body.note or "").strip()
+    team_id, owner_id = _stamp(user, body.team_id)
+    conn = get_conn()
+    try:
+        if conn.execute("SELECT 1 FROM landing_pixels WHERE pixel_id=? AND status='active'", (pixel_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="该 Pixel 已在库中")
+        conn.execute(
+            "INSERT INTO landing_pixels (pixel_id, pixel_name, note, team_id, owner_user_id, created_by) VALUES (?,?,?,?,?,?)",
+            (pixel_id[:80], pixel_name, note, team_id, owner_id, user.get("username", "unknown")),
+        )
+        conn.commit()
+        return {"success": True, "pixel_id": pixel_id[:80]}
+    finally:
+        conn.close()
+
+
+@router.patch("/pixels/{pk}")
+def update_landing_pixel(pk: int, body: LandingPixelReq, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        item = _assert_pixel_access(conn, pk, user)
+        pixel_id = (body.pixel_id or item.get("pixel_id") or "").strip()
+        if not pixel_id:
+            raise HTTPException(status_code=400, detail="请填写 Pixel 编号")
+        conn.execute(
+            "UPDATE landing_pixels SET pixel_id=?, pixel_name=?, note=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+            (pixel_id[:80], (body.pixel_name or "").strip()[:120], (body.note or "").strip(), pk),
+        )
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@router.delete("/pixels/{pk}")
+def delete_landing_pixel(pk: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_pixel_access(conn, pk, user)
+        conn.execute("UPDATE landing_pixels SET status='deleted', updated_at=datetime('now','+8 hours') WHERE id=?", (pk,))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@router.get("/saved-domains")
+def list_landing_saved_domains(user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        scope_where, scope_params = _scope_where(user, "ld")
+        rows = conn.execute(
+            "SELECT ld.*, "
+            "(SELECT COUNT(*) FROM landing_pages p WHERE p.custom_domain=ld.domain AND p.status!='archived') AS usage_count, "
+            "tm.name AS team_name, COALESCE(NULLIF(ou.display_name,''), ou.username) AS owner_user_name "
+            "FROM landing_domains ld "
+            "LEFT JOIN teams tm ON tm.id=ld.team_id "
+            "LEFT JOIN users ou ON ou.id=ld.owner_user_id "
+            "WHERE " + " AND ".join(["ld.status='active'"] + scope_where) + " ORDER BY ld.id DESC LIMIT 500",
+            scope_params,
+        ).fetchall()
+        return [_public_saved_domain(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@router.post("/saved-domains")
+def create_landing_saved_domain(body: LandingDomainReq, user=Depends(get_current_user)):
+    raw = (body.domain or "").strip()
+    try:
+        domain = normalize_custom_domain(raw) if raw else ""
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="域名格式不正确") from exc
+    if not domain:
+        raise HTTPException(status_code=400, detail="请填写域名")
+    team_id, owner_id = _stamp(user, body.team_id)
+    conn = get_conn()
+    try:
+        if conn.execute("SELECT 1 FROM landing_domains WHERE domain=? AND status='active'", (domain,)).fetchone():
+            raise HTTPException(status_code=400, detail="该域名已在库中")
+        conn.execute(
+            "INSERT INTO landing_domains (domain, label, note, source, team_id, owner_user_id, created_by) VALUES (?,?,?,?,?,?,?)",
+            (domain, (body.label or "").strip()[:120], (body.note or "").strip(), "manual", team_id, owner_id, user.get("username", "unknown")),
+        )
+        conn.commit()
+        return {"success": True, "domain": domain}
+    finally:
+        conn.close()
+
+
+@router.delete("/saved-domains/{pk}")
+def delete_landing_saved_domain(pk: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_saved_domain_access(conn, pk, user)
+        conn.execute("UPDATE landing_domains SET status='deleted', updated_at=datetime('now','+8 hours') WHERE id=?", (pk,))
+        conn.commit()
+        return {"success": True}
     finally:
         conn.close()
 
