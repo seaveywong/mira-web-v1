@@ -4806,9 +4806,102 @@ def create_tw_certified_page(body: dict, user=Depends(get_current_user)):
     return {"success": True, "id": new_id, "page_name": page_name, "verified_identity_id": verified_identity_id, "matrix_id": matrix_id, "token_id": token_id}
 
 
+def _fb_page_access_token_for_page(page_id: str, user_token_plain: str):
+    """Resolve a long-lived Page access token for ``page_id`` by walking the
+    user/system token's ``/me/accounts``. Returns ``""`` on any failure."""
+    if not page_id or not user_token_plain:
+        return ""
+    try:
+        resp = requests.get(
+            f"{FB_API_BASE}/me/accounts",
+            params={
+                "access_token": user_token_plain,
+                "fields": "id,name,access_token",
+                "limit": 200,
+            },
+            timeout=15,
+        )
+        data = resp.json()
+        if "error" in data:
+            return ""
+        for p in data.get("data", []) or []:
+            if str(p.get("id")) == str(page_id):
+                return p.get("access_token") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _resolve_tw_page_user_token(conn, page_row, user) -> str:
+    """Best-effort: find an active user/system token that can manage this page.
+
+    Order: the page's bound ``token_id`` → any active fb_token in scope.
+    Returns the decrypted plaintext, or ``""`` if none found.
+    """
+    token_id = page_row["token_id"] if "token_id" in page_row.keys() else None
+    enc = None
+    if token_id:
+        try:
+            assert_row_access(conn, "fb_tokens", int(token_id), user, allow_unassigned=False)
+        except HTTPException:
+            token_id = None
+        if token_id:
+            row = conn.execute(
+                "SELECT access_token_enc FROM fb_tokens WHERE id=? AND status='active'",
+                (token_id,),
+            ).fetchone()
+            enc = row["access_token_enc"] if row else None
+    if not enc:
+        where, params = ["status='active'"], []
+        apply_team_scope(where, params, user, "team_id", include_unassigned=False)
+        row = conn.execute(
+            f"SELECT access_token_enc FROM fb_tokens WHERE {' AND '.join(where)} ORDER BY id LIMIT 1",
+            params,
+        ).fetchone()
+        enc = row["access_token_enc"] if row else None
+    return decrypt_token(enc) if enc else ""
+
+
+def _fb_sync_tw_page_category(page_id: str, page_access_token: str, category_name: str) -> dict:
+    """Push a category update to Facebook via ``POST /{page_id}``.
+
+    FB Graph API supports changing a Page's category through ``category_list``
+    (a list of category *names*; Graph resolves them against
+    ``fb_page_categories``). NOTE: FB does NOT support renaming a Page via the
+    API (the ``name`` field is not a writable POST parameter); renames must be
+    done in the FB UI / Business Manager. This helper only syncs category.
+
+    Returns ``{"ok": bool, "error": str}``.
+    """
+    if not page_id or not page_access_token or not category_name:
+        return {"ok": False, "error": "缺少 page_id / page token / category"}
+    try:
+        resp = requests.post(
+            f"{FB_API_BASE}/{page_id}",
+            params={
+                "access_token": page_access_token,
+                "category_list": json.dumps([{"name": category_name}]),
+            },
+            timeout=20,
+        )
+        data = resp.json()
+        if resp.status_code < 300 and data.get("success"):
+            return {"ok": True, "error": ""}
+        err = (data.get("error") or {}).get("message") or str(data)
+        return {"ok": False, "error": err}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 @router.put("/tw-certified-pages/{page_db_id}")
 def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_current_user)):
-    """更新台湾认证主页（支持更新 matrix_id、token_id、verified_identity_id 等字段）"""
+    """更新台湾认证主页（支持更新 matrix_id、token_id、verified_identity_id 等字段）
+
+    v3.11.167: 当 ``page_category`` 发生变化时，会尝试通过 FB Graph API
+    ``POST /{page_id}`` 同步分类到 Facebook。注意：FB API **不支持**通过接口
+    修改主页 ``name``（名称）—— FB 未把 ``name`` 列为可写参数，名称变更必须
+    在 FB 后台 / Business Manager 手动完成；本接口只更新本地 DB 的 page_name。
+    """
     def optional_nonnegative_int(value, label: str):
         if value in (None, ""):
             return None
@@ -4820,13 +4913,20 @@ def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_curre
     followers_count = optional_nonnegative_int(body.get("page_followers_count"), "关注数") if "page_followers_count" in body else None
     conn = get_conn()
     assert_row_access(conn, "tw_certified_pages", page_db_id, user, allow_unassigned=False)
+    current = conn.execute("SELECT * FROM tw_certified_pages WHERE id=?", (page_db_id,)).fetchone()
     updates, params = [], []
     if "page_name" in body:
         updates.append("page_name=?"); params.append(body["page_name"])
     if "note" in body:
         updates.append("note=?"); params.append(body["note"])
+    new_category = None
+    has_category_change = False
     if "page_category" in body:
-        updates.append("page_category=?"); params.append((body.get("page_category") or "").strip() or None)
+        new_category = (body.get("page_category") or "").strip() or None
+        updates.append("page_category=?")
+        params.append(new_category)
+        old_category = (current["page_category"] or "") if current and "page_category" in current.keys() else ""
+        has_category_change = bool(new_category) and (new_category != old_category)
     if "page_fan_count" in body:
         updates.append("page_fan_count=?")
         params.append(fan_count)
@@ -4849,8 +4949,31 @@ def update_tw_certified_page(page_db_id: int, body: dict, user=Depends(get_curre
         params.append(page_db_id)
         conn.execute(f"UPDATE tw_certified_pages SET {','.join(updates)} WHERE id=?", params)
         conn.commit()
+
+    # FB category sync (best-effort; never fails the local update).
+    fb_sync = {"attempted": False, "ok": False, "error": "", "rename_supported": False}
+    if has_category_change and current:
+        page_id = str(current["page_id"] or "").strip()
+        fb_sync["attempted"] = True
+        try:
+            user_token = _resolve_tw_page_user_token(conn, current, user)
+            page_token = _fb_page_access_token_for_page(page_id, user_token) if user_token else ""
+            if page_token:
+                fb_sync.update(_fb_sync_tw_page_category(page_id, page_token, new_category))
+            else:
+                fb_sync["error"] = "未找到可用 Page Token（需要在 FB 后台为该主页分配管理权限的 Token）"
+        except Exception as exc:
+            fb_sync["error"] = f"FB 同步异常: {exc}"
     conn.close()
-    return {"success": True}
+
+    if "page_name" in body and body["page_name"] != (current["page_name"] if current else None):
+        # Surface the FB API rename limitation in the response so callers know
+        # the name change is local-only and must be repeated in FB UI.
+        fb_sync["rename_note"] = (
+            "FB API 不支持修改主页名称（name 非可写参数），名称已仅更新本地 DB；"
+            "如需同步到 Facebook，请在 FB 后台 / Business Manager 手动改名。"
+        )
+    return {"success": True, "fb_sync": fb_sync}
 
 
 @router.delete("/tw-certified-pages/{page_db_id}")

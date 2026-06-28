@@ -2569,6 +2569,7 @@ class GuardEngine:
     def _tag_ad_with_subcode(
         self, account: dict, ad: dict, token: str,
         ad_id: str, ad_name: str,
+        creative_url: str = "",
     ) -> None:
         """Extract the子码 slug from the ad's creative URL and write it into the
         FB ad name (``{original_name} [子码:{slug}]``), so the user can see which
@@ -2577,9 +2578,13 @@ class GuardEngine:
         Fault-tolerant by design: every step is wrapped so a failed URL fetch, a
         missing slug, or a rename failure can only log + return, never break the
         surrounding inspection. Skips ads whose name already carries the slug.
+
+        ``creative_url`` may be supplied by the caller (e.g. when the inspector
+        has already fetched it for子码 binding) to avoid a second FB request.
         """
         try:
-            creative_url = self._extract_ad_creative_link(ad_id, token, account)
+            if not creative_url:
+                creative_url = self._extract_ad_creative_link(ad_id, token, account)
             if not creative_url:
                 return  # could not read creative -> nothing to tag from
             match = self._SUBCODE_SLUG_RE.search(creative_url)
@@ -2640,6 +2645,69 @@ class GuardEngine:
         except Exception as exc:
             logger.warning("[Guard] 子码标注广告名称失败 ad %s: %s", ad_id, _sanitize_error_text(exc))
 
+    def _auto_bind_subcode_ad(
+        self, account: dict, ad: dict, token: str,
+        ad_id: str, ad_name: str,
+        creative_url: str = "",
+    ) -> None:
+        """Match an EXISTING子码 (landing_ad_links row) to this ad by slug.
+
+        During inspection we already know the ad's creative URL. If it carries
+        a ``/a/{slug}`` segment we look up ``landing_ad_links`` by slug and,
+        when the row's ``ad_id`` is empty or different, write this ad's id +
+        flip status to ``active``. This only binds pre-existing子码 to ads —
+        it never generates new子码 (the old ``guard_auto_reserve`` was removed).
+
+        Fault-tolerant: every step is wrapped so a missing slug, a missing
+        table, or a DB error can only log + return, never break inspection.
+        """
+        try:
+            if not creative_url:
+                return  # nothing to parse (caller had no creative link)
+            match = self._SUBCODE_SLUG_RE.search(creative_url)
+            if not match:
+                return  # no /a/{slug} segment -> not a子码 ad
+            slug = match.group(1)
+            act_id = account.get("act_id", "") or ""
+
+            conn = get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT id, ad_id, page_id FROM landing_ad_links WHERE slug=?",
+                    (slug,),
+                ).fetchone()
+            finally:
+                conn.close()
+
+            if not row:
+                return  # no existing子码 with this slug -> nothing to bind
+            current_ad_id = (row["ad_id"] or "").strip() if row["ad_id"] is not None else ""
+            if current_ad_id == str(ad_id):
+                return  # already bound to this exact ad -> de-dup, skip
+
+            conn = get_conn()
+            try:
+                conn.execute(
+                    "UPDATE landing_ad_links SET ad_id=?, status='active', "
+                    "updated_at=datetime('now','+8 hours') WHERE slug=?",
+                    (str(ad_id), slug),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            logger.info("[Guard] 广告 %s 已绑定子码 %s", ad_id, slug)
+            _log_action(
+                act_id, "ad", ad_id, ad_name, "bind_subcode",
+                "auto_subcode_bind",
+                f"广告 {ad_id} 已绑定子码 {slug}",
+                old_value={"slug": slug, "ad_id": current_ad_id},
+                new_value={"slug": slug, "ad_id": str(ad_id), "status": "active"},
+                status="success", operator="system",
+            )
+        except Exception as exc:
+            logger.warning("[Guard] 子码自动绑定失败 ad %s: %s", ad_id, _sanitize_error_text(exc))
+
     def _inspect_ad(self, account: dict, ad: dict, token: str, rules: list, scale_rules: list = None, click_map: dict = None):
             from services.kpi_resolver import get_kpi_for_ad
 
@@ -2661,12 +2729,27 @@ class GuardEngine:
             # 此处从创意链接解析 slug → 写入 FB 广告名称（[子码:xxx]），方便在
             # Ads Manager 一眼看出每条广告用了哪个子码。默认关闭，由
             # settings.guard_auto_tag_ad_subcode=1 开启；任何异常都只记日志不中断巡检。
+            #
+            # v3.11.167: 同一创意链接也用于子码自动绑定（P0 闭环关键）—— 把广告
+            # 匹配到已存在的 landing_ad_links 子码行（ad_id 为空或不同则更新）。
+            # 创意 URL 只拉取一次，复用给标注 + 绑定，避免重复 FB 请求。
             try:
                 _tag_subcode_on = _get_setting("guard_auto_tag_ad_subcode", "0") == "1"
             except Exception:
                 _tag_subcode_on = False
             if _tag_subcode_on:
-                self._tag_ad_with_subcode(account, ad, token, ad_id, ad_name)
+                # Fetch once, share with the bind step below.
+                _creative_url = ""
+                try:
+                    _creative_url = self._extract_ad_creative_link(ad_id, token, account)
+                except Exception:
+                    _creative_url = ""
+                self._tag_ad_with_subcode(account, ad, token, ad_id, ad_name, creative_url=_creative_url)
+                self._auto_bind_subcode_ad(account, ad, token, ad_id, ad_name, creative_url=_creative_url)
+            else:
+                # Tagging is off, but子码绑定闭环仍需运行（核心闭环，不容关闭）。
+                # It's fault-tolerant + de-dup, so always safe to call.
+                self._auto_bind_subcode_ad(account, ad, token, ad_id, ad_name)
 
             insights = ad.get("insights", {}).get("data", [])
             if not insights:

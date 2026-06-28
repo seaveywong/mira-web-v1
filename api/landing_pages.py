@@ -5186,6 +5186,49 @@ def update_landing_ad_link_result(link_id: int, body: LandingAdLinkResultPatch, 
         conn.close()
 
 
+@router.delete("/ad-links/{link_id}/result")
+def clear_landing_ad_link_result(
+    link_id: int,
+    result_date: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    """回填清除：把某子码广告入口的「真实结果」清空。
+
+    清空 landing_ad_link_results 中该 link 的所有行（或指定 result_date 的那行），
+    使 confirmed_actions / confirmed_sales / confirmed_revenue /
+    confirmed_result_note / confirmed_result_date 全部归零/为空。
+    """
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM landing_ad_links WHERE id=?", (link_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="广告入口不存在")
+        _assert_page_access(conn, int(row["page_id"]), user)
+
+        params: list = [link_id]
+        where_sql = "link_id=?"
+        scope_label = "全部日期"
+        if result_date is not None and str(result_date).strip():
+            target_day = _normalize_result_date(result_date)
+            where_sql += " AND result_date=?"
+            params.append(target_day)
+            scope_label = target_day
+
+        cur = conn.execute(
+            f"DELETE FROM landing_ad_link_results WHERE {where_sql}",
+            params,
+        )
+        conn.commit()
+        return {
+            "success": True,
+            "cleared": True,
+            "deleted_rows": int(cur.rowcount or 0),
+            "scope": scope_label,
+        }
+    finally:
+        conn.close()
+
+
 @router.post("/ad-links/results/import")
 def import_landing_ad_link_results(body: LandingAdLinkResultImport, user=Depends(get_current_user)):
     rows = body.rows or []
