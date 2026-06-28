@@ -4632,7 +4632,7 @@ input:focus, select:focus, textarea:focus {
    <div class="landing-quick-actions">
     <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布落地页</button>
     <button class="btn btn-g" onclick="showPage('landing_urls')">绑定到账户</button>
-    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">管理像素/域名预设</button>
+    
    </div>
   </div>
   <div class="landing-guide-card">
@@ -4735,14 +4735,6 @@ input:focus, select:focus, textarea:focus {
    </div>
    <div class="landing-form-section">
     <div class="landing-section-title">基础信息</div>
-    <div class="landing-template-tools" style="margin-top:0">
-     <select class="fc" id="lpAssetBinding" onchange="applyLandingAssetBinding(this.value)">
-      <option value="">选择像素 / 域名 / 落地页预设</option>
-     </select>
-     <button class="btn btn-g btn-sm" type="button" onclick="openLandingAssetBindingModal()">管理预设</button>
-     <button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="saveLandingAssetBindingFromPublish()">当前配置存为预设</button>
-    </div>
-    <div class="fh" style="margin:6px 0 0">选预设=一键填入下方各项；直接改下方字段不会影响已保存的预设。</div>
     <div class="landing-form-grid">
      <div class="fg"><label class="fl">发布名称</label><input class="fc" id="lpTitle" placeholder="如：落地页-日期-版本"></div>
      <div class="fg"><label class="fl">自定义域名（建议填写）</label><div class="landing-domain-picker"><input class="fc" id="lpCustomDomain" list="landingDomainDatalist" placeholder="例如：go.example.com"><select class="fc" id="lpDomainSelect" onchange="applyLandingDomainFromSelect(this.value)"><option value="">从域名库选择</option></select><button class="btn btn-g btn-sm" type="button" onclick="generateLandingRandomSubdomain('lpCustomDomain')">随机子域名</button></div><datalist id="landingDomainDatalist"></datalist><div class="fh">优先使用子域名；根域名通常只作为生成子域名的来源。保存发布时仍会校验域名状态。</div></div>
@@ -20391,7 +20383,7 @@ function renderLandingPixelOptions(){
  var sel=document.getElementById('lpPixelSelect');
  if(!sel)return;
  var old=sel.value||'';
- var pixels=_landingPixelLibrary();
+ var pixels=(window._landingPixelsLib||[]);
  sel.innerHTML='<option value="">从像素库选择</option>'+pixels.map(function(p){
   return '<option value="'+escHtml(p.pixel_id||'')+'" title="'+escHtml(_landingPixelLabel(p))+'">'+escHtml(_landingPixelLabel(p))+'</option>';
  }).join('');
@@ -20930,6 +20922,7 @@ function openLandingPublishDrawer(){
  var bind=document.getElementById('lpBindTarget');
  if(bind)bind.dataset.manual='';
  suggestLandingBindTarget();
+ loadLandingLibraries().then(function(){try{renderLandingPixelOptions();renderLandingDomainOptions();}catch(e){}});
  setTimeout(function(){
   var el=document.getElementById('lpTitle');
   if(el&&el.focus)el.focus();
@@ -23293,6 +23286,8 @@ async function publishLandingPage(){
   else if(domainNotice)msg+='，自定义域待验证，账户已先写入 Pages 备用域；域名可用后点复检会自动回绑';
   toast(msg,(domainError||domainNotice)?'wa':'ok');
   if(res&&res.page&&(res.page.public_url||res.page.pages_url))copyText(encodeURIComponent(res.page.public_url||res.page.pages_url),true);
+  var _np=(document.getElementById('lpPixel')||{}).value||''; if(_np.trim()&&!(window._landingPixelsLib||[]).some(function(p){return p.pixel_id===_np.trim();})){api('POST','/landing-pages/pixels',{pixel_id:_np.trim(),pixel_name:''}).then(function(){toast('像素已存入像素库','ok');}).catch(function(){});}
+  var _nd=(document.getElementById('lpCustomDomain')||{}).value||''; if(_nd.trim()&&!(window._landingDomainLib||[]).some(function(d){return d.domain===_nd.trim();})){api('POST','/landing-pages/saved-domains',{domain:_nd.trim(),label:''}).then(function(){toast('域名已存入域名库','ok');}).catch(function(){});}
   markPageStale('landing_center');
  await loadLandingCenter(true);
  }catch(e){toast('发布失败：'+(e.message||e),'er');await loadLandingCenter(true)}
