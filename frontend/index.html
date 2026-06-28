@@ -4706,9 +4706,9 @@ input:focus, select:focus, textarea:focus {
       <details class="pt-rules-advanced" style="grid-column:1/-1;margin-top:12px"><summary style="cursor:pointer;font-weight:600;font-size:12px;padding:8px 0;color:var(--t2)">更多拦截规则（设备 / 平台 / UA / 来源 / 参数）</summary>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">设备与环境</div>
-       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="ptDeviceBlock" list="landingDeviceOptions" oninput="renderProtectionTemplateSummary()" placeholder="desktop,tablet"></div>
+       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="ptDeviceBlock" list="landingDeviceOptions" oninput="renderProtectionTemplateSummary()" placeholder="desktop,tablet"><div class="landing-rule-quick"><button type="button" onclick="appendLandingRuleValue('ptDeviceBlock','desktop','renderProtectionTemplateSummary',true)">桌面</button><button type="button" onclick="appendLandingRuleValue('ptDeviceBlock','mobile','renderProtectionTemplateSummary',true)">手机</button><button type="button" onclick="appendLandingRuleValue('ptDeviceBlock','tablet','renderProtectionTemplateSummary',true)">平板</button></div></div>
        <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="ptPlatformBlock" list="landingPlatformOptions" oninput="renderProtectionTemplateSummary()" placeholder="Windows,Android"></div>
-       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="ptUaBlock" list="landingUaOptions" oninput="renderProtectionTemplateSummary()" placeholder="bot,crawler,spider"></div>
+       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="ptUaBlock" list="landingUaOptions" oninput="renderProtectionTemplateSummary()" placeholder="bot,crawler,spider"><div class="landing-rule-quick"><button type="button" onclick="['bot','crawler','spider','preview'].forEach(function(v){appendLandingRuleValue('ptUaBlock',v,'renderProtectionTemplateSummary',true)})">常见爬虫</button></div></div>
       </div>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">来源与参数</div>
@@ -21452,12 +21452,12 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
    var place=[x.country||'',x.region||'',x.city||''].filter(Boolean).join(' / ')||'--';
    var device=[x.device_type||'',x.os||'',x.browser||''].filter(Boolean).join(' · ')||'--';
    var _tu=x.target_url||'';
-   var result=String(x.event_type||'').toLowerCase()==='redirect'?(_tu?_tu.replace(/^https?:\/\//,'').replace(/[?#].*$/,'').slice(0,48)+(_tu.length>48?'…':''):'--'):(x.reason||x.target_url||'--');
+   var _isRed=String(x.event_type||'').toLowerCase()==='redirect'; var result=_isRed?(_tu?'<a href="'+escHtml(_tu)+'" target="_blank" title="'+escHtml(_tu)+'" style="color:var(--ac);word-break:break-all">'+escHtml(_tu)+'</a>':'--'):escHtml(x.reason||x.target_url||'--');
    var cls=String(x.event_type||'').toLowerCase()==='block'||String(x.event_type||'').toLowerCase()==='error'?'bg-er':'bg-ok';
    return '<div class="landing-event-card" data-et="'+escHtml(String(x.event_type||'').toLowerCase())+'">'+
     '<div class="landing-event-top"><div class="landing-event-title"><span>'+escHtml(evName(x.event_type))+'</span><span class="badge '+cls+'">'+escHtml(x.decision||'')+'</span></div><span class="landing-event-time">'+escHtml(x.created_at||'')+'</span></div>'+
     '<div class="landing-event-fields"><div class="landing-event-field"><span>地区</span><b title="'+escHtml(place)+'">'+escHtml(place)+'</b></div><div class="landing-event-field"><span>设备</span><b title="'+escHtml(device)+'">'+escHtml(device)+'</b></div><div class="landing-event-field"><span>广告 ID</span><b title="'+escHtml(x.ad_id||'')+'">'+escHtml(x.ad_id||'未识别')+'</b></div><div class="landing-event-field"><span>路径</span><b title="'+escHtml(x.path||'')+'">'+escHtml(x.path||'--')+'</b></div></div>'+
-    '<div class="landing-event-reason"><b style="color:var(--t1)">结果：</b>'+escHtml(result)+'</div>'+
+    '<div class="landing-event-reason"><b style="color:var(--t1)">结果：</b>'+result+'</div>'+
    '</div>';
   }).join('');
   var s=r.summary||{},bt=r.by_type||{};
@@ -23365,7 +23365,7 @@ function _assetLibPixelsHtml(){
    '<td style="padding:8px 6px;font-family:monospace;font-size:12px;color:var(--t2)">'+_maskLandingPixelId(p.pixel_id)+'</td>'+
    '<td style="padding:8px 6px;color:var(--t3);font-size:12px">'+(p.note?escHtml(p.note):'')+'</td>'+
    '<td style="padding:8px 6px"><span class="badge '+(p.usage_count>0?'bg-ok':'bg-mu')+'" title="使用此像素的主链接数">'+p.usage_count+' 个主链接</span></td>'+
-   '<td style="padding:8px 6px;text-align:right"><button class="btn btn-g btn-sm danger" data-pid="'+p.id+'" data-name="'+escHtml(p.pixel_name||p.pixel_id)+'" data-usage="'+p.usage_count+'" onclick="deleteLandingPixel(this.dataset)">删除</button></td></tr>';
+   '<td style="padding:8px 6px;text-align:right"><button class="btn btn-g btn-sm" data-pid="'+p.id+'" data-pixelid="'+escHtml(p.pixel_id)+'" data-name="'+escHtml(p.pixel_name||'')+'" data-note="'+escHtml(p.note||'')+'" onclick="editLandingPixelForm(this.dataset)">编辑</button> <button class="btn btn-g btn-sm danger" data-pid="'+p.id+'" data-name="'+escHtml(p.pixel_name||p.pixel_id)+'" data-usage="'+p.usage_count+'" onclick="deleteLandingPixel(this.dataset)">删除</button></td></tr>';
  }).join('');
  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:12px;color:var(--t3)">共 '+list.length+' 个像素。发布主链接时从这里选；改名/删除只影响库，已发布页面不受影响。</span><button class="btn btn-p btn-sm" onclick="addLandingPixelForm()">添加像素</button></div>'+
   '<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--t3);font-size:12px"><th style="padding:6px">名称</th><th style="padding:6px">Pixel 编号</th><th style="padding:6px">备注</th><th style="padding:6px">用量</th><th style="padding:6px;text-align:right">操作</th></tr></thead><tbody>'+
@@ -23420,6 +23420,20 @@ function addLandingPixelForm(){
   var note=(document.getElementById('alPixelNote')||{}).value||'';
   if(!pid.trim()){toast('请填写 Pixel 编号','wa');return;}
   try{ await api('POST','/landing-pages/pixels',{pixel_id:pid.trim(),pixel_name:name.trim(),note:note.trim()}); toast('已添加','ok'); await loadLandingLibraries(); switchAssetLibTab('pixel'); }catch(e){}
+ });
+}
+function editLandingPixelForm(ds){
+ var html='<div style="text-align:left">'+
+  '<div class="fg"><label class="fl">Pixel 编号</label><input class="fc" id="alPixelId" value="'+escHtml(ds.pixelid||'')+'"></div>'+
+  '<div class="fg"><label class="fl">名称</label><input class="fc" id="alPixelName" value="'+escHtml(ds.name||'')+'"></div>'+
+  '<div class="fg"><label class="fl">备注</label><input class="fc" id="alPixelNote" value="'+escHtml(ds.note||'')+'"></div></div>';
+ confirmAsync(html,'保存','取消','编辑像素').then(async function(ok){
+  if(!ok)return;
+  var pid=(document.getElementById('alPixelId')||{}).value||'';
+  var name=(document.getElementById('alPixelName')||{}).value||'';
+  var note=(document.getElementById('alPixelNote')||{}).value||'';
+  if(!pid.trim()){toast('请填写 Pixel 编号','wa');return;}
+  try{ await api('PATCH','/landing-pages/pixels/'+ds.pid,{pixel_id:pid.trim(),pixel_name:name.trim(),note:note.trim()}); toast('已保存','ok'); await loadLandingLibraries(); switchAssetLibTab('pixel'); }catch(e){}
  });
 }
 function deleteLandingPixel(ds){
