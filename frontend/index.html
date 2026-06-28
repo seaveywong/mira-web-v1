@@ -4406,8 +4406,8 @@ input:focus, select:focus, textarea:focus {
       <div><h2>规则引擎</h2><p>止损规则与拉量策略（广告级执行，失败自动向上升级）</p></div>
       <div style="display:flex;gap:8px;align-items:center">
        <select class="fc" id="rulesAct" style="width:180px" onchange="loadRules()"><option value="">全部账户</option></select>
-       <button class="btn btn-g role-hide-viewer" onclick="openGuardAllowanceModal()" title="录入当天允许继续跑的广告 ID，规则巡检会跳过这些广告">当日放行</button>
-       <button class="btn btn-p" onclick="openRuleDryRunModal()" title="指定账户/系列/组/广告 ID，预演当前规则是否会触发">规则预演</button>
+       <button class="btn btn-g role-hide-viewer" onclick="openGuardAllowanceModal()" title="录入当天允许继续跑的广告 ID">当日放行</button>
+       <button class="btn btn-p" onclick="openRuleDryRunModal()" title="预演规则是否触发">规则预演</button>
        <div style="position:relative" id="tplMenuWrap">
        <button class="btn btn-ok role-hide-viewer" onclick="toggleTplMenu()">模板管理 ▾</button>
        <div id="tplDropMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg3);border:1px solid var(--bd2);border-radius:8px;min-width:180px;z-index:100;box-shadow:var(--sh)">
@@ -4418,6 +4418,8 @@ input:focus, select:focus, textarea:focus {
        </div>
       </div>
      </div>
+     <details ontoggle="if(this.open)loadGuardObservability()">
+      <summary style="cursor:pointer;font-weight:600;padding:8px 0;color:var(--t1)">守护概览（巡检健康 · 关闭统计 · 关闭链路复盘）</summary>
      <div class="guard-ops-panel" id="guardOpsPanel">
       <div class="guard-ops-card">
        <div class="guard-ops-title"><span>巡检健康</span><button class="btn btn-g btn-sm" onclick="loadGuardObservability()">刷新</button></div>
@@ -4432,6 +4434,7 @@ input:focus, select:focus, textarea:focus {
        <div id="guardOpsReplay" class="guard-ops-sub">等待加载。</div>
       </div>
      </div>
+     </details>
      <div class="rtabs">
       <button class="rtab active" data-tab="guard" onclick="switchTab('guard')"> 止损规则</button>
       <button class="rtab" data-tab="scale" onclick="switchTab('scale')">拉量策略</button>
@@ -5554,7 +5557,7 @@ input:focus, select:focus, textarea:focus {
       <input id="launchBindLandingLink" type="checkbox" checked style="width:auto;margin-top:2px">
       <span id="launchBindLandingLinkText">同步保存为所选账户投放链接；实际广告投放使用自动生成的 /a/子码 + ad={{ad.id}} 动态宏。</span>
       </label>
-      <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：此处填写 &gt; 素材级绑定 &gt; 账户主链接/已绑定主链接 &gt; 系统全局默认；系统主链接会为每条广告自动生成广告入口并回绑广告。</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:4px">优先级：填写后用这条；否则依次取 素材绑定 &gt; 账户主链接 &gt; 系统默认。主链接会自动为每条广告生成子码并回绑。</div>
       <div id="launchLinkStatusPanel"></div>
      </div>
     <!-- 消息模版：选择消息类转化目的时显示 -->
@@ -21035,11 +21038,11 @@ function _landingRowActionsHtml(p, link, usageTotal){
   var canSeeFallback=isSuperadminRole();
   var parts=[];
   // PRIMARY: 生成投放链接（手动投放用子码）— most important action for the manual workflow
-  parts.push(_landingActionButton(' 生成投放链接','createLandingAdLinks('+id+')','btn-p landing-cta-gen role-hide-viewer','生成 1-200 条 /a/子码 投放链接（一个子码对应一条 FB 广告），并在结果里复制带 ad 参数的完整链接'));
-  parts.push(_landingActionButton(' 统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
-  parts.push(_landingActionButton(' 防护自检','runLandingProtectionTest('+id+')','btn-g','模拟访客画像验证当前防护规则是否生效：哪些会被拦截/放行及原因'));
-  parts.push(_landingActionButton(' 配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
-  if(link)parts.push(_landingActionButton('投放链接管理','showLandingAdLinks('+id+')','btn-g','查看该主链接下已生成的子码、绑定关系、跳转池和效果'));
+  parts.push(_landingActionButton('生成投放链接','createLandingAdLinks('+id+')','btn-p landing-cta-gen role-hide-viewer','生成子码投放链接（每条广告一个）'));
+  parts.push(_landingActionButton('统计/日志','showLandingStats('+id+')','btn-g','访问/点击/跳转/拦截与日志'));
+  parts.push(_landingActionButton('防护自检','runLandingProtectionTest('+id+')','btn-g','验证防护规则：哪些拦截/放行'));
+  parts.push(_landingActionButton('配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','改跳转/统计/防护规则'));
+  if(link)parts.push(_landingActionButton('投放链接管理','showLandingAdLinks('+id+')','btn-g','查看子码、绑定与跳转池'));
   var more=[];
   if(link)more.push(_landingActionButton('复制主链接(无参数)',"copyText('"+encodeURIComponent(link)+"')",'btn-g','复制当前落地页主链接（不含 ad 参数）；铺广告会自动生成广告入口链接'));
   if(p.custom_domain)more.push(_landingActionButton('复制正式域名',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制已绑定的正式自定义域名链接'));
