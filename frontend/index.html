@@ -21209,6 +21209,7 @@ function _landingEvFilterDays(btn, scope){
   bar.querySelectorAll('.landing-evfilter-pill').forEach(function(c){c.classList.toggle('on', c===btn);});
   var n=parseInt(btn.getAttribute('data-days')||'7',10)||7;
   var df=_landingDateValue(n-1), dt=_landingDateValue(0);
+  _landingPerfDateFrom=df; _landingPerfDateTo=dt;
   if(scope==='logs'){
     var pageId=bar.getAttribute('data-page'), slug=bar.getAttribute('data-slug');
     if(pageId&&slug){ showLandingAdLinkLogs(pageId, encodeURIComponent(slug)); }
