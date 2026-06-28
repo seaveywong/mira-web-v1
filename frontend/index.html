@@ -4703,6 +4703,7 @@ input:focus, select:focus, textarea:focus {
        <div class="fg"><label class="fl">只允许国家</label><input class="fc" id="ptCountryAllow" list="landingCountryOptions" oninput="renderProtectionTemplateSummary()" onblur="normalizeLandingCountryInput('ptCountryAllow','renderProtectionTemplateSummary')" placeholder="US,VN,TH"><div class="landing-rule-field-help">支持多个国家，用逗号、空格、分号或换行分隔。空白表示不限制。</div><div class="landing-rule-quick"><button type="button" onclick="appendLandingRuleValue('ptCountryAllow','US','renderProtectionTemplateSummary',true)">US</button><button type="button" onclick="appendLandingRuleValue('ptCountryAllow','AU','renderProtectionTemplateSummary',true)">AU</button><button type="button" onclick="appendLandingRuleValue('ptCountryAllow','SG','renderProtectionTemplateSummary',true)">SG</button><button type="button" onclick="appendLandingRuleValue('ptCountryAllow','VN','renderProtectionTemplateSummary',true)">VN</button><button type="button" onclick="appendLandingRuleValue('ptCountryAllow','TH','renderProtectionTemplateSummary',true)">TH</button></div></div>
        <div class="fg"><label class="fl">拦截国家</label><input class="fc" id="ptCountryBlock" list="landingCountryOptions" oninput="renderProtectionTemplateSummary()" onblur="normalizeLandingCountryInput('ptCountryBlock','renderProtectionTemplateSummary')" placeholder="CN,RU"><div class="landing-rule-field-help">命中这里的国家会直接拦截；建议只放明确不需要的地区。</div><div class="landing-rule-quick"><button type="button" onclick="appendLandingRuleValue('ptCountryBlock','CN','renderProtectionTemplateSummary',true)">CN</button><button type="button" onclick="appendLandingRuleValue('ptCountryBlock','RU','renderProtectionTemplateSummary',true)">RU</button><button type="button" onclick="appendLandingRuleValue('ptCountryBlock','IN','renderProtectionTemplateSummary',true)">IN</button><button type="button" onclick="appendLandingRuleValue('ptCountryBlock','BR','renderProtectionTemplateSummary',true)">BR</button></div></div>
       </div>
+      <details class="pt-rules-advanced" style="grid-column:1/-1;margin-top:12px"><summary style="cursor:pointer;font-weight:600;font-size:12px;padding:8px 0;color:var(--t2)">更多拦截规则（设备 / 平台 / UA / 来源 / 参数）</summary>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">设备与环境</div>
        <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="ptDeviceBlock" list="landingDeviceOptions" oninput="renderProtectionTemplateSummary()" placeholder="desktop,tablet"></div>
@@ -4717,6 +4718,7 @@ input:focus, select:focus, textarea:focus {
        <div class="fg"><label class="fl">拦截 URL 参数关键词</label><input class="fc" id="ptQueryBlock" list="landingQueryOptions" oninput="renderProtectionTemplateSummary()" placeholder="preview,debug"></div>
        <div class="fg"><label class="fl">必须包含参数</label><input class="fc" id="ptRequiredQuery" list="landingRequiredQueryOptions" oninput="renderProtectionTemplateSummary()" placeholder="utm_source 或 fbclid"></div>
       </div>
+     </details>
      </div>
      <div id="ptProtectionSummary" class="landing-rule-summary"></div>
     </div>
