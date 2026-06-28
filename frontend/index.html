@@ -2150,7 +2150,7 @@ select.fc option{background:#fff;color:#1d1d1f}
 /* Landing workspace P0: list-first layout, publish drawer, compact row actions. */
 #page-landing_center.active{display:flex!important;flex-direction:column!important}
 #page-landing_center>.ph{order:0}
-#page-landing_center>.landing-path-strip{order:1}
+#page-landing_center>.landing-flow-manual{order:1}
 #page-landing_center>.landing-record-card{order:2}
 #page-landing_center>#landingStatsPanel{order:3}
 #page-landing_center>.landing-center-grid{order:10;display:block!important;margin-top:0!important}
@@ -2171,6 +2171,24 @@ select.fc option{background:#fff;color:#1d1d1f}
 .landing-onboarding-hint-text{flex:1;min-width:0}
 .landing-onboarding-hint-close{margin-left:auto;border:0;background:transparent;color:#6e6e73;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px}
 .landing-onboarding-hint-close:hover{background:rgba(30,58,138,.08);color:#1e3a8a}
+.landing-cta-gen{position:relative;font-weight:760!important;padding:0 14px!important;background:linear-gradient(180deg,#0a84ff,#0071e3)!important;border:1px solid rgba(0,0,0,.12)!important;box-shadow:0 1px 2px rgba(0,113,227,.35)!important;color:#fff!important}
+.landing-cta-gen::after{content:'';position:absolute;inset:-2px;border-radius:9px;background:radial-gradient(circle at 50% 50%,rgba(10,132,255,.35),transparent 70%);filter:blur(6px);z-index:-1;opacity:.55}
+.landing-cta-gen:hover{background:linear-gradient(180deg,#0071e3,#0062cc)!important}
+.landing-flow-stage{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px 10px;padding:8px 12px;border:1px solid #e5e5ea;border-radius:10px;background:#fff;font-size:12px;flex:1 1 140px;min-width:0}
+.landing-flow-stage .landing-flow-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#0071e3;color:#fff;font-size:11px;font-weight:760;flex:0 0 auto}
+.landing-flow-stage b{display:block;font-size:12px;color:#1d1d1f;font-weight:760;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.landing-flow-stage small{display:block;font-size:10.5px;color:#6e6e73;line-height:1.3;margin-top:2px}
+.landing-flow-arrow{color:#c2c2c7;font-size:14px;font-weight:760;flex:0 0 auto;align-self:center}
+.landing-flow-manual{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 14px;padding:10px 12px;background:#f5f5f7;border:1px solid #e5e5ea;border-radius:12px}
+@media(max-width:760px){.landing-flow-stage{flex:1 1 100%}.landing-flow-arrow{transform:rotate(90deg);margin:-2px 0}.landing-cta-gen{width:100%}}
+.landing-gen-results{display:grid;gap:8px;max-height:60vh;overflow:auto;padding:2px}
+.landing-gen-result-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:8px 10px;border:1px solid #e5e5ea;border-radius:10px;background:#fbfbfd}
+.landing-gen-result-row code{font-size:12px;color:#1d1d1f;background:#eef2ff;border:1px solid #dbe3ff;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.landing-gen-result-row .landing-gen-tracked{font-size:11.5px;color:#0071e3;word-break:break-all;min-width:0;line-height:1.4}
+.landing-gen-result-row .btn{height:30px!important;min-height:30px!important;padding:0 10px!important}
+.landing-gen-summary{font-size:12px;color:#515154;line-height:1.6;padding:8px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;margin-bottom:10px}
+.landing-gen-summary b{color:#1e3a8a}
+@media(max-width:520px){.landing-gen-result-row{grid-template-columns:1fr auto}.landing-gen-result-row .landing-gen-tracked{grid-column:1/-1}}
 .landing-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .landing-top-actions .fc{height:36px!important}
 .landing-top-actions .btn{height:36px!important;min-height:36px!important}
@@ -4475,7 +4493,7 @@ input:focus, select:focus, textarea:focus {
 <!-- Page: 落地页工作台 -->
 <div class="page" id="page-landing_center">
  <div class="ph">
-  <div><h2>落地页工作台</h2><p>发布链接、管理广告入口、查看统计并回填真实结果</p></div>
+  <div><h2>落地页工作台</h2><p>发布主链接、生成投放子码（/a/子码）、复制去 FB 投放、查看统计并回填真实结果</p></div>
   <div class="landing-top-actions">
    <select class="fc" id="landingPerfDays" style="width:130px;height:36px" onchange="setLandingPerfDays(this.value)">
    <option value="1">今日真实效果</option>
@@ -4500,25 +4518,33 @@ input:focus, select:focus, textarea:focus {
    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
   </div>
  </div>
- <div class="landing-path-strip">
- <b>投放链路</b><span>发布链接</span><span>绑定账户</span><span>铺广告生成广告入口</span><span>回填真实进线</span>
+ <div class="landing-flow-manual">
+  <div class="landing-flow-stage"><span class="landing-flow-num">1</span><div><b>发布主链接</b><small>选域名/模板/跳转</small></div></div>
+  <span class="landing-flow-arrow">›</span>
+  <div class="landing-flow-stage"><span class="landing-flow-num">2</span><div><b>生成投放子码</b><small>每条广告一个 /a/子码</small></div></div>
+  <span class="landing-flow-arrow">›</span>
+  <div class="landing-flow-stage"><span class="landing-flow-num">3</span><div><b>复制去 FB 手动投放</b><small>粘贴到 FB 广告管理器</small></div></div>
+  <span class="landing-flow-arrow">›</span>
+  <div class="landing-flow-stage"><span class="landing-flow-num">4</span><div><b>监控 / 统计</b><small>看访问、跳转、拦截</small></div></div>
+  <span class="landing-flow-arrow">›</span>
+  <div class="landing-flow-stage"><span class="landing-flow-num">5</span><div><b>回填真实数据</b><small>按真实进线算成本</small></div></div>
  </div>
  <div class="landing-onboarding-hint" id="landingOnboardingHint" style="display:none">
-  <span class="landing-onboarding-hint-text">新手：先<b>发布一个落地页</b> → <b>绑定账户</b> → 铺广告时自动生成入口</span>
+  <span class="landing-onboarding-hint-text">手动投放：先<b>发布一个落地页</b> → 点行内 <b>🔗 生成投放链接</b> 生成子码 → 复制带 <code>?ad=&#123;&#123;ad.id&#125;&#125;</code> 的链接去 FB 投放</span>
   <button type="button" class="landing-onboarding-hint-close" onclick="dismissLandingOnboardingHint()" title="我知道了">×</button>
  </div>
  <details class="landing-guide-details">
   <summary>查看投放链路说明与域名建议</summary>
  <div class="landing-simple-guide">
   <div class="landing-guide-card">
-   <div class="landing-guide-title">日常投放照这 4 步走</div>
+   <div class="landing-guide-title">手动投放照这 4 步走</div>
    <div class="landing-guide-steps">
-    <div class="landing-guide-step"><b>1</b><span>先发布一个落地页</span><small>选择域名、模板、跳转链接和统计规则。</small></div>
-    <div class="landing-guide-step"><b>2</b><span>把链接绑定到账户</span><small>铺广告时会自动带入，不用每次手填。</small></div>
-    <div class="landing-guide-step"><b>3</b><span>给广告用投放链接</span><small>一键铺广告会自动生成入口；手工投放才在“广告入口”复制推荐链接。</small></div>
-    <div class="landing-guide-step"><b>4</b><span>看数据和回填结果</span><small>没回填时看 FB 成效；有回填时按真实进线算成本。</small></div>
+    <div class="landing-guide-step"><b>1</b><span>先发布一个落地页</span><small>选域名、模板、跳转链接和统计规则。</small></div>
+    <div class="landing-guide-step"><b>2</b><span>点“🔗 生成投放链接”生成子码</span><small>在落地页行内点该按钮，一条 FB 广告一个 /a/子码。</small></div>
+    <div class="landing-guide-step"><b>3</b><span>复制带 ad 参数的链接去 FB</span><small>结果弹窗里点“复制”，粘贴到 FB 广告管理器的目标 URL。</small></div>
+    <div class="landing-guide-step"><b>4</b><span>看统计 / 回填真实结果</span><small>没回填时看 FB 成效；有回填时按真实进线算成本。</small></div>
    </div>
-   <div class="landing-guide-note"><b>推荐：</b><span>铺广告弹窗会自动用账户投放链接生成 <code>/a/子码?ad={{ad.id}}</code> 并回绑广告；只有手工建广告时，才需要在“广告入口”里复制投放链接。</span></div>
+   <div class="landing-guide-note"><b>说明：</b><span>手动投放流程：行内 <b>🔗 生成投放链接</b> 会生成 <code>/a/子码?ad={{ad.id}}</code> 并弹出可复制的完整链接；FB 会自动用广告 ID 替换 <code>{{ad.id}}</code>，把访问归因到具体广告。一条子码只对应一条 FB 广告。</span></div>
    <div class="landing-quick-actions">
     <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布落地页</button>
     <button class="btn btn-g" onclick="showPage('landing_urls')">绑定到账户</button>
@@ -5788,7 +5814,7 @@ input:focus, select:focus, textarea:focus {
  <div class="modal">
   <div class="mh"><h3>将当前规则存为模板</h3><button class="mc" onclick="closeModal('moSaveTpl')">✕</button></div>
   <div class="mb">
-   <div class="info-box">将当前账户下的所有规则打包为模板，保存后可在「套用推荐模板」中选择并应用到其他账户。</div>
+   <div class="info-box">将当前账户下的所有规则打包为模板，���存后可在「套用推荐模板」中选择并应用到其他账户。</div>
    <div class="fg"><label class="fl">模板名称 <span class="req">*</span></label><input class="fc" id="saveTplName" placeholder="如：我的电商止损方案"></div>
    <div class="fg"><label class="fl">描述</label><input class="fc" id="saveTplDesc" placeholder="可选，便于识别此模板的适用场景"></div>
   </div>
@@ -6402,7 +6428,7 @@ function showInfo(htmlContent, titleText) {
  var isComplex=/<(?:table|thead|tbody|tr|td)\b/i.test(contentText)
   || /class=["'][^"']*(table-wrap|team-table-wrap|landing-perf-grid|landing-page-row|ads-brief-wrap)/i.test(contentText)
   || /min-width\s*:\s*(?:[7-9]\d{2}|1\d{3,})px/i.test(contentText)
-  || /广告入口|广告综合信息|真实效果|发布自检|失败明细|矩阵归属诊断|最近操作|子码访问日志/.test(String(titleText||''))
+  || /广告入口|广告综合信息|真实效果|发布自检|失败明细|矩阵归属诊断|最近操作|子码访问日志|投放链接|生成结果/.test(String(titleText||''))
   || /landing-ad-link-log-list|landing-metric-card/.test(contentText);
  var modalClass=isComplex?'modal modal-wide modal-info':'modal modal-info';
  if(/landing-ad-link-log-list|landing-metric-card/.test(contentText))modalClass='modal modal-info modal-info-logs';
@@ -20000,8 +20026,8 @@ function renderLandingMvpPanel(){
  var html=[
   card(activeTokens.length>0,'API 通道',activeTokens.length?('可用 '+activeTokens.length+' 个，已选账号 '+selectedTokens.length+' 个'):'先保存一个可发布站点的账号 API','去配置','scrollLandingApiPanel()'),
   card(usableDomains.length>0,'域名库',usableDomains.length?('可选域名 '+usableDomains.length+' 个，优先使用自定义域'):'没有识别到可选域名，可先手动填写域名发布','看域名','showLandingDomainLibrary()'),
-  card(published.length>0,'发布链接',published.length?('已发布 '+published.length+' 条，正式域名 '+customPublished.length+' 条'):'先发布一个主链接，再绑定到账户或生成广告入口','发布链接','openLandingPublishDrawer()'),
-  card(perfItems.length>0,'广告效果',perfItems.length?('广告入口 '+perfItems.length+' 条，已绑定广告 '+linkedAdItems.length+' 条'):'发布链接后生成广告入口，投放时复制推荐链接','广告入口',firstPage.id?'showLandingAdLinks('+firstPage.id+')':'openLandingPublishDrawer()')
+  card(published.length>0,'发布链接',published.length?('已发布 '+published.length+' 条，正式域名 '+customPublished.length+' 条'):'先发布一个主链接，再生成投放子码去 FB 投放','发布链接','openLandingPublishDrawer()'),
+  card(perfItems.length>0,'广告效果',perfItems.length?('投放子码 '+perfItems.length+' 条，已绑定广告 '+linkedAdItems.length+' 条'):'发布链接后生成投放子码，复制带 ad 参数的链接去 FB','投放链接',firstPage.id?'showLandingAdLinks('+firstPage.id+')':'openLandingPublishDrawer()')
  ].join('');
  el.innerHTML=html;
 }
@@ -20913,13 +20939,14 @@ function _landingRowActionsHtml(p, link, usageTotal){
   var id=parseInt(p.id||0,10)||0;
   var canSeeFallback=isSuperadminRole();
   var parts=[];
-  if(link)parts.push(_landingActionButton('复制主链接(无参数)',"copyText('"+encodeURIComponent(link)+"')",'btn-p','复制当前落地页主链接（不含 ad 参数）；铺广告会自动生成广告入口链接'));
-  else parts.push('<button class="btn btn-g btn-sm" disabled>无链接</button>');
- parts.push(_landingActionButton('配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
- parts.push(_landingActionButton('广告入口','showLandingAdLinks('+id+')','btn-g','查看该主链接下的广告入口、绑定关系和跳转池'));
- parts.push(_landingActionButton('统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
- parts.push(_landingActionButton('🛡 防护自检','runLandingProtectionTest('+id+')','btn-g','模拟访客画像验证当前防护规则是否生效：哪些会被拦截/放行及原因'));
+  // PRIMARY: 生成投放链接（手动投放用子码）— most important action for the manual workflow
+  parts.push(_landingActionButton('🔗 生成投放链接','createLandingAdLinks('+id+')','btn-p landing-cta-gen role-hide-viewer','生成 1-200 条 /a/子码 投放链接（一个子码对应一条 FB 广告），并在结果里复制带 ad 参数的完整链接'));
+  parts.push(_landingActionButton('📊 统计/日志','showLandingStats('+id+')','btn-g','查看访问、点击、跳转、拦截和最近访问日志'));
+  parts.push(_landingActionButton('🛡 防护自检','runLandingProtectionTest('+id+')','btn-g','模拟访客画像验证当前防护规则是否生效：哪些会被拦截/放行及原因'));
+  parts.push(_landingActionButton('⚙️ 配置','editLandingRuntimeConfig('+id+')','btn-g role-hide-viewer','修改跳转、统计和防护规则'));
+  if(link)parts.push(_landingActionButton('投放链接管理','showLandingAdLinks('+id+')','btn-g','查看该主链接下已生成的子码、绑定关系、跳转池和效果'));
   var more=[];
+  if(link)more.push(_landingActionButton('复制主链接(无参数)',"copyText('"+encodeURIComponent(link)+"')",'btn-g','复制当前落地页主链接（不含 ad 参数）；铺广告会自动生成广告入口链接'));
   if(p.custom_domain)more.push(_landingActionButton('复制正式域名',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制已绑定的正式自定义域名链接'));
   if(canSeeFallback&&p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制系统备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统默认备用域名链接'));
  if(p.custom_domain_dns_hint)more.push(_landingActionButton('复制 DNS',"copyText('"+encodeURIComponent(p.custom_domain_dns_hint)+"')",'btn-g','复制自定义域 DNS 配置'));
@@ -21101,22 +21128,22 @@ function _landingAdLinksHtml(page, links){
    '<td style="padding:8px 10px;text-align:right">'+_landingAdLinkActionHtml(x,stats,(x.ad_id?'改绑定':'绑定广告'),url,adParamUrl)+'</td>'+
   '</tr>';
  }).join('');
- if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有广告入口。一键铺广告会自动生成并绑定；如果是手工建广告，再点“生成广告入口”并复制“投放链接”到 FB 广告。</td></tr>';
+ if(!rows)rows='<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--t3)">还没有投放链接（子码）。点右上“生成投放链接”为每条 FB 广告生成一个 /a/子码，再复制带 ad 参数的完整链接到 FB 广告。</td></tr>';
  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">'+
- '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">一键铺广告会自动生成入口并回绑；手工广告才复制“投放链接”。绑定成功后，账户和广告信息会显示在“绑定对象”列。</div></div>'+
-  '<div class="landing-ad-link-top-actions"><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成广告入口</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="autoBindLandingAdLinks('+((page&&page.id)||0)+')">自动匹配</button>'+(cleanupCount?'<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="cleanupLandingUnusedAdLinks('+((page&&page.id)||0)+','+cleanupCount+')">清理未使用</button>':'')+'<details class="landing-ad-more"><summary>更多</summary><div class="landing-ad-more-menu"><button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingBulkBindModal('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">批量绑定</button><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">导出映射</button></div></details></div>'+
+ '<div><div style="font-weight:820">'+pageTitle+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">每个子码（/a/子码）对应一条 FB 广告；复制带 <code>?ad={{ad.id}}</code> 的完整链接去 FB 手动投放。绑定成功后，账户和广告信息会显示在“绑定对象”列。</div></div>'+
+  '<div class="landing-ad-link-top-actions"><button class="btn btn-p btn-sm role-hide-viewer" onclick="createLandingAdLinks('+((page&&page.id)||0)+')">生成投放链接（子码）</button><button class="btn btn-g btn-sm role-hide-viewer" onclick="autoBindLandingAdLinks('+((page&&page.id)||0)+')">自动匹配</button>'+(cleanupCount?'<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="cleanupLandingUnusedAdLinks('+((page&&page.id)||0)+','+cleanupCount+')">清理未使用</button>':'')+'<details class="landing-ad-more"><summary>更多</summary><div class="landing-ad-more-menu"><button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingBulkBindModal('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">批量绑定</button><button class="btn btn-g btn-sm" onclick="exportLandingPageAdLinks('+((page&&page.id)||0)+');this.closest(&quot;details&quot;).open=false">导出映射</button></div></details></div>'+
  '</div>'+
  '<div class="landing-ad-link-workflow">'+
-  '<div class="landing-ad-link-step"><b>1. 生成广告入口</b><span>一个入口对应一条广告；入口里会自动包含入口码。</span></div>'+
-  '<div class="landing-ad-link-step"><b>2. 复制投放</b><span>复制带 <code>{{ad.id}}</code> 的推荐链接放到 FB 广告。</span></div>'+
-  '<div class="landing-ad-link-step"><b>3. 看绑定结果</b><span>点击“自动匹配”或等待真实点击后，在绑定对象列查看账户和广告。</span></div>'+
+  '<div class="landing-ad-link-step"><b>1. 生成投放子码</b><span>点“生成投放链接（子码）”，一个子码对应一条 FB 广告。</span></div>'+
+  '<div class="landing-ad-link-step"><b>2. 复制去 FB 投放</b><span>复制带 <code>?ad={{ad.id}}</code> 的完整链接，粘贴到 FB 广告管理器。</span></div>'+
+  '<div class="landing-ad-link-step"><b>3. 看绑定 / 效果</b><span>FB 替换 <code>{{ad.id}}</code> 后，访问自动归因；也可点“自动匹配”补绑定。</span></div>'+
  '</div>'+
  '<div class="landing-ad-link-toolbar">'+
-  '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="fc" id="landingAdLinksSearch" placeholder="搜索入口码 / 广告ID / 账户 / 跳转链接" oninput="filterLandingAdLinkRows()"><select class="fc" id="landingAdLinksStatus" onchange="filterLandingAdLinkRows()"><option value="all">全部状态</option><option value="cleanup">可清理未使用</option><option value="reserved">待自动绑定</option><option value="active">已绑定广告</option><option value="failed">失败</option><option value="unused">未使用</option><option value="paused">已暂停</option><option value="archived">已归档</option></select></div>'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="fc" id="landingAdLinksSearch" placeholder="搜索子码 / 广告ID / 账户 / 跳转链接" oninput="filterLandingAdLinkRows()"><select class="fc" id="landingAdLinksStatus" onchange="filterLandingAdLinkRows()"><option value="all">全部状态</option><option value="cleanup">可清理未使用</option><option value="reserved">待自动绑定</option><option value="active">已绑定广告</option><option value="failed">失败</option><option value="unused">未使用</option><option value="paused">已暂停</option><option value="archived">已归档</option></select></div>'+
   '<div class="landing-ad-link-summary"><span id="landingAdLinksVisibleCount">'+links.length+'</span> / '+links.length+' 条 · 已绑定 '+boundCount+' · 待绑定 '+unboundCount+' · 可清理 '+cleanupCount+' · 专属 '+dedicatedCount+' · 重复 '+reusedCount+' · 全局 '+globalCount+'</div>'+
  '</div>'+
  '<div class="table-wrap" style="max-height:420px;overflow-y:auto;overflow-x:hidden"><table class="landing-ad-link-table">'+
-'<thead><tr><th style="text-align:left;padding:8px 10px;width:124px">广告入口</th><th style="text-align:left;padding:8px 10px;width:232px">绑定对象</th><th style="text-align:left;padding:8px 10px">投放链接</th><th style="text-align:left;padding:8px 10px;width:170px">数据</th><th style="text-align:right;padding:8px 10px;min-width:220px;width:220px">操作</th></tr></thead>'+
+'<thead><tr><th style="text-align:left;padding:8px 10px;width:124px">子码</th><th style="text-align:left;padding:8px 10px;width:232px">绑定对象</th><th style="text-align:left;padding:8px 10px">投放链接</th><th style="text-align:left;padding:8px 10px;width:170px">数据</th><th style="text-align:right;padding:8px 10px;min-width:220px;width:220px">操作</th></tr></thead>'+
  '<tbody>'+rows+'</tbody></table></div>';
 }
 function filterLandingAdLinkRows(){
@@ -21138,9 +21165,9 @@ async function showLandingAdLinks(pageId){
  try{
   var links=await api('GET','/landing-pages/pages/'+pageId+'/ad-links');
   window._landingAdLinksCurrent={page:page,links:Array.isArray(links)?links:[]};
-  showInfo(_landingAdLinksHtml(page,links||[]),'广告入口');
+  showInfo(_landingAdLinksHtml(page,links||[]),'投放链接');
  }catch(e){
-  toast('加载广告入口失败：'+(e.message||e),'er');
+  toast('加载投放链接失败：'+(e.message||e),'er');
  }
 }
 async function showLandingAdLinkLogs(pageId,encodedSlug){
@@ -21203,20 +21230,63 @@ async function editLandingAdLinkTargets(linkId,pageId,encodedSlug,encodedTargets
  }
 }
 async function createLandingAdLinks(pageId){
- var raw=await promptAsync('生成广告入口','输入本次要生成的广告入口数量。一个入口对应一个广告；下一步填写的多个跳转地址会作为每个入口自己的轮询池，不会拆成多个入口。','1','1-200');
+ var raw=await promptAsync('生成投放链接（手动投放用子码）','输入本次要生成的投放子码数量。一个 /a/子码 对应一条 FB 广告；下一步填写的多个跳转地址会作为每个子码自己的轮询池，不会拆成多个子码。','1','1-200');
  if(raw==null)return;
  var count=parseInt(String(raw).trim(),10)||0;
  if(count<1||count>200){toast('数量需要在 1-200 之间','wa');return;}
- var targetRaw=await promptTextareaAsync('该广告入口的跳转池（可选）','每行一个咨询链接或外部跳转链接。多个地址会挂在同一个入口下按轮询策略跳转；留空则使用落地页全局轮询。','','https://your-target.example/path\nhttps://your-target.example/backup');
+ var targetRaw=await promptTextareaAsync('子码的跳转池（可选）','每行一个咨询链接或外部跳转链接。多个地址会挂在同一个子码下按轮询策略跳转；留空则使用落地页全局轮询。','','https://your-target.example/path\nhttps://your-target.example/backup');
  if(targetRaw==null)return;
  var targetUrls=String(targetRaw||'').split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
  try{
   var res=await api('POST','/landing-pages/pages/'+pageId+'/ad-links',{count:count,target_urls:targetUrls});
-  toast('已生成 '+(((res||{}).links||[]).length||count)+' 条广告入口','ok');
-  await showLandingAdLinks(pageId);
+  var links=Array.isArray((res||{}).links)?res.links:[];
+  toast('已生成 '+(links.length||count)+' 条投放链接','ok');
+  await loadLandingCenter(true);
+  if(links.length){
+   _showLandingAdLinkResults(pageId,links,targetUrls);
+  }else{
+   await showLandingAdLinks(pageId);
+  }
  }catch(e){
   toast('生成失败：'+(e.message||e),'er');
  }
+}
+function _showLandingAdLinkResults(pageId,links,targetUrls){
+ links=Array.isArray(links)?links:[];
+ var trackedCount=0;
+ var rows=links.map(function(x){
+  var slug=String(x.slug||'');
+  var pub=String(x.public_url||'');
+  var tracked=pub?(pub+'?ad={{ad.id}}'):'';
+  if(tracked)trackedCount++;
+  return '<div class="landing-gen-result-row">'+
+   '<code title="'+escHtml(slug)+'">'+escHtml(slug)+'</code>'+
+   '<div class="landing-gen-tracked" title="'+escHtml(tracked)+'">'+escHtml(tracked)+'</div>'+
+   '<button class="btn btn-p btn-sm" title="复制带 ad 参数的完整链接（粘贴到 FB 广告管理器）" onclick="copyText(\''+encodeURIComponent(tracked)+'\')">复制</button>'+
+   '<button class="btn btn-g btn-sm" title="复制裸入口链接（不带 ad 参数，仅用于测试）" onclick="copyText(\''+encodeURIComponent(pub)+'\')">裸链</button>'+
+  '</div>';
+ }).join('');
+ var tip = (links.length===1)
+  ? '已生成 1 条投放链接。复制下面带 <code>?ad={{ad.id}}</code> 的链接，在 FB 广告管理器粘贴到「目标 URL / 落地页」位置。FB 会自动用每条广告的 ID 替换 <code>{{ad.id}}</code>，从而把访问归因到具体广告。'
+  : '已生成 '+links.length+' 条投放链接。<b>每条都要复制并粘贴到一条 FB 广告</b>（一条子码 = 一条广告）。系统按子码 + 广告 ID 归因访问、跳转和消耗。'+(targetUrls&&targetUrls.length?' 本次子码使用专属跳转池（'+targetUrls.length+' 个）。':' 本次子码沿用落地页全局轮询。');
+ var html='<div style="text-align:left">'+
+  '<div class="landing-gen-summary">'+tip+'</div>'+
+  '<div class="landing-gen-results">'+rows+'</div>'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+
+   '<button class="btn btn-g btn-sm" onclick="copyAllLandingAdLinks(\''+encodeURIComponent(JSON.stringify(links.map(function(x){return (x.public_url||'')+'?ad={{ad.id}}';})))+'\')">复制全部完整链接</button>'+
+   '<button class="btn btn-g btn-sm" onclick="showLandingAdLinks('+pageId+')">打开投放链接管理</button>'+
+   '<button class="btn btn-g btn-sm" onclick="showLandingStats('+pageId+')">看统计</button>'+
+  '</div>'+
+ '</div>';
+ showInfo(html,'生成结果 · '+trackedCount+' 条投放链接');
+}
+function copyAllLandingAdLinks(encoded){
+ try{
+  var arr=JSON.parse(decodeURIComponent(encoded||'%5B%5D'))||[];
+ }catch(e){arr=[];}
+ var text=arr.filter(Boolean).join('\n');
+ if(!text){toast('没有可复制的链接','wa');return;}
+ navigator.clipboard.writeText(text).then(function(){toast('已复制 '+arr.length+' 条完整链接','ok');}).catch(function(){toast('复制失败','er');});
 }
 async function deleteLandingAdLink(linkId,encodedSlug){
  var slug=decodeURIComponent(encodedSlug||'')||String(linkId);
