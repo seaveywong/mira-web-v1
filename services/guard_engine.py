@@ -2546,6 +2546,22 @@ class GuardEngine:
             link = str(link_data.get("link") or "").strip()
             if link:
                 return link
+            # Boosted post (跟帖): link embedded in CTA button
+            _ld_cta = link_data.get("call_to_action") or {}
+            if isinstance(_ld_cta, dict):
+                _ld_val = _ld_cta.get("value") or {}
+                if isinstance(_ld_val, dict):
+                    link = str(_ld_val.get("link") or "").strip()
+                    if link:
+                        return link
+            # Carousel: link in child_attachments
+            _ld_children = link_data.get("child_attachments")
+            if isinstance(_ld_children, list):
+                for _child in _ld_children:
+                    if isinstance(_child, dict):
+                        link = str(_child.get("link") or "").strip()
+                        if link:
+                            return link
         # Video / photo ads carry the destination in call_to_action.value
         for key in ("video_data", "photo_data", "branded_content_data"):
             block = spec.get(key)
