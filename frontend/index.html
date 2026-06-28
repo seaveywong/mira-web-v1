@@ -20701,7 +20701,6 @@ function _landingAdLinkActionHtml(item,stats,bindLabel,publicUrl,adParamUrl){
  if(macroUrl)buttons.push(_landingCopyBtn('复制投放链接(含ad参数)',macroUrl,'btn-p primary'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdLinkTargets('+item.id+','+(parseInt(item.page_id||0,10)||0)+',\''+encodeURIComponent(item.slug||'')+'\',\''+encodeURIComponent(JSON.stringify(_landingItemTargets(item)))+'\')">改跳转</button>');
  buttons.push('<button class="btn btn-g btn-sm" onclick="showLandingAdLinkLogs('+(parseInt(item.page_id||0,10)||0)+',\''+encodeURIComponent(item.slug||'')+'\')">日志</button>');
- if(publicUrl)buttons.push(_landingCopyBtn('复制测试链接(无参数)',publicUrl,'btn-g'));
  buttons.push('<button class="btn btn-g btn-sm role-hide-viewer" onclick="openLandingAdIdentityModal('+item.id+',\''+encodeURIComponent(item.slug||'')+'\')">'+escHtml(bindLabel||'绑定')+'</button>');
  if(String(item.ad_id||'').trim()){
   buttons.push('<button class="btn btn-p btn-sm" onclick="jumpToAd(\''+String(item.ad_id||'')+'\',\''+String(item.act_id||'')+'\')" title="在投放中心查看这条广告">→ 查看广告</button>');
@@ -21205,21 +21204,18 @@ async function showLandingAdLinks(pageId){
  }
 }
 // ── landing logs/stats filter bar helpers (UX batch) ──
+var _landingEvSelectedDays=3;
 function _landingEvFilterHtml(scope, ctx){
-  // scope: 'logs' or 'stats'; ctx: object with {pageId, slug} or {id}
   var dataAttr = '';
   if(scope==='logs'){ dataAttr=' data-page="'+escHtml(String((ctx&&ctx.pageId)||''))+'" data-slug="'+escHtml(String((ctx&&ctx.slug)||''))+'"'; }
   else { dataAttr=' data-pid="'+escHtml(String((ctx&&ctx.id)||''))+'"'; }
-  // _scopeLit renders as the quoted JS literal inside the onclick attribute, e.g. 'logs'
   var _scopeLit = "'"+(scope==='logs'?'logs':'stats')+"'";
   var _click = ' onclick="_landingEvFilterDays(this,'+_scopeLit+')"';
+  var _pill=function(n,label){return '<button class="landing-evfilter-pill'+(_landingEvSelectedDays==n?' on':'')+'" data-days="'+n+'"'+_click+'>'+label+'</button>';};
   return '<div class="landing-evfilter"'+dataAttr+'>'+
    '<div class="landing-evfilter-row">'+
     '<span class="landing-evfilter-lbl">日期</span>'+
-    '<button class="landing-evfilter-pill" data-days="1"'+_click+'>今日</button>'+
-    '<button class="landing-evfilter-pill on" data-days="3"'+_click+'>近3天</button>'+
-    '<button class="landing-evfilter-pill" data-days="7"'+_click+'>近7天</button>'+
-    '<button class="landing-evfilter-pill" data-days="30"'+_click+'>近30天</button>'+
+    _pill(1,'今日')+_pill(3,'近3天')+_pill(7,'近7天')+_pill(30,'近30天')+
    '</div>'+
    '<div class="landing-evfilter-row">'+
     '<span class="landing-evfilter-lbl">状态</span>'+
@@ -21249,7 +21245,7 @@ function _landingEvFilterDays(btn, scope){
   bar.querySelectorAll('.landing-evfilter-pill').forEach(function(c){c.classList.toggle('on', c===btn);});
   var n=parseInt(btn.getAttribute('data-days')||'7',10)||7;
   var df=_landingDateValue(n-1), dt=_landingDateValue(0);
-  _landingPerfDateFrom=df; _landingPerfDateTo=dt;
+  _landingPerfDateFrom=df; _landingPerfDateTo=dt; _landingEvSelectedDays=n;
   if(scope==='logs'){
     var pageId=bar.getAttribute('data-page'), slug=bar.getAttribute('data-slug');
     if(pageId&&slug){ showLandingAdLinkLogs(pageId, encodeURIComponent(slug)); }
