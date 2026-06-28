@@ -4579,7 +4579,7 @@ input:focus, select:focus, textarea:focus {
    <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false"> 配置 ▾</button>
    <div class="landing-toolbar-row landing-toolbar-row-more" id="landingToolbarMore" style="display:none">
     <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()" title="落地页访问侧拦截规则"> 防护规则</button>
-    <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()" title="可用域名与 DNS 状态"> 域名库</button>
+    
     <button class="btn btn-g role-hide-viewer" onclick="openAssetLibraryModal()" title="像素 / 域名 / 防护模板 库"> 资产库</button>
     <button class="btn btn-g" onclick="scrollLandingApiPanel()" title="发布通道 API Token"> API</button>
     <button class="btn btn-g" onclick="downloadLandingTemplateReference()" title="下载页面模板规范包"> 模板包</button>
@@ -4801,9 +4801,9 @@ input:focus, select:focus, textarea:focus {
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">设备与环境</div>
        <div class="landing-rule-card-desc">用于排除明确不投放的设备或异常 UA，避免过度配置。</div>
-       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" list="landingDeviceOptions" oninput="renderLandingProtectionSummary()" placeholder="mobile,desktop,tablet"></div>
+       <div class="fg"><label class="fl">拦截设备</label><input class="fc" id="lpDeviceBlock" list="landingDeviceOptions" oninput="renderLandingProtectionSummary()" placeholder="mobile,desktop,tablet"><div class="landing-rule-quick"><button type="button" onclick="appendLandingRuleValue('lpDeviceBlock','desktop','renderLandingProtectionSummary',true)">桌面</button><button type="button" onclick="appendLandingRuleValue('lpDeviceBlock','mobile','renderLandingProtectionSummary',true)">手机</button><button type="button" onclick="appendLandingRuleValue('lpDeviceBlock','tablet','renderLandingProtectionSummary',true)">平板</button></div></div>
        <div class="fg"><label class="fl">拦截平台关键词</label><input class="fc" id="lpPlatformBlock" list="landingPlatformOptions" oninput="renderLandingProtectionSummary()" placeholder="Windows,Android,iOS"></div>
-       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" list="landingUaOptions" oninput="renderLandingProtectionSummary()" placeholder="bot,crawler,spider"></div>
+       <div class="fg"><label class="fl">拦截 UA 关键词</label><input class="fc" id="lpUaBlock" list="landingUaOptions" oninput="renderLandingProtectionSummary()" placeholder="bot,crawler,spider"><div class="landing-rule-quick"><button type="button" onclick="['bot','crawler','spider','preview'].forEach(function(v){appendLandingRuleValue('lpUaBlock',v,'renderLandingProtectionSummary',true)})">常见爬虫</button></div></div>
       </div>
       <div class="landing-rule-card">
        <div class="landing-rule-card-title">来源与参数</div>
@@ -23346,7 +23346,7 @@ async function loadLandingLibraries(){
   var disc=((results[2]||{}).domains)||[];
   var byHost={};
   saved.forEach(function(d){byHost[d.domain]={domain:d.domain,label:d.label,source:'manual',usage_count:d.usage_count||0,id:d.id};});
-  disc.forEach(function(d){var h=d.domain||d.host||''; if(h&&!byHost[h])byHost[h]={domain:h,label:'',source:'discovered',usage_count:0,id:null};});
+  disc.forEach(function(d){var h=d.domain||d.host||''; if(!h)return; if(!byHost[h])byHost[h]={domain:h,label:'',source:'discovered',usage_count:0,id:null,status:d.status||'',account:d.account_name||'',suggested:!!d.suggested};else{byHost[h].status=byHost[h].status||d.status||'';byHost[h].account=byHost[h].account||d.account_name||'';if(d.suggested)byHost[h].suggested=true;}});
   window._landingDomainLib=Object.keys(byHost).sort().map(function(k){return byHost[k];});
  }catch(e){ window._landingPixelsLib=[]; window._landingSavedDomains=[]; window._landingDomainLib=[]; }
 }
@@ -23375,12 +23375,13 @@ function _assetLibPixelsHtml(){
 function _assetLibDomainsHtml(){
  var list=window._landingDomainLib||[];
  var rows=list.map(function(d){
-  var srcBadge=d.source==='manual'?'<span class="badge bg-ac">手动</span>':'<span class="badge bg-mu">发现</span>';
+  var stBadge=d.status==='active'?'<span class="badge bg-ok">可用</span>':(d.status?'<span class="badge bg-wa">'+escHtml(d.status)+'</span>':'<span class="badge bg-mu">--</span>');
+  var srcBadge=d.source==='manual'?'<span class="badge bg-ac">手动</span>':'<span class="badge bg-mu">发现</span>'+(d.suggested?' <span class="badge bg-ok">推荐</span>':'');
   var act=d.source==='manual'?'<button class="btn btn-g btn-sm danger" data-did="'+(d.id||'')+'" data-host="'+escHtml(d.domain)+'" onclick="deleteLandingSavedDomain(this.dataset)">删除</button>':'<span style="font-size:11px;color:var(--t3)">系统发现</span>';
-  return '<tr><td style="padding:8px 6px;font-family:monospace;font-size:12px">'+escHtml(d.domain)+'</td><td style="padding:8px 6px">'+(d.label?escHtml(d.label):'')+'</td><td style="padding:8px 6px">'+srcBadge+'</td><td style="padding:8px 6px;text-align:right">'+act+'</td></tr>';
+  return '<tr><td style="padding:8px 6px;font-family:monospace;font-size:12px" title="'+escHtml(d.account||d.label||'')+'">'+escHtml(d.domain)+(d.label?' · '+escHtml(d.label):'')+'</td><td style="padding:8px 6px">'+stBadge+'</td><td style="padding:8px 6px">'+srcBadge+'</td><td style="padding:8px 6px;text-align:right">'+act+'</td></tr>';
  }).join('');
  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:12px;color:var(--t3)">系统自动发现的域名 + 手动补充，共 '+list.length+' 个。发布主链接时从这里选。</span><button class="btn btn-p btn-sm" onclick="addLandingSavedDomainForm()">添加域名</button></div>'+
-  '<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--t3);font-size:12px"><th style="padding:6px">域名</th><th style="padding:6px">标签</th><th style="padding:6px">来源</th><th style="padding:6px;text-align:right">操作</th></tr></thead><tbody>'+
+  '<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--t3);font-size:12px"><th style="padding:6px">域名</th><th style="padding:6px">状态</th><th style="padding:6px">来源</th><th style="padding:6px;text-align:right">操作</th></tr></thead><tbody>'+
   (rows||'<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--t3)">暂无域名</td></tr>')+
   '</tbody></table>';
 }
