@@ -12926,7 +12926,7 @@ function _showCountrySelectThenPick(){
  modal.className='modal-overlay';
  var countries=['US','GB','CA','AU','DE','FR','JP','KR','BR','MX','IN','SG','MY','TH','PH','ID','VN','AE'];
  var btns=countries.map(function(c){return '<button class="btn btn-g btn-sm" onclick="_pickCountryAndUpload(\''+c+'\')" style="min-width:52px;font-weight:600">'+c+'</button>';}).join('');
- modal.innerHTML='<div class="modal" style="max-width:420px">'+
+ modal.innerHTML='<div class="modal" style="max-width:520px">'+
   '<div class="modal-header"><span>选择目标国家/地区</span><button class="btn-ic" onclick="document.getElementById(\'moCountrySelectPick\').remove()">×</button></div>'+
   '<div class="modal-body">'+
    '<p style="font-size:13px;color:var(--t2);margin-bottom:12px">请先选择素材适用的目标市场，然后选择文件：</p>'+
@@ -13004,7 +13004,7 @@ function _showCountrySelectModal(files){
  var modal=document.createElement('div');
  modal.id='moCountrySelect';
  modal.className='modal-overlay';
- modal.innerHTML='<div class="modal" style="max-width:420px">'+
+ modal.innerHTML='<div class="modal" style="max-width:520px">'+
   '<div class="modal-header"><span>选择目标国家/地区</span><button class="btn-ic" onclick="document.getElementById(\'moCountrySelect\').remove()">×</button></div>'+
   '<div class="modal-body">'+
    '<p style="font-size:13px;color:var(--t2);margin-bottom:12px">将上传 <strong>'+files.length+'</strong>个素材，请选择该素材适用的目标市场：</p>'+
