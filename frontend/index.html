@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mira · 广告投放管理系统 v3.11.158</title>
+<title>Mira · 广告投放管理系统 v3.11.159</title>
 <link rel="preconnect" href="https://graph.facebook.com" crossorigin>
 <script src="/chart.min.js" defer></script>
 <script>// ── 版位快捷选择 ──
@@ -2326,6 +2326,79 @@ body.landing-publish-open main.content,body.landing-api-open main.content,body.l
 .landing-ad-more[open] summary{border-color:var(--ac);color:var(--ac);background:var(--acg)}
 .landing-ad-more-menu{position:absolute;right:0;top:38px;z-index:24000;display:grid;gap:6px;min-width:136px;padding:8px;border:1px solid var(--bd);border-radius:10px;background:var(--bg3);box-shadow:var(--sh)}
 .landing-ad-more-menu .btn{width:100%;justify-content:flex-start!important}
+
+/* ===== v3.11.159 landing card redesign ===== */
+.landing-ph{gap:12px}
+.landing-ph-title{min-width:0;flex:1 1 240px}
+.landing-ph-title h2{font-size:18px!important}
+.landing-ph-title p{margin:4px 0 0!important;color:var(--t3)!important;font-size:12px}
+.landing-cta-publish{height:38px!important;min-height:38px!important;padding:0 16px!important;font-weight:720}
+.landing-toolbar-sep{width:1px;height:24px;background:var(--bd);margin:0 2px;flex:0 0 1px}
+.landing-toolbar-row-more{padding:10px!important;background:#f7f7fa;border:1px solid #ececf1;border-radius:12px;align-items:center}
+.landing-toolbar-row-more .btn,.landing-toolbar-row-more .fc{font-size:12px}
+.landing-flow-manual .landing-flow-stage{background:transparent;border:1px solid transparent;border-radius:10px;padding:5px 8px;cursor:pointer;text-align:left;color:inherit;font:inherit;transition:background .12s,border-color .12s}
+.landing-flow-manual .landing-flow-stage:hover,.landing-flow-manual .landing-flow-stage:focus-visible{background:#fff;border-color:var(--bd);outline:none}
+.landing-flow-manual .landing-flow-stage:hover .landing-flow-num{background:var(--ac);color:#fff}
+.landing-pulse{animation:lpcPulse 1.6s ease-out 1}
+@keyframes lpcPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,113,227,0)}30%{box-shadow:0 0 0 4px rgba(0,113,227,.25)}}
+.landing-filter-toggle-wrap{flex:0 0 auto}
+.landing-record-card .landing-card-head{justify-content:space-between;gap:12px}
+.landing-page-cards{display:flex;flex-direction:column;gap:12px;padding:2px 0}
+.landing-empty-mini{padding:32px;text-align:center;color:var(--t3);font-size:13px}
+.landing-empty{text-align:center;padding:40px 24px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.landing-empty-ic{font-size:40px;line-height:1;margin-bottom:6px}
+.landing-empty-title{font-size:17px;font-weight:700;color:var(--t1)}
+.landing-empty-desc{font-size:13px;color:var(--t3);max-width:460px;line-height:1.55}
+.landing-empty-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;max-width:560px;margin:14px 0 4px;width:100%}
+.landing-empty-step{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;background:#fbfbfd;text-align:left}
+.landing-empty-step b:first-child{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--ac);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+.landing-empty-step b+div b{font-size:12px;color:var(--t1);display:block}
+.landing-empty-step small{display:block;font-size:11px;color:var(--t3);margin-top:2px;line-height:1.4}
+.landing-empty-btn{height:42px!important;min-height:42px!important;padding:0 22px!important;font-size:14px!important;margin-top:8px}
+@media(max-width:640px){.landing-empty-steps{grid-template-columns:1fr}}
+.lpcard{border:1px solid #e5e5ea;border-radius:14px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:16px;transition:box-shadow .15s,border-color .15s}
+.lpcard:hover{box-shadow:0 4px 14px rgba(0,0,0,.06);border-color:#dcdce2}
+.lpcard-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.lpcard-title-wrap{min-width:0;flex:1 1 auto}
+.lpcard-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lpcard-title b{font-size:15px;color:#1d1d1f;font-weight:700}
+.lpcard-sub{font-size:12px;color:var(--t3);margin-top:5px;line-height:1.5;min-width:0}
+.lpcard-sub a{color:var(--ac);display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.lpcard-sub .badge{margin-right:4px}
+.lpcard-proj{margin-top:3px;font-size:11px;color:var(--t3)}
+.lpcard-badges{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;flex:0 0 auto;max-width:180px}
+.lpcard-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:10px 0;border-top:1px solid #f0f0f3;border-bottom:1px solid #f0f0f3}
+.lpcard-stat{display:flex;flex-direction:column;gap:2px;min-width:0}
+.lpcard-stat>span{font-size:11px;color:var(--t3)}
+.lpcard-stat>b{font-size:14px;color:#1d1d1f;font-weight:700;line-height:1.2}
+.lpcard-stat>small{font-size:10.5px;color:var(--t3);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lpcard-stat-links{justify-content:flex-end;align-items:flex-end}
+.lpcard-expand{border:0;background:transparent;color:var(--ac);font-size:12px;font-weight:650;cursor:pointer;padding:4px 6px;border-radius:8px;text-align:right}
+.lpcard-expand:hover{background:#eef5ff}
+.lpcard-expand-ic{display:inline-block;transition:transform .15s}
+.lpcard-stat-empty{font-size:11px;color:var(--t3);font-style:italic}
+.lpcard-actions{margin-top:12px;display:flex;justify-content:flex-end}
+.lpcard-actions .landing-page-actions{justify-content:flex-end;flex-wrap:wrap}
+.lpcard-adlinks{margin-top:10px;border:1px solid #ececf1;border-radius:10px;background:#fbfbfd;padding:10px;display:flex;flex-direction:column;gap:8px}
+.lpcard-adempty{padding:12px;text-align:center;color:var(--t3);font-size:12px;line-height:1.5}
+.lpcard-adrow{display:grid;grid-template-columns:minmax(0,1.3fr) auto minmax(220px,1.7fr);gap:8px;align-items:center;padding:8px 10px;border:1px solid #e5e5ea;border-radius:9px;background:#fff}
+.lpcard-adrow-main{min-width:0;display:flex;flex-direction:column;gap:3px}
+.lpcard-adrow-code{font-family:Consolas,Menlo,monospace;font-size:13px;font-weight:700;color:var(--t1);word-break:break-all}
+.lpcard-adrow-ad{font-size:11px;color:var(--t2)}
+.lpcard-adrow-tgt{font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lpcard-adrow-side{flex:0 0 auto}
+.lpcard-adrow .landing-ad-link-actions{justify-content:flex-end;min-width:0}
+@media(max-width:760px){
+ .lpcard-stats{grid-template-columns:1fr 1fr;gap:6px}
+ .lpcard-stat-links{grid-column:1/-1;justify-content:flex-start;align-items:flex-start}
+ .lpcard-badges{max-width:none;justify-content:flex-start}
+ .lpcard-actions .landing-page-actions,.lpcard-actions{justify-content:flex-start}
+ .lpcard-adrow{grid-template-columns:1fr;gap:6px}
+ .lpcard-adrow-side{justify-self:start}
+ .lpcard-adrow .landing-ad-link-actions{justify-content:flex-start}
+}
+.ad-center-module-host #page-landing_center .landing-page-row{grid-template-columns:1fr!important}
+
 .landing-ad-link-actions{display:flex;flex-wrap:wrap;gap:4px;min-width:210px;justify-content:flex-end}
 .landing-ad-link-actions .btn{height:30px!important;min-height:30px!important;padding:0 8px!important;justify-content:center;white-space:nowrap}
 .landing-ad-link-actions .primary{grid-column:1/-1}
@@ -3623,7 +3696,7 @@ input:focus, select:focus, textarea:focus {
    <div class="lc-logo">
     <div class="lc-icon" id="loginLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
    <h1>Mira</h1>
-<p id="loginVer">广告投放管理系统 v3.11.158</p>
+<p id="loginVer">广告投放管理系统 v3.11.159</p>
   </div>
   <label class="lc-label">管理员账号</label>
   <input class="lc-input" type="text" id="loginUser" placeholder="请输入用户名" onkeydown="if(event.key==='Enter')document.getElementById('loginPwd').focus()" autocomplete="username">
@@ -3642,7 +3715,7 @@ input:focus, select:focus, textarea:focus {
    <button class="sb-close-btn" onclick="closeSidebar()">✕</button>
     <div class="sb-logo" onclick="expandSidebarCompact()" title="展开侧栏">
      <div class="sb-mark" id="sidebarLogo"><img src="/assets/mira-logo-aurora.svg" alt="Mira"></div>
-<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.158</div></div>
+<div><div class="sb-name">Mira</div><div class="sb-ver" id="sbVer">投放管理系统 v3.11.159</div></div>
     </div>
    <nav class="sb-nav">
     <div class="nav-sec-title">数据中心</div>
@@ -4495,17 +4568,21 @@ input:focus, select:focus, textarea:focus {
 
 <!-- Page: 落地页工作台 -->
 <div class="page" id="page-landing_center">
- <div class="ph">
-  <div><h2>落地页工作台</h2><p>发布主链接、生成投放子码（/a/子码）、复制去 FB 投放、查看统计并回填真实结果</p></div>
+ <div class="ph landing-ph">
+  <div class="landing-ph-title"><h2>落地页工作台</h2><p>发布主链接 → 生成子码 → 复制去 FB → 监控 → 回填结果</p></div>
   <div class="landing-top-actions">
-   <div class="landing-toolbar-row landing-toolbar-row-primary">
-    <button class="btn btn-p role-hide-viewer" onclick="openLandingPublishDrawer()">发布新链接</button>
-    <button class="btn btn-g" onclick="showPage('landing_urls')">账户绑定</button>
-    <button class="btn btn-g" onclick="loadLandingCenter(true)">刷新</button>
-   </div>
-   <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false">⚙️ 更多配置 ▾</button>
+   <button class="btn btn-p landing-cta-publish role-hide-viewer" onclick="openLandingPublishDrawer()">🔗 发布新链接</button>
+   <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false">⚙️ 配置 ▾</button>
    <div class="landing-toolbar-row landing-toolbar-row-more" id="landingToolbarMore" style="display:none">
-    <select class="fc" id="landingPerfDays" style="width:130px;height:36px" onchange="setLandingPerfDays(this.value)">
+    <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()" title="落地页访问侧拦截规则">🛡 防护规则</button>
+    <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()" title="可用域名与 DNS 状态">🌐 域名库</button>
+    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()" title="Pixel / 域名 / 跳转预设">📦 资产预设</button>
+    <button class="btn btn-g" onclick="scrollLandingApiPanel()" title="发布通道 API Token">🔌 API</button>
+    <button class="btn btn-g" onclick="downloadLandingTemplateReference()" title="下载页面模板规范包">📦 模板包</button>
+    <button class="btn btn-g" onclick="showPage('landing_urls')" title="账户绑定的默认落地页/表单链接">🔗 账户绑定</button>
+    <button class="btn btn-g" onclick="loadLandingCenter(true)" title="重新拉取链接库">🔄 刷新</button>
+    <span class="landing-toolbar-sep"></span>
+    <select class="fc" id="landingPerfDays" style="width:130px;height:34px" onchange="setLandingPerfDays(this.value)" title="真实效果统计窗口">
     <option value="1">今日真实效果</option>
     <option value="3">近 3 天</option>
     <option value="7" selected>近 7 天</option>
@@ -4513,29 +4590,24 @@ input:focus, select:focus, textarea:focus {
     <option value="30">近 30 天</option>
     <option value="90">近 90 天</option>
     </select>
-    <input class="fc" id="landingPerfDateFrom" type="date" style="width:138px;height:36px" title="访问日志开始日期">
+    <input class="fc" id="landingPerfDateFrom" type="date" style="width:130px;height:34px" title="访问日志开始日期">
     <span style="font-size:12px;color:var(--t3)">至</span>
-    <input class="fc" id="landingPerfDateTo" type="date" style="width:138px;height:36px" title="访问日志结束日期">
+    <input class="fc" id="landingPerfDateTo" type="date" style="width:130px;height:34px" title="访问日志结束日期">
     <button class="btn btn-g" onclick="applyLandingPerfDateRange()">按日期查看</button>
-    <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:36px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
-    <button class="btn btn-g role-hide-viewer" onclick="openLandingProtectionDrawer()">防护规则</button>
-    <button class="btn btn-g role-hide-viewer" onclick="showLandingDomainLibrary()">域名库</button>
-    <button class="btn btn-g role-hide-viewer" onclick="openLandingAssetBindingModal()">资产预设</button>
-    <button class="btn btn-g" onclick="scrollLandingApiPanel()">API</button>
-    <button class="btn btn-g" onclick="downloadLandingTemplateReference()">模板包</button>
+    <input class="fc" id="landingTrueCostTarget" type="number" min="0" step="0.01" placeholder="目标真实成本 USD" title="仅用于真实效果榜判断和导出，不会触发自动关停" style="width:150px;height:34px" onchange="setLandingTrueCostTarget(this.value)" onkeydown="if(event.key==='Enter')setLandingTrueCostTarget(this.value)">
    </div>
   </div>
  </div>
- <div class="landing-flow-manual">
-  <div class="landing-flow-stage"><span class="landing-flow-num">1</span><div><b>发布主链接</b><small>选域名/模板/跳转</small></div></div>
+ <div class="landing-flow-manual" id="landingWorkflowStrip">
+  <button type="button" class="landing-flow-stage" onclick="landingFlowFocus('publish')"><span class="landing-flow-num">1</span><div><b>发布主链接</b><small>点右侧"发布新链接"</small></div></button>
   <span class="landing-flow-arrow">›</span>
-  <div class="landing-flow-stage"><span class="landing-flow-num">2</span><div><b>生成投放子码</b><small>每条广告一个 /a/子码</small></div></div>
+  <button type="button" class="landing-flow-stage" onclick="landingFlowFocus('gen')"><span class="landing-flow-num">2</span><div><b>生成投放子码</b><small>每条广告一个 /a/子码</small></div></button>
   <span class="landing-flow-arrow">›</span>
-  <div class="landing-flow-stage"><span class="landing-flow-num">3</span><div><b>复制去 FB 手动投放</b><small>粘贴到 FB 广告管理器</small></div></div>
+  <button type="button" class="landing-flow-stage" onclick="landingFlowFocus('copy')"><span class="landing-flow-num">3</span><div><b>复制去 FB</b><small>粘贴到 FB 广告管理器</small></div></button>
   <span class="landing-flow-arrow">›</span>
-  <div class="landing-flow-stage"><span class="landing-flow-num">4</span><div><b>监控 / 统计</b><small>看访问、跳转、拦截</small></div></div>
+  <button type="button" class="landing-flow-stage" onclick="landingFlowFocus('stats')"><span class="landing-flow-num">4</span><div><b>监控 / 统计</b><small>看访问、跳转、拦截</small></div></button>
   <span class="landing-flow-arrow">›</span>
-  <div class="landing-flow-stage"><span class="landing-flow-num">5</span><div><b>回填真实数据</b><small>按真实进线算成本</small></div></div>
+  <button type="button" class="landing-flow-stage" onclick="landingFlowFocus('record')"><span class="landing-flow-num">5</span><div><b>回填真实数据</b><small>按真实进线算成本</small></div></button>
  </div>
  <div class="landing-onboarding-hint" id="landingOnboardingHint" style="display:none">
   <span class="landing-onboarding-hint-text">手动投放：先<b>发布一个落地页</b> → 点行内 <b>🔗 生成投放链接</b> 生成子码 → 复制带 <code>?ad=&#123;&#123;ad.id&#125;&#125;</code> 的链接去 FB 投放</span>
@@ -4757,11 +4829,14 @@ input:focus, select:focus, textarea:focus {
  <div class="card landing-record-card">
   <div class="landing-card-head">
    <div>
-    <div class="landing-record-title"><div class="card-title">链接库</div><div id="landingPageCountHint" style="font-size:12px;color:var(--t3)"></div></div>
-    <p>查看发布状态、主链接、广告入口和真实结果。</p>
+    <div class="landing-record-title"><div class="card-title">已发布落地页</div><div id="landingPageCountHint" style="font-size:12px;color:var(--t3)"></div></div>
+    <p>每个卡片是一个已发布的落地页；点"生成投放链接"为每条 FB 广告生成子码。</p>
+   </div>
+   <div class="landing-filter-toggle-wrap">
+    <button type="button" class="btn btn-g btn-sm" onclick="toggleLandingFilterBar(this)" aria-expanded="true">🔍 筛选 ▾</button>
    </div>
   </div>
-  <div class="landing-filterbar">
+  <div class="landing-filterbar" id="landingFilterBar">
     <input class="fc" id="landingPageSearch" placeholder="搜索名称 / 域名 / 发布人" oninput="renderLandingPages()">
     <select class="fc" id="landingPageMatrixFilter" onchange="renderLandingPages()">
      <option value="all">全部矩阵</option>
@@ -4792,20 +4867,7 @@ input:focus, select:focus, textarea:focus {
      <button class="btn btn-g btn-sm role-hide-viewer" onclick="republishStaleLandingPages()" title="只重新发布线上运行代码落后的页面；保留广告入口和统计">重发旧包</button>
      <button class="btn btn-g btn-sm role-hide-viewer" onclick="checkVisibleLandingHealth()" title="按当前筛选逐个检查线上链接、表单直跳和自定义域">自检当前筛选</button>
   </div>
-  <div class="table-wrap">
-   <table class="landing-record-table">
-    <thead><tr>
-     <th style="text-align:left;padding:10px 12px">名称</th>
-     <th style="text-align:left;padding:10px 12px">类型</th>
-     <th style="text-align:left;padding:10px 12px">归属</th>
-     <th style="text-align:left;padding:10px 12px">链接</th>
-     <th style="text-align:left;padding:10px 12px">跳转数</th>
-     <th style="text-align:left;padding:10px 12px">状态</th>
-     <th style="text-align:right;padding:10px 12px">操作</th>
-    </tr></thead>
-    <tbody id="landingPagesList"><tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">暂无数据</td></tr></tbody>
-   </table>
-  </div>
+  <div class="landing-page-cards" id="landingPagesList" data-empty="0"><div class="landing-empty-mini" style="padding:32px;text-align:center;color:var(--t3)">加载中…</div></div>
  </div>
 </div>
 
@@ -6023,7 +6085,7 @@ input:focus, select:focus, textarea:focus {
 </div>
 
 <script>// ── State ──
-var APP_VERSION='v3.11.158';
+var APP_VERSION='v3.11.159';
 function _cst(s){
  if(!s)return'--';
  try{
@@ -21017,8 +21079,9 @@ function renderLandingPages(){
  });
  var hint=document.getElementById('landingPageCountHint');
  if(hint)hint.textContent=_landingPages.length?('显示 '+pages.length+' / '+_landingPages.length+' 条发布记录'):'';
- if(!_landingPages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">暂无发布记录</td></tr>';return;}
- if(!pages.length){tb.innerHTML='<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--t3)">当前筛选下暂无发布记录</td></tr>';return;}
+ if(!_landingPages.length){tb.innerHTML=_landingEmptyState();tb.setAttribute('data-empty','1');return;}
+ if(!pages.length){tb.innerHTML='<div class="landing-empty-mini" style="padding:32px;text-align:center;color:var(--t3)">当前筛选下暂无发布记录，调整上方筛选条件后重试。</div>';tb.setAttribute('data-empty','0');return;}
+ tb.setAttribute('data-empty','0');
  tb.innerHTML=pages.map(function(p){
  var urls=Array.isArray(p.target_urls)?p.target_urls:[];
  var bound=Array.isArray(p.bound_act_ids)?p.bound_act_ids:[];
@@ -21087,31 +21150,127 @@ function renderLandingPages(){
    :'<span class="badge bg-mu">先看页面</span><span class="landing-page-note">点击按钮后进入目标链接</span>';
   var pixelName=_landingPixelNameById(p.pixel_id);
   var pixelBadge=p.pixel_id?'<span class="badge bg-ac" title="当前页面 Pixel">'+escHtml(pixelName||'已配置 Pixel')+'</span>':'<span class="badge bg-mu">未配置 Pixel</span>';
-  return '<tr><td colspan="7">'+
-   '<div class="landing-page-row">'+
-    '<div class="landing-page-main">'+
-     '<div class="landing-page-title"><b title="'+escHtml(p.title||'未命名')+'">'+escHtml(p.title||'未命名')+'</b>'+status+'</div>'+
-     '<div class="landing-page-sub" title="'+escHtml(p.project_name||'')+'">'+escHtml(p.project_name||'未命名项目')+'</div>'+
-     '<div class="landing-page-badges">'+kindHtml+pixelBadge+domainBadge+flags+' '+matrixBadges+'</div>'+
-     ownerLine+createdLine+err+
+  var id=parseInt(p.id||0,10)||0;
+  var _cs=_landingPageChildSummary(p&&p.id);
+  return '<div class="lpcard" data-pid="'+id+'" data-search="'+escHtml(_landingPageSearchText(p))+'">'+
+   '<div class="lpcard-head">'+
+    '<div class="lpcard-title-wrap">'+
+     '<div class="lpcard-title"><b title="'+escHtml(p.title||'未命名')+'">'+escHtml(p.title||'未命名')+'</b>'+status+'</div>'+
+     '<div class="lpcard-sub">'+linkHtml+'<div class="lpcard-proj" title="'+escHtml(p.project_name||'')+'">'+escHtml(p.cf_account_name||p.token_name||p.project_name||'未命名项目')+'</div></div>'+
     '</div>'+
-    '<div class="landing-page-link">'+
-     '<div class="landing-page-url">'+linkHtml+'</div>'+
-     '<div class="landing-page-note">'+escHtml(p.cf_account_name||p.token_name||'--')+'</div>'+
-    '</div>'+
-    '<div class="landing-page-meta">'+
-     '<div class="landing-page-meta-row"><span>跳转</span><b>'+urls.length+' 个 · '+escHtml(modeText)+'</b></div>'+
-     '<div class="landing-page-meta-row"><span>使用范围</span><b>'+escHtml(accountScopeText)+'</b></div>'+
-     '<div class="landing-page-meta-row"><span>自检</span><div style="text-align:right">'+healthBadge+'</div></div>'+
-    '</div>'+
-    '<div class="landing-page-child-wrap">'+_landingPageChildSummaryHtml(p)+'</div>'+
-    '<div>'+
-     '<div class="landing-page-actions">'+_landingRowActionsHtml(p,link,usageTotal)+'</div>'+
-    '</div>'+
+    '<div class="lpcard-badges">'+(p.link_kind==='form'?'<span class="badge bg-ac">表单直跳</span>':'<span class="badge bg-mu">落地页</span>')+healthBadge+'</div>'+
    '</div>'+
-  '</td></tr>';
+   '<div class="lpcard-stats">'+
+    '<div class="lpcard-stat"><span>子码</span><b>'+_cs.total+'</b><small>专属 '+_cs.unique+' · 共用 '+_cs.reused+'</small></div>'+
+    '<div class="lpcard-stat"><span>已绑账户</span><b>'+bound.length+'</b><small>'+urls.length+' 个跳转</small></div>'+
+    '<div class="lpcard-stat"><span>统计/防护</span><b>'+(p.tracking_enabled?'开':'关')+' / '+(p.protection_enabled?'开':'关')+'</b><small>'+escHtml(pixelName||'未配 Pixel')+'</small></div>'+
+    (_cs.total?'<div class="lpcard-stat lpcard-stat-links"><button type="button" class="lpcard-expand" onclick="toggleLpcardAdLinks('+id+',this)"><span class="lpcard-expand-ic">▾</span> 查看 '+_cs.total+' 个投放链接</button></div>':'<div class="lpcard-stat lpcard-stat-links"><span class="lpcard-stat-empty">暂无子码，点下方"生成投放链接"</span></div>')+
+   '</div>'+
+   '<div class="lpcard-adlinks" id="lpcardAdLinks_'+id+'" data-loaded="0" style="display:none"></div>'+
+   '<div class="lpcard-actions">'+
+     '<div class="landing-page-actions">'+_landingRowActionsHtml(p,link,usageTotal)+'</div>'+
+   '</div>'+
+  '</div>';
  }).join('');
 }
+
+function _landingEmptyState(){
+ return '<div class="landing-empty">'+
+   '<div class="landing-empty-ic">🔗</div>'+
+   '<div class="landing-empty-title">还没有发布任何落地页</div>'+
+   '<div class="landing-empty-desc">发布第一个落地页后，就能为每条 FB 广告生成 /a/子码 投放链接，并统计访问、跳转与回填真实结果。</div>'+
+   '<div class="landing-empty-steps">'+
+    '<div class="landing-empty-step"><b>1</b><div><b>发布主链接</b><small>选域名、模板、跳转与统计规则</small></div></div>'+
+    '<div class="landing-empty-step"><b>2</b><div><b>生成投放子码</b><small>一条 FB 广告对应一个 /a/子码</small></div></div>'+
+    '<div class="landing-empty-step"><b>3</b><div><b>复制去 FB 投放</b><small>粘贴带 ad 参数的链接到广告管理器</small></div></div>'+
+   '</div>'+
+   '<button class="btn btn-p role-hide-viewer landing-empty-btn" onclick="landingFlowFocus(\'publish\')">🔗 发布第一个落地页</button>'+
+  '</div>';
+}
+async function toggleLpcardAdLinks(pageId,btn){
+ var box=document.getElementById('lpcardAdLinks_'+pageId);
+ if(!box)return;
+ var open=box.style.display!=='none';
+ if(open){box.style.display='none';if(btn)btn.innerHTML='<span class="lpcard-expand-ic">▾</span> 查看投放链接';return;}
+ box.style.display='block';
+ if(btn)btn.innerHTML='<span class="lpcard-expand-ic">▴</span> 收起投放链接';
+ if(box.getAttribute('data-loaded')==='1')return;
+ box.innerHTML='<div style="padding:14px;text-align:center;color:var(--t3)">加载中…</div>';
+ try{
+  var links=await api('GET','/landing-pages/pages/'+pageId+'/ad-links');
+  var page=(_landingPages||[]).find(function(p){return String(p.id)===String(pageId);})||{id:pageId};
+  var arr=Array.isArray(links)?links:[];
+  box.setAttribute('data-loaded','1');
+  box.innerHTML=arr.length?arr.map(function(x){
+   var stats=x.stats||{};
+   var st=x.status||'reserved';
+   var stMap={reserved:'待绑定',active:'已绑定',paused:'已暂停',archived:'已归档',failed:'失败',unused:'未使用'};
+   var targets=_landingItemTargets(x);
+   var tgtTxt=targets.length?(targets.length>1?(targets.length+' 个跳转：'+escHtml(targets[0])):'专属跳转：'+escHtml(targets[0])):'沿用主链接轮询';
+   var adTxt=x.ad_id?('广告 '+escHtml(String(x.ad_id))):'<span style="color:var(--t3)">待识别广告</span>';
+   var macro=_landingAdMacroUrl(x.public_url);
+   var copyBtn=macro?_landingCopyBtn('复制',macro,'btn-p primary'):'';
+   var pid=parseInt(x.page_id||0,10)||0;
+   var slug=encodeURIComponent(x.slug||'');
+   var tgtJson=encodeURIComponent(JSON.stringify(targets));
+   var ca=stats.confirmed_actions||0,cs=stats.confirmed_sales||0,cr=stats.confirmed_revenue||0;
+   var cn=encodeURIComponent(stats.confirmed_result_note||''),cd=encodeURIComponent(stats.confirmed_result_date||'');
+   return '<div class="lpcard-adrow" data-slug="'+escHtml(x.slug||'')+'" data-search="'+escHtml((x.slug||'')+' '+(x.ad_id||'')+' '+(x.act_id||'')+' '+(x.target_url||''))+'">'+
+     '<div class="lpcard-adrow-main">'+
+      '<div class="lpcard-adrow-code">/a/'+escHtml(x.slug||'')+'</div>'+
+      '<div class="lpcard-adrow-ad">'+adTxt+'</div>'+
+      '<div class="lpcard-adrow-tgt" title="'+escHtml(targets.join('\n'))+'">'+tgtTxt+'</div>'+
+     '</div>'+
+     '<div class="lpcard-adrow-side">'+
+      '<span class="badge '+(st==='active'?'bg-ok':st==='reserved'?'bg-wa':'bg-mu')+'">'+escHtml(stMap[st]||st)+'</span>'+
+     '</div>'+
+     '<div class="landing-ad-link-actions">'+
+       copyBtn+
+       '<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdLinkTargets('+x.id+','+pid+',\''+slug+'\',\''+tgtJson+'\')">改跳转</button>'+
+       '<button class="btn btn-g btn-sm" onclick="showLandingAdLinkLogs('+pid+',\''+slug+'\')">日志</button>'+
+       '<button class="btn btn-g btn-sm role-hide-viewer" onclick="editLandingAdResult('+x.id+',\''+slug+'\','+ca+','+cs+','+cr+',\''+cn+'\',\''+cd+'\')">回填</button>'+
+       '<button class="btn btn-g btn-sm danger role-hide-viewer" onclick="clearLandingAdResult('+x.id+',\''+slug+'\','+ca+','+cs+')" title="清空已回填的真实进线/成交数据">清除</button>'+
+     '</div>'+
+    '</div>';
+  }).join(''):'<div class="lpcard-adempty">还没有投放子码。点卡片下方"🔗 生成投放链接"为每条 FB 广告生成一个 /a/子码。</div>';
+ }catch(e){
+  box.innerHTML='<div style="padding:12px;color:var(--er);font-size:12px">加载失败：'+escHtml(e.message||e)+'</div>';
+  box.setAttribute('data-loaded','0');
+ }
+}
+function landingFlowFocus(step){
+ if(step==='publish'){
+  var pub=document.querySelector('.landing-cta-publish');
+  if(pub){pub.scrollIntoView({behavior:'smooth',block:'center'});_landingPulse(pub);}
+  if(typeof openLandingPublishDrawer==='function')openLandingPublishDrawer();
+ }else if(step==='gen'){
+  var card=document.querySelector('.lpcard');
+  if(card){var btn=card.querySelector('.landing-cta-gen');card.scrollIntoView({behavior:'smooth',block:'center'});if(btn)_landingPulse(btn);}
+  else{var pub2=document.querySelector('.landing-cta-publish');if(pub2){pub2.scrollIntoView({behavior:'smooth',block:'center'});_landingPulse(pub2);}if(typeof toast==='function')toast('请先发布一个落地页','wa');}
+ }else if(step==='copy'){
+  if(typeof toast==='function')toast('复制子码链接（含 ?ad={{ad.id}}）粘贴到 FB 广告管理器','info');
+ }else if(step==='stats'){
+  var sp=document.getElementById('landingStatsPanel');
+  if(sp&&sp.style.display!=='none'&&sp.innerHTML){sp.scrollIntoView({behavior:'smooth',block:'start'});_landingPulse(sp);}
+  else if(typeof toast==='function')toast('点击某个卡片的"📊 统计"查看访问与拦截数据','info');
+ }else if(step==='record'){
+  var rc=document.querySelector('.landing-record-card');
+  if(rc){rc.scrollIntoView({behavior:'smooth',block:'start'});_landingPulse(rc);}
+ }
+}
+function _landingPulse(el){
+ if(!el)return;
+ el.classList.add('landing-pulse');
+ setTimeout(function(){el.classList.remove('landing-pulse');},1600);
+}
+function toggleLandingFilterBar(btn){
+ var bar=document.getElementById('landingFilterBar');
+ if(!bar)return;
+ var open=bar.style.display!=='none';
+ bar.style.display=open?'none':'grid';
+ if(btn)btn.setAttribute('aria-expanded',open?'false':'true');
+}
+
 function _landingAdLinksHtml(page, links){
  links=Array.isArray(links)?links:[];
  var pageTitle=escHtml((page&&page.title)||'落地页');
