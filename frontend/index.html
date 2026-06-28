@@ -2026,7 +2026,7 @@ select.fc,#kpiMappingTables select,#unknownTypesSection select{
  white-space:normal!important;word-break:break-word!important;overflow:visible!important;text-overflow:clip!important;line-height:1.45!important
 }
 #twPagesList2 .tw-page-table th:last-child,#twPagesList2 .tw-page-table td:last-child,
-#twPagesList .tw-page-table th:last-child,#twPagesList .tw-page-table td:last-child{min-width:122px!important;width:122px!important}
+#twPagesList .tw-page-table th:last-child,#twPagesList .tw-page-table td:last-child{min-width:150px!important;width:150px!important}
 
 @media(max-width:900px){
  :root{--ops-gutter:16px}
@@ -4486,7 +4486,7 @@ input:focus, select:focus, textarea:focus {
     <!-- 主页库 -->
     <div class="page" id="page-twpages">
      <div class="ph">
-      <div><h2>主页库</h2><p>管理已接入系统的 Facebook 主页；扫描时自动探测 Verified ID 候选，也可手动填写</p></div>
+      <div><h2>主页库</h2><p>管理已接入的主页，扫描自动探测 Verified ID 候选</p></div>
       <div style="display:flex;gap:8px;align-items:center">
        <button class="btn btn-p role-hide-viewer" id="btnScanTwPages" onclick="scanTwCertPages()">自动扫描所有 Token 主页</button>
       </div>
@@ -4983,7 +4983,7 @@ input:focus, select:focus, textarea:focus {
 
     <div class="page" id="page-team_admin">
      <div class="ph">
-      <div><h2>团队管理</h2><p>管理团队成员和角色权限；资源归属由团队用户创建或维护时自动绑定</p></div>
+      <div><h2>团队管理</h2><p>管理团队成员与角色权限（资源归属自动绑定）</p></div>
       <div class="ph-acts role-superadmin-only"><button class="btn btn-p team-create-btn" onclick="createTeamQuick()">新建团队</button></div>
      </div>
      <div id="teamAdminContent"></div>
