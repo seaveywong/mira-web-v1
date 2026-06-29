@@ -4578,7 +4578,7 @@ input:focus, select:focus, textarea:focus {
  <div class="ph landing-ph">
   <div class="landing-ph-title"><h2>落地页工作台</h2><p>发布投放链接 › 生成子码 › 复制去 FB › 监控 › 回填结果</p></div>
   <div class="landing-top-actions">
-   <input class="fc" id="landingAdIdLookup" placeholder="按广告 ID 查短链" style="width:180px;height:34px" title="输入广告 ID 查它绑定的子码短链" onkeydown="if(event.key==='Enter')lookupLandingAdLinkByAdId(this.value)">
+   <input class="fc" id="landingAdIdLookup" placeholder="按广告 ID 或子码查短链" style="width:200px;height:34px" title="输入广告 ID 或子码，查它绑定的短链" onkeydown="if(event.key==='Enter')lookupLandingAdLinkByAdId(this.value)"><button class="btn btn-g btn-sm" onclick="lookupLandingAdLinkByAdId(document.getElementById('landingAdIdLookup').value)" style="height:34px">查询</button>
    <button class="btn btn-p landing-cta-publish role-hide-viewer" onclick="openLandingPublishDrawer()"> 发布新链接</button>
    <button type="button" class="btn btn-g landing-toolbar-more-toggle" onclick="toggleLandingToolbarMore(this)" aria-expanded="false"> 配置 ▾</button>
    <div class="landing-toolbar-row landing-toolbar-row-more" id="landingToolbarMore" style="display:none">

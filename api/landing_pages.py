@@ -4785,8 +4785,8 @@ def lookup_ad_link_by_ad_id(ad_id: str, user=Depends(get_current_user)):
         tid = (ad_id or "").strip()
         if not tid:
             raise HTTPException(status_code=400, detail="请填写广告 ID")
-        where = ["l.ad_id=?", "l.status!='archived'"]
-        params = [tid]
+        where = ["(l.ad_id=? OR l.slug=?)", "l.status!='archived'"]
+        params = [tid, tid]
         sw, sp = _scope_where(user, "l")
         where.extend(sw); params.extend(sp)
         rows = conn.execute(
