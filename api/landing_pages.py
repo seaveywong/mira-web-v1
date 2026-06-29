@@ -7172,7 +7172,7 @@ def landing_page_stats(
             source_platform = str(event.get("platform") or "").strip()
         source_platform = source_platform or "Unknown"
         source_counter[source_platform] = source_counter.get(source_platform, 0) + 1
-        if idx < 80:
+        if idx < 300:
             event.pop("metadata", None)
             event["source_platform"] = source_platform
             event["ad_slug"] = str(metadata.get("ad_slug") or "").strip()
