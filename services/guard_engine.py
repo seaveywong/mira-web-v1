@@ -2703,10 +2703,11 @@ class GuardEngine:
 
             conn = get_conn()
             try:
+                _bind_act = (act_id[4:] if str(act_id).lower().startswith("act_") else (act_id or "")) or ""
                 conn.execute(
-                    "UPDATE landing_ad_links SET ad_id=?, status='active', "
+                    "UPDATE landing_ad_links SET ad_id=?, act_id=?, status='active', "
                     "updated_at=datetime('now','+8 hours') WHERE slug=?",
-                    (str(ad_id), slug),
+                    (str(ad_id), _bind_act, slug),
                 )
                 conn.commit()
             finally:

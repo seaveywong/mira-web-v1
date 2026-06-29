@@ -66,7 +66,7 @@ def landing_click_conversions(conn, account: dict, today: str) -> Dict[str, int]
         mod = _account_shift_modifier(account)
         links = conn.execute(
             "SELECT id, ad_id, slug, page_id FROM landing_ad_links "
-            "WHERE act_id=? AND ad_id IS NOT NULL AND ad_id!='' "
+            "WHERE (act_id=? OR COALESCE(act_id,'')='') AND ad_id IS NOT NULL AND ad_id!='' "
             "AND slug IS NOT NULL AND slug!=''",
             (act_plain,),
         ).fetchall()
