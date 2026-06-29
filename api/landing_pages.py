@@ -423,6 +423,16 @@ def _ensure_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_landing_domains_scope ON landing_domains(team_id, owner_user_id, status);
         CREATE INDEX IF NOT EXISTS idx_landing_domains_host ON landing_domains(domain);
+        CREATE TABLE IF NOT EXISTS landing_page_domains (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            page_id INTEGER NOT NULL,
+            domain TEXT NOT NULL,
+            is_primary INTEGER DEFAULT 0,
+            cf_status TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_landing_page_domains_page ON landing_page_domains(page_id, status);
 
         INSERT INTO landing_pixels (pixel_id, pixel_name, team_id, owner_user_id, created_by)
         SELECT DISTINCT ab.pixel_id, ab.pixel_name, ab.team_id, ab.owner_user_id, 'migration'
@@ -4697,6 +4707,75 @@ def update_landing_runtime_config(page_id: int, body: LandingRuntimeConfigPatch,
         result["asset_republished"] = True
         return result
     return {"success": True, "page": item, "requires_republish_once": bool(item.get("requires_republish_once")), "asset_republished": False}
+
+
+@router.get("/pages/{page_id}/domains")
+def list_landing_page_domains(page_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+        out = []
+        primary = (page.get("custom_domain") or "").strip()
+        if primary:
+            out.append({"domain": primary, "is_primary": True, "status": "active"})
+        rows = conn.execute(
+            "SELECT id, domain, cf_status FROM landing_page_domains WHERE page_id=? AND status='active' ORDER BY id",
+            (page_id,),
+        ).fetchall()
+        for r in rows:
+            out.append({"id": r["id"], "domain": r["domain"], "is_primary": False, "status": r["cf_status"] or "active"})
+        return {"items": out}
+    finally:
+        conn.close()
+
+
+@router.post("/pages/{page_id}/domains")
+def add_landing_page_domain(page_id: int, body: dict, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+        domain = normalize_custom_domain(body.get("domain") or "")
+        if not domain:
+            raise HTTPException(status_code=400, detail="请填写域名")
+        if domain == (page.get("custom_domain") or ""):
+            raise HTTPException(status_code=400, detail="该域名已是主域名")
+        if conn.execute("SELECT 1 FROM landing_page_domains WHERE page_id=? AND domain=? AND status='active'", (page_id, domain)).fetchone():
+            raise HTTPException(status_code=400, detail="该域名已添加")
+        cf_token_id = page.get("cf_token_id")
+        token_row = conn.execute("SELECT access_token_enc FROM cf_tokens WHERE id=? AND status='active'", (cf_token_id,)).fetchone() if cf_token_id else None
+        if not token_row:
+            raise HTTPException(status_code=400, detail="未找到该落地页的发布通道 API，无法绑定域名")
+        raw_token = decrypt_token(token_row["access_token_enc"])
+        cf_account_id = page.get("cf_account_id") or ""
+        project_name = page.get("project_name") or sanitize_project_name(page.get("title") or str(page_id))
+        pages_url = page.get("pages_url") or ""
+        dns_result, domain_result, error_text, notice_text = _setup_custom_domain_automation(
+            raw_token, cf_account_id, project_name, domain, pages_url, user
+        )
+        cf_status = "active" if not error_text else "pending"
+        conn.execute(
+            "INSERT INTO landing_page_domains (page_id, domain, is_primary, cf_status) VALUES (?,?,0,?)",
+            (page_id, domain, cf_status),
+        )
+        conn.commit()
+        return {"success": not bool(error_text), "domain": domain, "status": cf_status, "error": error_text, "notice": notice_text}
+    finally:
+        conn.close()
+
+
+@router.delete("/pages/{page_id}/domains/{domain_id}")
+def delete_landing_page_domain(page_id: int, domain_id: int, user=Depends(get_current_user)):
+    conn = get_conn()
+    try:
+        _assert_page_access(conn, page_id, user)
+        row = conn.execute("SELECT * FROM landing_page_domains WHERE id=? AND page_id=? AND status='active'", (domain_id, page_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="域名不存在")
+        conn.execute("UPDATE landing_page_domains SET status='deleted' WHERE id=?", (domain_id,))
+        conn.commit()
+        return {"success": True, "note": "已从本系统移除（CF 上的域名绑定仍保留，如需彻底删除请在 Cloudflare 后台操作）"}
+    finally:
+        conn.close()
 
 
 @router.get("/ad-links/lookup")

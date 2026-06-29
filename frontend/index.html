@@ -23128,6 +23128,7 @@ function editLandingRuntimeConfig(pageId){
       '<div class="landing-runtime-section-desc" style="margin-bottom:10px">这些属于低频修改项。正式域名、Pixel 或页面模板变化后会自动重新发布，子码和统计保留。</div>'+
       '<div class="landing-form-grid">'+
        '<div class="fg"><label class="fl">正式域名</label><div class="landing-domain-picker"><input class="fc" id="rtCustomDomain" placeholder="go.example.com" value="'+escHtml(p.custom_domain||'')+'"><select class="fc" id="rtDomainSelect" onchange="applyRuntimeDomainFromSelect(this.value)"><option value="">从域名库选择</option>'+domainOptions+'</select><button class="btn btn-g btn-sm" type="button" onclick="generateLandingRandomSubdomain(&quot;rtCustomDomain&quot;)">随机子域名</button></div><div class="fh">清空后回退到备用域；新域名保存时会尝试绑定并重新发布。</div></div>'+
+      '<div class="fg"><label class="fl">额外域名（别名）</label><div id="rtExtraDomains" style="margin-bottom:6px"></div><div style="display:flex;gap:6px"><input class="fc" id="rtNewDomain" placeholder="go.example2.com"><button class="btn btn-g btn-sm" type="button" onclick="addLandingPageDomain()">添加</button></div><div class="fh">额外域名也指向本页面（绑定到 CF：DNS + Pages）；子码在任一域名都生效。</div></div>'+
        '<div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="rtPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号" value="'+escHtml(p.pixel_id||'')+'"><select class="fc" id="rtPixelSelect" onchange="applyLandingPixelFromSelect(this.value,&quot;rtPixel&quot;)"><option value="">从像素库选择</option>'+pixelOptions+'</select></div><div class="fh">Pixel 写在页面 HTML 中，保存后会自动重新发布。</div></div>'+
        '<div class="fg"><label class="fl">页面模板</label><select class="fc" id="rtTemplate">'+templateOptions+'</select><div class="fh">更换模板会重新发布，子码和统计保留。</div></div>'+
       '</div>'+
@@ -23146,6 +23147,7 @@ function editLandingRuntimeConfig(pageId){
  '</div>';
  document.body.appendChild(mo);
  openModal('moLandingRuntime');
+ window._rtConfigPageId=pageId;loadLandingPageDomains(pageId);
  var rot=document.getElementById('rtRotation');if(rot)rot.value=p.rotation_mode||'sequential';
  var tr=document.getElementById('rtTrackingEnabled');if(tr)tr.checked=!!p.tracking_enabled;
  var pr=document.getElementById('rtProtectionEnabled');if(pr)pr.checked=!!p.protection_enabled;
@@ -23419,6 +23421,33 @@ async function lookupLandingAdLinkByAdId(adId){
   }).join('');
   showInfo('<div style="font-size:12px;color:var(--t2);margin-bottom:8px">广告 <b>'+escHtml(adId)+'</b> 绑定了 '+items.length+' 个子码：</div>'+rows,'广告 '+adId+' 的短链');
  }catch(e){}
+}
+
+async function loadLandingPageDomains(pageId){
+ try{ var r=await api('GET','/landing-pages/pages/'+pageId+'/domains'); window._rtPageDomains=(r&&r.items)||[]; }catch(e){ window._rtPageDomains=[]; }
+ renderLandingPageDomains();
+}
+function renderLandingPageDomains(){
+ var el=document.getElementById('rtExtraDomains'); if(!el)return;
+ var items=(window._rtPageDomains||[]).filter(function(d){return !d.is_primary;});
+ el.innerHTML=items.length?items.map(function(d){
+  return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;flex-wrap:wrap"><span style="font-family:monospace">'+escHtml(d.domain)+'</span><span class="badge '+(d.status==='active'?'bg-ok':'bg-wa')+'">'+(d.status==='active'?'已绑定':escHtml(d.status||'待绑定'))+'</span><button class="btn btn-g btn-sm danger" data-did="'+d.id+'" data-domain="'+escHtml(d.domain)+'" onclick="deleteLandingPageDomain(this.dataset)">移除</button></div>';
+ }).join(''):'<div style="font-size:12px;color:var(--t3);padding:4px 0">暂无额外域名</div>';
+}
+async function addLandingPageDomain(){
+ var pageId=window._rtConfigPageId; var inp=document.getElementById('rtNewDomain'); var domain=(inp&&inp.value||'').trim();
+ if(!domain){toast('请填写域名','wa');return;}
+ try{
+  toast('正在绑定域名到 CF...','wa');
+  var r=await api('POST','/landing-pages/pages/'+pageId+'/domains',{domain:domain});
+  toast(r&&r.error?('域名已记录，但：'+r.error):('已添加 '+domain),(r&&r.error)?'wa':'ok');
+  if(inp)inp.value=''; await loadLandingPageDomains(pageId);
+ }catch(e){}
+}
+async function deleteLandingPageDomain(ds){
+ var pageId=window._rtConfigPageId;
+ if(!confirm('确认移除额外域名「'+ds.domain+'」？\n（CF 上的绑定仍保留，如需彻底删除请在 Cloudflare 后台操作）'))return;
+ try{ await api('DELETE','/landing-pages/pages/'+pageId+'/domains/'+ds.did,null,{silent:true}); toast('已移除','ok'); await loadLandingPageDomains(pageId); }catch(e){ toast('移除失败：'+(e.message||e),'er'); }
 }
 function openAssetLibraryModal(tab){
  var mo=document.getElementById('moAssetLibrary');
