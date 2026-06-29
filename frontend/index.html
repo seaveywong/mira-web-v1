@@ -21418,13 +21418,11 @@ function _landingEvFilterEt(btn){
   var bar=btn.closest('.landing-evfilter'); if(!bar)return;
   var et=btn.getAttribute('data-et')||'';
   bar.querySelectorAll('.landing-evfilter-chip').forEach(function(c){c.classList.toggle('on', c===btn);});
-  // find the modal-info-logs ancestor OR the stats panel
-  var modal=bar.closest('.modal-info-logs')||document.getElementById('landingStatsPanel');
-  if(!modal)return;
-  ['visit','click','redirect','block','error','pass'].forEach(function(k){
-    modal.classList.remove('et-filter-'+k);
-  });
-  if(et){ modal.classList.add('et-filter-'+et); }
+  window._landingEvFilterEtVal=et;
+  if(bar.getAttribute('data-page')){
+    var pageId=bar.getAttribute('data-page'), slug=bar.getAttribute('data-slug');
+    if(pageId&&slug){ showLandingAdLinkLogs(pageId, encodeURIComponent(slug)); }
+  }
 }
 function _landingEvFilterDays(btn, scope){
   var bar=btn.closest('.landing-evfilter'); if(!bar)return;
@@ -21445,7 +21443,7 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
  if(!pageId||!slug){toast('缺少入口信息','wa');return;}
  try{
   var df=_landingPerfDateFrom||_landingDateValue(6),dt=_landingPerfDateTo||_landingDateValue(0);
-  var r=await api('GET','/landing-pages/pages/'+pageId+'/stats?date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt)+'&ad_slug='+encodeURIComponent(slug));
+  var r=await api('GET','/landing-pages/pages/'+pageId+'/stats?date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt)+'&ad_slug='+encodeURIComponent(slug)+'&event_type='+encodeURIComponent(window._landingEvFilterEtVal||''));
   var events=(r.recent||[]).filter(function(x){
    var m=String(x.metadata||''); var p=String(x.path||'');
    return String(x.ad_slug||'')===String(slug)||p.indexOf('/a/'+slug)>=0||m.indexOf('"'+slug+'"')>=0;

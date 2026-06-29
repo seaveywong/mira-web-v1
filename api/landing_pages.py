@@ -7062,6 +7062,7 @@ def landing_page_stats(
     date_to: Optional[str] = None,
     ad_slug: Optional[str] = None,
     ad_id: Optional[str] = None,
+    event_type: Optional[str] = None,
     user=Depends(get_current_user),
 ):
     days = max(1, min(int(days or 7), LANDING_TRACKING_RETENTION_DAYS))
@@ -7093,6 +7094,14 @@ def landing_page_stats(
             f'%"ad": "{normalized_ad_id}"%',
         ])
     params = tuple(params_list)
+    et_filter = ""
+    et_params: tuple = ()
+    _et = str(event_type or "").strip().lower()
+    if _et in ("block", "click", "redirect", "error", "visit", "submit"):
+        et_filter = " AND event_type=?"
+        et_params = (_et,)
+    elif _et == "pass":
+        et_filter = " AND event_type NOT IN ('block','error')"
     by_type = {
         r["event_type"]: int(r["cnt"] or 0)
         for r in conn.execute(
@@ -7156,9 +7165,9 @@ def landing_page_stats(
             """SELECT event_type, decision, reason, path, target_url, referrer,
                       country, region, city, colo, asn, platform, device_type,
                       browser, os, metadata, created_at
-               FROM landing_events WHERE """ + event_where + """
+               FROM landing_events WHERE """ + event_where + et_filter + """
                ORDER BY id DESC LIMIT 5000""",
-            params,
+            params + et_params,
         ).fetchall()
     ]
     source_counter: dict[str, int] = {}
