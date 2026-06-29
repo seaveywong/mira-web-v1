@@ -21447,7 +21447,8 @@ async function showLandingAdLinkLogs(pageId,encodedSlug){
   var df=_landingPerfDateFrom||_landingDateValue(6),dt=_landingPerfDateTo||_landingDateValue(0);
   var r=await api('GET','/landing-pages/pages/'+pageId+'/stats?date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt)+'&ad_slug='+encodeURIComponent(slug));
   var events=(r.recent||[]).filter(function(x){
-   return String(x.ad_slug||'')===String(slug)||String(x.path||'').indexOf('/a/'+slug)>=0;
+   var m=String(x.metadata||''); var p=String(x.path||'');
+   return String(x.ad_slug||'')===String(slug)||p.indexOf('/a/'+slug)>=0||m.indexOf('"'+slug+'"')>=0;
   });
   var counts={visit:0,click:0,redirect:0,block:0,error:0,submit:0};
   events.forEach(function(x){var k=String(x.event_type||'').toLowerCase();if(counts[k]!==undefined)counts[k]++;});
