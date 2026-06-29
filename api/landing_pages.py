@@ -4918,6 +4918,54 @@ def cleanup_unused_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq 
         conn.close()
 
 
+def run_landing_subcode_auto_cleanup() -> dict:
+    """Auto-delete reserved/failed子码 older than N days with no engagement (scheduled daily).
+    Threshold: settings.guard_auto_cleanup_subcode_days (default 3, 0=off).
+    Reuses the cleanup-unused判定: no ad_id, no bindings, no events, no result."""
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='guard_auto_cleanup_subcode_days'").fetchone()
+        try:
+            days = int(str(row["value"]).strip()) if row and str(row["value"]).strip() else 3
+        except Exception:
+            days = 3
+        if days <= 0:
+            return {"skipped": True, "reason": "disabled"}
+        rows = conn.execute(
+            "SELECT id, page_id, slug FROM landing_ad_links "
+            "WHERE TRIM(COALESCE(ad_id,''))='' "
+            "AND LOWER(COALESCE(status,'reserved')) IN ('reserved','failed','unused') "
+            "AND created_at < datetime('now','-' || ? || ' days','+8 hours')",
+            (days,),
+        ).fetchall()
+        deleted = 0
+        for r in rows:
+            lid = int(r["id"]); pid = int(r["page_id"]); slug = str(r["slug"] or "")
+            if _has_table(conn, "landing_ad_link_bindings") and conn.execute("SELECT 1 FROM landing_ad_link_bindings WHERE link_id=? LIMIT 1", (lid,)).fetchone():
+                continue
+            try:
+                if _landing_ad_link_event_count(conn, pid, slug) > 0:
+                    continue
+                if _landing_ad_link_result_count(conn, lid) > 0:
+                    continue
+            except Exception:
+                continue
+            if _has_table(conn, "landing_ad_route_state"):
+                conn.execute("DELETE FROM landing_ad_route_state WHERE link_id=?", (lid,))
+            if _has_table(conn, "landing_ad_link_bindings"):
+                conn.execute("DELETE FROM landing_ad_link_bindings WHERE link_id=?", (lid,))
+            conn.execute("DELETE FROM landing_ad_links WHERE id=?", (lid,))
+            deleted += 1
+        conn.commit()
+        logger.info("[Landing] auto-cleanup deleted %d unused子码 (>%dd)", deleted, days)
+        return {"deleted": deleted, "scanned": len(rows), "days": days}
+    except Exception as exc:
+        logger.warning("[Landing] subcode auto-cleanup failed: %s", exc)
+        return {"error": str(exc)}
+    finally:
+        conn.close()
+
+
 @router.post("/pages/{page_id}/ad-links/cleanup-safe")
 def cleanup_safe_landing_ad_links(page_id: int, body: LandingAdLinkCleanupReq = LandingAdLinkCleanupReq(), user=Depends(get_current_user)):
     allowed_status = {"reserved", "failed", "unused", "archived"}

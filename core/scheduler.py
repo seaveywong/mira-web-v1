@@ -165,6 +165,14 @@ def run_storage_cleanup():
     except Exception as e:
         logger.error(f'存储自动清理任务异常: {e}', exc_info=True)
 
+def run_landing_subcode_cleanup():
+    """每天凌晨4:15自动清理长期未用的子码（reserved/failed 超 N 天无互动）"""
+    try:
+        from api.landing_pages import run_landing_subcode_auto_cleanup
+        run_landing_subcode_auto_cleanup()
+    except Exception as e:
+        logger.error(f'子码自动清理任务异常: {e}', exc_info=True)
+
 def run_account_status_sync():
     """v3.3: 定期同步所有广告账户的真实状态（account_status、余额）"""
     try:
@@ -632,6 +640,7 @@ def start_scheduler():
     _scheduler.add_job(run_asset_scoring, CronTrigger(hour=1, minute=0), id="asset_scoring", replace_existing=True)
     # 存储自动清理（每天凌晨3点）
     _scheduler.add_job(run_storage_cleanup, CronTrigger(hour=3, minute=0), id="storage_cleanup", replace_existing=True)
+    _scheduler.add_job(run_landing_subcode_cleanup, CronTrigger(hour=4, minute=15), id="landing_subcode_cleanup", replace_existing=True)
     # Token-账户自动发现（每6小时）
     _scheduler.add_job(run_token_account_discovery, IntervalTrigger(hours=6), id="token_discover", replace_existing=True)
     _scheduler.add_job(run_warmup_page_sync, IntervalTrigger(hours=6), id="warmup_page_sync", replace_existing=True)
