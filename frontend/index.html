@@ -23407,19 +23407,28 @@ function switchAssetLibTab(tab){
  else body.innerHTML=_assetLibTemplatesHtml();
 }
 async function lookupLandingAdLinkByAdId(adId){
- adId=(adId||'').trim(); if(!adId){toast('请输入广告 ID','wa');return;}
+ adId=(adId||'').trim(); if(!adId){toast('请输入广告 ID 或子码','wa');return;}
  try{
   var r=await api('GET','/landing-pages/ad-links/lookup?ad_id='+encodeURIComponent(adId));
-  var items=(r&&r.items)||[];
-  if(!items.length){showInfo('未找到广告 <b>'+escHtml(adId)+'</b> 绑定的子码。可能该广告还未绑定，或子码已归档。','未找到');return;}
-  var rows=items.map(function(x){
+  var items=(r&&r.items)||[]; var logs=(r&&r.logs)||[];
+  if(!items.length && !logs.length){showInfo('未找到 <b>'+escHtml(adId)+'</b> 的子码或访问日志。','未找到');return;}
+  var linkHtml=items.length?('<div style="font-size:12px;color:var(--t2);margin-bottom:6px">子码 '+items.length+' 个：</div>'+items.map(function(x){
    var short=(x.public_url||('/a/'+(x.slug||'')));
-   return '<div style="border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px;text-align:left">'+
-    '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap"><span class="badge bg-ac">'+escHtml(x.slug||'')+'</span><span class="badge '+(x.status==='active'?'bg-ok':'bg-mu')+'">'+escHtml(x.status||'')+'</span></div>'+
-    '<div style="font-family:monospace;font-size:12px;word-break:break-all"><a href="'+escHtml(short)+'" target="_blank" style="color:var(--ac)">'+escHtml(short)+'</a></div>'+
-    '<div style="font-size:11px;color:var(--t3);margin-top:4px">所属：'+escHtml(x.page_title||('落地页 '+x.page_id))+(x.ad_name?(' . '+escHtml(x.ad_name)):'')+'</div></div>';
+   return '<div style="margin-bottom:3px"><span class="badge bg-ac">'+escHtml(x.slug||'')+'</span> <a href="'+escHtml(short)+'" target="_blank" style="font-family:monospace;font-size:12px;color:var(--ac)">'+escHtml(short)+'</a></div>';
+  }).join('')):'';
+  var etMap={visit:'访问',click:'点击',redirect:'跳转',block:'拦截',submit:'提交',error:'错误'};
+  var logRows=logs.map(function(x){
+   var et=String(x.event_type||'').toLowerCase();
+   var cls=et==='block'||et==='error'?'bg-er':(et==='redirect'?'bg-ok':(et==='click'?'bg-ac':'bg-mu'));
+   var tu=x.target_url||''; var reason=x.reason||'';
+   var tgt=et==='redirect'&&tu?'<a href="'+escHtml(tu)+'" target="_blank" style="color:var(--ac);word-break:break-all">'+escHtml(tu)+'</a>':escHtml(reason||tu||'--');
+   return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;align-items:flex-start">'+
+    '<span class="badge '+cls+'" style="flex-shrink:0;min-width:36px;text-align:center">'+escHtml(etMap[et]||et)+'</span>'+
+    '<div style="flex:1;min-width:0"><div style="word-break:break-all">'+tgt+'</div>'+
+    '<div style="font-size:10px;color:var(--t3);margin-top:2px">'+escHtml(x.created_at||'')+(x.country?(' . '+escHtml(x.country)):'')+(x.device_type?(' . '+escHtml(x.device_type)):'')+'</div></div></div>';
   }).join('');
-  showInfo('<div style="font-size:12px;color:var(--t2);margin-bottom:8px">广告 <b>'+escHtml(adId)+'</b> 绑定了 '+items.length+' 个子码：</div>'+rows,'广告 '+adId+' 的短链');
+  var logHtml=logs.length?('<div style="margin-top:10px;font-size:12px;font-weight:600;color:var(--t1);margin-bottom:2px">最近 '+logs.length+' 条日志</div>'+logRows):'<div style="margin-top:10px;font-size:12px;color:var(--t3)">暂无访问日志</div>';
+  showInfo('<div style="max-height:70vh;overflow:auto">'+linkHtml+logHtml+'</div>',escHtml(adId)+' 的子码与日志');
  }catch(e){}
 }
 

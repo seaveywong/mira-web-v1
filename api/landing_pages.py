@@ -4795,7 +4795,19 @@ def lookup_ad_link_by_ad_id(ad_id: str, user=Depends(get_current_user)):
             "WHERE " + " AND ".join(where) + " ORDER BY l.id DESC LIMIT 20",
             params,
         ).fetchall()
-        return {"found": bool(rows), "items": [dict(r) for r in rows]}
+        logs = []
+        try:
+            log_rows = conn.execute(
+                "SELECT event_type, target_url, created_at, country, device_type, path, reason "
+                "FROM landing_events "
+                "WHERE (json_extract(metadata,'$.ad_id')=? OR json_extract(metadata,'$.ad_slug')=? OR path LIKE ?) "
+                "ORDER BY created_at DESC LIMIT 30",
+                (tid, tid, "/a/" + tid + "%"),
+            ).fetchall()
+            logs = [dict(x) for x in log_rows]
+        except Exception:
+            pass
+        return {"found": bool(rows), "items": [dict(r) for r in rows], "logs": logs}
     finally:
         conn.close()
 
