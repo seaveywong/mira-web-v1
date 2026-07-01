@@ -560,9 +560,6 @@ def _form_redirect_html(target_url: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="robots" content="noindex,nofollow">
-  <meta property="og:title" content="Special Offer">
-  <meta property="og:description" content="Limited time offer — click to learn more">
-  <meta property="og:type" content="website">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Opening...</title>
   <style>
@@ -821,7 +818,6 @@ function evaluate(request, cfg) {
   const url = new URL(request.url);
   const cf = request.cf || {};
   const ua = request.headers.get('user-agent') || '';
-  if (/facebookexternalhit|facebot|facebookcatalog|instagram/i.test(ua)) return { pass: true, reason: 'fb_crawler_whitelist' };
   const ref = request.headers.get('referer') || '';
   const country = String(cf.country || '').toUpperCase();
   const meta = uaMeta(ua);

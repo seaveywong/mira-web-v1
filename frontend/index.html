@@ -21068,6 +21068,7 @@ function _landingRowActionsHtml(p, link, usageTotal){
   if(link)parts.push(_landingActionButton('投放链接管理','showLandingAdLinks('+id+')','btn-g','查看子码、绑定与跳转池'));
   var more=[];
   more.push(_landingActionButton('改名','renameLandingPage('+id+')','btn-g','修改落地页名称'));
+ more.push(_landingActionButton('恢复子码','restoreLandingAdLink('+id+')','btn-g','恢复已删除/失效的子码,让旧广告恢复跳转'));
   if(link)more.push(_landingActionButton('复制投放链接(无参数)',"copyText('"+encodeURIComponent(link)+"')",'btn-g','复制当前落地页投放链接（不含 ad 参数）；铺广告会自动生成子码链接'));
   if(p.custom_domain)more.push(_landingActionButton('复制正式域名',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制已绑定的正式自定义域名链接'));
   if(canSeeFallback&&p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制系统备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统默认备用域名链接'));
@@ -23446,6 +23447,15 @@ async function deleteLandingPageDomain(ds){
  var pageId=window._rtConfigPageId;
  if(!confirm('确认移除额外域名「'+ds.domain+'」？\n（CF 上的绑定仍保留，如需彻底删除请在 Cloudflare 后台操作）'))return;
  try{ await api('DELETE','/landing-pages/pages/'+pageId+'/domains/'+ds.did,null,{silent:true}); toast('已移除','ok'); await loadLandingPageDomains(pageId); }catch(e){ toast('移除失败：'+(e.message||e),'er'); }
+}
+async function restoreLandingAdLink(pageId){
+ var input=prompt('输入要恢复的子码或完整链接（如 x99y4n 或 /a/x99y4n）');
+ if(!input||!input.trim())return;
+ try{
+  var r=await api('POST','/landing-pages/pages/'+pageId+'/ad-links/restore',{slug:input.trim()});
+  toast('子码 '+input.trim()+' 已恢复'+(r.action==='created'?'（新建）':'（重新激活）')+(r.ad_id?(' . 广告 '+r.ad_id):''), 'ok');
+  if(typeof loadLandingCenter==='function')await loadLandingCenter(true);
+ }catch(e){}
 }
 function openAssetLibraryModal(tab){
  var mo=document.getElementById('moAssetLibrary');

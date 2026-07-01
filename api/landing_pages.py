@@ -4778,6 +4778,49 @@ def delete_landing_page_domain(page_id: int, domain_id: int, user=Depends(get_cu
         conn.close()
 
 
+@router.post("/pages/{page_id}/ad-links/restore")
+def restore_landing_ad_link(page_id: int, body: dict, user=Depends(get_current_user)):
+    """Restore a deleted/failed sub-code so old ads using it can redirect again.
+    Sets status='active' and copies page global target_urls so redirect works immediately."""
+    conn = get_conn()
+    try:
+        page = _assert_page_access(conn, page_id, user)
+        raw_slug = str(body.get("slug") or "").strip()
+        if not raw_slug:
+            raise HTTPException(status_code=400, detail="请填写子码")
+        # 支持 URL 或纯 slug 输入
+        if "/a/" in raw_slug:
+            raw_slug = raw_slug.split("/a/")[-1].split("?")[0].split("/")[0].strip()
+        slug = raw_slug
+        page_targets = page.get("target_urls") or "[]"
+        # 查找现有行（任何状态）
+        row = conn.execute(
+            "SELECT id, status, ad_id, target_urls FROM landing_ad_links WHERE page_id=? AND slug=? LIMIT 1",
+            (page_id, slug),
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE landing_ad_links SET status='active', target_urls=?, "
+                "updated_at=datetime('now','+8 hours') WHERE id=?",
+                (page_targets, row["id"]),
+            )
+            conn.commit()
+            return {"success": True, "action": "reactivated", "id": row["id"], "slug": slug,
+                    "ad_id": row["ad_id"] or None}
+        else:
+            # 子码不存在（硬删除了）→ 新建
+            conn.execute(
+                "INSERT INTO landing_ad_links (page_id, slug, status, target_urls) "
+                "VALUES (?, ?, 'active', ?)",
+                (page_id, slug, page_targets),
+            )
+            conn.commit()
+            new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            return {"success": True, "action": "created", "id": new_id, "slug": slug, "ad_id": None}
+    finally:
+        conn.close()
+
+
 @router.get("/ad-links/lookup")
 def lookup_ad_link_by_ad_id(ad_id: str, user=Depends(get_current_user)):
     conn = get_conn()
