@@ -7639,6 +7639,36 @@ async function openAccountOwnerModal(accountId){
  }catch(e){toast('加载负责人失败：'+(e.message||e),'er');}
 }
 
+async function openLandingOwnerModal(pageId){
+ var p=(_landingPages||[]).find(function(x){return String(x.id)===String(pageId);});
+ if(!p){toast('落地页不存在','er');return;}
+ try{
+  if(!_usersData||!_usersData.length){var r=await api('GET','/users');_usersData=r.users||[];}
+  var users=(_usersData||[]).filter(function(u){return String(u.team_id)===String(p.team_id)&&['admin','operator'].indexOf(u.role)>=0&&u.is_active;});
+  var opts='<option value="0">不指定负责人</option>'+users.map(function(u){
+   return '<option value="'+u.id+'" '+(String(p.owner_user_id||'')===String(u.id)?'selected':'')+'>'+escHtml((u.display_name||u.username)+' · '+(u.role_label||u.role))+'</option>';
+  }).join('');
+  var mo=document.getElementById('moLandingOwner');if(!mo){mo=document.createElement('div');mo.id='moLandingOwner';mo.className='mo';document.body.appendChild(mo);}
+  mo.innerHTML='<div class="modal"><div class="mh"><h3>设置落地页负责人</h3><button class="mc" onclick="closeModal(\'moLandingOwner\')">×</button></div>'+
+   '<div class="mb">'+
+   '<div class="fg"><label class="fl">落地页</label><input class="fc" value="'+escHtml(p.title||p.slug||('#'+pageId))+'" disabled></div>'+
+   '<div class="fg"><label class="fl">负责人</label><select class="fc" id="landing_owner_uid">'+opts+'</select></div>'+
+   '<div class="fh">分配后该运营登录只看到/管理这个落地页；不指定则运营不可见（仅 admin/超管可见）。</div>'+
+   '</div>'+
+   '<div class="mf"><button class="btn btn-g" onclick="closeModal(\'moLandingOwner\')">取消</button><button class="btn btn-p" onclick="saveLandingOwner('+pageId+')">保存</button></div></div>';
+  openModal('moLandingOwner');
+ }catch(e){toast('加载负责人失败：'+(e.message||e),'er');}
+}
+async function saveLandingOwner(pageId){
+ var ownerId=parseInt((document.getElementById('landing_owner_uid')||{}).value||'0',10)||0;
+ try{
+  await api('PATCH','/landing-pages/pages/'+pageId+'/owner',{owner_user_id:ownerId||null});
+  toast('落地页负责人已保存','ok');closeModal('moLandingOwner');
+  _landingPages=await api('GET','/landing-pages/pages');
+  renderLandingPages();
+ }catch(e){toast('保存失败：'+(e.message||e),'er');}
+}
+
 async function openTokenOwnerModal(tokenId){
  var item=_teamResItems.find(function(x){return x.id===tokenId});
  if(!item){toast('Token数据未找到','er');return}
@@ -21073,6 +21103,7 @@ function _landingRowActionsHtml(p, link, usageTotal){
   if(p.custom_domain)more.push(_landingActionButton('复制正式域名',"copyText('"+encodeURIComponent('https://'+p.custom_domain)+"')",'btn-g','复制已绑定的正式自定义域名链接'));
   if(canSeeFallback&&p.pages_url&&(!link||link!==p.pages_url))more.push(_landingActionButton('复制系统备用域',"copyText('"+encodeURIComponent(p.pages_url)+"')",'btn-g','复制系统默认备用域名链接'));
  if(p.custom_domain_dns_hint)more.push(_landingActionButton('复制 DNS',"copyText('"+encodeURIComponent(p.custom_domain_dns_hint)+"')",'btn-g','复制自定义域 DNS 配置'));
+ more.push(_landingActionButton('改派负责人','openLandingOwnerModal('+id+')','btn-g role-hide-viewer','分配给运营子账号；运营登录后只看/管分配给自己的落地页'));
  more.push(_landingActionButton('重新发布','republishLandingPage('+id+')','btn-g role-hide-viewer','更新线上页面，保留原链接和子码'));
  more.push(_landingActionButton('自检','checkLandingHealth('+id+')','btn-g','检查线上访问、直跳和域名状态'));
  if(usageTotal>0)more.push(_landingActionButton('使用详情','showLandingUsage('+id+')','btn-g','查看哪些账户、任务或子码仍在使用该链接'));

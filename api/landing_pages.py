@@ -1080,7 +1080,7 @@ def _scope_where(user, alias: str = "") -> tuple[list[str], list]:
     where.append(f"{prefix}team_id=?")
     params.append(team_id)
     if is_operator_user(user):
-        where.append(f"({prefix}owner_user_id=? OR {prefix}owner_user_id IS NULL)")
+        where.append(f"{prefix}owner_user_id=?")  # 运营只看分配给自己的（收紧：原含 NULL 未分配页）
         params.append(user_id(user))
     return where, params
 
@@ -1260,9 +1260,32 @@ def _assert_page_access(conn, page_id: int, user) -> dict:
     tid = team_id_for_create(user)
     if item.get("team_id") != tid:
         raise HTTPException(status_code=403, detail="这个落地页属于其他团队")
-    if is_operator_user(user) and item.get("owner_user_id") not in (None, user_id(user)):
+    if is_operator_user(user) and item.get("owner_user_id") != user_id(user):
         raise HTTPException(status_code=403, detail="这个落地页属于其他运营")
     return item
+
+
+def _validate_landing_page_owner(conn, owner_user_id, page_id, user):
+    """校验落地页负责人（照搬 _validate_account_owner）：None/0→清空；需同团队 + role∈(admin,operator) + is_active。"""
+    if owner_user_id in (None, 0, ""):
+        return None
+    try:
+        owner_id = int(owner_user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="负责人 ID 无效")
+    page = conn.execute("SELECT team_id FROM landing_pages WHERE id=?", (page_id,)).fetchone()
+    if not page:
+        raise HTTPException(status_code=404, detail="落地页不存在")
+    owner = conn.execute("SELECT id, role, team_id, is_active FROM users WHERE id=?", (owner_id,)).fetchone()
+    if not owner or not owner["is_active"]:
+        raise HTTPException(status_code=400, detail="负责人不存在或已禁用")
+    if owner["role"] not in ("admin", "operator"):
+        raise HTTPException(status_code=400, detail="负责人必须是团队管理员或运营")
+    if owner["team_id"] != page["team_id"]:
+        raise HTTPException(status_code=400, detail="负责人必须属于该落地页所在团队")
+    if not is_superadmin(user) and owner["team_id"] != user.get("team_id"):
+        raise HTTPException(status_code=403, detail="不能设置其他团队的负责人")
+    return owner_id
 
 
 def _bind_page_to_accounts(conn, act_ids: list[str], bind_target: str, url: str, user) -> dict:
@@ -4505,6 +4528,25 @@ def preflight_landing_page(body: LandingPublishReq, request: Request, user=Depen
     finally:
         conn.close()
     return {"success": not any(c["status"] == "fail" for c in checks), "checks": checks}
+
+
+@router.patch("/pages/{page_id}/owner")
+def update_landing_page_owner(page_id: int, body: dict, user=Depends(get_current_user)):
+    """分配/改派落地页负责人给运营（仅 admin+）。照搬 accounts token owner 改派。"""
+    if user.get("role") not in ("superadmin", "admin"):
+        raise HTTPException(status_code=403, detail="仅管理员可改派落地页负责人")
+    conn = get_conn()
+    try:
+        _assert_page_access(conn, page_id, user)  # 调用者须能访问该页
+        owner_user_id = _validate_landing_page_owner(conn, body.get("owner_user_id"), page_id, user)
+        conn.execute(
+            "UPDATE landing_pages SET owner_user_id=?, updated_at=datetime('now','+8 hours') WHERE id=?",
+            (owner_user_id, page_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"success": True, "page_id": page_id, "owner_user_id": owner_user_id}
 
 
 @router.get("/pages")
