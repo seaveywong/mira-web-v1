@@ -4745,7 +4745,7 @@ input:focus, select:focus, textarea:focus {
      <div class="fg"><label class="fl">发布通道</label><select class="fc" id="lpToken"></select></div>
      <div class="fg"><label class="fl">模板</label><div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px"><select class="fc" id="lpTemplate"></select><button class="btn btn-g btn-sm role-hide-viewer" type="button" onclick="openLandingTemplateManager()">模板管理</button></div><div class="fh">模板决定页面内容；统计、跳转和防护规则由发布配置执行。已发布页面要换内容，需要重新发布一次。</div></div>
      <div class="fg"><label class="fl">链接类型</label><select class="fc" id="lpKind" onchange="onLandingKindChanged()"><option value="landing">普通落地页：先展示页面，点击按钮后跳转</option><option value="form">表单投放链接：打开后直接跳转</option></select><div class="fh" id="lpKindHint">普通落地页会先展示页面内容，用户点击按钮后再跳转到目标链接。</div></div>
-      <div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" type="password" autocomplete="off" placeholder="选择或粘贴 Pixel 编号"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">嵌入落地页页面，用于访问与转化统计；账户级 Pixel 在铺广告时另配。</div></div>
+      <div class="fg"><label class="fl">Pixel 编号</label><div style="display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px"><input class="fc" id="lpPixel" type="text" autocomplete="off" placeholder="选择或粘贴 Pixel 编号"><select class="fc" id="lpPixelSelect" onchange="applyLandingPixelFromSelect(this.value,'lpPixel')"><option value="">从像素库选择</option></select></div><div class="fh">嵌入落地页页面，用于访问与转化统计；账户级 Pixel 在铺广告时另配。</div></div>
     </div>
     <div class="fg" style="margin-top:4px"><button type="button" class="btn btn-g" id="lpAdvancedToggle" style="width:100%;font-size:12px;text-align:left;padding:8px 12px" onclick="toggleLpAdvanced()">高级（项目名）▾</button></div>
     <div id="lpAdvancedPanel" style="display:none">
@@ -5192,7 +5192,7 @@ input:focus, select:focus, textarea:focus {
     <div style="font-size:11px;color:var(--t3);margin-top:4px" id="ppPageHint">从 Facebook 拉取您有管理权限的主页</div>
     <div style="margin-top:6px;display:flex;align-items:center;gap:6px">
      <span style="font-size:11px;color:var(--t3)">或手动输入主页ID：</span>
-     <input class="fc" id="ppPageIdManual" type="text" placeholder="直接输入主页 ID（如 1020399831162841）" style="flex:1;font-size:12px" oninput="onPpPageManualInput(this.value)">
+     <input class="fc" id="ppPageIdManual" type="text" placeholder="直接输入主�� ID（如 1020399831162841）" style="flex:1;font-size:12px" oninput="onPpPageManualInput(this.value)">
     </div>
    </div>
    <!-- 像素选择 -->
@@ -12168,7 +12168,7 @@ async function repairAccountPermissionDiagnostic(actId){
   await showAccountPermissionDiagnostic(actId);
   loadAccsPage();
  }catch(e){
-  showInfo(escHtml('重新匹配失败: '+(e.message||e)).replace(/\n/g,'<br>'),'权限修复失败');
+  showInfo(escHtml('重新匹���失败: '+(e.message||e)).replace(/\n/g,'<br>'),'权限修复失败');
  }
 }
 
@@ -20402,7 +20402,7 @@ function _landingPixelLabel(p){
  p=p||{};
  var parts=[];
  if(p.pixel_name)parts.push(p.pixel_name);
- if(p.pixel_id)parts.push(_maskLandingPixelId(p.pixel_id));
+ if(p.pixel_id)parts.push(p.pixel_id);
  if((p.labels||[]).length)parts.push((p.labels||[]).slice(0,2).join('/'));
  if((p.sources||[]).length)parts.push((p.sources||[]).join('/'));
  return parts.filter(Boolean).join(' · ');
@@ -20428,7 +20428,7 @@ function applyLandingPixelFromSelect(value,targetId){
  if(!value)return;
  var input=document.getElementById(targetId||'lpPixel');
  if(input)input.value=value;
- toast('已填入 Pixel：'+_maskLandingPixelId(value),'ok');
+ toast('已填入 Pixel：'+value,'ok');
 }
 function showLandingDomainLibrary(){
  var groups=_landingDomainGroups();
@@ -22997,7 +22997,7 @@ function _landingProtectionExplainHtml(r,on,scope){
  if((r.country_allow||[]).length)allow.push('只放行国家 '+_landingRuleValuesForDisplay('country',r.country_allow).join('、'));
  if((r.source_allow||[]).length)allow.push('只放行来源 '+_landingRuleValuesForDisplay('source',r.source_allow).join('、'));
  if((r.country_block||[]).length)block.push('拦截国家 '+_landingRuleValuesForDisplay('country',r.country_block).join('、'));
- if((r.source_block||[]).length)block.push('拦截来源 '+_landingRuleValuesForDisplay('source',r.source_block).join('、'));
+ if((r.source_block||[]).length)block.push('拦截来源 '+_landingRuleValuesForDisplay('source',r.source_block).join('���'));
  if((r.device_block||[]).length)block.push('拦截设备 '+_landingRuleValuesForDisplay('device',r.device_block).join('、'));
  if((r.platform_block||[]).length)block.push('拦截系统/浏览器 '+r.platform_block.join('、'));
  if((r.ua_block||[]).length)block.push('UA 命中 '+r.ua_block.join('、')+' 时拦截');
@@ -23399,7 +23399,7 @@ function _assetLibPixelsHtml(){
  var list=window._landingPixelsLib||[];
  var rows=list.map(function(p){
   return '<tr><td style="padding:8px 6px"><b>'+escHtml(p.pixel_name||('(未命名)'))+'</b></td>'+
-   '<td style="padding:8px 6px;font-family:monospace;font-size:12px;color:var(--t2)">'+_maskLandingPixelId(p.pixel_id)+'</td>'+
+   '<td style="padding:8px 6px;font-family:monospace;font-size:12px;color:var(--t2)">'+(p.pixel_id||'')+'</td>'+
    '<td style="padding:8px 6px;color:var(--t3);font-size:12px">'+(p.note?escHtml(p.note):'')+'</td>'+
    '<td style="padding:8px 6px"><span class="badge '+(p.usage_count>0?'bg-ok':'bg-mu')+'" title="使用此像素的主链接数">'+p.usage_count+' 个主链接</span></td>'+
    '<td style="padding:8px 6px;text-align:right"><button class="btn btn-g btn-sm" data-pid="'+p.id+'" data-pixelid="'+escHtml(p.pixel_id)+'" data-name="'+escHtml(p.pixel_name||'')+'" data-note="'+escHtml(p.note||'')+'" onclick="editLandingPixelForm(this.dataset)">编辑</button> <button class="btn btn-g btn-sm danger" data-pid="'+p.id+'" data-name="'+escHtml(p.pixel_name||p.pixel_id)+'" data-usage="'+p.usage_count+'" onclick="deleteLandingPixel(this.dataset)">删除</button></td></tr>';
