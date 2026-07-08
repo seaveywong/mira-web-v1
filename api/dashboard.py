@@ -1412,11 +1412,47 @@ def _local_snapshot_account_rows(conn, user, df: str, dt: str, act_id: Optional[
             "spend_usd": 0.0,
             "conversions": 0.0,
             "roas_values": [],
+            "source": "local_perf_snapshots",
         })
         item["spend_usd"] += float(row["spend_usd"] or 0)
         item["conversions"] += float(row["conversions"] or 0)
         if row["avg_roas"]:
             item["roas_values"].append(float(row["avg_roas"] or 0))
+    # 补读已删除账户的归档消耗（account_spend_retention），避免移除账户后区间消耗丢历史
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_spend_retention'").fetchone():
+        rwhere = ["r.snapshot_date BETWEEN ? AND ?"]
+        rparams = [df, dt]
+        if act_id:
+            rwhere.append("r.act_id=?")
+            rparams.append(act_id)
+        apply_team_scope(rwhere, rparams, user, "r.team_id", include_unassigned=False)
+        apply_account_owner_scope(rwhere, rparams, user, "r.owner_user_id")
+        retained = conn.execute(
+            f"""SELECT r.act_id,
+                       COALESCE(r.account_name, r.act_id) AS name,
+                       COALESCE(r.currency, 'USD') AS currency,
+                       SUM(COALESCE(r.spend,0)) AS spend_usd,
+                       SUM(COALESCE(r.conversions,0)) AS conversions
+                FROM account_spend_retention r
+                WHERE {' AND '.join(rwhere)}
+                GROUP BY r.act_id, r.account_name, r.currency""",
+            rparams,
+        ).fetchall()
+        for row in retained:
+            act = row["act_id"]
+            if act in grouped:
+                continue  # 账户仍在（perf_snapshots 已计入），跳过归档避免重复
+            grouped[act] = {
+                "act_id": act,
+                "name": row["name"] or act,
+                "timezone": "archived",
+                "currency": row["currency"] or "USD",
+                "balance": None, "spend_cap": None, "amount_spent": None, "spending_limit": None,
+                "spend_usd": float(row["spend_usd"] or 0),
+                "conversions": float(row["conversions"] or 0),
+                "roas_values": [],
+                "source": "removed_account_retention",
+            }
     out = []
     for item in grouped.values():
         spend = float(item["spend_usd"] or 0)
@@ -1435,7 +1471,7 @@ def _local_snapshot_account_rows(conn, user, df: str, dt: str, act_id: Optional[
             "roas": round(sum(item["roas_values"]) / len(item["roas_values"]), 2) if item["roas_values"] else None,
             "available_balance": avail,
             "status": "ok",
-            "source": "local_perf_snapshots",
+            "source": item.get("source", "local_perf_snapshots"),
         })
     out.sort(key=lambda x: x["spend_usd"], reverse=True)
     return out, {"account_count": len(accs), "snapshot_rows": snapshot_rows, "source": "local_perf_snapshots"}
@@ -1465,6 +1501,29 @@ def _local_snapshot_daily_trend(conn, user, df: str, dt: str, act_id: Optional[s
         for row in rows:
             if kpi_filter and not _kpi_field_matches_filter(row["kpi_field"], kpi_filter):
                 continue
+            d = row["snapshot_date"]
+            if d in daily_spend:
+                daily_spend[d] += float(row["spend"] or 0)
+                daily_conv[d] += float(row["conversions"] or 0)
+    # 补读已删除账户归档（按日累加，避免移除账户后跨天消耗丢历史）
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_spend_retention'").fetchone():
+        rwhere = ["r.snapshot_date BETWEEN ? AND ?"]
+        rparams = [df, dt]
+        if act_id:
+            rwhere.append("r.act_id=?")
+            rparams.append(act_id)
+        apply_team_scope(rwhere, rparams, user, "r.team_id", include_unassigned=False)
+        apply_account_owner_scope(rwhere, rparams, user, "r.owner_user_id")
+        if act_ids:
+            rwhere.append(f"r.act_id NOT IN ({','.join('?' for _ in act_ids)})")
+            rparams.extend(act_ids)
+        retained = conn.execute(
+            f"""SELECT r.snapshot_date, r.spend, r.conversions
+                FROM account_spend_retention r
+                WHERE {' AND '.join(rwhere)}""",
+            rparams,
+        ).fetchall()
+        for row in retained:
             d = row["snapshot_date"]
             if d in daily_spend:
                 daily_spend[d] += float(row["spend"] or 0)

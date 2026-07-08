@@ -2878,7 +2878,7 @@ class GuardEngine:
                                 spend, impressions, clicks, conversions, cpa, roas,
                                 kpi_field, actions_raw, insight_date)
 
-            # 获取目标 CPA（单位 USD，广告级 > 广告组级 > Campaign级 > 账户级）
+            # 获取目标 CPA（单位 USD，广告级 > ���告组级 > Campaign级 > 账户级）
             # 注意：必须在 AI 决策层之前获取，否则 AI 加预算判断会引发 NameError
             target_cpa = self._get_target_cpa(act_id, ad_id, adset_id, campaign_id)
 
@@ -3813,7 +3813,9 @@ class GuardEngine:
     def _save_snapshot(self, act_id, ad_id, adset_id, campaign_id, ad_name,
                        spend, impressions, clicks, conversions, cpa, roas,
                        kpi_field, actions_raw, snapshot_date: str = ""):
-        today = snapshot_date or (datetime.utcnow() + timedelta(hours=8)).date().isoformat()
+        # snapshot_date 统一用北京日（与 dashboard 查询基准一致，修跨天时区错位）。
+        # FB insight_date（账户本地日）不再用作 snapshot_date；历史已存数据保留账户本地日（切换日后新数据为准）。
+        today = (datetime.utcnow() + timedelta(hours=8)).date().isoformat()
         raw_actions_json = json.dumps(actions_raw)
         conn = get_conn()
         conn.execute(
