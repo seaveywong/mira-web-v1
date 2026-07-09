@@ -35,9 +35,9 @@ logger = logging.getLogger("mira.guard")
 FB_API_BASE = "https://graph.facebook.com/v25.0"
 FB_AD_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
-    "campaign{{id,name,objective,daily_budget,lifetime_budget,budget_remaining,status,effective_status}},"
-    "adset{{id,name,optimization_goal,destination_type,promoted_object,daily_budget,lifetime_budget,budget_remaining,status,effective_status}},"
-    "insights.time_range({today},{today}){{date_start,date_stop,spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}}"
+    "campaign{id,name,objective,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
+    "adset{id,name,optimization_goal,destination_type,promoted_object,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
+    "insights{date_start,date_stop,spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}"
 )
 MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
 
@@ -1924,7 +1924,8 @@ class GuardEngine:
             local_today = _account_local_today(acc)
             data = _fb_get(
                 f"{act_id}/ads", token,
-                {"fields": FB_AD_FIELDS.format(today=local_today), "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200},
+                {"fields": FB_AD_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200,
+                 "time_range": '{"since":"%s","until":"%s"}' % (local_today, local_today)},
                 paginate=True
             )
         except Exception as e:
