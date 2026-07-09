@@ -1438,10 +1438,11 @@ def _local_snapshot_account_rows(conn, user, df: str, dt: str, act_id: Optional[
                 GROUP BY r.act_id, r.account_name, r.currency""",
             rparams,
         ).fetchall()
+        visible_set = set(act_ids)
         for row in retained:
             act = row["act_id"]
-            if act in grouped:
-                continue  # 账户仍在（perf_snapshots 已计入），跳过归档避免重复
+            if act in visible_set:
+                continue  # 账户仍在 visible（perf_snapshots 已计入），跳过归档——和 trend 统一(NOT IN visible)，避免 visible 无快照账户被 retention 多算
             grouped[act] = {
                 "act_id": act,
                 "name": row["name"] or act,
