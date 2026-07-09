@@ -3813,9 +3813,9 @@ class GuardEngine:
     def _save_snapshot(self, act_id, ad_id, adset_id, campaign_id, ad_name,
                        spend, impressions, clicks, conversions, cpa, roas,
                        kpi_field, actions_raw, snapshot_date: str = ""):
-        # snapshot_date 统一用北京日（与 dashboard 查询基准一致，修跨天时区错位）。
-        # FB insight_date（账户本地日）不再用作 snapshot_date；历史已存数据保留账户本地日（切换日后新数据为准）。
-        today = (datetime.utcnow() + timedelta(hours=8)).date().isoformat()
+        # snapshot_date 用账户本地日（FB insight_date——巡检验证写的就是账户本地日；
+        # 看板查 snapshot_date 字符串命中各账户本地该日消耗：查N号=所有账户本地N号消耗）。
+        today = snapshot_date or (datetime.utcnow() + timedelta(hours=8)).date().isoformat()
         raw_actions_json = json.dumps(actions_raw)
         conn = get_conn()
         conn.execute(
