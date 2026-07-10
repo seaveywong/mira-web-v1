@@ -1744,27 +1744,57 @@ class GuardEngine:
         configured = max(1, min(configured, 8))
         return max(1, min(configured, int(count or 1)))
 
-    def _inspect_accounts(self, accounts) -> None:
+    def _inspect_accounts(self, accounts) -> dict:
         acc_list = [dict(acc) for acc in (accounts or [])]
         if not acc_list:
-            return
+            return {"total": 0, "success": 0, "failed": 0}
         workers = self._max_workers(len(acc_list))
         logger.info("[Guard] inspecting %s accounts with %s worker(s)", len(acc_list), workers)
+        success = 0
+        failed = 0
+        failed_samples = []
         if workers <= 1:
             for acc in acc_list:
                 try:
-                    self.inspect_account(acc)
+                    result = self.inspect_account(acc)
+                    if result is False:
+                        failed += 1
+                        failed_samples.append(acc.get("act_id", "?"))
+                    else:
+                        success += 1
                 except Exception as e:
+                    failed += 1
+                    failed_samples.append(acc.get("act_id", "?"))
                     logger.error("account %s inspect exception: %s", acc.get("act_id"), e, exc_info=True)
-            return
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="guard") as executor:
-            future_map = {executor.submit(self.inspect_account, acc): acc for acc in acc_list}
-            for fut in as_completed(future_map):
-                acc = future_map[fut]
-                try:
-                    fut.result()
-                except Exception as e:
-                    logger.error("account %s inspect exception: %s", acc.get("act_id"), e, exc_info=True)
+        else:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="guard") as executor:
+                future_map = {executor.submit(self.inspect_account, acc): acc for acc in acc_list}
+                for fut in as_completed(future_map):
+                    acc = future_map[fut]
+                    try:
+                        result = fut.result()
+                        if result is False:
+                            failed += 1
+                            failed_samples.append(acc.get("act_id", "?"))
+                        else:
+                            success += 1
+                    except Exception as e:
+                        failed += 1
+                        failed_samples.append(acc.get("act_id", "?"))
+                        logger.error("account %s inspect exception: %s", acc.get("act_id"), e, exc_info=True)
+        if acc_list and success == 0:
+            sample_text = ", ".join(str(v) for v in failed_samples[:8])
+            logger.error("[Guard] all account inspections failed: total=%s failed=%s samples=%s", len(acc_list), failed, sample_text)
+            _send_tg(
+                "⚠️ <b>Mira 巡检引擎异常</b>\n"
+                f"本轮巡检账户：{len(acc_list)} 个\n"
+                f"广告列表读取成功：0 个，失败：{failed} 个\n"
+                f"样例账户：{_tg_escape(sample_text or '-')}\n"
+                "请检查 Token 权限、Meta API 返回和后端日志。",
+                event_type="guard",
+                dedup_key=f"guard_all_accounts_failed:{datetime.now().strftime('%Y%m%d%H')}",
+            )
+        return {"total": len(acc_list), "success": success, "failed": failed}
 
     def _mirror_accounts(self, accounts) -> list:
         acc_list = [dict(acc) for acc in (accounts or [])]
@@ -1917,11 +1947,11 @@ class GuardEngine:
         if not token:
             note_account_read_failure(act_id, "no_read_token", status="no_read_token")
             logger.warning(f"账户 {act_id} 无有效Token，跳过巡检")
-            return
+            return False
 
         logger.info(f"开始巡检账户: {act_id}")
         try:
-            local_today = _account_local_today(acc)
+            local_today = _account_local_date(account)
             data = _fb_get(
                 f"{act_id}/ads", token,
                 {"fields": FB_AD_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200,
@@ -1946,7 +1976,7 @@ class GuardEngine:
                         _send_tg(_build_mirror_patrol_summary([mirror_result]), act_id=act_id, event_type="mirror")
                 except Exception as mirror_err:
                     logger.error(f"[Mirror] 巡检字段失败后的兜底镜像巡逻也失败 {act_id}: {mirror_err}")
-            return
+            return False
 
         ads = data.get("data", [])
         note_account_read_success(act_id)
@@ -2207,6 +2237,7 @@ class GuardEngine:
             logger.warning(f"budget progress alert failed {act_id}: {e}")
 
         self._inspect_account_rules(account, token, account_rules, ad_metrics)
+        return True
 
     def _default_account_bleed_rule(self, act_id: str) -> dict:
         return {
