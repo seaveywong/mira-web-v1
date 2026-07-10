@@ -1,6 +1,6 @@
 import os
 
-APP_VERSION = "3.11.209"
+APP_VERSION = "3.11.210"
 DEFAULT_ALLOWED_ORIGINS = ["https://shouhu.asia"]
 
 

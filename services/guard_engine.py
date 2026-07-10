@@ -33,12 +33,16 @@ from services.notifier import notify_account, notify_global, notify_team
 logger = logging.getLogger("mira.guard")
 
 FB_API_BASE = "https://graph.facebook.com/v25.0"
-FB_AD_FIELDS = (
+FB_AD_META_FIELDS = (
     "id,name,status,effective_status,adset_id,campaign_id,"
     "campaign{id,name,objective,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
-    "adset{id,name,optimization_goal,destination_type,promoted_object,daily_budget,lifetime_budget,budget_remaining,status,effective_status},"
-    "insights{date_start,date_stop,spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm}"
+    "adset{id,name,optimization_goal,destination_type,promoted_object,daily_budget,lifetime_budget,budget_remaining,status,effective_status}"
 )
+FB_AD_INSIGHT_FIELDS = (
+    "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,"
+    "date_start,date_stop,spend,impressions,reach,clicks,unique_clicks,ctr,unique_ctr,actions,action_values,cpc,cpm"
+)
+FB_AD_FIELDS = FB_AD_META_FIELDS
 MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
 
 _ACCESS_TOKEN_PARAM_RE = re.compile(r"(access_token=)[^&\s]+")
@@ -291,6 +295,19 @@ def _fb_get(path: str, token: str, params: dict = None,
             break
 
     return {"data": all_data}
+
+
+def _merge_ad_insights_by_id(ads: list, insight_rows: list) -> list:
+    insight_map = {}
+    for row in insight_rows or []:
+        ad_id = str(row.get("ad_id") or row.get("id") or "").strip()
+        if ad_id:
+            insight_map[ad_id] = row
+    for ad in ads or []:
+        ad_id = str(ad.get("id") or "").strip()
+        row = insight_map.get(ad_id)
+        ad["insights"] = {"data": [row]} if row else {"data": []}
+    return ads or []
 
 
 def _fb_post(path: str, token: str, data: dict, source: str = "") -> Tuple[bool, str]:
@@ -928,6 +945,48 @@ def _tg_code(value) -> str:
 def _tg_account_line(account: dict, act_id: str) -> str:
     account_name = (account or {}).get("name") or act_id
     return f"账户：{_tg_escape(account_name)} ({_tg_code(act_id)})"
+
+
+def _is_guard_read_auth_error(error: object) -> bool:
+    text = _sanitize_error_text(error).lower()
+    markers = (
+        "code=190",
+        "invalid oauth",
+        "session has expired",
+        "access token",
+        "ads_read",
+        "ads_management",
+        "permission",
+        "permissions error",
+        "code=200",
+        "no_read_token",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _notify_guard_read_failure(account: dict, error: object) -> None:
+    act_id = (account or {}).get("act_id", "")
+    if not act_id:
+        return
+    reason = _sanitize_error_text(error)
+    if len(reason) > 600:
+        reason = reason[:600] + "..."
+    account_day = _account_local_date(account or {})
+    kind = "Token/权限异常" if _is_guard_read_auth_error(reason) else "API读取异常"
+    msg = (
+        "⚠️ <b>Mira 巡检读取失败</b>\n"
+        f"{_tg_account_line(account or {}, act_id)}\n"
+        f"账户日期：{_tg_escape(account_day)}\n"
+        f"类型：{_tg_escape(kind)}\n"
+        f"原因：{_tg_escape(reason or 'unknown')}\n"
+        "影响：该账户本轮不会执行规则判断、预算提醒和巡检快照更新。"
+    )
+    _send_tg(
+        msg,
+        act_id=act_id,
+        event_type="guard_read_failure",
+        dedup_key=f"guard_read_failure:{act_id}:{account_day}:{datetime.now().strftime('%H')}",
+    )
 
 
 def _build_mirror_patrol_summary(results: list) -> str:
@@ -1946,21 +2005,28 @@ class GuardEngine:
         token = _get_token_for_account(account)
         if not token:
             note_account_read_failure(act_id, "no_read_token", status="no_read_token")
+            _notify_guard_read_failure(account, "no_read_token")
             logger.warning(f"账户 {act_id} 无有效Token，跳过巡检")
             return False
 
         logger.info(f"开始巡检账户: {act_id}")
         try:
             local_today = _account_local_date(account)
+            time_range = '{"since":"%s","until":"%s"}' % (local_today, local_today)
             data = _fb_get(
                 f"{act_id}/ads", token,
-                {"fields": FB_AD_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200,
-                 "time_range": '{"since":"%s","until":"%s"}' % (local_today, local_today)},
+                {"fields": FB_AD_META_FIELDS, "effective_status": '["ACTIVE","PAUSED","ADSET_PAUSED","CAMPAIGN_PAUSED","PENDING_REVIEW","PENDING_BILLING_INFO"]', "limit": 200},
+                paginate=True
+            )
+            insight_data = _fb_get(
+                f"{act_id}/insights", token,
+                {"fields": FB_AD_INSIGHT_FIELDS, "level": "ad", "time_range": time_range, "limit": 500},
                 paginate=True
             )
         except Exception as e:
             logger.error(f"拉取广告列表失败 {act_id}: {e}")
             note_account_read_failure(act_id, e)
+            _notify_guard_read_failure(account, e)
             _log_action(act_id, "account", act_id, account.get("name", ""),
                         "inspect", "system", f"API拉取失败: {e}",
                         status="failed", error_msg=str(e))
@@ -1978,7 +2044,7 @@ class GuardEngine:
                     logger.error(f"[Mirror] 巡检字段失败后的兜底镜像巡逻也失败 {act_id}: {mirror_err}")
             return False
 
-        ads = data.get("data", [])
+        ads = _merge_ad_insights_by_id(data.get("data", []), insight_data.get("data", []))
         note_account_read_success(act_id)
         logger.info(f"账户 {act_id} 活跃广告数: {len(ads)}")
 
@@ -2467,12 +2533,15 @@ class GuardEngine:
                     "SELECT data FROM inspect_cache WHERE act_id=? AND ad_id=?",
                     (account["act_id"], cache_id),
                 ).fetchone()
+                account_day = _account_local_date(account)
                 last_spend = 0.0
                 if cache_row:
-                    last_spend = float(json.loads(cache_row["data"]).get("spend", 0))
+                    cache_data = json.loads(cache_row["data"])
+                    if cache_data.get("account_day") == account_day:
+                        last_spend = float(cache_data.get("spend", 0))
                 _conn.execute(
                     "INSERT OR REPLACE INTO inspect_cache (act_id, ad_id, data, updated_at) VALUES (?,?,?,datetime('now'))",
-                    (account["act_id"], cache_id, json.dumps({"spend": spend})),
+                    (account["act_id"], cache_id, json.dumps({"spend": spend, "account_day": account_day})),
                 )
                 _conn.commit()
                 _conn.close()
@@ -2807,6 +2876,14 @@ class GuardEngine:
 
             ins = insights[0]
             insight_date = ins.get("date_start") or ""
+            expected_date = _account_local_date(account)
+            insight_stop = ins.get("date_stop") or ""
+            if insight_date and insight_stop and (insight_date != expected_date or insight_stop != expected_date):
+                logger.warning(
+                    "skip ad %s/%s because insight date window is %s..%s, expected %s",
+                    act_id, ad_id, insight_date, insight_stop, expected_date
+                )
+                return None
             spend_raw = float(ins.get("spend", 0))  # 账户原始货币金额
             impressions = int(ins.get("impressions", 0))
             reach = int(float(ins.get("reach", 0) or 0))
@@ -3253,7 +3330,7 @@ class GuardEngine:
         elif rule_type == "trend_drop":
             if roas is not None:
                 threshold_pct = (rule.get("param_value") or 40) / 100
-                yesterday_roas = self._get_yesterday_roas(act_id, ad_id)
+                yesterday_roas = self._get_yesterday_roas(account, act_id, ad_id)
                 if yesterday_roas and yesterday_roas > 0:
                     drop = (yesterday_roas - roas) / yesterday_roas
                     if drop >= threshold_pct:
@@ -3271,7 +3348,7 @@ class GuardEngine:
                 effective_target = float(abs_threshold)  # 优先使用规则绝对阈值
             elif target_cpa:
                 effective_target = target_cpa
-            if effective_target and self._check_consecutive_bad(act_id, ad_id, effective_target, ratio, days):
+            if effective_target and self._check_consecutive_bad(account, act_id, ad_id, effective_target, ratio, days):
                 triggered = True
                 reason = f"连续 {days} 天 CPA 超过目标 ${effective_target:.2f} 的 {ratio*100:.0f}%"
 
@@ -3293,17 +3370,19 @@ class GuardEngine:
                     (act_id, ad_id)
                 ).fetchone()
                 _conn.close()
+                account_day = _account_local_date(account)
                 last_spend = 0.0
                 if cache_row:
                     import json as _json
                     cache_data = _json.loads(cache_row["data"])
-                    last_spend = float(cache_data.get("spend", 0))
+                    if cache_data.get("account_day") == account_day:
+                        last_spend = float(cache_data.get("spend", 0))
                 # 更新缓存（记录本次消耗）
                 import json as _json2
                 _conn2 = get_conn()
                 _conn2.execute(
                     "INSERT OR REPLACE INTO inspect_cache (act_id, ad_id, data, updated_at) VALUES (?,?,?,datetime('now'))",
-                    (act_id, ad_id, _json2.dumps({"spend": spend}))
+                    (act_id, ad_id, _json2.dumps({"spend": spend, "account_day": account_day}))
                 )
                 _conn2.commit()
                 _conn2.close()
@@ -3535,7 +3614,7 @@ class GuardEngine:
 
         days = max(1, int(rule.get("consecutive_days") or 1))
         if days > 1 and not self._check_consecutive_good(
-            act_id, ad_id, target_cpa, cpa_ratio, roas_threshold, min_conv, days
+            account, act_id, ad_id, target_cpa, cpa_ratio, roas_threshold, min_conv, days
         ):
             return False
 
@@ -3625,27 +3704,31 @@ class GuardEngine:
         conn.close()
         return None
 
-    def _check_consecutive_bad(self, act_id, ad_id, target_cpa, ratio, days) -> bool:
+    def _check_consecutive_bad(self, account, act_id, ad_id, target_cpa, ratio, days) -> bool:
+        end_day = _account_local_date(account)
+        start_day = (datetime.strptime(end_day, "%Y-%m-%d").date() - timedelta(days=max(1, int(days)) - 1)).isoformat()
         conn = get_conn()
         rows = conn.execute(
             """SELECT cpa FROM perf_snapshots
-               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', '+8 hours', ?)
+               WHERE act_id=? AND ad_id=? AND snapshot_date BETWEEN ? AND ?
                ORDER BY snapshot_date DESC LIMIT ?""",
-            (act_id, ad_id, f"-{days} days", days)
+            (act_id, ad_id, start_day, end_day, days)
         ).fetchall()
         conn.close()
         if len(rows) < days:
             return False
         return all(r["cpa"] and r["cpa"] > target_cpa * ratio for r in rows)
 
-    def _check_consecutive_good(self, act_id, ad_id, target_cpa, ratio,
+    def _check_consecutive_good(self, account, act_id, ad_id, target_cpa, ratio,
                                 roas_threshold, min_conversions, days) -> bool:
+        end_day = _account_local_date(account)
+        start_day = (datetime.strptime(end_day, "%Y-%m-%d").date() - timedelta(days=max(1, int(days)) - 1)).isoformat()
         conn = get_conn()
         rows = conn.execute(
             """SELECT cpa, conversions, roas FROM perf_snapshots
-               WHERE act_id=? AND ad_id=? AND snapshot_date >= date('now', '+8 hours', ?)
+               WHERE act_id=? AND ad_id=? AND snapshot_date BETWEEN ? AND ?
                ORDER BY snapshot_date DESC LIMIT ?""",
-            (act_id, ad_id, f"-{days} days", days)
+            (act_id, ad_id, start_day, end_day, days)
         ).fetchall()
         conn.close()
         if len(rows) < days:
@@ -3883,8 +3966,9 @@ class GuardEngine:
         conn.commit()
         conn.close()
 
-    def _get_yesterday_roas(self, act_id, ad_id) -> Optional[float]:
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
+    def _get_yesterday_roas(self, account, act_id, ad_id) -> Optional[float]:
+        account_day = datetime.strptime(_account_local_date(account), "%Y-%m-%d").date()
+        yesterday = (account_day - timedelta(days=1)).isoformat()
         conn = get_conn()
         row = conn.execute(
             "SELECT roas FROM perf_snapshots WHERE act_id=? AND ad_id=? AND snapshot_date=?",

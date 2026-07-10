@@ -1353,6 +1353,60 @@ def _fb_ads_paginated(act_id: str, token: str, fields: str, limit: int = 200, ma
     return rows, last_error
 
 
+def _fb_insights_paginated(
+    act_id: str,
+    token: str,
+    fields: str,
+    date_from: str,
+    date_to: str,
+    *,
+    level: str = "ad",
+    limit: int = 500,
+    max_pages: int = 20,
+):
+    rows = []
+    next_url = f"https://graph.facebook.com/v25.0/{act_id}/insights"
+    params = {
+        "access_token": token,
+        "fields": fields,
+        "time_range": json.dumps({"since": date_from, "until": date_to}),
+        "level": level,
+        "limit": limit,
+    }
+    pages = 0
+    last_error = None
+    while next_url and pages < max_pages:
+        try:
+            if pages == 0:
+                resp = req.get(next_url, params=params, timeout=30)
+            else:
+                resp = req.get(next_url, timeout=30)
+            data = resp.json()
+        except Exception as exc:
+            last_error = str(exc)
+            break
+        if data.get("error"):
+            last_error = data["error"].get("message") or str(data["error"])
+            break
+        rows.extend(data.get("data", []) or [])
+        pages += 1
+        next_url = (data.get("paging") or {}).get("next")
+    return rows, last_error
+
+
+def _merge_ad_insights_by_id(ads: list, insight_rows: list) -> list:
+    insight_map = {}
+    for row in insight_rows or []:
+        ad_id = str(row.get("ad_id") or row.get("id") or "").strip()
+        if ad_id:
+            insight_map[ad_id] = row
+    for ad in ads or []:
+        ad_id = str(ad.get("id") or "").strip()
+        row = insight_map.get(ad_id)
+        ad["insights"] = {"data": [row]} if row else {"data": []}
+    return ads or []
+
+
 def _account_writeable_status(acc: dict) -> bool:
     try:
         return int(acc.get("account_status") or 1) == 1
@@ -1949,9 +2003,6 @@ def get_ads_live(
     if not date_to:
         date_to = today.isoformat()
 
-    tr = '{' + f'"since":"{date_from}","until":"{date_to}"' + '}'
-    insights_field = f'insights.time_range({tr}){{spend,impressions,reach,clicks,actions,action_values}}'
-
     conn = get_conn()
     accs = _fetch_visible_accounts(conn, user, act_id)
     accs = [dict(a) for a in accs]
@@ -2124,16 +2175,28 @@ def get_ads_live(
                 "adset{id,name,status,effective_status,daily_budget,lifetime_budget,"
                 "budget_remaining,bid_strategy,optimization_goal,campaign_id},"
                 "campaign{id,name,status,effective_status,daily_budget,lifetime_budget,"
-                "budget_remaining,bid_strategy,objective},"
-                f"{insights_field}"
+                "budget_remaining,bid_strategy,objective}"
             )
             ads, err = _fb_ads_paginated(acc["act_id"], token, rich_fields)
             if err:
-                fallback_fields = f'id,name,status,effective_status,adset_id,campaign_id,{insights_field}'
+                fallback_fields = 'id,name,status,effective_status,adset_id,campaign_id'
                 ads, err = _fb_ads_paginated(acc["act_id"], token, fallback_fields)
             if err:
                 note_account_read_failure(acc["act_id"], err)
                 continue
+            insight_rows, insight_err = _fb_insights_paginated(
+                acc["act_id"],
+                token,
+                "ad_id,spend,impressions,reach,clicks,actions,action_values,date_start,date_stop",
+                date_from,
+                date_to,
+                level="ad",
+                limit=500,
+            )
+            if insight_err:
+                note_account_read_failure(acc["act_id"], insight_err)
+                continue
+            ads = _merge_ad_insights_by_id(ads, insight_rows)
             note_account_read_success(acc["act_id"])
             acc_caps = cap_map.get(acc["act_id"], {})
             automation_warnings = []
