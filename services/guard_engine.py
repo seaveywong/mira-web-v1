@@ -47,6 +47,7 @@ MIRROR_AD_FIELDS = "id,name,status,effective_status,campaign_id"
 
 _ACCESS_TOKEN_PARAM_RE = re.compile(r"(access_token=)[^&\s]+")
 _FB_TOKEN_VALUE_RE = re.compile(r"\bEA[A-Za-z0-9_\-]{20,}\b")
+_TRANSIENT_FB_HTTP_STATUS = {500, 502, 503, 504}
 
 
 def _sanitize_error_text(value) -> str:
@@ -56,11 +57,36 @@ def _sanitize_error_text(value) -> str:
     return _FB_TOKEN_VALUE_RE.sub("EA***", text)
 
 
+def _compact_error_text(value, max_len: int = 260) -> str:
+    text = _sanitize_error_text(value)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > max_len:
+        return text[:max_len].rstrip() + "..."
+    return text
+
+
+def _is_fb_html_response(resp: requests.Response) -> bool:
+    content_type = (resp.headers.get("content-type") or "").lower()
+    if "text/html" in content_type:
+        return True
+    prefix = (resp.text or "").lstrip()[:80].lower()
+    return prefix.startswith("<!doctype html") or prefix.startswith("<html")
+
+
+def _is_transient_fb_response(resp: requests.Response) -> bool:
+    return int(resp.status_code or 0) in _TRANSIENT_FB_HTTP_STATUS
+
+
 def _format_fb_response_error(resp: requests.Response) -> str:
     try:
         result = resp.json()
     except ValueError:
-        body = _sanitize_error_text(resp.text[:300])
+        if _is_fb_html_response(resp):
+            return (
+                f"FB API HTTP {resp.status_code}: Facebook returned a temporary HTML error page; "
+                "treat as Meta upstream error, not token/account permission"
+            )
+        body = _compact_error_text(resp.text, 260)
         return f"FB API HTTP {resp.status_code}: {body}"
 
     if isinstance(result, dict) and isinstance(result.get("error"), dict):
@@ -77,10 +103,40 @@ def _format_fb_response_error(resp: requests.Response) -> str:
 def _json_or_fb_error(resp: requests.Response) -> dict:
     if resp.status_code >= 400:
         raise RuntimeError(_format_fb_response_error(resp))
-    result = resp.json()
+    try:
+        result = resp.json()
+    except ValueError:
+        raise RuntimeError(_format_fb_response_error(resp))
     if isinstance(result, dict) and isinstance(result.get("error"), dict):
         raise RuntimeError(_format_fb_response_error(resp))
     return result
+
+
+def _fb_get_response_with_retries(url: str, *, timeout: int = 20, attempts: int = 3) -> requests.Response:
+    last_exc = None
+    for attempt in range(max(1, attempts)):
+        try:
+            resp = requests.get(url, timeout=timeout)
+        except requests.exceptions.RequestException as exc:
+            last_exc = exc
+            if attempt < attempts - 1:
+                time.sleep(0.8 * (attempt + 1))
+                continue
+            raise RuntimeError(_compact_error_text(f"Network error: {exc}", 260)) from exc
+
+        if _is_transient_fb_response(resp) and attempt < attempts - 1:
+            logger.warning(
+                "FB Graph transient HTTP %s, retry %s/%s: %s",
+                resp.status_code,
+                attempt + 1,
+                attempts,
+                _sanitize_error_text(url),
+            )
+            time.sleep(0.8 * (attempt + 1))
+            continue
+        return resp
+
+    raise RuntimeError(_compact_error_text(f"Network error: {last_exc}", 260))
 
 # 操作冷却：同一广告同一规则60分钟内不重复触发
 _action_cooldown: dict = {}  # key: f"{ad_id}:{rule_type}" -> timestamp
@@ -266,11 +322,8 @@ def _fb_get(path: str, token: str, params: dict = None,
         base_url += f"&effective_status={effective_status}"
 
     if not paginate:
-        try:
-            resp = requests.get(base_url, timeout=20)
-            return _json_or_fb_error(resp)
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(_sanitize_error_text(f"Network error: {e}")) from e
+        resp = _fb_get_response_with_retries(base_url, timeout=20, attempts=3)
+        return _json_or_fb_error(resp)
 
     # ── 分页模式：跟随 paging.next 游标直到所有数据拉取完毕 ──────────────
     all_data = []
@@ -278,11 +331,8 @@ def _fb_get(path: str, token: str, params: dict = None,
     page_count = 0
 
     while next_url and page_count < max_pages:
-        try:
-            resp = requests.get(next_url, timeout=20)
-            result = _json_or_fb_error(resp)
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(_sanitize_error_text(f"Network error: {e}")) from e
+        resp = _fb_get_response_with_retries(next_url, timeout=20, attempts=3)
+        result = _json_or_fb_error(resp)
         page_data = result.get("data", [])
         if page_data:
             all_data.extend(page_data)
@@ -964,15 +1014,35 @@ def _is_guard_read_auth_error(error: object) -> bool:
     return any(marker in text for marker in markers)
 
 
+def _is_guard_read_transient_error(error: object) -> bool:
+    text = _sanitize_error_text(error).lower()
+    markers = (
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
+        "temporary html error",
+        "upstream error",
+        "network error",
+        "timed out",
+        "timeout",
+        "connection",
+    )
+    return any(marker in text for marker in markers)
+
+
 def _notify_guard_read_failure(account: dict, error: object) -> None:
     act_id = (account or {}).get("act_id", "")
     if not act_id:
         return
-    reason = _sanitize_error_text(error)
-    if len(reason) > 600:
-        reason = reason[:600] + "..."
+    reason = _compact_error_text(error, 320)
     account_day = _account_local_date(account or {})
-    kind = "Token/权限异常" if _is_guard_read_auth_error(reason) else "API读取异常"
+    if _is_guard_read_auth_error(reason):
+        kind = "Token/权限异常"
+    elif _is_guard_read_transient_error(reason):
+        kind = "Meta临时异常"
+    else:
+        kind = "API读取异常"
     msg = (
         "⚠️ <b>Mira 巡检读取失败</b>\n"
         f"{_tg_account_line(account or {}, act_id)}\n"
